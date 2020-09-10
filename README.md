@@ -1,10 +1,8 @@
 # Planet Identity Reboot
 
-Inspired by the original [planetidentity.org](https://web.archive.org/web/20161029051802/http://planetidentity.org/) Identity Management feed aggregator, enabled by [Pluto](http://feedreader.github.io/) static site feed-reader, [GitHub Actions](https://github.com/identosphere/planetid-reboot/blob/master/.github/workflows/ruby.yml), and [Fission](https://fission.codes). 
+Inspired by the original [planetidentity.org](https://web.archive.org/web/20161029051802/http://planetidentity.org/) Identity Management feed aggregator, enabled by [Pluto](http://feedreader.github.io/) static site feed-reader, and [GitHub Actions](https://github.com/identosphere/planetid-reboot/blob/master/.github/workflows/ruby.yml). 
 
 Brought to you by Kaliya IdentityWoman, and Infominer.
-
-## See on IPFS via [Fission](https://fission.codes)
 
 #### [identosphere.net](https://identosphere.net/)
 
