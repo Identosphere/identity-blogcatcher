@@ -671,7 +671,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 3:03 PM September 23, 2020 (UTC)</sup>
+<sup>Last Update 4:03 PM September 23, 2020 (UTC)</sup>
 <h1>Identosphere Blog Catcher</h1>
 Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br>Please do <a href="https://www.patreon.com/user?u=35769676">support our collaboration on Patreon</a>!!! 
 
@@ -681,6 +681,480 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
  <h2 class='new-date'>
   Wednesday, 23. September 2020
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2020/Sep/23/sqlite-utils-extract/#atom-everything'>Refactoring databases with sqlite-utils extract</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Yesterday I described the new sqlite-utils transform mechanism for applying SQLite table transformations that go beyond those supported by ALTER TABLE. The other new feature in sqlite-utils 2.20 builds on that capability to allow you to refactor a database table by extracting columns into separate tables. I’ve called it sqlite-utils extract. 
+ The problem 
+ Much of the data I work with in Datasett
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2020/refactored-one-column.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Yesterday <a href="https://simonwillison.net/2020/Sep/23/sqlite-advanced-alter-table/">I described</a> the new <a href="https://sqlite-utils.readthedocs.io/en/stable/cli.html#transforming-tables">sqlite-utils transform</a> mechanism for applying SQLite table transformations that go beyond those supported by <code>ALTER TABLE</code>. The other new feature in <a href="https://sqlite-utils.readthedocs.io/en/stable/changelog.html#v2-20">sqlite-utils 2.20</a> builds on that capability to allow you to refactor a database table by extracting columns into separate tables. I’ve called it <a href="https://sqlite-utils.readthedocs.io/en/stable/cli.html#cli-extract">sqlite-utils extract</a>.</p>
+ The problem 
+<p>Much of the data I work with in Datasette starts off as a CSV file published by an organization or government. Since CSV files aren’t relational databases, they are often denormalized. It’s particularly common to see something like this:</p>
+
+
+
+Organization Group Code
+Organization Group
+Department Code
+Department
+Union Code
+Union
+
+
+
+
+1
+Public Protection
+POL
+Police
+911
+POA
+
+
+4
+Community Health
+DPH
+Public Health
+250
+SEIU, Local 1021, Misc
+
+
+1
+Public Protection
+FIR
+Fire Department
+798
+Firefighters,Local 798, Unit 1
+
+
+1
+Public Protection
+POL
+Police
+911
+POA
+
+
+
+<p>This is an extract from the <a href="https://www.google.com/search?channel=cus2&amp;client=firefox-b-1-d&amp;q=datassf+employee+salaries">San Francisco Employee Compensation</a> dataset from DataSF.</p>
+<p>The <code>sqlite-utils extract</code> command-line tool, and the <code>table.extract()</code> Python method that underlies it, can be used to extract these duplicated column pairs out into separate tables with foreign key relationships from the main table.</p>
+ How to refactor that data 
+<p>Here's how to use <code>sqlite-utils</code> to clean up and refactor that compensation data.</p>
+<p>First, grab the data. It's a 150M CSV file containing over 600,000 rows:</p>
+ <code>curl -o salaries.csv 'https://data.sfgov.org/api/views/88g8-5mnd/rows.csv?accessType=DOWNLOAD'
+</code> 
+<p>Use <code>sqlite-utils insert</code> to load that into a SQLite database:</p>
+ <code>sqlite-utils insert salaries.db salaries salaries.csv --csv
+</code> 
+<p>Fire up Datasette to check that the data looks right:</p>
+ <code>datasette salaries.db
+</code> 
+<p>There's a catch here: the schema for the generated table (shown at the bottom of <code>http://localhost:8001/salaries/salaries</code>) reveals that because we imported from CSV every column is a text column. Since some of this data is numeric we should convert to numbers, so we can do things like sort the table by the highest salary.</p>
+<p>We can do that using <code>sqlite-transform</code>:</p>
+ <code>sqlite-utils transform salaries.db salaries \
+  --type 'Employee Identifier' integer \
+  --type Salaries float \
+  --type Overtime float \
+  --type 'Other Salaries' float \
+  --type 'Total Salary' float \
+  --type 'Retirement' float \
+  --type 'Health and Dental' float \
+  --type 'Other Benefits' float \
+  --type 'Total Benefits' float \
+  --type 'Total Compensation' float
+</code> 
+<p>Having run that command, here's the new database schema:</p>
+ <code>$ sqlite3 salaries.db '.schema salaries'
+CREATE TABLE IF NOT EXISTS "salaries" (
+   [rowid] INTEGER PRIMARY KEY,
+   [Year Type] TEXT,
+   [Year] TEXT,
+   [Organization Group Code] TEXT,
+   [Organization Group] TEXT,
+   [Department Code] TEXT,
+   [Department] TEXT,
+   [Union Code] TEXT,
+   [Union] TEXT,
+   [Job Family Code] TEXT,
+   [Job Family] TEXT,
+   [Job Code] TEXT,
+   [Job] TEXT,
+   [Employee Identifier] INTEGER,
+   [Salaries] FLOAT,
+   [Overtime] FLOAT,
+   [Other Salaries] FLOAT,
+   [Total Salary] FLOAT,
+   [Retirement] FLOAT,
+   [Health and Dental] FLOAT,
+   [Other Benefits] FLOAT,
+   [Total Benefits] FLOAT,
+   [Total Compensation] FLOAT
+);
+</code> 
+<p>Now we can start extracting those columns. We do this using several rounds of the <code>sqlite-utils extract</code> command, one for each duplicated pairs.</p>
+<p>For <code>Organization Group Code</code> and <code>Organization Group</code>:</p>
+ <code>sqlite-utils extract salaries.db salaries \
+   'Organization Group Code' 'Organization Group' \
+  --table 'organization_groups' \
+  --fk-column 'organization_group_id' \
+  --rename 'Organization Group Code' code \
+  --rename 'Organization Group' name
+</code> 
+<p>This takes about 12 minutes on my laptop, and displays a progress bar as it runs. (<a href="https://github.com/simonw/sqlite-utils/issues/172">Open issue</a> for making that faster).</p>
+<p>Here's the refactord database schema:</p>
+ <code>$ sqlite3 salaries.db .schema
+CREATE TABLE [organization_groups] (
+   [id] INTEGER PRIMARY KEY,
+   [code] TEXT,
+   [name] TEXT
+);
+CREATE TABLE IF NOT EXISTS "salaries" (
+   [rowid] INTEGER PRIMARY KEY,
+   [Year Type] TEXT,
+   [Year] TEXT,
+   [organization_group_id] INTEGER,
+   [Department Code] TEXT,
+   [Department] TEXT,
+   [Union Code] TEXT,
+   [Union] TEXT,
+   [Job Family Code] TEXT,
+   [Job Family] TEXT,
+   [Job Code] TEXT,
+   [Job] TEXT,
+   [Employee Identifier] INTEGER,
+   [Salaries] FLOAT,
+   [Overtime] FLOAT,
+   [Other Salaries] FLOAT,
+   [Total Salary] FLOAT,
+   [Retirement] FLOAT,
+   [Health and Dental] FLOAT,
+   [Other Benefits] FLOAT,
+   [Total Benefits] FLOAT,
+   [Total Compensation] FLOAT,
+   FOREIGN KEY(organization_group_id) REFERENCES organization_groups(id)
+);
+CREATE UNIQUE INDEX [idx_organization_groups_code_name]
+    ON [organization_groups] ([code], [name]);
+</code> 
+<p>Now fire up Datasette to confirm it had the desired effect:</p>
+ <code>datasette salaries.db
+</code> 
+<p>Here's what that looks like:</p>
+<p></p>
+<p>Note that the new <code>organization_group_id</code> column still shows the name of the organization group, because Datasette automatically de-references foreign key relationships when it displays a table and uses any column called <code>name</code> (or <code>title</code> or <code>value</code>) as the label for a link to the record.</p>
+<p>Let's extract the other columns. This will take a while:</p>
+ <code>sqlite-utils extract salaries.db salaries \
+   'Department Code' 'Department' \
+  --table 'departments' \
+  --fk-column 'department_id' \
+  --rename 'Department Code' code \
+  --rename 'Department' name
+
+sqlite-utils extract salaries.db salaries \
+   'Union Code' 'Union' \
+  --table 'unions' \
+  --fk-column 'union_id' \
+  --rename 'Union Code' code \
+  --rename 'Union' name
+
+sqlite-utils extract salaries.db salaries \
+   'Job Family Code' 'Job Family' \
+  --table 'job_families' \
+  --fk-column 'job_family_id' \
+  --rename 'Job Family Code' code \
+  --rename 'Job Family' name
+
+sqlite-utils extract salaries.db salaries \
+   'Job Code' 'Job' \
+  --table 'jobs' \
+  --fk-column 'job_id' \
+  --rename 'Job Code' code \
+  --rename 'Job' name
+</code> 
+<p>Our finished schema looks like this:</p>
+ <code>$ sqlite3 salaries.db .schema
+CREATE TABLE [organization_groups] (
+   [id] INTEGER PRIMARY KEY,
+   [code] TEXT,
+   [name] TEXT
+);
+CREATE TABLE [departments] (
+   [id] INTEGER PRIMARY KEY,
+   [code] TEXT,
+   [name] TEXT
+);
+CREATE TABLE [unions] (
+   [id] INTEGER PRIMARY KEY,
+   [code] TEXT,
+   [name] TEXT
+);
+CREATE TABLE [job_families] (
+   [id] INTEGER PRIMARY KEY,
+   [code] TEXT,
+   [name] TEXT
+);
+CREATE TABLE [jobs] (
+   [id] INTEGER PRIMARY KEY,
+   [code] TEXT,
+   [name] TEXT
+);
+CREATE TABLE IF NOT EXISTS "salaries" (
+   [rowid] INTEGER PRIMARY KEY,
+   [Year Type] TEXT,
+   [Year] TEXT,
+   [organization_group_id] INTEGER REFERENCES [organization_groups]([id]),
+   [department_id] INTEGER REFERENCES [departments]([id]),
+   [union_id] INTEGER REFERENCES [unions]([id]),
+   [job_family_id] INTEGER REFERENCES [job_families]([id]),
+   [job_id] INTEGER,
+   [Employee Identifier] INTEGER,
+   [Salaries] FLOAT,
+   [Overtime] FLOAT,
+   [Other Salaries] FLOAT,
+   [Total Salary] FLOAT,
+   [Retirement] FLOAT,
+   [Health and Dental] FLOAT,
+   [Other Benefits] FLOAT,
+   [Total Benefits] FLOAT,
+   [Total Compensation] FLOAT,
+   FOREIGN KEY(job_id) REFERENCES jobs(id)
+);
+CREATE UNIQUE INDEX [idx_organization_groups_code_name]
+    ON [organization_groups] ([code], [name]);
+CREATE UNIQUE INDEX [idx_departments_code_name]
+    ON [departments] ([code], [name]);
+CREATE UNIQUE INDEX [idx_unions_code_name]
+    ON [unions] ([code], [name]);
+CREATE UNIQUE INDEX [idx_job_families_code_name]
+    ON [job_families] ([code], [name]);
+CREATE UNIQUE INDEX [idx_jobs_code_name]
+    ON [jobs] ([code], [name]);
+</code> 
+<p>We've also shrunk our database file quite a bit. Before the transformations <code>salaries.db</code> was 159MB. It's now just 70MB - that's less than half the size!</p>
+<p>I used <code>datasette publish cloudrun</code> to publish a copy of my final database here:</p>
+<p><a href="https://sf-employee-compensation.datasettes.com/salaries/salaries">https://sf-employee-compensation.datasettes.com/salaries/salaries</a></p>
+<p>Here's the command I used to publish it:</p>
+ <code>datasette publish cloudrun salaries.db \
+  --service sf-employee-compensation \
+  --title "San Francisco Employee Compensation (as-of 21 Sep 2020)" \
+  --source "DataSF" \
+  --source_url "https://data.sfgov.org/City-Management-and-Ethics/Employee-Compensation/88g8-5mnd" \
+  --about "About this project" \
+  --about_url "https://simonwillison.net/2020/Sep/23/sqlite-utils-extract/" \
+  --install datasette-block-robots \
+  --install datasette-vega \
+  --install datasette-copyable \
+  --install datasette-graphql
+</code> 
+ Bonus: explore salaries with GraphQL 
+<p>You may have noticed my <code>datasette publish</code> line above finished with the line <code>--install datasette-graphql</code>. This installs the <a href="https://github.com/simonw/datasette-graphql">datasette-graphql</a> plugin as part of the deployment to Cloud Run. Which means we can query the salary data using GraphQL as an alternative to SQL!</p>
+<p>Here's a GraphQL query that shows the ten highest paid employees, including their various expanded foreign key references:</p>
+  {
+  salaries(sort_desc: Total_Compensation, first: 10) {
+    nodes {
+      Year_Type
+      Year
+      union_id {
+        id
+        name
+      }
+      job_id {
+        id
+        name
+      }
+      job_family_id {
+        id
+        name
+      }
+      department_id {
+        id
+        name
+      }
+      organization_group_id {
+        id
+        name
+      }
+      Salaries
+      Overtime
+      Other_Salaries
+      Total_Salary
+      Retirement
+      Health_and_Dental
+      Other_Benefits
+      Total_Benefits
+      Total_Compensation
+      rowid
+      Employee_Identifier
+    }
+  }
+}  
+<p>You can <a href="https://sf-employee-compensation.datasettes.com/graphql?query=%7B%0A%20%20salaries(sort_desc%3A%20Total_Compensation%2C%20first%3A%2010)%20%7B%0A%20%20%20%20nodes%20%7B%0A%20%20%20%20%20%20Year_Type%0A%20%20%20%20%20%20Year%0A%20%20%20%20%20%20union_id%20%7B%0A%20%20%20%20%20%20%20%20id%0A%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20job_id%20%7B%0A%20%20%20%20%20%20%20%20id%0A%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20job_family_id%20%7B%0A%20%20%20%20%20%20%20%20id%0A%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20department_id%20%7B%0A%20%20%20%20%20%20%20%20id%0A%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20organization_group_id%20%7B%0A%20%20%20%20%20%20%20%20id%0A%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20Salaries%0A%20%20%20%20%20%20Overtime%0A%20%20%20%20%20%20Other_Salaries%0A%20%20%20%20%20%20Total_Salary%0A%20%20%20%20%20%20Retirement%0A%20%20%20%20%20%20Health_and_Dental%0A%20%20%20%20%20%20Other_Benefits%0A%20%20%20%20%20%20Total_Benefits%0A%20%20%20%20%20%20Total_Compensation%0A%20%20%20%20%20%20rowid%0A%20%20%20%20%20%20Employee_Identifier%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D%0A">try that query out here</a> in the GraphiQL API explorer.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2020/refactored-one-column.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:02 &bull;
+   5 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.sakimura.org'>@_Nat Zone</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.sakimura.org/2020/09/4709/'>[2020-09-22]FDX Global Summit キーノート</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   米国Financial Data Exchange… 
+ The post [2020-09-22]FDX Global Summit キーノート first appeared on @_Nat Zone. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>米国Financial Data Exchange (FDX)のメンバーオンリーだったので事前に告知しませんでしたが、米国中部時間午前10時（日本時間23日午前0時）より、<a href="https://financialdataexchange.org/fdx/Events/Event_display.aspx?EventKey=DEVCON4_5" title="https://financialdataexchange.org/fdx/Events/Event_display.aspx?EventKey=DEVCON4_5">FDX Global Conference</a> でキーノートスピーチを行いました。</p>
+
+
+
+<p>タイトルは</p>
+
+
+
+<p><a>Global Adoption of FAPI Among Open Banking Standards</a></p>
+
+
+
+<p>30ほどのスピーチと、15分のQ&amp;Aセッションです。わりと評判が良かったようです。</p>
+
+
+
+<p>スライドを貼っておきます。</p>
+
+
+<a>20200922-Global-Adoption-of-FAPI-EN<br></a>
+<p></p>
+
+
+
+<p>The post <a href="https://www.sakimura.org/2020/09/4709/">[2020-09-22]FDX Global Summit キーノート</a> first appeared on <a href="https://www.sakimura.org/">@_Nat Zone</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/www.sakimura.org/wp-content/uploads/2020/09/Screen-Shot-2020-09-24-at-0.40.07.png?resize=546%2C343&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:42 &bull;
+   25 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -831,7 +1305,7 @@ ALTER TABLE [facetable_new_442f07e26eef] RENAME TO [facetable];
 
 <div class='item-footer'>
    01:00 &bull;
-   14 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -907,7 +1381,7 @@ ALTER TABLE [facetable_new_442f07e26eef] RENAME TO [facetable];
 
 <div class='item-footer'>
    00:55 &bull;
-   14 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2060,7 +2534,7 @@ vote.</p>
 
 <div class='item-footer'>
    03:35 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3440,7 +3914,7 @@ Maybe take a listen!</p>
 
 <div class='item-footer'>
    03:46 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3510,7 +3984,7 @@ Maybe take a listen!</p>
 
 <div class='item-footer'>
    03:30 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7694,7 +8168,7 @@ Spanning 130 acres, it is three times the size of Granville Island and will soon
 
 <div class='item-footer'>
    04:07 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8803,7 +9277,7 @@ and say hello!</p>
 
 <div class='item-footer'>
    03:49 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10839,7 +11313,7 @@ A few days ago I was in a conversation with a couple of my <a href="https://www.
  -->
 <div class='wrap'>
 
- Introducing Self-Sovereign Student&nbsp;ID <blockquote>Part 1 of <a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">2</a>: Strong, flexible, digital student ID that’s not bound to your campus, network, or&nbsp;vendor.</blockquote><p>Full Disclosure: The benefits discussed here apply to self-sovereign student ID generally and are not specific to any vendor or product, and do not result in vendor lock-in; any standards-compliant SSI tools for issuance, holding, and verification could deliver these results. As a partner of venture studio <a href="https://digitaltrust.vc/">Digital Trust Ventures</a>, I am a co-founder of <a href="https://www.credentialmaster.com/">Credential Master</a>, a startup now developing a self-sovereign student ID&nbsp;product.</p> TL;DR:   Digital student ID: doesn’t exist yet for most students.  Self-sovereign student ID: students independently store verifiable data, and strongly prove things about themselves anywhere, online or&nbsp;off.  Many uses: strong, passwordless login, KBA-free call in, &amp; cardless walk in; secure, keyless facility and systems access; prove skills, competencies and achievements; secure peer-to-peer communication and interaction; breakthrough fraud prevention; student-controlled privacy; digitally signed consent; and&nbsp;more.  Open standards: not tied to a specific vendor, usable outside the school’s&nbsp;network.  Schools can start with self-sovereign student ID today, without waiting for collaboration with or agreement from other institutions, and without fear of vendor&nbsp;lock-in.  <p>Note: This article assumes a basic understanding of the concepts of <a href="https://sovrin.org/faq/what-is-self-sovereign-identity/">self-sovereign identity (SSI)</a>, especially <a href="https://www.w3.org/TR/vc-data-model/">W3C Verifiable Credentials</a> (VCs). The technical specifics of how VCs are issued, revoked, held, verified, and trustworthy are covered extensively across the SSI industry. Basic VC mechanics can be found in my other post: <a href="https://medium.com/@rufftimo/how-verifiable-credentials-bridge-trust-domains-97155d0f3c17">How Verifiable Credentials Bridge Trust&nbsp;Domains</a>.</p> Digital Student&nbsp;ID <p>For most students, digital student ID still doesn’t&nbsp;exist.</p><p>I’ve been asking experts in academia what comes to mind when I say “digital student ID,” and here is what I learned: other than login credentials for a student portal — which don’t count — a digital student ID still doesn’t exist, at least not for most students in most&nbsp;schools.</p><p>The first, still obscure attempts at what I would call real digital student ID have cropped up fairly recently, enabling students to prove their identity in multiple environments and granting them access to electronic systems, software, and even physical facilities. Apple has introduced <a href="https://www.apple.com/newsroom/2019/08/apple-brings-contactless-student-ids-on-iphone-and-apple-watch-to-more-universities/">their version</a> of digital student ID that works exclusively with Apple software and devices, and various smaller companies have launched similarly proprietary software platforms with corresponding apps. Search “student ID” in the Apple or <a href="https://play.google.com/store/search?q=%22student%20ID%22&amp;c=apps">Google app stores</a> and you’ll find dozens of similar offerings.</p><p>So why hasn’t digital student ID caught on? I think it’s because available offerings are tied to a single vendor, usable only in systems and facilities where that vendor is installed, and verifiable only by that vendor’s app. In Apple’s case it’s tied to their hardware, too. Even a homegrown digital student ID solution can be verified only by an associated homegrown app. It is vendor lock-in to the extreme, even if that ‘vendor’ is the school&nbsp;itself.</p><p>For a school to confidently roll out a more broadly useful digital student ID, it must be with technology that can traverse boundaries between vendors, both within the school’s network and external to it, such as when a student applies for aid. Such technology now exists, and it can do a heckuva lot more than&nbsp;ID.</p><p>Introducing a powerful new model for student ID: “self-sovereign” student&nbsp;ID.</p> Self-Sovereign Student&nbsp;ID <p>You may have heard of self-sovereign identity, or SSI¹. In this article I’ll explore how self-sovereign student ID can apply SSI capabilities and principles for students, faculty, and staff in an educational environment, primarily higher education.</p><p>I recognize that the term “self-sovereign” may not resonate as well with some in academia, which is often dominated by institutions preferring to expand their scope of control and influence, and perceiving self-sovereignty as a threat. However, it is the very act of giving greater control and independence to students that yields most of the benefits listed in this article, and counter intuitively, a closer, richer relationship with those students.</p><p>I’ll discuss this more in “Why Self-Sovereign” below.</p> What Is&nbsp;It? <p>The term “self-sovereign” is unfortunately not self-explanatory, but when properly understood should feel like a familiar analog to physical identity and credentials, which we already use in a self-sovereign manner well beyond the physical and digital bounds of the organization that issued them to&nbsp;us.</p><p>In short, self-sovereign student ID gives students the ability to independently and securely store tamper-resistant, verifiable data related to themselves, and to prove things wherever they want by privately sharing cryptographic (mathematical) proofs from that data, online or off. Importantly, it also enables students to securely, directly, and privately communicate and interact with the&nbsp;school.</p><p>Technically, the student has self-sovereign control over three²&nbsp;things:</p>  A standardized digital container, for holding verifiable data;  Peer-to-peer connections between their container and the containers of other people, organizations, and&nbsp;things³;  Verifiable Credentials (VCs) that the student accepts into their wallet, and shares proofs of with others when&nbsp;desired.  <p>Today, that self-sovereign container is typically a standardized digital SSI “wallet”⁴ within a compliant app that the student can see and interact with on a smart device; eventually, wallets will be found anywhere digital things are stored and become part of the everyday life of people, organizations, and things, hidden and integrated into our devices and experiences in a way where we no longer notice or think of&nbsp;them.</p><p>One important point that will help readers better understand VCs, both in this document and generally: I believe VCs are misnamed, they are not credentials, they are verifiable containers capable of transporting any data payload, which may or may not be typically considered a “credential.” This means that VCs held in a wallet are containers within a larger container, but this is a feature, not a bug; it is how physical goods are transported in <a href="https://www.urbandictionary.com/define.php?term=meatspace">meatspace</a> and is very useful. I’ve written about these points in greater detail&nbsp;<a href="https://medium.com/@rufftimo/verifiable-credentials-arent-credentials-they-re-containers-fab5b3ae5c0">here</a>.</p> Why Self-Sovereign? <p>Self-sovereignty implies giving students control over their data and how it’s shared. That may seem counter intuitive to the traditional academic notion of <a href="https://en.wikipedia.org/wiki/In_loco_parentis">in loco parentis</a>, but the truth is that it not only mirrors how physical student IDs work, it simplifies the IT integration work while expanding the possible use&nbsp;cases.</p><p>Importantly, an SSI-based student ID binds the school-issued (and verifiable) information in the ID to a student’s right to use it. Through this binding, students can prove, at their own discretion, that they are enrolled, taking classes, receiving or received grades (and what they are), received a degree, and so on. Giving these facts to students in digital form can make their lives easier, reducing friction and fraud for both students and the school. ID is only one of many VCs that will be issued to the student by the school for various&nbsp;uses.</p><p>And once the student has an SSI wallet, it’s not just the school that can now exchange VCs with them. The student might want to connect and exchange VCs with multiple schools, their church, their gym club, their favorite sandwich shop or other entities they interact with. You might think that sounds like an Apple or Samsung wallet, and it kinda does,&nbsp;except:</p>  SSI wallets are portable between vendors, devices, and device types (ie, move from iPhone to Samsung and back&nbsp;again)  VCs are portable between&nbsp;wallets  VCs can hold any kind of data (ie, identity, location, degree, favorite&nbsp;pizza)  VCs are cryptographically verifiable  Holders can share only part of a VC, metadata about a VC, or just proof that they have one, without revealing anything&nbsp;else  The protocols that make wallets and VCs portable and interoperable are open and standardized  <p>And of course, Apple and Android wallets don’t enable persistent, encrypted connections with other people, organizations and things for secure peer-to-peer communication and interaction, but I’m getting ahead of&nbsp;myself…</p> A Thousand&nbsp;Uses <p>By “useful” I mean it can be used for many important, new, relevant purposes and also make expected and ordinary uses&nbsp;better.</p><p>I’ll organize the usefulness of self-sovereign student ID into six categories:</p>  Identity &amp;&nbsp;Access  Achievements, Skills, &amp; Competencies  The “Digital Experience”  Privileges, Perks &amp;&nbsp;Freebies  Communication &amp; Interaction  Preventing Fraud &amp;&nbsp;Phishing  <p>The first category, Identity &amp; Access, will be covered within this Part 1 and is where I’ll delve the most deeply. I’ll touch on the remaining categories in <a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">Part&nbsp;2</a>.</p><p>Note: As mentioned above, it is outside the scope of this article to explain the basic mechanics of SSI and VC exchange, such as how the initial encrypted connections are offered and accepted, how VCs are offered and accepted using those connections, how VC presentation and verification occurs, or how those verifications can be trustworthy. Those subjects are covered amply by many other documents, papers, and websites throughout the SSI industry, and are the reason for the industry’s abundant standards activity. Refer to links at the beginning of this article for more information.</p> Identity &amp;&nbsp;Access <p>The primary use of self-sovereign student ID — and the gateway to limitless other uses — is as a digital, and therefore more powerful, version of a student ID card, enabling students to instantly and strongly prove their identity and status as a student, online or off, without passwords.</p> Password Replacement <p>Perhaps the simplest starting point for self-sovereign student ID is to replace passwords. Passwords have many known problems with both security and UX, and can be replaced with a quick ping to a student’s smartphone. The student responds with a tap, which cryptographically shares their school-issued ID, which is instantly verifiable by the&nbsp;school.</p><p>This is a big step-up in both security and user experience over passwords, and social login, and can be used in conjunction with or as a substitute for&nbsp;2FA.</p><p>For schools running CAS, Okta, or any ID system supportive of a “custom IDP” or “external authentication handler,” password replacement can be implemented quickly.</p> Identity+ <p>Self-sovereign student ID starts with a student-controlled wallet into which the school can issue VCs containing any kind of data, identity or otherwise. So typical student ID data — name, photo, ID number, etc. — can be supplemented with any other desired information: classes registered for or taken, status and authority as a student leader, entitlements, permissions, preferences, allergies, relationships to other students, contact information, family information, achievements (more on that below), and on and&nbsp;on.</p> Multi-Factor Authentication+ (MFA+) <p>The plus in MFA+ means the ability to exchange more factors than is feasible with current tech, while not impairing the user experience, and likely improving it.</p><p>Because shared secrets (something the student knows, like a username or password) are replaced with cryptographically secure, digitally signed VCs (something the student has, like a unique key), you can exchange much stronger credentials than passwords. Because they’re digital and easily shared, you can exchange more of them, even dozens. Biometrics, location and more can also be incorporated, either as payloads within VCs or in conjunction with&nbsp;them.</p><p>Because VCs can be exchanged actively or passively behind the scenes, they are useful within <a href="https://www.paloaltonetworks.com/cyberpedia/what-is-a-zero-trust-architecture">Zero Trust Architecture</a> (ZTA). For higher-risk applications, multiple signatures can be required from multiple devices and/or multiple individuals. Combining MFA+, ZTA, and multi-device and multi-signature capabilities results in a formidable approach to protecting sensitive systems and facilities.</p> Vendor Independence <p>SSI is based on standards, so tools from different vendors can be interoperable. This means that your school isn’t locked into a single vendor and can replace a vendor without reissuing IDs (try that with a traditional ID system). Students, faculty, and staff can choose from multiple wallets to store their credentials, which are portable if they later decide to switch. You might use one vendor to help issue student IDs, another to integrate with the student information system for registration and transcript data, and a third to verify student or staff status at the campus bookstore POS. You don’t have to worry that any vendor selected for digital student IDs can’t support your diverse campus needs, or that you’re stuck with lousy quality or&nbsp;service.</p><p>Use of student ID becomes no longer constrained digitally or physically by the boundaries of the school’s trust domain, or the presence of any particular vendor, removing what I believe is the #1 barrier for digital student ID adoption&nbsp;today.</p> Digital First, Then&nbsp;Physical <p>Self-sovereign student ID is digital first, but not digital only. With self-sovereign student ID you can have both digital and physical forms in several varieties.</p><p>A ‘smart’/chipped student ID card could hold an SSI wallet (note the irony) with some of a student’s VCs, greatly expanding the types of credentials, entitlements, tickets or other items the student can carry and benefit from, and making it much harder for a fraudster to get away with swapping out the name, photo, ID number,&nbsp;etc.</p><p>A student could also present a card or a paper with a QR code on it. Scanning the QR code could pull up a verified student ID, including a photo, either from a school-controlled database or from student-controlled storage. QR code-based verification could be restricted to authorized personnel, who could also be required to digitally prove their ID before gaining&nbsp;access.</p><p>Combining these capabilities, a school could issue a physical ID card with only three elements: a photo, a QR code, and an embedded chip— no name, no ID number, nothing else. If the chip and QR code worked as described above, even this extreme approach could be more useful than existing student ID cards while being more private for students and more difficult to hack for fraudsters.</p> Access+ <p>Whether for accessing digital systems, physical facilities or events, self-sovereign student ID can begin to support digital versions of key cards, vouchers, receipts and more, all uniquely associated with the student. A VC can also be issued as a bearer instrument not associated with any individual, like a movie ticket or a coupon. Using geofencing, students could be passively authenticated when entering a secure area, of course subject to their consent to the practice.</p> Mutual Authentication <p>Because it enables a bi-directional exchange of VCs, self-sovereign student ID may be the first technology that enables students to authenticate schools as strongly as schools authenticate students, preventing impersonation and phishing.</p> User Experience <p>Who doesn’t want fewer usernames and passwords to deal with? With self-sovereign student ID, the student can digitally present their ID and other entitlements and be authenticated more strongly, safely, and quickly than with usernames and passwords. This reduces the incidence of fraud, account take-over, and password reset requests.</p><p>Because the school maintains a secure, peer-to-peer connection with the student, it can use this connection to prompt the student for ID when the student calls in or walks in⁵. When calling in, this eliminates the need for knowledge-based authentication questions (birthday, mother’s maiden name, etc.) and speeds up the call; when walking in, this eliminates the need to pull out a physical student ID (useful during a pandemic).</p><p>Whether calling in, walking in, or logging in, a student can feel recognized by the school rather than repeatedly treated as a stranger.</p> Privacy &amp; Compliance <p>Today, when presenting a physical student ID card, the student divulges everything on it; there’s no way to present only part of it. With <a href="https://medium.com/mattr-global/a-solution-for-privacy-preserving-verifiable-credentials-f1650aa16093">selective disclosure</a> enabled by self-sovereign student ID, a student can share only the data required and nothing more, or prove something about their credentials without disclosing any of the data, or just prove that they have it. Some examples are&nbsp;helpful:</p>  Prove status as a currently enrolled student, without revealing name, ID number, or other personal&nbsp;info  Prove age is over a threshold, without revealing actual age or&nbsp;birthday  Prove address on file is within a certain area, city, or building, without revealing the exact&nbsp;location  <p>Selective disclosure is useful for many things, including voting, and can be used online or off. It affords whatever level of privacy the student desires, and satisfies both the spirit and the letter of aggressive privacy regulations such as GDPR and CCPA, while remaining auditable for all interactions between students and the school. And by minimizing the presentation of identity to only the attributes needed, selective disclosure curtails the unchecked growth in the ‘grey market’ of personal data, worth billions of dollars and&nbsp;growing.</p><p>And when data is shared, it is shared directly by the student with digitally signed evidence that they did so, a veritable get-out-of-jail free card in today’s PII-sensitive privacy&nbsp;climate.</p> Consolidation &amp; Simplification <p>As it scales, federated ID has a tendency to grow into a complex, tangled web of identities, identifiers, vendors, integrations, synchronizations, and registries. Self-sovereign student ID can begin a process of consolidation around a coherent identity meta system, with a reduction in vendors, a reduction in identifiers, and an overall reduction in complexity, without consolidating around a single&nbsp;vendor.</p><p>And that’s not a&nbsp;joke.</p><p>That said, I’m taking the advice of my business partner, SSI pioneer <a href="https://digitaltrust.vc/team-and-contact/">Dr. Sam Smith</a>, and avoiding diving into how this can occur within this piece. He is the better author for it anyway, as it quickly gets into a technical discussion about self-certifying identifiers, which SSI uses, versus administrative identifiers, which federated ID uses, which is his area of study and expertise. So, Sam can write a separate piece if there is sufficient interest. For readers having a pressing need related to this topic, please get in&nbsp;touch.</p> ID Is the Low-Hanging Fruit <p>For most, ID may be the best place to start with VCs. There’s far less complexity than something like achievements, and no other entities need to be consulted before adopting a particular approach; a school catches what it pitches. Plus, the benefits can be broadly and immediately felt, and readily integrated into most IAM systems. And of course, ID is a prerequisite for most other use cases; even if those feel more important or urgent, you usually need to begin by verifying who you’re dealing&nbsp;with.</p><p>If you read no further, this should already be apparent: though ID and Access may be a fraction of what self-sovereign student ID can do, it is more than enough to justify serious consideration. The uses discussed in <a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">Part 2</a> are cool and exciting, but just icing on the&nbsp;cake.</p><p>If you’re not planning to read Part 2 and are wondering how to operationalize self-sovereign student ID, open <a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">Part 2</a> and skip down to “Where to&nbsp;Begin.”</p><blockquote><a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">Part 2: ID is Only the Beginning</a></blockquote><p>¹ One of the earliest/best pieces about SSI, from Christopher Allen: <a href="http://www.lifewithalacrity.com/2016/04/the-path-to-self-soverereign-identity.html">http://www.lifewithalacrity.com/2016/04/the-path-to-self-soverereign-identity.html</a></p><p>² Technically there is a fourth thing a student controls: self-certifying identifiers provide the root of trust, the crypto magic that makes it possible to traverse trust domain boundaries, but they’re “deeper under the hood” and out of scope for this piece. You can learn more about self-certifying identifiers <a href="https://medium.com/spherity/introducing-keri-8f50ed1d8ed7">here</a>, <a href="https://ssimeetup.org/key-event-receipt-infrastructure-keri-secure-identifier-overlay-internet-sam-smith-webinar-58/">here</a>, and&nbsp;<a href="https://github.com/SmithSamuelM/Papers/blob/master/whitepapers/KERI_WP_2.x.web.pdf">here</a>.</p><p>³ It’s technically <a href="https://digitaltrust.vc/thesis/#anchor-11">agents</a> that connect, not&nbsp;wallets.</p><p>⁴ In the context of student ID, a wallet in the student’s possession is the container that makes the most sense; for large data sets such as entire transcripts or medical data, or infrequently used data, or simply for backup, a student may employ a custodial storage solution in a blockchain or traditional database, while still retaining self-sovereign control over the stored&nbsp;data.</p><p>⁵ The Credit Union industry is beginning to deploy <a href="https://www.memberpass.com/">MemberPass</a>, which uses this means to streamline incoming calls into service&nbsp;centers.</p><p>Special thanks to several helpful reviewers, editors, and contributors: <a href="https://www.linkedin.com/in/johnphillips11kps/">John Phillips</a>, <a href="https://www.linkedin.com/in/windley/">Dr. Phil Windley</a>, <a href="https://www.linkedin.com/in/longpd/">Phil Long</a>, <a href="https://www.linkedin.com/in/scott-perry-1b7a254/">Scott Perry</a>, <a href="https://www.linkedin.com/in/samuel-m-smith/">Dr. Samuel Smith</a>, <a href="https://www.linkedin.com/in/pinkelk/">Alan Davies</a>, <a href="https://www.linkedin.com/in/taykendesign/">Taylor Kendal</a>, and <a href="https://www.linkedin.com/in/matthew-hailstone-92a1a51/">Matthew Hailstone</a>.</p>
+ Introducing Self-Sovereign Student&nbsp;ID <blockquote>Part 1 of <a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">2</a>: Strong, flexible, digital student ID that’s not bound to your campus, network, or&nbsp;vendor.</blockquote><p>Full Disclosure: The benefits discussed here apply to self-sovereign student ID generally and are not specific to any vendor or product, and do not result in vendor lock-in; any standards-compliant SSI tools for issuance, holding, and verification could deliver these results. As a partner of venture studio <a href="https://digitaltrust.vc/">Digital Trust Ventures</a>, I am a co-founder of <a href="https://www.credentialmaster.com/">Credential Master</a>, a startup now developing a self-sovereign student ID&nbsp;product.</p> TL;DR:   Digital student ID: doesn’t exist yet for most students.  Self-sovereign student ID: students independently store verifiable data, and strongly prove things about themselves anywhere, online or&nbsp;off.  Many uses: strong, passwordless login, KBA-free call in, &amp; cardless walk in; secure, keyless facility and systems access; prove skills, competencies and achievements; secure peer-to-peer communication and interaction; breakthrough fraud prevention; student-controlled privacy; digitally signed consent; and&nbsp;more.  Open standards: not tied to a specific vendor, usable outside the school’s&nbsp;network.  Schools can start with self-sovereign student ID today, without waiting for collaboration with or agreement from other institutions.  <a href="https://link.medium.com/W3o6duQc19">Part 2: ID is Only the Beginning</a>  <p>Note: This article assumes a basic understanding of the concepts of <a href="https://sovrin.org/faq/what-is-self-sovereign-identity/">self-sovereign identity (SSI)</a>, especially <a href="https://www.w3.org/TR/vc-data-model/">W3C Verifiable Credentials</a> (VCs). The technical specifics of how VCs are issued, revoked, held, verified, and trustworthy are covered extensively across the SSI industry. Basic VC mechanics can be found in my other post: <a href="https://medium.com/@rufftimo/how-verifiable-credentials-bridge-trust-domains-97155d0f3c17">How Verifiable Credentials Bridge Trust&nbsp;Domains</a>.</p> Digital Student&nbsp;ID <p>For most students, digital student ID still doesn’t&nbsp;exist.</p><p>I’ve been asking experts in academia what comes to mind when I say “digital student ID,” and here is what I learned: other than login credentials for a student portal — which don’t count — a digital student ID still doesn’t exist, at least not for most students in most&nbsp;schools.</p><p>The first, still obscure attempts at what I would call real digital student ID have cropped up fairly recently, enabling students to prove their identity in multiple environments and granting them access to electronic systems, software, and even physical facilities. Apple has introduced <a href="https://www.apple.com/newsroom/2019/08/apple-brings-contactless-student-ids-on-iphone-and-apple-watch-to-more-universities/">their version</a> of digital student ID that works exclusively with Apple software and devices, and various smaller companies have launched similarly proprietary software platforms with corresponding apps. Search “student ID” in the Apple or <a href="https://play.google.com/store/search?q=%22student%20ID%22&amp;c=apps">Google app stores</a> and you’ll find dozens of similar offerings.</p><p>So why hasn’t digital student ID caught on? I think it’s because available offerings are tied to a single vendor, usable only in systems and facilities where that vendor is installed, and verifiable only by that vendor’s app. In Apple’s case it’s tied to their hardware, too. Even a homegrown digital student ID solution can be verified only by an associated homegrown app. It is vendor lock-in to the extreme, even if that ‘vendor’ is the school&nbsp;itself.</p><p>For a school to confidently roll out a more broadly useful digital student ID, it must be with technology that can traverse boundaries between vendors, both within the school’s network and external to it, such as when a student applies for aid. Such technology now exists, and it can do a heckuva lot more than&nbsp;ID.</p><p>Introducing a powerful new model for student ID: “self-sovereign” student&nbsp;ID.</p> Self-Sovereign Student&nbsp;ID <p>You may have heard of self-sovereign identity, or SSI¹. In this article I’ll explore how self-sovereign student ID can apply SSI capabilities and principles for students, faculty, and staff in an educational environment, primarily higher education.</p><p>I recognize that the term “self-sovereign” may not resonate as well with some in academia, which is often dominated by institutions preferring to expand their scope of control and influence, and perceiving self-sovereignty as a threat. However, it is the very act of giving greater control and independence to students that yields most of the benefits listed in this article, and counter intuitively, a closer, richer relationship with those students.</p><p>I’ll discuss this more in “Why Self-Sovereign” below.</p> What Is&nbsp;It? <p>The term “self-sovereign” is unfortunately not self-explanatory, but when properly understood should feel like a familiar analog to physical identity and credentials, which we already use in a self-sovereign manner well beyond the physical and digital bounds of the organization that issued them to&nbsp;us.</p><p>In short, self-sovereign student ID gives students the ability to independently and securely store tamper-resistant, verifiable data related to themselves, and to prove things wherever they want by privately sharing cryptographic (mathematical) proofs from that data, online or off. Importantly, it also enables students to securely, directly, and privately communicate and interact with the&nbsp;school.</p><p>Technically, the student has self-sovereign control over three²&nbsp;things:</p>  A standardized digital container, for holding verifiable data;  Peer-to-peer connections between their container and the containers of other people, organizations, and&nbsp;things³;  Verifiable Credentials (VCs) that the student accepts into their wallet, and shares proofs of with others when&nbsp;desired.  <p>Today, that self-sovereign container is typically a standardized digital SSI “wallet”⁴ within a compliant app that the student can see and interact with on a smart device; eventually, wallets will be found anywhere digital things are stored and become part of the everyday life of people, organizations, and things, hidden and integrated into our devices and experiences in a way where we no longer notice or think of&nbsp;them.</p><p>One important point that will help readers better understand VCs, both in this document and generally: I believe VCs are misnamed, they are not credentials, they are verifiable containers capable of transporting any data payload, which may or may not be typically considered a “credential.” This means that VCs held in a wallet are containers within a larger container, but this is a feature, not a bug; it is how physical goods are transported in <a href="https://www.urbandictionary.com/define.php?term=meatspace">meatspace</a> and is very useful. I’ve written about these points in greater detail&nbsp;<a href="https://medium.com/@rufftimo/verifiable-credentials-arent-credentials-they-re-containers-fab5b3ae5c0">here</a>.</p> Why Self-Sovereign? <p>Self-sovereignty implies giving students control over their data and how it’s shared. That may seem counter intuitive to the traditional academic notion of <a href="https://en.wikipedia.org/wiki/In_loco_parentis">in loco parentis</a>, but the truth is that it not only mirrors how physical student IDs work, it simplifies the IT integration work while expanding the possible use&nbsp;cases.</p><p>Importantly, an SSI-based student ID binds the school-issued (and verifiable) information in the ID to a student’s right to use it. Through this binding, students can prove, at their own discretion, that they are enrolled, taking classes, receiving or received grades (and what they are), received a degree, and so on. Giving these facts to students in digital form can make their lives easier, reducing friction and fraud for both students and the school. ID is only one of many VCs that will be issued to the student by the school for various&nbsp;uses.</p><p>And once the student has an SSI wallet, it’s not just the school that can now exchange VCs with them. The student might want to connect and exchange VCs with multiple schools, their church, their gym club, their favorite sandwich shop or other entities they interact with. You might think that sounds like an Apple or Samsung wallet, and it kinda does,&nbsp;except:</p>  SSI wallets are portable between vendors, devices, and device types (ie, move from iPhone to Samsung and back&nbsp;again)  VCs are portable between&nbsp;wallets  VCs can hold any kind of data (ie, identity, location, degree, favorite&nbsp;pizza)  VCs are cryptographically verifiable  Holders can share only part of a VC, metadata about a VC, or just proof that they have one, without revealing anything&nbsp;else  The protocols that make wallets and VCs portable and interoperable are open and standardized  <p>And of course, Apple and Android wallets don’t enable persistent, encrypted connections with other people, organizations and things for secure peer-to-peer communication and interaction, but I’m getting ahead of&nbsp;myself…</p> A Thousand&nbsp;Uses <p>By “useful” I mean it can be used for many important, new, relevant purposes and also make expected and ordinary uses&nbsp;better.</p><p>I’ll organize the usefulness of self-sovereign student ID into six categories:</p>  Identity &amp;&nbsp;Access  Achievements, Skills, &amp; Competencies  The “Digital Experience”  Privileges, Perks &amp;&nbsp;Freebies  Communication &amp; Interaction  Preventing Fraud &amp;&nbsp;Phishing  <p>The first category, Identity &amp; Access, will be covered within this Part 1 and is where I’ll delve the most deeply. I’ll touch on the remaining categories in <a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">Part&nbsp;2</a>.</p><p>Note: As mentioned above, it is outside the scope of this article to explain the basic mechanics of SSI and VC exchange, such as how the initial encrypted connections are offered and accepted, how VCs are offered and accepted using those connections, how VC presentation and verification occurs, or how those verifications can be trustworthy. Those subjects are covered amply by many other documents, papers, and websites throughout the SSI industry, and are the reason for the industry’s abundant standards activity. Refer to links at the beginning of this article for more information.</p> Identity &amp;&nbsp;Access <p>The primary use of self-sovereign student ID — and the gateway to limitless other uses — is as a digital, and therefore more powerful, version of a student ID card, enabling students to instantly and strongly prove their identity and status as a student, online or off, without passwords.</p> Password Replacement <p>Perhaps the simplest starting point for self-sovereign student ID is to replace passwords. Passwords have many known problems with both security and UX, and can be replaced with a quick ping to a student’s smartphone. The student responds with a tap, which cryptographically shares their school-issued ID, which is instantly verifiable by the&nbsp;school.</p><p>This is a big step-up in both security and user experience over passwords, and social login, and can be used in conjunction with or as a substitute for&nbsp;2FA.</p><p>For schools running CAS, Okta, or any ID system supportive of a “custom IDP” or “external authentication handler,” password replacement can be implemented quickly.</p> Identity+ <p>Self-sovereign student ID starts with a student-controlled wallet into which the school can issue VCs containing any kind of data, identity or otherwise. So typical student ID data — name, photo, ID number, etc. — can be supplemented with any other desired information: classes registered for or taken, status and authority as a student leader, entitlements, permissions, preferences, allergies, relationships to other students, contact information, family information, achievements (more on that below), and on and&nbsp;on.</p> Multi-Factor Authentication+ (MFA+) <p>The plus in MFA+ means the ability to exchange more factors than is feasible with current tech, while not impairing the user experience, and likely improving it.</p><p>Because shared secrets (something the student knows, like a username or password) are replaced with cryptographically secure, digitally signed VCs (something the student has, like a unique key), you can exchange much stronger credentials than passwords. Because they’re digital and easily shared, you can exchange more of them, even dozens. Biometrics, location and more can also be incorporated, either as payloads within VCs or in conjunction with&nbsp;them.</p><p>Because VCs can be exchanged actively or passively behind the scenes, they are useful within <a href="https://www.paloaltonetworks.com/cyberpedia/what-is-a-zero-trust-architecture">Zero Trust Architecture</a> (ZTA). For higher-risk applications, multiple signatures can be required from multiple devices and/or multiple individuals. Combining MFA+, ZTA, and multi-device and multi-signature capabilities results in a formidable approach to protecting sensitive systems and facilities.</p> Vendor Independence <p>SSI is based on standards, so tools from different vendors can be interoperable. This means that your school isn’t locked into a single vendor and can replace a vendor without reissuing IDs (try that with a traditional ID system). Students, faculty, and staff can choose from multiple wallets to store their credentials, which are portable if they later decide to switch. You might use one vendor to help issue student IDs, another to integrate with the student information system for registration and transcript data, and a third to verify student or staff status at the campus bookstore POS. You don’t have to worry that any vendor selected for digital student IDs can’t support your diverse campus needs, or that you’re stuck with lousy quality or&nbsp;service.</p><p>Use of student ID becomes no longer constrained digitally or physically by the boundaries of the school’s trust domain, or the presence of any particular vendor, removing what I believe is the #1 barrier for digital student ID adoption&nbsp;today.</p> Digital First, Then&nbsp;Physical <p>Self-sovereign student ID is digital first, but not digital only. With self-sovereign student ID you can have both digital and physical forms in several varieties.</p><p>A ‘smart’/chipped student ID card could hold an SSI wallet (note the irony) with some of a student’s VCs, greatly expanding the types of credentials, entitlements, tickets or other items the student can carry and benefit from, and making it much harder for a fraudster to get away with swapping out the name, photo, ID number,&nbsp;etc.</p><p>A student could also present a card or a paper with a QR code on it. Scanning the QR code could pull up a verified student ID, including a photo, either from a school-controlled database or from student-controlled storage. QR code-based verification could be restricted to authorized personnel, who could also be required to digitally prove their ID before gaining&nbsp;access.</p><p>Combining these capabilities, a school could issue a physical ID card with only three elements: a photo, a QR code, and an embedded chip— no name, no ID number, nothing else. If the chip and QR code worked as described above, even this extreme approach could be more useful than existing student ID cards while being more private for students and more difficult to hack for fraudsters.</p> Access+ <p>Whether for accessing digital systems, physical facilities or events, self-sovereign student ID can begin to support digital versions of key cards, vouchers, receipts and more, all uniquely associated with the student. A VC can also be issued as a bearer instrument not associated with any individual, like a movie ticket or a coupon. Using geofencing, students could be passively authenticated when entering a secure area, of course subject to their consent to the practice.</p> Mutual Authentication <p>Because it enables a bi-directional exchange of VCs, self-sovereign student ID may be the first technology that enables students to authenticate schools as strongly as schools authenticate students, preventing impersonation and phishing.</p> User Experience <p>Who doesn’t want fewer usernames and passwords to deal with? With self-sovereign student ID, the student can digitally present their ID and other entitlements and be authenticated more strongly, safely, and quickly than with usernames and passwords. This reduces the incidence of fraud, account take-over, and password reset requests.</p><p>Because the school maintains a secure, peer-to-peer connection with the student, it can use this connection to prompt the student for ID when the student calls in or walks in⁵. When calling in, this eliminates the need for knowledge-based authentication questions (birthday, mother’s maiden name, etc.) and speeds up the call; when walking in, this eliminates the need to pull out a physical student ID (useful during a pandemic).</p><p>Whether calling in, walking in, or logging in, a student can feel recognized by the school rather than repeatedly treated as a stranger.</p> Privacy &amp; Compliance <p>Today, when presenting a physical student ID card, the student divulges everything on it; there’s no way to present only part of it. With <a href="https://medium.com/mattr-global/a-solution-for-privacy-preserving-verifiable-credentials-f1650aa16093">selective disclosure</a> enabled by self-sovereign student ID, a student can share only the data required and nothing more, or prove something about their credentials without disclosing any of the data, or just prove that they have it. Some examples are&nbsp;helpful:</p>  Prove status as a currently enrolled student, without revealing name, ID number, or other personal&nbsp;info  Prove age is over a threshold, without revealing actual age or&nbsp;birthday  Prove address on file is within a certain area, city, or building, without revealing the exact&nbsp;location  <p>Selective disclosure is useful for many things, including voting, and can be used online or off. It affords whatever level of privacy the student desires, and satisfies both the spirit and the letter of aggressive privacy regulations such as GDPR and CCPA, while remaining auditable for all interactions between students and the school. And by minimizing the presentation of identity to only the attributes needed, selective disclosure curtails the unchecked growth in the ‘grey market’ of personal data, worth billions of dollars and&nbsp;growing.</p><p>And when data is shared, it is shared directly by the student with digitally signed evidence that they did so, a veritable get-out-of-jail free card in today’s PII-sensitive privacy&nbsp;climate.</p> Consolidation &amp; Simplification <p>As it scales, federated ID has a tendency to grow into a complex, tangled web of identities, identifiers, vendors, integrations, synchronizations, and registries. Self-sovereign student ID can begin a process of consolidation around a coherent identity meta system, with a reduction in vendors, a reduction in identifiers, and an overall reduction in complexity, without consolidating around a single&nbsp;vendor.</p><p>And that’s not a&nbsp;joke.</p><p>That said, I’m taking the advice of my business partner, SSI pioneer <a href="https://digitaltrust.vc/team-and-contact/">Dr. Sam Smith</a>, and avoiding diving into how this can occur within this piece. He is the better author for it anyway, as it quickly gets into a technical discussion about self-certifying identifiers, which SSI uses, versus administrative identifiers, which federated ID uses, which is his area of study and expertise. So, Sam can write a separate piece if there is sufficient interest. For readers having a pressing need related to this topic, please get in&nbsp;touch.</p> ID Is the Low-Hanging Fruit <p>For most, ID may be the best place to start with VCs. There’s far less complexity than something like achievements, and no other entities need to be consulted before adopting a particular approach; a school catches what it pitches. Plus, the benefits can be broadly and immediately felt, and readily integrated into most IAM systems. And of course, ID is a prerequisite for most other use cases; even if those feel more important or urgent, you usually need to begin by verifying who you’re dealing&nbsp;with.</p><p>If you read no further, this should already be apparent: though ID and Access may be a fraction of what self-sovereign student ID can do, it is more than enough to justify serious consideration. The uses discussed in <a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">Part 2</a> are cool and exciting, but just icing on the&nbsp;cake.</p><p>If you’re not planning to read Part 2 and are wondering how to operationalize self-sovereign student ID, open <a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">Part 2</a> and skip down to “Where to&nbsp;Begin.”</p><blockquote><a href="https://medium.com/@rufftimo/introducing-self-sovereign-student-id-part-2-of-2-a566ed414d75">Part 2: ID is Only the Beginning</a></blockquote><p>¹ One of the earliest/best pieces about SSI, from Christopher Allen: <a href="http://www.lifewithalacrity.com/2016/04/the-path-to-self-soverereign-identity.html">http://www.lifewithalacrity.com/2016/04/the-path-to-self-soverereign-identity.html</a></p><p>² Technically there is a fourth thing a student controls: self-certifying identifiers provide the root of trust, the crypto magic that makes it possible to traverse trust domain boundaries, but they’re “deeper under the hood” and out of scope for this piece. You can learn more about self-certifying identifiers <a href="https://medium.com/spherity/introducing-keri-8f50ed1d8ed7">here</a>, <a href="https://ssimeetup.org/key-event-receipt-infrastructure-keri-secure-identifier-overlay-internet-sam-smith-webinar-58/">here</a>, and&nbsp;<a href="https://github.com/SmithSamuelM/Papers/blob/master/whitepapers/KERI_WP_2.x.web.pdf">here</a>.</p><p>³ It’s technically <a href="https://digitaltrust.vc/thesis/#anchor-11">agents</a> that connect, not&nbsp;wallets.</p><p>⁴ In the context of student ID, a wallet in the student’s possession is the container that makes the most sense; for large data sets such as entire transcripts or medical data, or infrequently used data, or simply for backup, a student may employ a custodial storage solution in a blockchain or traditional database, while still retaining self-sovereign control over the stored&nbsp;data.</p><p>⁵ The Credit Union industry is beginning to deploy <a href="https://www.memberpass.com/">MemberPass</a>, which uses this means to streamline incoming calls into service&nbsp;centers.</p><p>Special thanks to several helpful reviewers, editors, and contributors: <a href="https://www.linkedin.com/in/johnphillips11kps/">John Phillips</a>, <a href="https://www.linkedin.com/in/windley/">Dr. Phil Windley</a>, <a href="https://www.linkedin.com/in/longpd/">Phil Long</a>, <a href="https://www.linkedin.com/in/scott-perry-1b7a254/">Scott Perry</a>, <a href="https://www.linkedin.com/in/samuel-m-smith/">Dr. Samuel Smith</a>, <a href="https://www.linkedin.com/in/pinkelk/">Alan Davies</a>, <a href="https://www.linkedin.com/in/taykendesign/">Taylor Kendal</a>, and <a href="https://www.linkedin.com/in/matthew-hailstone-92a1a51/">Matthew Hailstone</a>.</p>
    
   
   
@@ -12688,203 +13162,6 @@ get covered these days in it in some way?</p>
 
 <div class='item-footer'>
    16:31 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2020/Aug/7/datasette-graphql/#atom-everything'>GraphQL in Datasette with the new datasette-graphql plugin</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   This week I've mostly been building datasette-graphql, a plugin that adds GraphQL query support to Datasette. 
-
- I've been mulling this over for a couple of years now. I wasn't at all sure if it would be a good idea, but it's hard to overstate how liberating Datasette's plugin system has proven to be: plugins provide a mechanism for exploring big new ideas without any risk of taking the core proje
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2020/graphiql.gif'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>This week I've mostly been building <a href="https://github.com/simonw/datasette-graphql">datasette-graphql</a>, a plugin that adds GraphQL query support to Datasette.</p>
-
-<p>I've been <a href="https://simonwillison.net/search/?q=graphql">mulling this over</a> for a couple of years now. I wasn't at all sure if it would be a good idea, but it's hard to overstate how liberating Datasette's plugin system has proven to be: plugins provide a mechanism for exploring big new ideas without any risk of taking the core project in a direction that I later regret.</p>
-
-<p>Now that I've built it, I think I like it.</p>
-
- A GraphQL refresher 
-
-<p><a href="https://graphql.org/">GraphQL</a> is a query language for APIs, first promoted by Facebook in 2015.</p>
-
-<p>(Surprisingly it has nothing to do with the Facebook Graph API, which predates it by several years and is more similar to traditional REST. A third of respondents to my <a href="https://twitter.com/simonw/status/1289381085181140992">recent poll</a> were understandably confused by this.)</p>
-
-<p>GraphQL is best illustrated by an example. The following query (a real example that works with <code>datasette-graphql</code>) does a whole bunch of work:</p>
-
-  Retrieves the first 10 repos that match a search for "datasette", sorted by most stargazers first  Shows the total count of search results, along with how to retrieve the next page  For each repo, retrieves an explicit list of columns  <code>owner</code> is a foreign key to the <code>users</code> table - this query retrieves the <code>name</code> and <code>html_url</code> for the user that owns each repo  A repo has issues (via an incoming foreign key relationship). The query retrieves the first three issues, a total count of all issues and for each of those three gets the <code>title</code> and <code>created_at</code>.  
-
-<p>That's a lot of stuff! Here's the query:</p>
-
- <code>{
-  repos(first:10, search: "datasette", sort_desc: stargazers_count) {
-    totalCount
-    pageInfo {
-      endCursor
-      hasNextPage
-    }
-    nodes {
-      full_name
-      description
-      stargazers_count
-      created_at
-      owner {
-        name
-        html_url
-      }
-      issues_list(first: 3) {
-        totalCount
-        nodes {
-          title
-          created_at
-        }
-      }
-    }
-  }
-}</code> 
-
-<p>You can <a href="https://datasette-graphql-demo.datasette.io/graphql?query=%7B%0A%20%20repos(first%3A%2010%2C%20search%3A%20%22datasette%22%2C%20sort_desc%3A%20stargazers_count)%20%7B%0A%20%20%20%20totalCount%0A%20%20%20%20pageInfo%20%7B%0A%20%20%20%20%20%20endCursor%0A%20%20%20%20%20%20hasNextPage%0A%20%20%20%20%7D%0A%20%20%20%20nodes%20%7B%0A%20%20%20%20%20%20full_name%0A%20%20%20%20%20%20description%0A%20%20%20%20%20%20stargazers_count%0A%20%20%20%20%20%20created_at%0A%20%20%20%20%20%20owner%20%7B%0A%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20html_url%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20issues_list(first%3A%203)%20%7B%0A%20%20%20%20%20%20%20%20totalCount%0A%20%20%20%20%20%20%20%20nodes%20%7B%0A%20%20%20%20%20%20%20%20%20%20title%0A%20%20%20%20%20%20%20%20%20%20created_at%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D%0A">run this query against the live demo</a>. I'm seeing it return results in 511ms. Considering how much it's getting done that's pretty good!</p>
-
- datasette-graphql 
-
-<p>The <a href="https://github.com/simonw/datasette-graphql">datasette-graphql</a> plugin adds a <code>/graphql</code> page to any Datasette instance. It exposes a GraphQL field for every table and view. Those fields can be used to select, filter, search and paginate through rows in the corresponding table.</p>
-
-<p>The plugin detects foreign key relationships - both incoming and outgoing - and turns those into further nested fields on the rows.</p>
-
-<p>It does this by using table introspection (powered by <a href="https://sqlite-utils.readthedocs.io/en/stable/python-api.html#introspection">sqlite-utils</a>) to dynamically define a schema using the <a href="https://graphene-python.org/">Graphene</a> Python GraphQL library.</p>
-
-<p>Most of the work happens in the <code>schema_for_datasette()</code> function in <a href="https://github.com/simonw/datasette-graphql/blob/main/datasette_graphql/utils.py">datasette_graphql/utils.py</a>. The code is a little fiddly because Graphene usually expects you to define your GraphQL schema using classes (similar to Django's ORM), but in this case the schema needs to be generated dynamically based on introspecting the tables and columns.</p>
-
-<p>It has a solid set of unit tests, including some <a href="https://github.com/simonw/datasette-graphql/tree/main/examples">test examples</a> written in Markdown which double as further documentation (see <a href="https://github.com/simonw/datasette-graphql/blob/950ca0740a658780cdd3a91e4bbfdda4f48645ea/tests/test_graphql.py#L62-L74">test_graphql_examples()</a>).</p>
-
- GraphiQL for interactively exploring APIs 
-
-<p><a href="https://github.com/graphql/graphiql">GraphiQL</a> is the best thing about GraphQL. It's a JavaScript interface for trying out GraphQL queries which pulls in a copy of the API schema and uses it to implement really comprehensive autocomplete.</p>
-
-<p><code>datasette-graphql</code> includes GraphiQL (inspired by <a href="https://www.starlette.io/graphql/">Starlette's implementation</a>). Here's an animated gif showing quite how useful it is for exploring an API:</p>
-
-<p></p>
-
-<p>A couple of tips: On macOS option+space brings up the full completion list for the current context, and command+enter executes the current query (equivalent to clicking the play button).</p>
-
- Performance notes 
-
-<p>The most convenient thing about GraphQL from a client-side development point of view is also the most nerve-wracking from the server-side: a single GraphQL query can end up executing a LOT of SQL.</p>
-
-<p>The example above executes at least 32 separate SQL queries:</p>
-
-  1 select against repos (plus 1 count query)  10 against issues (plus 10 counts)  10 against users (for the <code>owner</code> field)  
-
-<p>There are some optimization tricks I'm not using yet (in particular the <a href="https://docs.graphene-python.org/en/latest/execution/dataloader/">DataLoader pattern</a>) but it's still cause for concern.</p>
-
-<p>Interestingly, SQLite may be the best possible database backend for GraphQL due to the characteristics explained in the essay <a href="https://sqlite.org/np1queryprob.html">Many Small Queries Are Efficient In SQLite</a>.</p>
-
-<p>Since SQLite is an in-process database, it doesn't have to deal with network overhead for each SQL query that it executes. A SQL query is essentially a C function call. So the flurry of queries that's characteristic for GraphQL really plays to SQLite's unique strengths.</p>
-
-<p>Datasette has always featured arbitrary SQL execution as a core feature, which it protects using query time limits. I have an <a href="https://github.com/simonw/datasette-graphql/issues/33">open issue</a> to further extend the concept of Datasette's time limits to the overall execution of a GraphQL query.</p>
-
- More demos 
-
-<p>Enabling a GraphQL instance for a Datasette is as simple as <code>pip install datasette-graphql</code>, so I've deployed the new plugin in a few other places:</p>
-
-  <a href="https://covid-19.datasettes.com/graphql">covid-19.datasettes.com/graphql</a> for exploring <a href="https://simonwillison.net/2020/Mar/11/covid-19/">Covid-19 data</a> 
- <a href="https://register-of-members-interests.datasettes.com/graphql">register-of-members-interests.datasettes.com/graphql</a> for exploring <a href="https://simonwillison.net/2018/Apr/25/register-members-interests/">UK Register of Members Interests</a> MP data 
- <a href="https://til.simonwillison.net/graphql">til.simonwillison.net/graphql</a> for exploring <a href="https://simonwillison.net/2020/Apr/20/self-rewriting-readme/">my TILs</a>  
-
- Future improvements 
-
-<p>I have a bunch of <a href="https://github.com/simonw/datasette-graphql/issues">open issues</a> for the plugin describing what I want to do with it next. The most notable <a href="https://github.com/simonw/datasette-graphql/issues/16">planned improvement</a> is adding support for Datasette's canned queries.</p>
-
-<p>Andy Ingram <a href="https://twitter.com/andrewingram/status/1289624490037530625">shared the following</a> interesting note on Twitter:</p>
-
-<blockquote><p>The GraphQL creators are (I think) unanimous in their skepticism of tools that bring GraphQL directly to your database or ORM, because they just provide carte blanche access to your entire data model, without actually giving API design proper consideration.</p></blockquote>
-
-<p>My plugin does exactly that. Datasette is a tool for publishing raw data, so exposing everything is very much in line with the philosophy of the project. But it's still smart to put some design thought into your APIs.</p>
-
-<p><a href="https://datasette.readthedocs.io/en/stable/sql_queries.html#canned-queries">Canned queries</a> are pre-baked SQL queries, optionally with parameters that can be populated by the user.</p>
-
-<p>These could map directly to GraphQL fields. Users could even use plugin configuration to turn off the automatic table fields and just expose their canned queries.</p>
-
-<p>In this way, canned queries can allow users to explicitly design the fields they expose via GraphQL. I expect this to become an extremely productive way of prototyping new GraphQL APIs, even if the final API is built on a backend other than Datasette.</p>
-
- Also this week 
-
-<p>A couple of years ago I wrote a piece about <a href="https://simonwillison.net/2018/Apr/25/register-members-interests/">Exploring the UK Register of Members Interests with SQL and Datasette</a>. I finally got around to automating this using GitHub Actions, so <a href="https://register-of-members-interests.datasettes.com/">register-of-members-interests.datasettes.com</a> now updates with the latest data every 24 hours.</p>
-
-<p>I renamed <code>datasette-publish-now</code> to <a href="https://github.com/simonw/datasette-publish-vercel">datasette-publish-vercel</a>, reflecting Vercel's name change from Zeit Now. Here's <a href="https://github.com/simonw/datasette-publish-vercel/issues/26">how I did that</a>.</p>
-
-<p><a href="https://github.com/simonw/datasette-insert">datasette-insert</a>, which provides a JSON API for inserting data, defaulted to working unauthenticated. MongoDB and Elasticsearch have taught us that insecure-by-default inevitably leads to <a href="https://arstechnica.com/information-technology/2020/07/more-than-1000-databases-have-been-nuked-by-mystery-meow-attack/">insecure deployments</a>. I fixed that: the plugin now requires authentication, and if you don't want to set that up and know what you are doing you can install the deliberately named <a href="https://github.com/simonw/datasette-insert-unsafe">datasette-insert-unsafe</a> plugin to allow unauthenticated access.</p>
-
- Releases this week 
-
-  <a href="https://github.com/simonw/datasette-graphql/releases/tag/0.7">datasette-graphql 0.7</a> - 2020-08-06  <a href="https://github.com/simonw/datasette-graphql/releases/tag/0.6">datasette-graphql 0.6</a> - 2020-08-06  <a href="https://github.com/simonw/sqlite-utils/releases/tag/2.14.1">sqlite-utils 2.14.1</a> - 2020-08-06  <a href="https://github.com/simonw/datasette-graphql/releases/tag/0.5">datasette-graphql 0.5</a> - 2020-08-06  <a href="https://github.com/simonw/datasette-graphql/releases/tag/0.4">datasette-graphql 0.4</a> - 2020-08-06  <a href="https://github.com/simonw/datasette-graphql/releases/tag/0.3">datasette-graphql 0.3</a> - 2020-08-06  <a href="https://github.com/simonw/datasette-graphql/releases/tag/0.2">datasette-graphql 0.2</a> - 2020-08-06  <a href="https://github.com/simonw/datasette-graphql/releases/tag/0.1a">datasette-graphql 0.1a</a> - 2020-08-02  <a href="https://github.com/simonw/sqlite-utils/releases/tag/2.14">sqlite-utils 2.14</a> - 2020-08-01  <a href="https://github.com/simonw/datasette-insert-unsafe/releases/tag/0.1">datasette-insert-unsafe 0.1</a> - 2020-07-31  <a href="https://github.com/simonw/datasette-insert/releases/tag/0.6">datasette-insert 0.6</a> - 2020-07-31  <a href="https://github.com/simonw/datasette-publish-vercel/releases/tag/0.7">datasette-publish-vercel 0.7</a> - 2020-07-31  
-
- TIL this week 
-
-  <a href="https://github.com/simonw/til/blob/master/cloudrun/ship-dockerfile-to-cloud-run.md">How to deploy a folder with a Dockerfile to Cloud Run</a>  
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2020/graphiql.gif'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:24 &bull;
    2 months ago
 </div>
 
@@ -22840,99 +23117,6 @@ The Concise Binary Object Representation (CBOR, RFC 7049) is a data format whose
 
 <div class='item-footer'>
    12:47 &bull;
-   5 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.sakimura.org'>@_Nat Zone</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.sakimura.org/2020/05/4625/'>5/12 KuppingerCole の Virtual Event でKeynote をします。</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   5/12は本来European Identity … 
- The post 5/12 KuppingerCole の Virtual Event でKeynote をします。 first appeared on @_Nat Zone. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>5/12は本来European Identity Conference (EIC) で、そこでKeynote をするよていだったのですが、新型コロナでカンファレンスはキャンセルされ、その代わりに Virtual Event が行われることになりました。</p>
-
-
-
-<p>イベントの名前は「<a href="https://www.kuppingercole.com/events/identity-fabrics-iam?ref=bigma">Identity Fabrics &amp; the Future of Identity Management</a>」です。もともとのEICでわたしが演る予定だったのは、1月のOpenID Summit でやった話をもとにした「No ID, No DX」というものをドイツ向けにカスタマイズしたもので、Synopsys はこうなっていました。</p>
-
-
-
-<p>Industrial revolutions share two common properties: 1) New Increasing Return Technological Paradigm and 2) New Funding Methods. In the first industrial revolution, they were the steam engine and the fiat money creation. The combination allowed the British to create a Global Empire capitalizing on the increasing return nature. The same pattern holds for the 4th industrial revolution as well. This time, it was the cyberspace and the money creation system called “Silicon Valley”. This time, however, the land grab is not on the existing continent. It is on a newly formed 8th continent, also known as “Cyberspace.” For the time being, GAFAM seems to be prevalent there but the battle is not over yet. To survive the battle, we have to change the way we conduct our business to fit the new technological reality. Retrofitting the new technology to the old way delivers quick result but does not allow to fully capitalize on the new reality and result in the colonization. To avoid it, there is no other way but transform the business and system to identity-centric architecture because otherwise, your system will not be increasing return.<br></p>
-
-
-
-<p>Key takeaways:<br>1. To capitalize on the 4th Industrial Revolution, we have to transform ourselves to be fit with the new space: cyberspace.&nbsp;<br>2. Retro-fitting the new technologies to the existing ways of conducting business will only gain the short-term result and disadvantage you in the long-term.&nbsp;<br>3. What’s needed now is to convert the business architecture and put the user-centric identity system that delineates authentication, claims provision, authorization and relation forming. Otherwise, the system will start to show the decreasing return characteristics and slows your business. That will be fatal in the midst of an industrial revolution.&nbsp;<br>4. Start moving towards such an architecture and demand vendors the support of it to survive.</p>
-
-
-
-<p>実は提言の一部は新型コロナのせいですでに実現してしまったので、ちょっと変えなければならないのですが、概ねは以上のような感じです。お楽しみに。日本時間の16時20分からです。</p>
-
-
-
-<p>しかし、ミュンヘンのビールといっしょにホワイトアスパラガス食べられないのは実に残念…。</p>
-
-
-
- Identity Fabrics &amp; the Future of Identity Management Agenda 
-
-
-
-Tuesday, May 12, 202009:00-09:20<a href="https://www.kuppingercole.com/sessions/4108">Identity Fabrics: Delivering IAM for the Digital Business</a><br>Martin Kuppinger, Principal Analyst, KuppingerCole09:20-09:40<a href="https://www.kuppingercole.com/sessions/4109">No ID, No DX</a><br>Nat Sakimura, Chairman, OpenID Foundation09:40-10:00<a href="https://www.kuppingercole.com/sessions/4110">Creating an Innovative Identity Fabrics Structure</a><br>Tim Barber, Senior Vice President, EMEA, ForgeRock10:00-10:20<a href="https://www.kuppingercole.com/sessions/4111">Interview with Tim Barber</a><br>Tim Barber, Senior Vice President, EMEA, ForgeRockMartin Kuppinger, Principal Analyst, KuppingerCole10:20-10:40<a href="https://www.kuppingercole.com/sessions/4112">Coffee Break</a>10:40-11:00<a href="https://www.kuppingercole.com/sessions/4113">Re-inventing Identity Management at the BBC</a><br>Ros Smith, Executive Product Manager IAM, BBC11:00-11:20<a href="https://www.kuppingercole.com/sessions/4114">IAM Performance Measurement</a><br>David Doret, IT Risk &amp; Cybersecurity, IAM &amp; PAM Manager, BNP Paribas11:20-11:40<a href="https://www.kuppingercole.com/sessions/4115">I Want COVID-19 Certificates But I don’t Want a DID</a><br>Prof. Dr. David Chadwick, Emeritus Professor / CEO, University of Kent / Verifiable Credentials Ltd.11:40-12:40<a href="https://www.kuppingercole.com/sessions/4116">Lunch Break &amp; KC Virtual Awards</a>11:40-12:00<a href="https://www.kuppingercole.com/sessions/4124">KC Virtual Awards: Category – Enterprise IAM</a><br>Martin Kuppinger, Principal Analyst, KuppingerCole12:40-13:00<a href="https://www.kuppingercole.com/sessions/4117">TBA</a>13:00-13:30<a href="https://www.kuppingercole.com/sessions/4118">TBA</a>13:20-13:40<a href="https://www.kuppingercole.com/sessions/4119">Use Case: Belgian Mobile ID for Digital Inclusion</a><br>Sylvie Vandevelde, Head of Marketing &amp; Communication, Belgian Mobile ID13:40-14:00<a href="https://www.kuppingercole.com/sessions/4120">Panel – Disruptive Role of Mobile Device Manufactures Within the Digital Identity Market</a><br>Artur Burgardt, Managing Partner, CORE SEMatthew Silverstone, Chairman, MIDAS Alliance14:00-14:20<a href="https://www.kuppingercole.com/sessions/4121">Digital Identity as a Building Block for Ethical Digital Economies</a><br>Adam Cooper, Director, ID Crowd14:20-14:40<a href="https://www.kuppingercole.com/sessions/4122">Build Your Own IDaaS: Lessons from Year One</a><br>Alyssa Kelber, Identity Engineer, Thomson ReutersJon Lehtinen, Principal Identity Engineer, Thomson Reuters14:40-15:00<a href="https://www.kuppingercole.com/sessions/4123">Panel – Overcoming Enterprise Challenges &amp; Future-proofing Your IAM Strategy</a><br>Tim Barber, Senior Vice President, EMEA, ForgeRock<p>The post <a href="https://www.sakimura.org/2020/05/4625/">5/12 KuppingerCole の Virtual Event でKeynote をします。</a> first appeared on <a href="https://www.sakimura.org/">@_Nat Zone</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:04 &bull;
    5 months ago
 </div>
 
