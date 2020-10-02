@@ -386,7 +386,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 6:12 PM October 02, 2020 (UTC)</sup>
+<sup>Last Update 8:08 PM October 02, 2020 (UTC)</sup>
 
 <h1>Identosphere - Company Blog Feeds</h1>
 Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br>Please do <a href="https://www.patreon.com/user?u=35769676">support our collaboration on Patreon</a>!!! 
@@ -460,7 +460,555 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    10:30 &bull;
-   8 hours ago
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://developer.okta.com'>Otaka - Secure, scalable, and highly available authentication and user management for any app.</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://developer.okta.com/blog/2020/10/02/spring-session-mysql'>Easy Session Sharing in Spring Boot with Spring Session and MySQL</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Session management in multi-node applications presents multiple challenges. When the architecture includes a load balancer, client requests might be routed to different servers each time, and the HTTP session might be lost. In this tutorial, we will walk you through the configuration of session sharing in a multi-node Spring Boot application. 
+
+ Prerequisites: 
+
+ 
+   Java 8+ 
+   Docker 
+   Docker 
+   
+  
+  
+  
+  
+    
+      
+      
+      <div class="preview">
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://developer.okta.com/assets-jekyll/blog/spring-session/haproxy-ba153a09353b1a55242148f452124b6a734e4943f1c2256fc290b851dbcc54dd.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Session management in multi-node applications presents multiple challenges. When the architecture includes a load balancer, client requests might be routed to different servers each time, and the HTTP session might be lost. In this tutorial, we will walk you through the configuration of session sharing in a multi-node Spring Boot application.</p>
+
+<p>Prerequisites:</p>
+
+ 
+   <a href="https://adoptopenjdk.net/">Java 8+</a> 
+   <a href="https://docs.docker.com/get-docker/">Docker</a> 
+   <a href="https://docs.docker.com/compose/install/">Docker Compose</a> 
+ 
+
+<p>Table of Contents</p>
+ 
+   <a>Session Persistence</a> 
+   <a>Session Sharing with Spring Session</a> 
+   <a>Learn More about Spring Session and OAuth 2.0</a> 
+ 
+
+ Session Persistence 
+
+<p>Session Persistence is a technique for sticking a client to a single server, using application layer information—like a cookie, for example. In this tutorial, we will implement session persistence with the help of <a href="http://cbonte.github.io/haproxy-dconv/2.3/intro.html#3">HAProxy</a>, a reliable, high performance, TCP/HTTP load balancer.</p>
+
+<p></p>
+
+<p>First, let’s create a web application with Okta authentication and run three nodes with HAProxy load balancing using Docker Compose.</p>
+
+<p>Create a Maven project using the Spring Initializr’s API.</p>
+
+   <code>curl https://start.spring.io/starter.zip \
+ -d dependencies=web,okta \
+ -d groupId=com.okta.developer \
+ -d artifactId=webapp \
+ -d name="Web Application" \
+ -d description="Demo Web Application" \
+ -d packageName=com.okta.developer.webapp \
+ -d javaVersion=11 \
+ -o web-app.zip
+</code>   
+
+<p>Unzip the project:</p>
+
+   <code>unzip web-app.zip -d web-app
+cd web-app
+</code>   
+
+<p>Run the <a href="https://github.com/oktadeveloper/okta-maven-plugin">Okta Maven Plugin</a> to register a new account:</p>
+
+   <code>./mvnw com.okta:okta-maven-plugin:register
+</code>   
+
+<p>If you already have an Okta account registered, use <code>login</code> instead of <code>register</code>.</p>
+
+<p>Then, configure your Spring application for authentication using Okta:</p>
+
+   <code>./mvnw com.okta:okta-maven-plugin:spring-boot
+</code>   
+
+<p>It will set up a new OIDC application for you and write your Okta settings to your <code>src/main/resources/application.properties</code> file.</p>
+
+<p>Create a <code>GreetingController</code> at <code>src/main/java/com/okta/developer/webapp/controller</code>:</p>
+
+   <code>package com.okta.developer.webapp.controller;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.context.request.RequestContextHolder;
+
+import java.net.InetAddress;
+
+@Controller
+public class GreetingController {
+
+    private static final Logger logger = LoggerFactory.getLogger(GreetingController.class);
+
+    @GetMapping(value = "/greeting")
+    @ResponseBody
+    public String getGreeting(@AuthenticationPrincipal OidcUser oidcUser) {
+        String serverUsed = "unknown";
+        try {
+            InetAddress host = InetAddress.getLocalHost();
+            serverUsed = host.getHostName();
+        } catch (Exception e){
+            logger.error("Could not get hostname", e);
+        }
+        String sessionId = RequestContextHolder.currentRequestAttributes().getSessionId();
+        logger.info("Request responded by " + serverUsed);
+        return "Hello " + oidcUser.getFullName() + ", your server is " + serverUsed + ", with sessionId " + sessionId;
+    }
+}
+</code>   
+
+<p>Run the application with:</p>
+
+   <code>./mvnw spring-boot:run
+</code>   
+
+<p>Go to <code>http://localhost:8080</code> in an incognito window and you should be redirected to the Okta sign-in page.</p>
+
+<p></p>
+
+<p>If you sign in, you will get a 404 error when you’re redirected back to your Spring Boot app. This is expected because there’s no controller mapped to the <code>/</code> endpoint. You can fix this if you want by adding a method like the following to your <code>WebApplication.java</code>.</p>
+
+   <code>@RestController
+@SpringBootApplication
+public class WebApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(WebApplication.class, args);
+    }
+
+    @GetMapping("/")
+    public String hello(@AuthenticationPrincipal OidcUser user) {
+        return "Hello, " + user.getFullName();
+    }
+}
+</code>   
+
+<p>Now, let’s configure three Docker containers, one for each application node, and an HAProxy container. In the project root folder, create a <code>docker/docker-compose.yml</code> file, with the following content:</p>
+
+   <code>version: '3.1'
+services:
+  webapp1:
+    environment:
+      - OKTA_OAUTH2_ISSUER=${OKTA_OAUTH2_ISSUER}
+      - OKTA_OAUTH2_CLIENT_ID=${OKTA_OAUTH2_CLIENT_ID}
+      - OKTA_OAUTH2_CLIENT_SECRET=${OKTA_OAUTH2_CLIENT_SECRET}
+    image: webapp
+    hostname: webapp1
+    ports:
+      - 8081:8080
+  webapp2:
+    environment:
+      - OKTA_OAUTH2_ISSUER=${OKTA_OAUTH2_ISSUER}
+      - OKTA_OAUTH2_CLIENT_ID=${OKTA_OAUTH2_CLIENT_ID}
+      - OKTA_OAUTH2_CLIENT_SECRET=${OKTA_OAUTH2_CLIENT_SECRET}
+    image: webapp
+    hostname: webapp2
+    ports:
+      - 8082:8080
+  webapp3:
+    environment:
+      - OKTA_OAUTH2_ISSUER=${OKTA_OAUTH2_ISSUER}
+      - OKTA_OAUTH2_CLIENT_ID=${OKTA_OAUTH2_CLIENT_ID}
+      - OKTA_OAUTH2_CLIENT_SECRET=${OKTA_OAUTH2_CLIENT_SECRET}
+    image: webapp
+    hostname: webapp3
+    ports:
+      - 8083:8080
+  haproxy:
+    build:
+      context: .
+      dockerfile: Dockerfile-haproxy
+    image: my-haproxy
+    ports:
+      - 80:80
+    depends_on:
+      - "webapp1"
+      - "webapp2"
+      - "webapp3"
+</code>   
+
+<p>Create a<code>docker/.env</code> file with the following content:</p>
+
+   <code>OKTA_OAUTH2_ISSUER={issuer}
+OKTA_OAUTH2_CLIENT_ID={clientId}
+OKTA_OAUTH2_CLIENT_SECRET={clientSecret}
+</code>   
+
+<p>You can find the issuer, clientId, and clientSecret in the <code>src/main/resources/application.properties</code>, after running the Okta Maven Plugin. Remove the <code>\</code> in the issuer’s URL after you paste the value. Also, make sure to remove the curly braces around the values.</p>
+
+<p>Create a <code>Dockerfile</code> for the HAProxy container, at <code>docker/Dockerfile-haproxy</code> and add the following:</p>
+
+   <code>FROM haproxy:2.2
+COPY haproxy.cfg /usr/local/etc/haproxy/haproxy.cfg
+</code>   
+
+<p>Create the configuration file for the HAProxy instance at <code>docker/haproxy.cfg</code>:</p>
+
+   <code>global
+    debug
+    daemon
+    maxconn 2000
+
+defaults
+    mode http
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+
+frontend http-in
+    bind *:80
+    default_backend servers
+
+backend servers
+    balance roundrobin
+    cookie SERVERUSED insert indirect nocache
+    option httpchk /
+    option redispatch
+    default-server check
+    server webapp1 webapp1:8080 cookie webapp1
+    server webapp2 webapp2:8080 cookie webapp2
+    server webapp3 webapp3:8080 cookie webapp3
+</code>   
+
+<p>I’m not going to dive deep into how to configure HAProxy but take note that,  in the <code>backend servers</code> section, there are the following options:</p>
+
+ 
+   <code>balance roundrobin</code> sets round-robin as the load balancing strategy. 
+   <code>cookie SERVERUSED</code> adds a cookie SERVERUSED to the response, indicating the server responding to the request. The client requests will stick to that server. 
+   <code>option redispatch</code> makes the request be re-dispatched to a different server if the current server fails. 
+ 
+
+<p>Edit the <code>pom.xml</code> to add the <a href="https://github.com/GoogleContainerTools/jib/tree/master/jib-maven-plugin">Jib Maven Plugin</a> to the <code>&lt;build&gt;</code> section to create a <code>webapp</code> Docker image.</p>
+
+   <code>&lt;plugin&gt;
+    &lt;groupId&gt;com.google.cloud.tools&lt;/groupId&gt;
+    &lt;artifactId&gt;jib-maven-plugin&lt;/artifactId&gt;
+    &lt;version&gt;2.5.2&lt;/version&gt;
+    &lt;configuration&gt;
+        &lt;to&gt;
+            &lt;image&gt;webapp&lt;/image&gt;
+        &lt;/to&gt;
+    &lt;/configuration&gt;
+&lt;/plugin&gt;
+</code>   
+
+<p>Build the <code>webapp</code> container image:</p>
+
+   <code>./mvnw compile jib:dockerBuild
+</code>   
+
+<p>Start all the services with docker-compose:</p>
+
+   <code>cd docker
+docker-compose up
+</code>   
+
+<p>NOTE: If you get a <code>URISyntaxException</code> on startup, remove the <code>\</code> in the issuer in <code>application.properties</code>.</p>
+
+<p>HAProxy will be ready after you see the following lines in the logs:</p>
+
+   <code>haproxy_1  | [WARNING] 253/130140 (6) : Server servers/webapp2 is UP, reason: Layer7 check passed, code: 302, check duration: 5ms. 1 active and 0 backup servers online. 0 sessions requeued, 0 total in queue.
+haproxy_1  | [WARNING] 253/130141 (6) : Server servers/webapp3 is UP, reason: Layer7 check passed, code: 302, check duration: 4ms. 2 active and 0 backup servers online. 0 sessions requeued, 0 total in queue.
+haproxy_1  | [WARNING] 253/130143 (6) : Server servers/webapp1 is UP, reason: Layer7 check passed, code: 302, check duration: 7ms. 3 active and 0 backup servers online. 0 sessions requeued, 0 total in queue.
+</code>   
+
+<p>Before you can sign in to your application, you’ll need to go to your Okta developer console and add a Login redirect URI for <code>http://localhost/login/oauth2/code/okta</code>. Otherwise, you’ll get a 400 error in the next step. While you’re in there, add a Logout redirect URI for <code>http://localhost</code>.</p>
+
+<p>In a browser, go to <code>http://localhost/greeting</code>. After you sign in, inspect the request cookie <code>SERVERUSED</code>. An example value is:</p>
+
+   <code>Cookie: SERVERUSED=webapp3; JSESSIONID=5AF5669EA145CC86BBB08CE09FF6E505
+</code>   
+
+<p>Shut down the current node with the following Docker command:</p>
+
+   <code>docker stop docker_webapp3_1
+</code>   
+
+<p>Refresh your browser and wait a few seconds. Check the <code>SERVERUSED</code> cookie to verify that HAProxy re-dispatched the request to a different node, and the sessionId has changed, meaning the old session was lost.</p>
+
+<p>You can stop the services with <code>CTRL+C</code>.</p>
+
+ Session Sharing with Spring Session 
+
+<p>Storing sessions in an individual node can affect scalability. When scaling up, active sessions will remain in the original nodes and traffic will not be spread equally among nodes. Also, when a node fails, the session in that node is lost. With session sharing, the user session lives in a shared data storage that all server nodes can access.</p>
+
+<p>Next, for a transparent failover with the <code>redispatch</code> option in HAProxy, let’s add session sharing between nodes with Spring Session. For this tutorial, I’ll show you how to use MySQL for storing the session.</p>
+
+<p>First, add the following dependencies to the <code>pom.xml</code>:</p>
+
+   <code>&lt;dependency&gt;
+    &lt;groupId&gt;mysql&lt;/groupId&gt;
+    &lt;artifactId&gt;mysql-connector-java&lt;/artifactId&gt;
+    &lt;scope&gt;runtime&lt;/scope&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.session&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-session-core&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.session&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-session-jdbc&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;com.zaxxer&lt;/groupId&gt;
+    &lt;artifactId&gt;HikariCP&lt;/artifactId&gt;
+    &lt;version&gt;3.2.0&lt;/version&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;com.h2database&lt;/groupId&gt;
+    &lt;artifactId&gt;h2&lt;/artifactId&gt;
+    &lt;scope&gt;test&lt;/scope&gt;
+&lt;/dependency&gt;
+</code>   
+
+<p>Rename <code>src/main/resources/application.properties</code> to <code>application.yml</code>, change your <code>okta.*</code> properties to be in YAML syntax, and add the following key-value pairs:</p>
+
+   <code>okta:
+  oauth2:
+    issuer: {issuer}
+    client-secret: {client-secret}
+    client-id: {client-id}
+
+spring:
+  session:
+    jdbc:
+      initialize-schema: always
+  datasource:
+    url: jdbc:mysql://localhost:3306/webapp
+    username: root
+    password: example
+    driverClassName: com.mysql.cj.jdbc.Driver
+    hikari:
+      initializationFailTimeout: 0
+
+logging:
+  level:
+    org.springframework: INFO
+    com.zaxxer.hikari: DEBUG
+</code>   
+
+<p>In this example, you are using HikariCP for the database connection pooling. The option <code>initializationFailTimeout</code> is set to 0, meaning if a connection cannot be obtained, the pool will start anyways.</p>
+
+<p>You are also instructing Spring Session to always create the schema with the option <code>spring.session.jdbc.initialize-schema=always</code>.</p>
+
+<p>The <code>application.yml</code> file you just created contains the default datasource properties for the MySQL session storage. As the MySQL database is not up when the tests run, set up an in-memory H2 database so the application tests don’t fail.</p>
+
+<p>Create a<code>src/test/resources/application-test.yml</code> file with the following content:</p>
+
+   <code>spring:
+  datasource:
+    url: jdbc:h2:mem:testdb
+    username: sa
+    password: passord
+    driverClassName: org.h2.Driver
+</code>   
+
+<p>Modify the <code>WebApplicationTests.java</code> class to add the <code>@ActiveProfiles</code> annotation:</p>
+
+   <code>package com.okta.developer.webapp;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class WebApplicationTests {
+
+    @Test
+    void contextLoads() {
+    }
+}
+</code>   
+
+<p>Modify <code>docker/docker-compose.yml</code> to add the database container and the admin application to inspect the session tables. The final configuration should look like the following:</p>
+
+   <code>version: '3.1'
+services:
+  webapp1:
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/webapp
+      - OKTA_OAUTH2_ISSUER=${OKTA_OAUTH2_ISSUER}
+      - OKTA_OAUTH2_CLIENT_ID=${OKTA_OAUTH2_CLIENT_ID}
+      - OKTA_OAUTH2_CLIENT_SECRET=${OKTA_OAUTH2_CLIENT_SECRET}
+    image: webapp
+    hostname: webapp1
+    ports:
+      - 8081:8080
+    depends_on:
+      - "db"
+  webapp2:
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/webapp
+      - OKTA_OAUTH2_ISSUER=${OKTA_OAUTH2_ISSUER}
+      - OKTA_OAUTH2_CLIENT_ID=${OKTA_OAUTH2_CLIENT_ID}
+      - OKTA_OAUTH2_CLIENT_SECRET=${OKTA_OAUTH2_CLIENT_SECRET}
+    image: webapp
+    hostname: webapp2
+    ports:
+      - 8082:8080
+    depends_on:
+      - "db"
+  webapp3:
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/webapp
+      - OKTA_OAUTH2_ISSUER=${OKTA_OAUTH2_ISSUER}
+      - OKTA_OAUTH2_CLIENT_ID=${OKTA_OAUTH2_CLIENT_ID}
+      - OKTA_OAUTH2_CLIENT_SECRET=${OKTA_OAUTH2_CLIENT_SECRET}
+    image: webapp
+    hostname: webapp3
+    ports:
+      - 8083:8080
+    depends_on:
+      - "db"
+
+  db:
+    image: mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+      MYSQL_DATABASE: webapp
+    ports:
+      - 3306:3306
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8090:8080
+
+  haproxy:
+    build:
+      context: .
+      dockerfile: Dockerfile-haproxy
+    image: my-haproxy
+    ports:
+      - 80:80
+    depends_on:
+      - "webapp1"
+      - "webapp2"
+      - "webapp3"
+</code>   
+
+<p>Delete the previous containers and previous <code>webapp</code> Docker image with the following commands:</p>
+
+   <code>docker-compose down
+docker rmi webapp
+</code>   
+
+<p>In the root folder of the project, rebuild the webapp docker image with Maven:</p>
+
+   <code>./mvnw compile jib:dockerBuild
+</code>   
+
+<p>Start all the services again (<code>docker-compose up</code> from the <code>docker</code> directory), and repeat the re-dispatch test (go to <code>http://localhost/greeting</code> then shutdown the active node with <code>docker stop docker_webapp#_1</code>). You might see a lot of connection errors until the database is up.</p>
+
+<p>Now the session should be the same after changing the node. How cool is that?!</p>
+
+<p>You can inspect the session data in the admin UI at <code>http://localhost:8090</code>. Log in with <code>root</code> and the <code>MYSQL_ROOT_PASSWORD</code> value that you set in<code>docker-compose.yml</code>.</p>
+
+<p></p>
+
+ Learn More about Spring Session and OAuth 2.0 
+
+<p>I hope you enjoyed this tutorial and could see the advantages of the session sharing technique for multi-node applications. You can <a href="https://github.com/oktadeveloper/okta-spring-session-mysql-example">find all the code for this tutorial in GitHub</a>.</p>
+
+<p>Know that there are multiple options for session storage—we selected a database because of the ease of setup—but it might slow down your application. To learn more about session management, check out the following links:</p>
+
+ 
+   <a href="https://docs.spring.io/spring-session/docs/current/reference/html5/">Spring Session</a> 
+   <a>What’s New with OAuth and OpenID Connect?</a> 
+   <a>Build Single Sign-on in Java</a> 
+   <a href="http://cbonte.github.io/haproxy-dconv/2.3/intro.html#3">HAProxy</a> 
+ 
+
+<p>If you liked this post, follow <a href="https://twitter.com/oktadev">@oktadev</a> on Twitter to see when we publish similar ones. We have <a href="https://youtube.com/oktadev">a YouTube channel</a> too! You should <a href="https://youtube.com/c/oktadev?sub_confirmation=1">subscribe</a>. 😊</p>
+
+<p>We’re also streaming on Twitch, <a href="https://www.twitch.tv/oktadev">follow us</a> to be notified when we’re live.</p>
+   
+  
+  
+    
+      
+      
+      <div class="photo">
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://developer.okta.com/assets-jekyll/blog/spring-session/haproxy-ba153a09353b1a55242148f452124b6a734e4943f1c2256fc290b851dbcc54dd.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:00 &bull;
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -540,7 +1088,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    22:00 &bull;
-   20 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -612,7 +1160,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    22:00 &bull;
-   20 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -689,7 +1237,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    22:00 &bull;
-   20 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -761,7 +1309,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    22:00 &bull;
-   20 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -833,7 +1381,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    22:00 &bull;
-   20 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -905,7 +1453,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    22:00 &bull;
-   20 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -977,7 +1525,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    22:00 &bull;
-   20 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1049,7 +1597,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    22:00 &bull;
-   20 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1121,7 +1669,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    22:00 &bull;
-   20 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1202,7 +1750,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    19:14 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1277,7 +1825,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    19:01 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1357,7 +1905,7 @@ Gluu integration with WWPass hardware or software based cryptographic multi-fact
 
 <div class='item-footer'>
    18:59 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1715,7 +2263,7 @@ Recently, the Freddie Mac identity team determined it was time to <a>modernize t
 
 <div class='item-footer'>
    07:49 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1779,7 +2327,7 @@ Recently, the Freddie Mac identity team determined it was time to <a>modernize t
 
 <div class='item-footer'>
    07:13 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4240,7 +4788,7 @@ It’s an honour to be counted in such great company, thank you!
 
 <div class='item-footer'>
    07:47 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4949,7 +5497,7 @@ It’s an honour to be counted in such great company, thank you!
 
 <div class='item-footer'>
    07:55 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5023,7 +5571,7 @@ It’s an honour to be counted in such great company, thank you!
 
 <div class='item-footer'>
    07:37 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5704,7 +6252,7 @@ Login redirect URIs: <code>http://localhost:3000/users/auth/oktaoauth/callback</
 
 <div class='item-footer'>
    08:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5778,7 +6326,7 @@ Login redirect URIs: <code>http://localhost:3000/users/auth/oktaoauth/callback</
 
 <div class='item-footer'>
    07:34 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6310,7 +6858,7 @@ Login redirect URIs: <code>http://localhost:3000/users/auth/oktaoauth/callback</
 
 <div class='item-footer'>
    07:24 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6374,7 +6922,7 @@ Login redirect URIs: <code>http://localhost:3000/users/auth/oktaoauth/callback</
 
 <div class='item-footer'>
    06:45 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7658,7 +8206,7 @@ services.AddDefaultIdentity&lt;IdentityUser&gt;(options =&gt; options.SignIn.Req
 
 <div class='item-footer'>
    07:10 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8289,7 +8837,7 @@ my little game as I did making it.</p>
 
 <div class='item-footer'>
    07:05 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9699,7 +10247,7 @@ Now we invite you to join us on this most wonderful adventure, into the land of 
 
 <div class='item-footer'>
    07:10 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11425,7 +11973,7 @@ Issuers can create ZKP-enabled credentials that allow the user to selectively di
 
 <div class='item-footer'>
    07:06 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12379,744 +12927,6 @@ Issuers can create ZKP-enabled credentials that allow the user to selectively di
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://developer.okta.com'>Otaka - Secure, scalable, and highly available authentication and user management for any app.</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://developer.okta.com/blog/2020/09/16/ant-design-react-app'>Build a React App with ANT Design Principles</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   For years the go-to HTML/CSS framework of choice for developers was Bootstrap. A new contender has appeared in the form of Ant Design. Ant should feel familiar to veteran developers but it’s built on new principles. Their site spends a good amount of effort distinguishing between good and bad design. There is an emphasis on clarity and meaning. Ant Design is heavily based on psychological principl
-   
-  
-  
-  
-  
-    
-      
-      
-      <div class="preview">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://developer.okta.com/assets-jekyll/blog/ant-design-react-app/okta-app-spa-4e88a7c2437e1fe3bfe9e7027433aa3bfe345b22f718d13d22c5344f38284df0.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>For years the go-to HTML/CSS framework of choice for developers was Bootstrap. A new contender has appeared in the form of Ant Design. Ant should feel familiar to veteran developers but it’s built on new principles. Their <a href="https://ant.design/">site</a> spends a good amount of effort distinguishing between good and bad design. There is an emphasis on clarity and meaning. Ant Design is heavily based on psychological principles to anticipate—and be customized for—user behavior.</p>
-
-<p>Ant Design is built for React. In this tutorial, you will build a small React app that displays transactions to the user based on the Ant Design principles. You will use Okta to secure your web application. Okta is very easy to set up and using the libraries for integrating into React is simple. You will learn how to secure your app with Okta and how to put certain pages under authentication.</p>
-
- What is Ant Design? 
-
-<p>Ant Design principles were developed for Ali Baba. Ali Baba is one of the largest companies in the world who’s B2B E-Commerce site is the backbone of a multinational Chinese corporation. Ant Design of React is a set of React components using the Ant Design principles.</p>
-
-<p>It’s virtually impossible to cover all of Ant’s concepts in one article but I’ll attempt to give you a high-level look. Ant aims to be natural, clear, and concise in the presentation of material. It relies on natural user cognition and natural user behavior to dictate where elements are most likely to be seen and how to enable users to quickly identify what type of information they are being shown. Ant is designed to allow for growth in your website as your company and/or line of business grows with it. Ant focuses on developer certainty, rather than relying on what component to use. Ant attempts to guide the developer to user-specific components for a task. Ant is also designed around the concept of helping users achieve their mission. To do this, Ant is focused on providing clear feedback to the user if they are on the right path.</p>
-
-<p>Ant provides many common components you will need to develop any website. This includes the basics like tables and forms, down to alerts, calendars, and tabs. You can also upgrade to a professional license and get access to graphs, charts, dashboards, and much more. Ant also provides several templates along with an online editor to rapidly prototype your site’s design.</p>
-
- Set Up Your Okta Application 
-
-<p>Okta aims to make its SSO service as simple as possible for developers. They have taken on most of the middleware logic with their suite of packages for React. Before you can build your application you will need to set up an application in Okta’s developer console. Navigation to your developer’s console and log in. Click on Applications and click on Add Application. On the next page select Single-Page App and click Next.</p>
-
-<p></p>
-
-<p>In the next section, you will configure your application settings. Give your application a meaningful name. I named my application Transactions but you can name yours whatever you like. Next, you should change the references to <code>localhost:8080</code> to <code>localhost:3000</code> as that is the default development server for React. Click Done and take note of your Client ID on the next page. You will need this in your application.</p>
-
-<p></p>
-
- Create Your React Application 
-
-<p>As this application will be in react you can use the <code>create-react-app</code> toolchain to quickly scaffold your app. To do this open the folder where your application will be and run:</p>
-
-   <code>npx create-react-app transactions
-</code>   
-
-<p>It takes a moment but after it’s complete you can use <code>cd transactions</code> to switch to your new React app.</p>
-
-<p>You’ll need to get a couple of packages from npm. First is the Ant Design of React package that contains the components based on Ant Design.</p>
-
-   <code>npm i antd@4.3.3
-</code>   
-
-<p>Next, you will need to get Okta’s React library to help manage your authentication.</p>
-
-   <code>npm i @okta/okta-react@3.0.2
-</code>   
-
-<p>You’ll also need the React Router package for the web from npm.</p>
-
-   <code>npm i react-router-dom@5.2.0
-</code>   
-
-<p>Finally, you will want to use <code>dotenv</code> to store your sensitive values in the <code>.env</code> file. This file can be added to your <code>.gitignore</code>.</p>
-
-   <code>npm i dotenv@8.2.0
-</code>   
-
-<p>After <code>dotenv</code> is completed you can add a new file to your root directory called <code>.env</code>. Add the following code to it. <code>REACT_APP_OKTA_URL_BASE</code> is the same that you use to log in to create your application. <code>REACT_APP_OKTA_CLIENTID</code> is the ClientId that you obtained after creating your application on Okta’s developer console.</p>
-
-   <code>REACT_APP_OKTA_CLIENTID={yourClientId}
-REACT_APP_OKTA_URL_BASE={yourOktaDomain}
-REACT_APP_OKTA_APP_BASE_URL=http://localhost:3000
-</code>   
-
- Add Your React Components 
-
-<p>The basic setup is done and it’s time to start putting Ant Design of React to work. Add a new folder in your <code>src</code> directory called <code>Components</code>. In this folder add a new file called <code>LoginForm.jsx</code>. Add the following code.</p>
-
-   <code>import React, { useState } from 'react';
-import OktaAuth from '@okta/okta-auth-js';
-import { useOktaAuth } from '@okta/okta-react';
-
-import { Form, Input, Button, Alert, Row, Col } from 'antd';
-
-const LoginForm = ({ baseUrl, issuer }) =&gt; {
-
-  const { authService } = useOktaAuth();
-  const [sessionToken, setSessionToken] = useState();
-  const [username, setUsername] = useState();
-  const [password, setPassword] = useState();
-  const [error, setError] = useState();
-
-  const handleSubmit = (e) =&gt; {
-    e.preventDefault();
-
-    const oktaAuth = new OktaAuth({ url: baseUrl, issuer: issuer });
-    oktaAuth.signIn({ username, password })
-      .then(res =&gt; setSessionToken(res.sessionToken))
-      .catch(err =&gt; setError(err));
-  };
-
-  const layout = {
-    labelCol: { span: 8 },
-    wrapperCol: { span: 8 },
-  };
-
-  const tailLayout = {
-    wrapperCol: { offset: 8, span: 16 },
-  };
-
-  const handleUsernameChange = (e) =&gt; {
-    setUsername(e.target.value);
-  };
-
-  const handlePasswordChange = (e) =&gt; {
-    setPassword(e.target.value);
-  };
-
-  if (sessionToken) {
-    authService.redirect({ sessionToken });
-    return null;
-  }
-
-  const errorAlert = error ? &lt;Row&gt;
-    &lt;Col span="8"&gt;&lt;/Col&gt;
-    &lt;Col span="8"&gt;
-      &lt;Alert message="Authentication Failed" type="warning"&gt;&lt;/Alert&gt;
-    &lt;/Col&gt;
-  &lt;/Row&gt; : ''
-
-  return (
-    &lt;Form
-      {...layout}
-      onSubmit={handleSubmit}
-    &gt;
-
-      &lt;Row&gt;
-        &lt;Col span="8"&gt;&lt;/Col&gt;
-        &lt;Col span="8"&gt;&lt;p&gt;Please Login with your Okta Account&lt;/p&gt;&lt;/Col&gt;
-      &lt;/Row&gt;
-
-      &lt;Form.Item
-        label="Username"
-        name="username"
-        value={username}
-        onChange={handleUsernameChange}
-        rules={[{ required: true, message: 'Please input your username!' }]}
-      &gt;
-        &lt;Input /&gt;
-      &lt;/Form.Item&gt;
-
-      &lt;Form.Item
-        label="Password"
-        name="password"
-        value={password}
-        onChange={handlePasswordChange}
-        rules={[{ required: true, message: 'Please input your password!' }]}
-      &gt;
-        &lt;Input.Password /&gt;
-      &lt;/Form.Item&gt;
-
-      &lt;Form.Item {...tailLayout}&gt;
-        &lt;Button type="primary" htmlType="submit" onClick={handleSubmit}&gt;
-          Login
-        &lt;/Button&gt;
-      &lt;/Form.Item&gt;
-
-      { errorAlert }
-
-    &lt;/Form&gt;
-  );
-};
-export default LoginForm;
-</code>   
-
-<p>This component is a basic login form with username and password fields along with a button and some validation. You can see that your components are imported from the Ant library. Rows and Cols are fairly self-explanatory. One note is that Ant uses a 24-cell grid rather than the 12-cell grid you may be used to from Bootstrap. The form component here has some layout options and an override for the submit. You are tying into the submission to use Okta’s React package for authentication. Ant also provides <code>Form.Item</code> components. These components can have their own validation rules right on the component. Finally, you have an <code>Alert</code> component that will flash a simple validation message if the authentication fails.</p>
-
-<p>Next, you can add a new file in <code>Components</code> called <code>SiteHeader.jsx</code>. The code follows.</p>
-
-   <code>import React from 'react';
-import { useOktaAuth } from '@okta/okta-react';
-import { Layout, Menu } from 'antd'
-
-const { Header } = Layout;
-
-const SiteHeader = (props) =&gt; {
-  const {authState, authService} = useOktaAuth();
-
-  if (authState.isAuthenticated) {
-    return (
-      &lt;Header&gt;
-        &lt;div className="logo"/&gt;
-        &lt;Menu theme="dark" mode="horizontal" defaultSelectedKeys={[props.selectedKey]}&gt;
-          &lt;Menu.Item key="dashboard"&gt;Dashboard&lt;/Menu.Item&gt;
-          &lt;Menu.Item key="logout" onClick={() =&gt; {
-            authService.logout()
-          }}&gt;Logout&lt;/Menu.Item&gt;
-        &lt;/Menu&gt;
-      &lt;/Header&gt;
-    );
-  } else {
-    return (
-      &lt;Header&gt;
-        &lt;div className="logo"/&gt;
-        &lt;Menu theme="dark" mode="horizontal" defaultSelectedKeys={[props.selectedKey]}&gt;
-          &lt;Menu.Item key="home"&gt;&lt;a href="/"&gt;Home&lt;/a&gt;&lt;/Menu.Item&gt;
-          &lt;Menu.Item key="login"&gt;&lt;a href="/Login"&gt;Login&lt;/a&gt;&lt;/Menu.Item&gt;
-        &lt;/Menu&gt;
-      &lt;/Header&gt;
-    );
-  }
-};
-export default SiteHeader;
-</code>   
-
-<p>To avoid a naming conflict with the <code>Header</code> component from <code>antd</code>, this component is called <code>SiteHeader</code>. This component will be placed at the top of each of your pages. The component uses Okta to check the <code>authState</code> and chooses which menu to show. Here is your first exposure to the <code>Menu</code> component provided by Ant. You are passing a <code>selectedKey</code> into the props of this component to set the <code>defaultSelectedKeys</code>. This property will highlight the selected menu item to make it clear to the user what page they are on.</p>
-
-<p>Finally, add a new component called <code>SiteFooter.jsx</code>. Add the following code to it:</p>
-
-   <code>import React from 'react';
-import { Layout } from 'antd';
-
-const { Footer } = Layout;
-
-const SiteFooter = (props) =&gt; {
-  return (
-    &lt;Footer style={{textAlign: 'center'}}&gt;Ant Design ©2020 Created with Ant Design of React using Okta by &lt;a
-      target="_blank" href="https://profile.fishbowlllc.com"&gt;Nik Fisher&lt;/a&gt;&lt;/Footer&gt;
-  );
-
-}
-
-export default SiteFooter;
-</code>   
-
- Create Your Pages 
-
-<p>Now you can use these components to help build your pages. Create a new folder in your <code>src</code> directory called <code>Pages</code>. Add a new file for <code>Home.jsx</code> first.</p>
-
-   <code>import React from 'react';
-import { Redirect } from 'react-router-dom';
-import { useOktaAuth } from '@okta/okta-react';
-import SiteHeader from '../Components/SiteHeader'
-import SiteFooter from '../Components/SiteFooter';
-import { Layout, Row, Col, Card } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
-
-const Home = () =&gt; {
-
-  const { authState } = useOktaAuth();
-  const { Content } = Layout;
-  const { Meta } = Card;
-
-  return (authState.isAuthenticated ?
-    &lt;Redirect to={{ pathname: '/Dashboard' }} /&gt; :
-
-    &lt;Layout&gt;
-      &lt;SiteHeader selectedKey='home'&gt; &lt;/SiteHeader&gt;
-      &lt;Content&gt;
-        &lt;Row style={{ padding: 20 }}&gt;
-          &lt;Col span="4"&gt;&lt;/Col&gt;
-          &lt;Col span="4"&gt;&lt;/Col&gt;
-        &lt;/Row&gt;
-
-        &lt;Row style={{ padding: 20 }}&gt;
-          &lt;Col span="4"&gt;&lt;/Col&gt;
-          &lt;Col style={{ padding: 10 }} span="4"&gt;
-
-            &lt;Card
-              cover={
-                &lt;img
-                  alt="Okta"
-                  src="https://www.okta.com/sites/all/themes/Okta/images/blog/Logos/Okta_Logo_BrightBlue_Medium.png"
-                  height="100px"
-                /&gt;
-              }
-              actions={[
-                &lt;a href="https://www.okta.com" target="_blank"&gt; &lt;SearchOutlined key="ellipsis" /&gt;&lt;/a&gt;
-              ]}
-            &gt;
-
-              &lt;Meta title="Okta"/&gt;
-            &lt;/Card&gt;
-          &lt;/Col&gt;
-
-          &lt;Col style={{ padding: 10 }} span="4"&gt;
-
-            &lt;Card
-              cover={
-                &lt;img
-                  alt="Ant.Design"
-                  src="https://gw.alipayobjects.com/zos/rmsportal/KDpgvguMpGfqaHPjicRK.svg"
-                  height="100px"
-                /&gt;
-              }
-              actions={[
-                &lt;a href="https://ant.design/" target="_blank"&gt; &lt;SearchOutlined key="ellipsis" /&gt;&lt;/a&gt;
-              ]}
-            &gt;
-
-              &lt;Meta title="Ant.Design"/&gt;
-
-            &lt;/Card&gt;
-          &lt;/Col&gt;
-
-          &lt;Col style={{ padding: 10 }} span="4"&gt;
-
-            &lt;Card
-              cover={
-                &lt;img
-                  alt="React"
-                  src="https://upload.wikimedia.org/wikipedia/commons/a/a7/React-icon.svg"
-                  height="100px"
-
-                /&gt;
-              }
-              actions={[
-                &lt;a href="https://reactjs.org/" target="_blank"&gt; &lt;SearchOutlined key="ellipsis" /&gt;&lt;/a&gt;
-              ]}
-            &gt;
-
-              &lt;Meta title="React"/&gt;
-
-            &lt;/Card&gt;
-          &lt;/Col&gt;
-
-          &lt;Col style={{ padding: 10 }} span="4"&gt;
-
-            &lt;Card
-              cover={
-                &lt;img
-                  alt="Fishbowl"
-                  src="https://fishbowlllc.com/images/logo_web.png"
-                  height="100px"
-                  width="50px"
-                /&gt;
-              }
-              actions={[
-                &lt;a href="https://profile.fishbowlllc.com/" target="_blank"&gt; &lt;SearchOutlined key="ellipsis" /&gt;&lt;/a&gt;
-              ]}
-            &gt;
-
-              &lt;Meta title="Fishbowl Software"/&gt;
-
-           &lt;/Card&gt;
-          &lt;/Col&gt;
-        &lt;/Row&gt;
-      &lt;/Content&gt;
-
-      &lt;SiteFooter&gt;&lt;/SiteFooter&gt;
-    &lt;/Layout&gt;
-  );
-};
-export default Home;
-</code>   
-
-<p>Here you see the usage of the <code>selectedKey</code> property on the <code>SiteHeader</code>. As you’ll recall this property will be set on the <code>defaultSelectedKeys</code> property of the <code>Menu</code> component. You are also checking the <code>authState</code> here and redirecting the user to their dashboard page if they are already logged in.</p>
-
-<p>You can also see the <code>Layout</code> and <code>Content</code> section. Ant Design provides many well-designed examples for the basic layout of your page. The home page (and the login page) will have a simple Header/Content/Footer layout.</p>
-
-<p>Next, you can add the <code>Login.jsx</code> page which will make use of your <code>LoginForm</code> component.</p>
-
-   <code>import React from 'react';
-import { Redirect } from 'react-router-dom';
-import LoginForm from '../Components/LoginForm'
-import { useOktaAuth } from '@okta/okta-react';
-import SiteHeader from '../Components/SiteHeader';
-import SiteFooter from '../Components/SiteFooter';
-import { Layout } from 'antd';
-
-const { Content } = Layout;
-
-const Login = ({ baseUrl, issuer }) =&gt; {
-  const { authState } = useOktaAuth();
-
-  if (authState.isPending) {
-    return &lt;div&gt;Loading...&lt;/div&gt;;
-  }
-  return authState.isAuthenticated ?
-    &lt;Redirect to={{ pathname: '/Dashboard' }} /&gt; :
-    &lt;Layout&gt;
-      &lt;SiteHeader selectedKey="login"&gt;&lt;/SiteHeader&gt;
-      &lt;Content&gt;
-        &lt;LoginForm baseUrl={baseUrl} issuer={issuer} /&gt;
-      &lt;/Content&gt;
-
-      &lt;SiteFooter&gt;&lt;/SiteFooter&gt;
-    &lt;/Layout&gt;
-};
-
-export default Login;
-</code>   
-
-<p>Again you are passing the <code>selectedKey</code> value of login to the <code>SiteHeader</code> component. This page also checks an authenticated user and moves the user to the <code>Dashboard</code> page.</p>
-
-<p>Finally, add <code>Dashboard.jsx</code> to your <code>Pages</code> folder and add the following code.</p>
-
-   <code>import React, { Component } from 'react';
-import SiteHeader from '../Components/SiteHeader';
-import SiteFooter from '../Components/SiteFooter'
-import { Layout, Breadcrumb, Menu, Anchor, Table, Tag, Row, Col } from 'antd';
-import { UserOutlined } from '@ant-design/icons';
-const { Content, Header, Sider } = Layout;
-const { SubMenu } = Menu;
-const { Link } = Anchor
-
-class Dashboard extends Component {
-
-  constructor(props, context) {
-    super(props, context);
-
-    const accounts = [
-      {
-        id: 1,
-        name: 'Checking',
-        transactions: [
-          {
-            id: 1,
-            amount: -100.00,
-            type: 'debit',
-            tags: [
-              'groceries'
-            ]
-          },
-          {
-            id: 2,
-            amount: 2000.00,
-            type: 'credit',
-            tags: [
-              'payroll'
-            ]
-          },
-          {
-            id: 3,
-            amount: -50.00,
-            type: 'debit',
-            tags: [
-              'credit card',
-              'bills'
-            ]
-          },
-          {
-            id: 4,
-            amount: -300.00,
-            type: 'debit',
-            tags: [
-              'car',
-              'bills'
-            ]
-          },
-          {
-            id: 5,
-            amount: -1000.00,
-            type: 'transfer out',
-            tags: [
-              'savings'
-            ]
-          },
-          {
-            id: 5,
-            amount: -1000.00,
-            type: 'transfer out',
-            tags: [
-              'mm account'
-            ]
-          }
-        ]
-      },
-      {
-        id: 2,
-        name: 'Savings',
-        transactions: [
-          {
-            id: 1,
-            amount: 1000.00,
-            type: 'transfer in',
-            tags: [
-              'savings'
-            ]
-          }
-        ]
-      },
-      {
-        id: 3,
-        name: 'Mutual Market',
-        transactions: [
-          {
-            id: 1,
-            amount: 1000.00,
-            type: 'transfer in',
-            tags: [
-              'groceries'
-            ]
-          }
-        ]
-      },
-    ]
-
-    var selectedAccount = {};
-    if (this.props.account) {
-      selectedAccount = this.state.accounts.filter(account =&gt; account.id == this.props.account)[0];
-    }
-    else {
-      selectedAccount = accounts[0]
-    }
-
-    this.state = {
-      selectedAccount: selectedAccount,
-      accounts: accounts,
-      viewingTransactions: false
-    }
-  }
-
-  changeDashboard = (e) =&gt; {
-    var key = e.key;
-    this.setState({ selectedAccount: this.state.accounts.filter(account =&gt; account.id == key)[0] });
-  }
-
-  render() {
-    const columns = [
-      {
-        title: 'Type',
-        dataIndex: 'type',
-        key: 'type',
-      },
-      {
-        title: 'Amount',
-        dataIndex: 'amount',
-        key: 'amount',
-        sorter: {
-          compare: (a, b) =&gt; a.amount - b.amount
-        },
-      },
-      {
-        title: 'Tags',
-        dataIndex: 'tags',
-        key: 'tags',
-        render: tags =&gt; {
-          return tags.map(tag =&gt; {
-            return (&lt;Tag color="blue" key={tag}&gt;
-              {tag}
-            &lt;/Tag&gt;);
-          })
-        }
-      },
-    ];
-
-    var table = this.state.selectedAccount.transactions ? &lt;Table dataSource={this.state.selectedAccount.transactions} columns={columns}&gt;&lt;/Table&gt; : ''
-
-    return (
-      &lt;Layout style={{ minHeight: "100vh" }}&gt;
-        &lt;Sider collapsible&gt;
-
-          &lt;div style={{ height: "32px", margin: "16px" }}&gt;&lt;/div&gt;
-          &lt;Menu defaultOpenKeys={['accounts']} defaultSelectedKeys={[this.state.selectedAccount.id ? this.state.selectedAccount.id.toString() : '']} theme="dark" mode="inline"&gt;
-            &lt;SubMenu key="accounts" icon={&lt;UserOutlined /&gt;} title="Accounts"&gt;
-              {
-                this.state.accounts.map((account, i) =&gt; {
-                  return &lt;Menu.Item onClick={(e) =&gt; this.changeDashboard(e)} key={account.id}&gt;{account.name}&lt;/Menu.Item&gt;
-                })
-              }
-            &lt;/SubMenu&gt;
-          &lt;/Menu&gt;
-        &lt;/Sider&gt;
-        &lt;Layout className="site-layout"&gt;
-          &lt;SiteHeader /&gt;
-          &lt;Content style={{ margin: '0 16px' }}&gt;
-            &lt;Breadcrumb style={{ margin: '16px 0' }}&gt;
-              &lt;Breadcrumb.Item&gt;
-                &lt;a href="Dashboard"&gt;Dashboard&lt;/a&gt;
-
-              &lt;/Breadcrumb.Item&gt;
-            &lt;/Breadcrumb&gt;
-
-            &lt;Row&gt;
-              &lt;Col&gt;
-                &lt;h2&gt;{this.state.selectedAccount.name}&lt;/h2&gt;
-              &lt;/Col&gt;
-            &lt;/Row&gt;
-            &lt;Row&gt;
-              &lt;Col span="4"&gt;&lt;/Col&gt;
-              &lt;Col span="16"&gt;{table}&lt;/Col&gt;
-              &lt;Col span="4"&gt;&lt;/Col&gt;
-            &lt;/Row&gt;
-          &lt;/Content&gt;
-
-          &lt;SiteFooter&gt;&lt;/SiteFooter&gt;
-        &lt;/Layout&gt;
-      &lt;/Layout &gt;
-    );
-  }
-};
-export default Dashboard;
-</code>   
-
-<p>The layout here is a little more exotic. You are adding a sidebar menu, called a <code>Sider</code> in Ant Design, that will contain the user’s accounts. You can see at the top of this file you added some sample data to display on this page. There are three accounts. Of course, the <code>Sider</code> menu also accepts <code>defaultSelectedKeys</code> which you are setting to the first account unless a specific account is passed into this page. The <code>Sider</code> is collapsible, providing a collapse button on the bottom of the menu. The <code>Breadcrumb</code> navigation can help users navigate on more complex web structures. This app is simple enough that the breadcrumbs are mostly for show, but they can be instrumental if your users are going to navigate down multiple paths.</p>
-
-<p>You’ll see here you are also using the Row/Col paradigm that you are likely familiar with. In keeping with the 24-grid system, your column spans add up to 24, although the last column isn’t necessary. Finally, you are making use of the <code>Table</code> component provided by Ant Design of React. The table accepts a data source and some column definitions and uses these to generate a table for you. No more loops or maps in your code. The column definitions are very robust. In this example, you are presenting the user with some tags that describe the transactions. Because these tags are in an array you need to use the <code>render</code> function on the column definition to tell Ant what to do with this. In this case, you are creating a <code>Tag</code> for each tag in your array. A sorter on your <code>Amount</code> column allows the user to sort by the transaction amount.</p>
-
- Set up your App.js 
-
-<p>Finally, you will need to define your routes and set up your <code>App.js</code> file. First, add a new file to the <code>src</code> folder called <code>AppWithRouterAccess.jsx</code> and add the following code.</p>
-
-   <code>import React from 'react';
-import { Route, useHistory } from 'react-router-dom';
-import { LoginCallback, SecureRoute, Security } from '@okta/okta-react';
-import Home from './Pages/Home'
-import Dashboard from './Pages/Dashboard'
-import Login from './Pages/Login'
-
-const AppWithRouterAccess = () =&gt; {
-  const history = useHistory();
-  const onAuthRequired = () =&gt; {
-    history.push('/login');
-  };
-
-  const baseDomain = process.env.REACT_APP_OKTA_URL_BASE;
-  const issuer = baseDomain + '/oauth2/default'
-  const clientId = process.env.REACT_APP_OKTA_CLIENTID;
-  const redirect = process.env.REACT_APP_OKTA_APP_BASE_URL + '/login/callback';
-
-  return (
-    &lt;Security issuer={issuer}
-              clientId={clientId}
-              redirectUri={redirect}
-              onAuthRequired={onAuthRequired}
-              pkce={true}&gt;
-      &lt;Route path='/' exact={true} component={Home}/&gt;
-      &lt;Route path='/login' render={() =&gt; &lt;Login baseUrl={baseDomain} issuer={issuer}/&gt;}/&gt;
-      &lt;SecureRoute path='/Dashboard' exact={true} component={Dashboard}/&gt;
-      &lt;Route path='/login/callback' component={LoginCallback}/&gt;
-    &lt;/Security&gt;
-  );
-};
-
-export default AppWithRouterAccess;
-</code>   
-
-<p>This is where you tie together the magic of Okta. By defining <code>Dashboard</code> as a <code>SecureRoute</code> to ensure that the application will check for authentication before allowing the user to process. The function <code>onAuthRequest()</code> is passed into the <code>Security</code> component and moves the user to the <code>Login</code> page if the user isn’t authenticated. The rest of the routes are defined here as well, including one for <code>/login/callback</code> which Okta will use when returning user information to your application.</p>
-
-<p>You need to make your <code>App.js</code> show the application rather than the boilerplate react page.</p>
-
-   <code>import React from 'react';
-import { BrowserRouter as Router } from 'react-router-dom';
-import AppWithRouterAccess from './AppWithRouterAccess';
-import './App.css'
-
-const App = () =&gt; { 
-  return (
-    &lt;Router&gt;
-      &lt;AppWithRouterAccess/&gt;
-    &lt;/Router&gt;
-  );
-}
-
-export default App;
-</code>   
-
-<p>And finally, you will need to import the Ant Design CSS. To do this, open your <code>App.css</code> file and add the line <code>@import '~antd/dist/antd.css';</code> to the top of the file.</p>
-
- Run and Test 
-
-<p>Your application is now complete. In the terminal run the command <code>npm start</code> and see the results. You should be presented with the Home page. From here you can click on Login and use your Okta credentials to log in. Afterward, you will be directed to the dashboard page.</p>
-
-<p>Honestly, there is far more to Ant Design than what you have read here. One could take an entire course on the subject. But Ant can help developers understand what components they should be using and why. The principles developed of studies of human behavior can streamline the design process and make developers certain of which tools to use. I encourage you to try a couple of projects in Ant Design and take the time to learn the principles. In the long run, the knowledge and experience will make you that much better.</p>
-
- Learn More About JavaScript and React 
-
-<p>If you’d like the final version of this code, you can clone it from <a href="https://github.com/oktadeveloper/okta-ant-design-react-example">GitHub</a>. If you have questions about this post, please post them to the comments below. If you have questions about Okta, please submit them to the <a href="https://devforum.okta.com/">Okta Developer Forum</a>. If you enjoyed this post, you might also enjoy these related posts:</p>
-
- 
-   <a>Build Your First Deno App with Authentication</a> 
-   <a>Build a Simple React Application Using Hooks</a> 
-   <a>How to Use CSS Grid to Build a Responsive React App</a> 
- 
-
-<p>Also, don’t forget to follow us on <a href="https://twitter.com/oktadev">Twitter</a> and subscribe to our <a href="https://youtube.com/c/oktadev">YouTube Channel</a>!</p>
-   
-  
-  
-    
-      
-      
-      <div class="photo">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://developer.okta.com/assets-jekyll/blog/ant-design-react-app/okta-app-spa-4e88a7c2437e1fe3bfe9e7027433aa3bfe345b22f718d13d22c5344f38284df0.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:00 &bull;
-   17 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Tuesday, 15. September 2020
  </h2>
@@ -13607,7 +13417,7 @@ export default App;
 
 <div class='item-footer'>
    07:32 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13690,7 +13500,7 @@ export default App;
 
 <div class='item-footer'>
    07:00 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13754,7 +13564,7 @@ export default App;
 
 <div class='item-footer'>
    06:33 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14159,7 +13969,7 @@ export default App;
 
 <div class='item-footer'>
    07:55 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16267,7 +16077,7 @@ The<a href="https://www.digitalsupercluster.ca/"> Digital Technology Supercluste
 
 <div class='item-footer'>
    07:50 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17507,7 +17317,7 @@ entwickelt:</p>
 
 <div class='item-footer'>
    07:26 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
