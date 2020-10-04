@@ -1,11 +1,11 @@
 import yaml, os
 
 input = os.environ.get('config')
-input = os.environ.get('ini')
+output = os.environ.get('ini')
 
 submission = "\n"
 
-with open(config,'r') as file:
+with open(input,'r') as file:
   feed = yaml.load(file, Loader=yaml.FullLoader)
   for k, v in feed.items():
     if k == "_id":
@@ -20,6 +20,6 @@ with open(config,'r') as file:
 
 print(submission)
 
-with open(input,'a') as ini:
+with open(output,'a') as ini:
   ini.write(submission)
   ini.close
