@@ -3,7 +3,6 @@ import yaml, os
 input = os.environ.get('relative') + os.environ.get('config')
 output = os.environ.get('ini')
 
-
 submission = "\n"
 
 with open(input,'r') as file:
