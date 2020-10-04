@@ -1,6 +1,6 @@
 import yaml, os
 
-input = + os.environ.get('config')
+input = os.environ.get('config')
 input = os.environ.get('ini')
 
 submission = "\n"
