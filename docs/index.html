@@ -679,7 +679,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 6:16 PM October 16, 2020 (UTC)</sup>
+<sup>Last Update 8:16 PM October 16, 2020 (UTC)</sup>
 <h1>Identosphere Blog Catcher</h1>
 Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br>Please do <a href="https://www.patreon.com/user?u=35769676">support our collaboration on Patreon</a>!!! 
 
@@ -689,6 +689,245 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
  <h2 class='new-date'>
   Friday, 16. October 2020
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2020/Oct/16/building-evernote-sqlite-exporter/#atom-everything'>Building an Evernote to SQLite exporter</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I've been using Evernote for over a decade, and I've long wanted to export my data from it so I can do interesting things with it. 
+ Ideally I'd use their API for that, so I could continually export new notes via a cron. Unfortunately the API is implemented using Thrift (the only public API I've seen to use that) and my attempts to speak to it from Python have so far failed to get anywhere. 
+ Last
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2020/evernote-datasette.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I've been using Evernote for over a decade, and I've long wanted to export my data from it so I can do interesting things with it.</p>
+<p>Ideally I'd use their API for that, so I could continually export new notes via a cron. Unfortunately the API is implemented <a href="https://evernote.com/blog/so-api-together-evernote-and-thrift/">using Thrift</a> (the only public API I've seen to use that) and my attempts to speak to it from Python have so far <a href="https://twitter.com/simonw/status/1257743727264595968">failed to get anywhere</a>.</p>
+<p>Last weekend I decided to try using their "Export notes" feature instead, and its <a href="https://evernote.com/blog/how-evernotes-xml-export-format-works/">ENEX XML format</a>.</p>
+ ENEX - the Evernote XML export format 
+<p>Select a note - or multiple notes - in the Evernote macOS desktop app, use the <code>File -&gt; Export Notes</code> menu item and Evernote will create a <code>Notes.enex</code> exported XML file.</p>
+<p>These files can get BIG, because any images attached to your notes will be embedded as base64 encoded binary data within the XML. My export is 2.8GB!</p>
+<p>When faced with unknown XML like this it's useful to get a high level overview of what tags are present. in 2009 I wrote <a href="https://github.com/simonw/xml-analyser">a Python script</a> for this - as part of this project I updated it for Python 3 and pushed <a href="https://pypi.org/project/xml-analyser/">a release to PyPI</a>.</p>
+<p>Here's a subset of the output when run against my <code>Notes.enex</code> file (<a href="https://gist.github.com/simonw/eb86bbdd953c2c1dba2007f43e689f2f">full output is here</a>).</p>
+  {
+    "note": {
+        "attr_counts": {},
+        "child_counts": {
+            "content": 2126,
+            "created": 2126,
+            "note-attributes": 2126,
+            "resource": 2605,
+            "tag": 45,
+            "title": 2126,
+            "updated": 2126
+        },
+        "count": 2126,
+        "parent_counts": {
+            "en-export": 2126
+        }
+    },
+    "note-attributes": {
+        "attr_counts": {},
+        "child_counts": {
+            "altitude": 1466,
+            "application-data": 449,
+            "author": 998,
+            "classifications": 51,
+            "content-class": 387,
+            "latitude": 1480,
+            "longitude": 1480,
+            "reminder-done-time": 2,
+            "reminder-order": 2126,
+            "reminder-time": 1,
+            "source": 1664,
+            "source-application": 423,
+            "source-url": 85,
+            "subject-date": 10
+        },
+        "count": 2126,
+        "parent_counts": {
+            "note": 2126
+        }
+    }
+}  
+<p>This shows me that every note is represented as a <code>&lt;note&gt;</code> element, and crucial metadata lives in attributes on a <code>&lt;note-attributes&gt;</code> child element.</p>
+<p>(I thought I'd need to tweak the script for performance since it works by loading the entire file into memory, but my laptop has 32GB of RAM so it didn't even blink.)</p>
+ ENEX limitations 
+<p>I ran into some significant limitations while working with my ENEX export.</p>
+ 
+ Notebooks are not represented in the file at all - you just get the notes. So I can't tell which recipes were in my "cooking" notebook. It's possible to work around this by manually exporting the notes from each notebook one at a time and storing them in separate export files. I didn't bother. 
+ Some of the data in the file - the note content itself for example - consists of further blocks of XML embedded in CDATA. This means you have to run a nested XML parser for every note you process. 
+ The notes XML <code>&lt;en-note&gt;</code> format is mostly XHTML, but includes custom <code>&lt;en-media hash="..."&gt;</code> tags where inline images should be displayed 
+ Those inline images are CDATA encoded base64 strings. They don't include a hash, but I figured out that decoding the base64 string and then running it through MD5 generates the hash that is used in the corresponding <code>&lt;en-media&gt;</code> tag. 
+ Notes in the export don't have any form of unique ID! 
+ 
+<p>That last limitation - the lack of unique IDs - is a huge pain. It means that any export is by necessity a one-time operation - if you edit a note and attempt a re-export you will get a brand new record that can't be automatically used to update the previous one.</p>
+<p>This is particularly frustrating because I know that Evernote assigns a GUID to each note - they just don't include them in the export file.</p>
+ Writing an exporter 
+<p>My <a href="https://dogsheep.github.io/">Dogsheep</a> family of tools aims to liberate personal data from all kinds of different sources and convert it into SQLite, which means I can explore, query and visualize it using <a href="https://datasette.io/">Datasette</a>.</p>
+<p><a href="https://github.com/dogsheep/evernote-to-sqlite">dogsheep/evernote-to-sqlite</a> is my latest entry in that series.</p>
+<p>I based it on <a href="https://github.com/dogsheep/healthkit-to-sqlite">healthkit-to-sqlite</a> because that, too, has to deal with a multiple GB XML file. Both tools use the Python standard library's <a href="https://docs.python.org/3/library/xml.etree.elementtree.html#pull-api-for-non-blocking-parsing">XMLPullParser</a>, which makes XML elements available as a stream without needing to load the entire file into memory at once.</p>
+<p>The conversion code <a href="https://github.com/dogsheep/evernote-to-sqlite/blob/0.2/evernote_to_sqlite/utils.py">is here</a>. It ended up being relatively straight-forward, using <code>ElementTree</code> to extract data from the XML and <a href="https://sqlite-utils.readthedocs.io/">sqlite-utils</a> to write it to a database.</p>
+<p>It implements a progress bar by tracking the number of bytes that have been read from the underlying file XML.</p>
+<p>One optimization: originally I created a single <code>resources</code> table with the resource metadata and a BLOB column containing the binary image contents.</p>
+<p>This table was huge - over a GB - and had very poor performance for operations such as querying and faceting across unindexed columns - because any table scan had to work through MBs of binary data.</p>
+<p>My personal Evernote notebook has around 2,000 resources. 2,000 rows of metadata should usually be very fast to query.</p>
+<p>So... I split the binary data out into a two column <code>resources_data</code> table - <code>md5</code> primary key and a BLOB for <code>data</code>. This massively sped up queries against that <code>resources</code> table.</p>
+<p>And it works! Running the following command produces a SQLite database file containing all of my notes, note metadata and embedded images:</p>
+ <code>evernote-to-sqlite enex evernote.db MyNotes.enex
+</code> 
+ Serving up formatted notes 
+<p>Figuring out the best way to serve up the note content in Datasette is still a work in progress - but I've hacked together a delightfully terrible way of doing this using a one-off plugin.</p>
+<p>Datasette plugins are usually packaged and installed via PyPI, but there's <a href="https://docs.datasette.io/en/stable/writing_plugins.html#writing-one-off-plugins">an alternative option</a> for plugins that don't warrant distribution: create a <code>plugins/</code> directory, drop in one or more Python files and start Datasette pointing <code>--plugins-dir</code> at that directory.</p>
+<p>This is great for hacking on terrible ideas. Here's the <code>evernote.py</code> plugin I wrote in full:</p>
+ from datasette import hookimpl
+import jinja2
+
+START = "&lt;en-note"
+END = "&lt;/en-note&gt;"
+TEMPLATE = """
+&lt;div style="max-width: 500px; white-space: normal; overflow-wrap: break-word;"&gt;{}&lt;/div&gt;
+""".strip()
+
+EN_MEDIA_SCRIPT = """
+Array.from(document.querySelectorAll('en-media')).forEach(el =&gt; {
+    let hash = el.getAttribute('hash');
+    let type = el.getAttribute('type');
+    let path = `/evernote/resources_data/${hash}.json?_shape=array`;
+    fetch(path).then(r =&gt; r.json()).then(rows =&gt; {
+        let b64 = rows[0].data.encoded;
+        let data = `data:${type};base64,${b64}`;
+        el.innerHTML = `&lt;img style="max-width: 300px" src="${data}"&gt;`;
+    });
+});
+"""
+
+@hookimpl
+def render_cell(value, table):
+    if not table:
+        # Don't render content from arbitrary SQL queries, could be XSS hole
+        return
+    if not value or not isinstance(value, str):
+        return
+    value = value.strip()
+    if value.startswith(START) and value.endswith(END):
+        trimmed = value[len(START) : -len(END)]
+        trimmed = trimmed.split("&gt;", 1)[1]
+        # Replace those horrible double newlines
+        trimmed = trimmed.replace("&lt;div&gt;&lt;br /&gt;&lt;/div&gt;", "&lt;br&gt;")
+        return jinja2.Markup(TEMPLATE.format(trimmed))
+
+@hookimpl
+def extra_body_script():
+    return EN_MEDIA_SCRIPT 
+<p>This uses two <a href="https://docs.datasette.io/en/stable/plugin_hooks.html">Datasette plugin hooks</a>.</p>
+<p><code>render_cell()</code> is called every time Datasette's interface renders the value of a column. Here I'm looking for the <code>&lt;en-note&gt;</code> and <code>&lt;/en-note&gt;</code> tags and, if they are present, stripping them off and marking their inner content as safe to display using <code>jinja2.Markup()</code> (without this they would be automatically HTML esacped).</p>
+<p><code>extra_body_script()</code> can be used to inject additional JavaScript at the bottom of the page. I'm injecting some particularly devious JavaScript which scans the page for Evernote's <code>&lt;en-media&gt;</code> tags and, if it finds any, runs a <code>fetch()</code> to get the base64-encoded data from Datasette and then injects that into the page as a 300px wide image element using a <code>data:</code> URI.</p>
+<p>Like I said, this is a pretty terrifying hack! But it works just fine, and my notes are now visible inside my personal Datasette instance:</p>
+<p></p>
+ Bonus feature: search by OCR 
+<p>An interesting feature of Evernote is that it runs cloud-based OCR against images in your notes, enabling you to search across the text contained within them.</p>
+<p>It turns out the output of this OCR process is included in the export XML. It looks like this:</p>
+  &lt;recoIndex
+  docType="unknown"
+  objType="image" objID="76dd28b07797cc9f3f129c4871c5293c" 
+  engineVersion="7.0.24.1" 
+  recoType="service" 
+  lang="en" 
+  objWidth="670" 
+  objHeight="128"&gt;
+  &lt;item x="26" y="52" w="81" h="29"&gt;
+    &lt;t w="76"&gt;This&lt;/t&gt;
+  &lt;/item&gt;
+  &lt;item x="134" y="52" w="35" h="29"&gt;
+    &lt;t w="79"&gt;is&lt;/t&gt;
+  &lt;/item&gt;
+  &lt;item x="196" y="60" w="37" h="21"&gt;
+    &lt;t w="73"&gt;so&lt;/t&gt;
+  &lt;/item&gt;
+  &lt;item x="300" y="60" w="57" h="21"&gt;
+    &lt;t w="71"&gt;can&lt;/t&gt;
+  &lt;/item&gt;
+  &lt;item x="382" y="54" w="79" h="27"&gt;
+    &lt;t w="77"&gt;test&lt;/t&gt;
+  &lt;/item&gt;
+  &lt;item x="486" y="52" w="59" h="29"&gt;
+    &lt;t w="82"&gt;the&lt;/t&gt;
+  &lt;/item&gt;
+  &lt;item x="570" y="54" w="59" h="25"&gt;
+    &lt;t w="74"&gt;OCR&lt;/t&gt;
+    &lt;t w="33"&gt;DeR&lt;/t&gt;
+    &lt;t w="15"&gt;OCR!&lt;/t&gt;
+    &lt;t w="14"&gt;OCR]&lt;/t&gt;
+  &lt;/item&gt;
+&lt;/recoIndex&gt;  
+<p>As far as I can tell an <code>&lt;item&gt;</code> gets multiple <code>&lt;t&gt;</code> elements only if the OCR wasn't 100% sure.</p>
+<p><code>evernote-to-sqlite</code> creates a searchable <code>ocr</code> text field using values from that XML, so I can search my images in Datasette.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2020/evernote-datasette.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:12 &bull;
+   8 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -787,7 +1026,7 @@ Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a 
 
 <div class='item-footer'>
    00:48 &bull;
-   18 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -12542,136 +12781,6 @@ Maybe take a listen!</p>
 <article class='item'>
 
 
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2020/Sep/11/weeknotes-sqlite-dump/#atom-everything'>Weeknotes: datasette-dump, sqlite-backup, talks</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I spent some time this week digging into Python's sqlite3 internals. I also gave two talks and recorded a third, due to air at PyGotham in October. 
- sqlite-dump and datasette-backup 
- I'm running an increasing number of Datasette instances with mutable database files - databases that are updated through a variety of different mechanisms. So I need to start thinking about backups. 
- Prior to this 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>I spent some time this week digging into Python's sqlite3 internals. I also gave two talks and recorded a third, due to air at PyGotham in October.</p>
- sqlite-dump and datasette-backup 
-<p>I'm running an increasing number of Datasette instances with mutable database files - databases that are updated through a variety of different mechanisms. So I need to start thinking about backups.</p>
-<p>Prior to this most of my database files had been relatively disposable: they're built from other sources of data (often by scheduled GitHub Actions) so backups weren't necessary since I could always rebuild them from their point of truth.</p>
-<p>Creating a straight copy of a SQLite database file isn't enough for robust backups, because the file may be accepting writes while you are creating the copy.</p>
-<p>SQLite has various mechanisms for backups. There's an <a href="https://sqlite.org/backup.html">online backup API</a> and more recent SQLite versions support a <a href="https://sqlite.org/lang_vacuum.html#vacuuminto">VACUUM INTO</a> command which also optimizes the backed up database.</p>
-<p>I figured it would be useful to expose this functionality by a Datasette plugin - one that could allow automated backups to be directly fetched from Datasette over HTTPS. So I started work on <a href="https://github.com/simonw/datasette-backup">datasette-backup</a>.</p>
-<p>For the first backup mode, I decided to take advantage of the <a href="https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.iterdump">connection.iterdump()</a> method that's built into Python's sqlite3 module. This method is an iterator that outputs plain text SQL that can recreate a database. Crucially it's a streaming-compatible mechanism - unlike <code>VACUUM INTO</code> which would require me to create a temporary file the same as the database I was backing up.</p>
-<p>I started experimenting with it, and ran into <a href="https://github.com/simonw/datasette-backup/issues/5">a big problem</a>. I make extensive use of SQLite full-text search, but the <code>.sql</code> dumps generated by <code>.iterdump()</code> break with constraint errors if they include any FTS tables.</p>
-<p>After a bit of digging I came across <a href="https://github.com/python/cpython/blame/v3.8.5/Lib/sqlite3/dump.py#L38-L45">a 13 year old comment about this</a> in the cPython source code itself!</p>
-<p>The implementation for <code>.iterdump()</code> turns out to be entirely in Python, and way less complicated than I had expected. So I decided to see if I could get FTS table exports working.</p>
-<p>In a classic case of yak shaving, I decided to create a Python library called <a href="https://github.com/simonw/sqlite-dump">sqlite-dump</a> to solve this problem. And since my existing cookiecutter templates only cover <a href="https://github.com/simonw/datasette-plugin">Datasette Plugins</a> or <a href="https://github.com/simonw/click-app">Click apps</a> I first needed to create a new <a href="https://github.com/simonw/python-lib">python-lib</a> template in order to create the library I needed for my plugin.</p>
-<p>I got it working! Install the <a href="https://github.com/simonw/datasette-backup">datasette-backup</a> plugin on any Datasette instance to get a <code>/-/backup/name-of-database.sql</code> URL that will produce a streaming SQL dump of any attached database.</p>
- A weird bug with SQLite FTS and triggers 
-<p>While working on <code>datasette-backup</code> I noticed a weird issue with some of my SQLite full-text search enabled databases: they kept getting bigger. Way bigger than I would expect them to.</p>
-<p>I eventually noticed that the <code>licenses_fts</code> table in my <a href="https://github-to-sqlite.dogsheep.net/">github-to-sqlite demo database</a> had 7 rows in it, but the accompanying <code>licenses_fts_docsize</code> table had 9,141. I would expect it to only have 7 as well.</p>
-<p>I was stumped as to what was going on, so I <a href="https://sqlite.org/forum/forumpost/e05a261524">turned to the official SQLite forum</a>. I only recently discovered how useful this is as a resource. Dan Kennedy, one of the three core SQLite maintainers, replied within an hour and gave me some useful hints. The root cause turned out to be the way SQLite triggers work: by default, SQLite runs in <code>recursive_triggers=off</code> mode (for backwards compatibility with older databases). This means that an <code>INSERT OR REPLACE</code> update to a table that is backed by full-text search may not correctly trigger the updates needed on the FTS table itself.</p>
-<p>Since there doesn't appear to be any disadvantage to running with <code>recursive_triggers=on</code> I've now set that as the default for <code>sqlite-utils</code>, as-of <a href="https://sqlite-utils.readthedocs.io/en/stable/changelog.html#v2-17">version 2.17</a>.</p>
-<p>I then added a <code>sqlite-utils rebuild-fts data.db</code> command in <a href="https://sqlite-utils.readthedocs.io/en/stable/changelog.html#v2-18">version 2.18</a> which can rebuild the FTS tables in a database and fix the <code>_fts_docsize</code> problem.</p>
- Talks 
-<p>I presented Build your own data warehouse for personal analytics with SQLite and Datasette at PyCon AU last week. The <a href="https://www.youtube.com/watch?v=CPQCD3Qxxik">video is here</a> and includes my first public demo of <a href="https://github.com/dogsheep/beta">Dogsheep Beta</a>, my new combined search engine for personal analytics data imported using my <a href="https://dogsheep.github.io/">Dogsheep</a> family of tools. I took questions in <a href="https://docs.google.com/document/d/1q0sH954Iv83sctmB_sfHJg2zZMYZGhY_n2s38yOCpOU/edit#heading=h.b1b8d2228j9">this Google Doc</a>, and filled out more detailed answers after the talk.</p>
-<p>I gave a talk at PyRVA a couple of days called Rapid data analysis with SQLite and Datasette. Here's <a href="https://www.youtube.com/watch?v=5U3RyzxTKtQ">the video</a> and <a href="https://docs.google.com/document/d/1clxqE0xCqPw5baFLGKOr29iur1sV9ruMj8MNW-Xlzpo/edit">Google Doc</a> for that one.</p>
-<p>I also pre-recorded my talk for PyGotham: <a href="https://2020.pygotham.tv/talks/datasette-an-ecosystem-of-tools-for-working-with-small-data/">Datasette - an ecosystem of tools for working with Small Data</a>. The conference is in the first week of October and I'll be hanging out there during the talk answering questions and chatting about the project, safe from the stress of also having to present it live!</p>
- TIL this week 
- 
- <a href="https://til.simonwillison.net/til/til/typescript_basic-tsc.md">Very basic tsc usage</a> 
- <a href="https://til.simonwillison.net/til/til/aws_instance-costs-per-month.md">Display EC2 instance costs per month</a> 
- <a href="https://til.simonwillison.net/til/til/linux_basic-strace.md">Basic strace to see what a process is doing</a> 
- 
- Releases this week 
- 
- 
-<a href="https://github.com/simonw/datasette-dns/releases/tag/0.1a1">datasette-dns 0.1a1</a> - 2020-09-10 
- 
-<a href="https://github.com/simonw/datasette-dns/releases/tag/0.1a0">datasette-dns 0.1a0</a> - 2020-09-10 
- 
-<a href="https://github.com/dogsheep/dogsheep-beta/releases/tag/0.7a0">dogsheep-beta 0.7a0</a> - 2020-09-09 
- 
-<a href="https://github.com/simonw/sqlite-utils/releases/tag/2.18">sqlite-utils 2.18</a> - 2020-09-08 
- 
-<a href="https://github.com/simonw/sqlite-utils/releases/tag/2.17">sqlite-utils 2.17</a> - 2020-09-07 
- 
-<a href="https://github.com/simonw/datasette-backup/releases/tag/0.1">datasette-backup 0.1</a> - 2020-09-07 
- 
-<a href="https://github.com/simonw/sqlite-dump/releases/tag/0.1.1">sqlite-dump 0.1.1</a> - 2020-09-07 
- 
-<a href="https://github.com/simonw/sqlite-dump/releases/tag/0.1">sqlite-dump 0.1</a> - 2020-09-07 
- 
-<a href="https://github.com/simonw/sqlite-dump/releases/tag/0.1a">sqlite-dump 0.1a</a> - 2020-09-06 
- 
-<a href="https://github.com/simonw/datasette-backup/releases/tag/0.1a">datasette-backup 0.1a</a> - 2020-09-06 
- 
-<a href="https://github.com/simonw/datasette-block-robots/releases/tag/0.3">datasette-block-robots 0.3</a> - 2020-09-06 
- 
-<a href="https://github.com/simonw/datasette-block-robots/releases/tag/0.2">datasette-block-robots 0.2</a> - 2020-09-05 
- 
-<a href="https://github.com/dogsheep/dogsheep-beta/releases/tag/0.6">dogsheep-beta 0.6</a> - 2020-09-05 
- 
-<a href="https://github.com/dogsheep/dogsheep-beta/releases/tag/0.5">dogsheep-beta 0.5</a> - 2020-09-04 
- 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:47 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
 
 <h3 class='item-title'>
  <i class='icon-caret-down item-collapse item-close item-opened'></i>
@@ -17921,7 +18030,7 @@ standards in every school and classroom in the United States. <a>↩︎</a></p>
 
 <div class='item-footer'>
    18:35 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
