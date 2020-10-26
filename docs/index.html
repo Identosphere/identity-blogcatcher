@@ -689,7 +689,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 10:17 PM October 25, 2020 (UTC)</sup>
+<sup>Last Update 12:46 AM October 26, 2020 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -701,6 +701,341 @@
  <h2 class='new-date'>
   Sunday, 25. October 2020
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://justatheory.com'>Just a Theory</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://justatheory.com/2020/10/release-postgres-extensions-with-github-actions/'>Automate Postgres Extension Releases on GitHub and PGXN</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Go beyond testing and fully automate the release of Postgres extensions on both GitHub and PGXN using GitHub actions.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ 
+         
+<p>Back in June, I wrote about <a title="Test Postgres Extensions With GitHub Actions">testing Postgres extensions</a> on
+multiple versions of Postgres using <a href="https://github.com/features/actions">GitHub Actions</a>. The pattern relies on
+Docker image, <a href="https://hub.docker.com/repository/docker/pgxn/pgxn-tools">pgxn/pgxn-tools</a>, which contains scripts to build and run any
+version of PostgreSQL, install additional dependencies, build, test, bundle, and
+release an extension. I’ve since updated it to support testing on the the latest
+development release of Postgres, meaning one can test on any major version from
+8.4 to (currently) 14. I’ve also created GitHub workflows for all of my PGXN
+extensions (except for <a href="https://pgtap.org">pgTAP</a>, which is complicated). I’m quite happy with it.</p>
+<p>But I was never quite satisfied with the release process. Quite a number of
+Postgres extensions also release on GitHub; indeed, <a href="http://blog.cleverelephant.ca">Paul Ramsey</a> told me
+straight up that he did not want to manually upload extensions like <a href="https://github.com/pramsey/pgsql-http">pgsql-http</a>
+and <a href="http://postgis.net">PostGIS</a> to PGXN, but for PGXN to automatically pull them in when they were
+published on GitHub. It’s pretty cool that newer packaging systems like
+<a href="https://pkg.go.dev">pkg.go.dev</a> auto-index any packages on GibHub. Adding such a feature to PGXN
+would be an interesting exercise.</p>
+<p>But since I’m low on TUITs for such a significant undertaking, I decided instead
+to work out how to automatically publish a release on GitHub and PGXN via
+<a href="https://github.com/features/actions">GitHub Actions</a>. After experimenting for a few months, I’ve worked out a
+straightforward method that should meet the needs of most projects. I’ve proven
+the pattern via the <a href="https://github.com/theory/kv-pair/">pair extension</a>’s <a href="https://github.com/theory/kv-pair/blob/main/.github/workflows/release.yml"><code>release.yml</code></a>, which successfully
+published the v0.1.7 release today on both <a href="https://github.com/theory/kv-pair/releases/tag/v0.1.7">GitHub</a> and
+<a href="https://pgxn.org/dist/pair/0.1.7/">PGXN</a>. With that success, I updated the <a href="https://hub.docker.com/repository/docker/pgxn/pgxn-tools">pgxn/pgxn-tools</a>
+documentation with a starter example. It looks like this:</p>
+  
+
+ <code> 1
+ 2
+ 3
+ 4
+ 5
+ 6
+ 7
+ 8
+ 9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+</code> 
+
+ <code>name: Release
+on:
+  push:
+    tags:
+      - 'v*' # Push events matching v1.0, v20.15.10, etc.
+jobs:
+  release:
+    name: Release on GitHub and PGXN
+    runs-on: ubuntu-latest
+    container: pgxn/pgxn-tools
+    env:
+      # Required to create GitHub release and upload the bundle.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - name: Check out the repo
+      uses: actions/checkout@v2
+    - name: Bundle the Release
+      id: bundle
+      run: pgxn-bundle
+    - name: Release on PGXN
+      env:
+        # Required to release on PGXN.
+        PGXN_USERNAME: ${{ secrets.PGXN_USERNAME }}
+        PGXN_USERNAME: ${{ secrets.PGXN_PASSWORD }}
+      run: pgxn-release
+    - name: Create GitHub Release
+      id: release
+      uses: actions/create-release@v1
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body: |
+          Changes in this Release
+          - First Change
+          - Second Change          
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      with:
+        # Reference the upload URL and bundle name from previous steps.
+        upload_url: ${{ steps.release.outputs.upload_url }}
+        asset_path: ./${{ steps.bundle.outputs.bundle }}
+        asset_name: ${{ steps.bundle.outputs.bundle }}
+        asset_content_type: application/zip
+</code> 
+ 
+ <p>Here’s how it works:</p>
+ 
+ 
+<p>Lines 4-5 trigger the workflow only when a tag starting with the letter v is
+pushed to the repository. This follows the common convention of tagging
+releases with version numbers, such as <code>v0.1.7</code> or <code>v4.6.0-dev</code>. This
+assumes that the tag represents the commit for the release.</p>
+ 
+ 
+<p>Line 10 specifies that the job run in the <a href="https://hub.docker.com/repository/docker/pgxn/pgxn-tools">pgxn/pgxn-tools</a> container, where
+we have our tools for building and releasing extensions.</p>
+ 
+ 
+<p>Line 13 passes the <code>GITHUB_TOKEN</code> variable into the container. This is the
+GitHub <a href="https://github.com/settings/tokens/new">personal access token</a> that’s automatically set for every build. It
+lets us call the <a href="https://docs.github.com/">GitHub API</a> via actions later in the workflow.</p>
+ 
+ 
+<p>Step “Bundle the Release”, on Lines 17-19, validates the extension
+<code>META.json</code> file and creates the release zip file. It does so by simply
+reading the distribution name and version from the <code>META.json</code> file and
+archiving the Git repo into a zip file. If your process for creating a
+release file is more complicated, you can do it yourself here; just be sure
+to include an <code>id</code> for the step, and emit a line of text so that later
+actions know what file to release. The output should look like this, with
+<code>$filename</code> representing the name of the release file, usually
+<code>$extension-$version.zip</code>:</p>
+ <code>::set-output name=bundle::$filename
+</code>  
+ 
+<p>Step “Release on PGXN”, on lines 20-25, releases the extension on PGXN. We
+take this step first because it’s the strictest, and therefore the most
+likely to fail. If it fails, we don’t end up with an orphan GitHub release
+to clean up once we’ve fixed things for PGXN.</p>
+ 
+ 
+<p>With the success of a PGXN release, step “Create GitHub Release”, on lines
+26-35, uses the GitHub <a href="https://github.com/actions/create-release">create-release</a> action to create a release
+corresponding to the tag. Note the inclusion of <code>id: release</code>, which will be
+referenced below. You’ll want to customize the body of the release; for the <a href="https://github.com/theory/kv-pair/">pair extension</a>, I added a simple <a href="https://github.com/theory/kv-pair/blob/798cd00e76b5b029967262101b9bb2c4add0e9d2/Makefile#L28-L29">make target</a> to generate a file, then pass it
+via the <code>body_path</code> config:</p>
+  <code>- name: Generate Release Changes
+  run: make latest-changes.md
+- name: Create GitHub Release
+  id: release
+  uses: actions/create-release@v1
+  with:
+    tag_name: ${{ github.ref }}
+    release_name: Release ${{ github.ref }}
+    body_path: latest-changes.md
+</code>   
+ 
+<p>Step “Upload Release Asset”, on lines 36-43, adds the release file to the
+GitHub release, using output of the <code>release</code> step to specify the URL to
+upload to, and the output of the <code>bundle</code> step to know what file to upload.</p>
+ 
+ 
+<p>Lotta steps, but works nicely. I only wish I could require that the testing
+workflow finish before doing a release, but I generally tag a release once it
+has been thoroughly tested in previous commits, so I think it’s acceptable.</p>
+<p>Now if you’ll excuse me, I’m off to add this workflow to my other PGXN
+extensions.</p>
+
+         
+
+         
+             More about… 
+             
+                 <a href="https://justatheory.com/tags/postgres/">Postgres</a> 
+                 <a href="https://justatheory.com/tags/pgxn/">PGXN</a> 
+                 <a href="https://justatheory.com/tags/github/">GitHub</a> 
+                 <a href="https://justatheory.com/tags/github-actions/">GitHub Actions</a> 
+                 <a href="https://justatheory.com/tags/automation/">Automation</a> 
+                 <a href="https://justatheory.com/tags/ci/cd/">CI/CD</a> 
+             
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:48 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://reb00ted.org/'>reb00ted</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://reb00ted.org/quick-notes/20201025-face-recognition-everywhere/'>Face recognition everwhere, yay!</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   “Police are using facial recognition for minor crimes because they can.” CNET. 
+ 
+  
+  
+   
+  
+  
+ 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>“Police are using facial recognition for minor crimes because they can.” CNET.</p>
+ 
+  
+  <a href="https://www.cnet.com/news/police-are-using-facial-recognition-for-minor-crimes-because-they-can/">
+   
+  </a>
+  
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:33 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -760,7 +1095,7 @@
 
 <div class='item-footer'>
    19:18 &bull;
-   3 hours ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -824,7 +1159,7 @@
 
 <div class='item-footer'>
    10:55 &bull;
-   11 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -904,7 +1239,7 @@
 
 <div class='item-footer'>
    01:14 &bull;
-   21 hours ago
+   24 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2484,7 +2819,7 @@ via economics that are not based on money. Interesting experiment.</p>
 
 <div class='item-footer'>
    12:41 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2969,7 +3304,7 @@ via economics that are not based on money. Interesting experiment.</p>
 
 <div class='item-footer'>
    12:15 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5446,7 +5781,7 @@ Successfully installed package-boilerplate-1.0.0
  
 
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201025%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201025T221800Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=eb8471e703b2c735c96c0a42af494859a8cab6244a09eee9db556d25109f3b06">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201026%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201026T004728Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=a7c6828528048b8f70962072e8b069b0081a504780fe87ce5b372ea145c581af">
   
  </a>
  And the text is orange like we wanted! What if we wanted to import the module in a different project? Let's try:
@@ -5477,7 +5812,7 @@ Type "help", "copyright", "credits" or "license" for more information.
  
 
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201025%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201025T221800Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=132b2a62e9ebb21516170a8ae163ac953475b5cd98917e2fbe59de13fad4eccc">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201026%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201026T004728Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=a8dd4e5116e0cc002af1522686ec60ba16b54cd8d30b2ab70b78711194a3b214">
   
  </a>
  It works! And we even get the coloured text.
@@ -5499,7 +5834,7 @@ Type "help", "copyright", "credits" or "license" for more information.
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201025%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201025T221759Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=0167aa30597d80b7954e74890d21d23db7ece85fc079bc843f2de56105e919f8'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201026%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201026T004728Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=e56306ec103b22c5d2a8cdcc680cff3c95bd6233b83b852251c05a93cb39bf69'>
       </div>
     
   
@@ -7723,7 +8058,7 @@ capitalism, and chances are, you do, too!</p>
  .
 </p>
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/docker.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201025%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201025T221802Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=5f5e8adaff901b39a6471787e29a3209ffac0857e08162250d1bb64225783d41">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/docker.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201026%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201026T004728Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=4c3cde30df126c3c4f243923004c816d2ab90e63a691ae4170bc76d38c7eeb3d">
   
  </a>
 </p>
@@ -8560,7 +8895,7 @@ cd - &gt; /dev/null
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/dockeryard.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201025%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201025T221801Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=14e493d4365a20e646816b17b2f59f1ab0444598ac793791179dc18454efe583'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/dockeryard.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201026%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201026T004728Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=100c4fb355af52d2269483f88608488e73cffc2f3317b324a13e9eab08d660d3'>
       </div>
     
   
@@ -12815,7 +13150,7 @@ A screen shot of The Opportunity Atlas
 
 <div class='item-footer'>
    11:18 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13007,7 +13342,7 @@ Image by author:<br>Parents wearing Humanity Power T-Shirt
 
 <div class='item-footer'>
    00:11 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -14593,74 +14928,6 @@ vote.</p>
 
 <div class='item-footer'>
    01:52 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Tuesday, 15. September 2020
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://reb00ted.org/'>reb00ted</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://reb00ted.org/quick-notes/20200915-covid-19-symptom-challenge/'>Know more about COVID-19 than your public health authority</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Hack a large symptom dataset and win $50k in this COVID-19 data science competition! Here is the webinar. 
-
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>Hack a large symptom dataset and win $50k in this COVID-19 data science competition! Here is the webinar.</p>
-
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:14 &bull;
    1 months ago
 </div>
 
@@ -24877,133 +25144,6 @@ and perhaps build and publish relevant actions on the <a href="https://github.co
 
 <div class='item-footer'>
    20:33 &bull;
-   5 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Wednesday, 03. June 2020
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.windley.com/'>Phil Windley's Technometria</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.windley.com/archives/2020/06/using_sovrin_for_age_verification.shtml'>Using Sovrin for Age Verification</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Summary: How can I use Sovrin to perform age verification to minimize the personal data I have to keep? This blog post discusses the basics. 
-
-
-
-
- 
-    Kamea, a member of the Sovrin Telegram channel asked this question:
- 
- 
-    I’m looking for our users to sign up with a Sovrin account, validate their identity, then use it to verify age and passport country on our network using a zk proof so we do
-   
-  
-  
-  
-  
-    
-      
-      
-      <div class="preview">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://www.windley.com/archives/2020/06/age_verification.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>Summary: How can I use Sovrin to perform age verification to minimize the personal data I have to keep? This blog post discusses the basics.</p>
-
-
-<a></a>
-
-<p>
-    Kamea, a member of the Sovrin Telegram channel asked this question:
-</p>
-<blockquote>
-    I’m looking for our users to sign up with a Sovrin account, validate their identity, then use it to verify age and passport country on our network using a zk proof so we don’t have to handle any personal data.
-</blockquote>
-
-<p>
-    There are actually two different things here and it's useful to separate them.
-</p>
-
-<p>
-    First, there's no such thing as a "Sovrin account". SSI doesn't have accounts, it has relationships and credentials. But your company will have accounts. The way that works is you set up an enterprise agency on your side to create a relationship (technically a peer DID exchange) with anyone who wants to create an account with you. After they establish that relationship, you can begin to collect attributes you need to provide service. Some of those will be self asserted and some you might require credentials depending on your use case.
-</p>
-
-<p>
-    The second thing is determining which credentials you want to require. If your requirement is an attested proof of age, then there could be several choices. In an ideal world, people would have a number of those (e.g. national ID, drivers license, passport, bank KYC, etc.) In the current world, you might have to partner with someone like Onfido or another KYC company do give people a way to get their age verified and a credential to use in proving it. Once people have this credential, however, it gives them the means of proving their age (and likely other attributes) anywhere, not just to you.
-</p>
-
-<p>
-    Kamea mentioned the desire to avoid handling personal data and this is a good solution for that. The proof would record that the person was over 18 and their country of residence without seeing or recording any other information.
-</p>
-
-<p>
-    I recommend running through the <a href="https://try.connect.me">demo at Connect.me</a> to see how all this could work. There are a number of vendors who can supply help with enterprise agencies and consulting on how to set this up in your organization. 
-</p>
-
- 
-<p>Photo Credit: <a href="https://www.flickr.com/photos/loopzilla/8618797761">Under 25? Please be prepared to show proof of age when buying alcohol</a> from Gordon Joly (CC BY-SA 2.0)</p>
-
-
-<p>Tags: 
-<a href="https://www.windley.com/tags/sovrin">sovrin</a> <a href="https://www.windley.com/tags/sovrin+use+cases">sovrin+use+cases</a> 
-</p>
-   
-  
-  
-    
-      
-      
-      <div class="photo">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.windley.com/archives/2020/06/age_verification.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:33 &bull;
    5 months ago
 </div>
 
