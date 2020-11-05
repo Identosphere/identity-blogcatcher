@@ -25,7 +25,7 @@ from feedsearch_crawler import search
 import logging
 logging.basicConfig(filename='example.log',level=logging.DEBUG)
 from feedsearch_crawler import output_opml
-list = ["http://bigfintechmedia.com/Blog/","http://blockchainespana.com/","http://blog.deanland.com/"]
+list = ["https://mattr.global/","https://learn.mattr.global"]
 for items in list:
     feeds = search(items)
     output_opml(feeds).decode()
@@ -40,7 +40,7 @@ https://github.com/mitmedialab/feed_seeker
 
 ```
 from feed_seeker import generate_feed_urls
-list = ["http://bigfintechmedia.com/Blog/","http://blockchainespana.com/","http://blog.deanland.com/"]
+list = ["http://mattr.global/","http://learn.mattr.global/"]
 for items in list:
     for url in generate_feed_urls(items):
         print(url)
