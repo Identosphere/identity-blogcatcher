@@ -694,7 +694,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 6:09 PM November 18, 2020 (UTC)</sup>
+<sup>Last Update 12:21 AM November 19, 2020 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -706,6 +706,127 @@
  <h2 class='new-date'>
   Wednesday, 18. November 2020
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2020/Nov/18/indieauth/#atom-everything'>Implementing IndieAuth for Datasette</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   IndieAuth is a spiritual successor to OpenID, developed and maintained by the IndieWeb community and based on OAuth 2. This weekend I attended IndieWebCamp East Coast and was inspired to try my hand at an implementation. datasette-indieauth is the result, a new plugin which enables IndieAuth logins to a Datasette instance. 
+ Surprisingly this was my first IndieWebCamp - I've been adjacent to that 
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2020/datasette-indieauth.gif'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://indieweb.org/IndieAuth">IndieAuth</a> is a spiritual successor to <a href="https://openid.net/">OpenID</a>, developed and maintained by the IndieWeb community and based on OAuth 2. This weekend I attended <a href="https://indieweb.org/2020/East">IndieWebCamp East Coast</a> and was inspired to try my hand at an implementation. <a href="https://github.com/simonw/datasette-indieauth">datasette-indieauth</a> is the result, a new plugin which enables IndieAuth logins to a Datasette instance.</p>
+<p>Surprisingly this was my first IndieWebCamp - I've been adjacent to that community for over a decade, but I'd never made it to one of their in-person events before. Now that everything's virtual I didn't even have to travel anywhere, so I finally got to break my streak of non-attendance.</p>
+ Understanding IndieAuth 
+<p>The key idea behind IndieAuth is to provide federated login based on URLs. Users enter a URL that they own (e.g. <code>simonwillison.net</code>), and the protocol then derives their identity provider, redirects the user there, waits for them to sign in and get redirected back and then uses tokens passed in the redirect to prove the user's ownership of the URL and sign them in.</p>
+<p>Here's what that authentication flow looks like:</p>
+<p></p>
+<p>IndieAuth works by scanning the linked page for a <code>&lt;link rel="authorization_endpoint" href="https://indieauth.com/auth"&gt;</code> HTML element which indicates a service that should be redirected to in order to authenticate the user.</p>
+<p>I'm using IndieAuth.com for my own site's authorization endpoint, an identity provider run by IndieAuth spec author <a href="https://aaronparecki.com/">Aaron Parecki</a>. IndieAuth.com implements <a href="http://microformats.org/wiki/RelMeAuth">RelMeAuth</a>.</p>
+<p>RelMeAuth is a neat hack where the authentication provider can scan the user's URL for a <code>&lt;link href="https://github.com/simonw" rel="me"&gt;</code> element, confirm that the GitHub profile in question links back to the same page, and then delegate to GitHub authentication for the actual sign-in.</p>
+ Why implement this for Datasette? 
+<p>A key goal of Datasette is to reduce the friction involved in publishing data online as much as possible.</p>
+<p>The <a href="https://docs.datasette.io/en/latest/publish.html#datasette-publish">datasette publish</a> command addresses this by providing a single CLI command for publishing a SQLite database to the internet and assigning it a new URL.</p>
+ <code>datasette publish cloudrun ca-fires.db \
+    --service ca-fires \
+    --title "Latest fires in California"
+</code> 
+<p>This command will create a new Google Cloud Run service, package up the <code>ca-fires.db</code> (created <a href="https://simonwillison.net/2020/Nov/14/personal-data-warehouses/">in this talk</a>) along with the Datasette web application, and deploy the resulting site using Google Cloud Run.</p>
+<p>It will output a URL that looks like this: <code>https://ca-fires-j7hipcg4aq-uc.a.run.app</code></p>
+<p>Datasette is unauthenticated by default - anyone can view the published data. If you want to add authentication you can do so using a plugin, for example <a href="https://github.com/simonw/datasette-auth-passwords">datasette-auth-passwords</a>.</p>
+<p>Authentication without passwords is better. The <a href="https://github.com/simonw/datasette-auth-github">datasette-auth-github</a> plugin implements single-sign-on against the GitHub API, but comes with a slight disadvantage: you need to register and configure your application with GitHub in order to configure things like the redirect URL needed for authentication.</p>
+<p>For most applications this isn't a problem, but when you're deploying dozens or potentially hundreds of applications with Datasette - each with initially unpredictable URLs - this can add quite a bit of friction.</p>
+<p>The joy of IndieAuth (and OpenID before it) is that there's no centralized authority to register with. You can deploy an application to any URL, install the <code>datasette-indieauth</code> plugin and users can start authenticating with your site.</p>
+<p>Even better... IndieAuth means you can grant peopl permission to access a site without them needing to create an account, provided they have their own domain with IndieAuth setup.</p>
+<p>I took advantage of that in the design of <code>datasette-indieauth</code>. Say you want to publish a Datasette that only I can access - you can do that using the <code>restrict_access</code> plugin configuration setting like so:</p>
+ <code>datasette publish cloudrun simon-only.db \
+  --service simon-only \
+  --title "For Simon's eye only" \
+  --install datasette-indieauth \
+  --plugin-secret datasette-indieauth \
+    restrict_access https://simonwillison.net/
+</code> 
+<p>The resulting Datasette instance will require the user to authenticate in order to view it - and will only allow access to the user who can use IndieAuth to prove that they are the owner of <code>simonwillison.net</code>.</p>
+ Next steps 
+<p>There are two sides to the IndieAuth specification: client sites that allow sign-in with IndieAuth, and authorization providers that handle that authentication.</p>
+<p><code>datasette-indieauth</code> currently acts as a client, allowing sign-in with IndieAuth.</p>
+<p>I'm considering extending the plugin to act as an authorization provider as well. This is a bit more challenging as authentication providers need to maintain some small aspects of session state, but it would be good for the IndieAuth ecosystem for there to be more providers. The most widely used provider at the moment is the excellent <a href="https://wordpress.org/plugins/indieauth/">IndieAuth WordPress plugin</a>, which I used while testing my Datasette plugin and really was just a one-click install from the WordPress plugin directory.</p>
+<p><code>datasette-indieauth</code> has 100% test coverage, and I wrote the bulk of the logic in a standalone <a href="https://github.com/simonw/datasette-indieauth/blob/1.0/datasette_indieauth/utils.py">utils.py module</a> which could potentially be extracted out of the plugin and used to implement IndieAuth in Python against other frameworks. A Django IndieAuth provider is another potential project, which could integrate directly with my Django blog.</p>
+ Addendum: what about OpenID? 
+<p>Fom 2006 to 2010 I was a <a href="https://simonwillison.net/tags/openid/">passionate advocate</a> for <a href="https://openid.net/">OpenID</a>. It was clear to me that passwords were an increasingly unpleasant barrier to secure usage of the web, and that some form of federated sign-in was inevitable. I was terrified that Microsoft Passport would take over all authentication on the web!</p>
+<p>With hindsight that's not quite what happened: for a while it looked like Facebook would win instead, but today it seems to be a fairly even balance between Facebook, Google, community-specific authentication providers like GitHub and Apple's iPhone-monopoly-enforced Sign in with Apple.</p>
+<p>OpenID as an open standard didn't really make it. The specification grew in complicated new directions (Yadis, XRDS, i-names, OpenID Connect, OpenID 2.0) and it never quite overcame the usability hurdle of users having to understand URLs as identifiers.</p>
+<p>IndieAuth is a much simpler specification, based on lessons learned from OAuth. I'm still worried about URLs as identifiers, but helping people reclaim their online presence and understand those concepts is core to what the <a href="https://indieweb.org/">IndieWeb movement</a> is all about.</p>
+<p>IndieAuth also has some clever additional tricks up its sleeve. My favourite is that IndieAuth can return an identifier for the user that's different from the one they typed in the box. This means that if a top-level domain with many users supports IndieAuth, each user can learn to just type <code>example.com</code> in (or click a branded button) to start the authentication flow - they'll be signed in as <code>example.com/users/simonw</code> based on who they authenticated as. This feels like an enormous usability improvement to me, and one that could really help avoid users having to remember their own profile URLs.</p>
+<p>OpenID was trying to solve authentication for every user of the internet. IndieAuth is less ambitious - if it only takes off with the subset of people who embrace the IndieWeb movement I think that's OK.</p>
+<p>The <code>datasette-indieauth</code> project is yet another example of the benefit of having a plugin ecosystem around Datasette: I can add support for technologies like IndieAuth without baking them into Datasette's core, which almost eliminates the risk to the integrity of the larger project of trying out something new.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2020/datasette-indieauth.gif'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:22 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -778,7 +899,7 @@
 
 <div class='item-footer'>
    03:46 &bull;
-   14 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -863,7 +984,7 @@
 
 <div class='item-footer'>
    23:00 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -3018,7 +3139,7 @@ times are getting ripe for doing something better… stay tuned :-)</p>
 
 <div class='item-footer'>
    10:41 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8921,7 +9042,7 @@ providing a of roadmap
 
 <div class='item-footer'>
    10:16 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11430,7 +11551,7 @@ via economics that are not based on money. Interesting experiment.</p>
 
 <div class='item-footer'>
    18:46 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -13651,7 +13772,7 @@ Successfully installed package-boilerplate-1.0.0
  
 
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201118%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201118T181029Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=565f1d030fb44d8c95e5eb098a1d22a4cb8f4a2e90b07a47cab4d19ef4be9177">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201119%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201119T002400Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=72145176ec9cc2916d01795b6c1fab4befc29e8b234688d98fb32365e08f7917">
   
  </a>
  And the text is orange like we wanted! What if we wanted to import the module in a different project? Let's try:
@@ -13682,7 +13803,7 @@ Type "help", "copyright", "credits" or "license" for more information.
  
 
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201118%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201118T181029Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=1bcc95e1140a34d686956bdf90dd9544060fe24d524ffc63e5ccfd0aef5945f7">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201119%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201119T002400Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=8b197c3c5197f6389a06ef17c14d4c627b6d2c9151d04c6c49519a279166937f">
   
  </a>
  It works! And we even get the coloured text.
@@ -13704,7 +13825,7 @@ Type "help", "copyright", "credits" or "license" for more information.
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201118%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201118T181029Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=a54ba636c3804bd05c1985254ca5a56bc7548a435072fa7466990c4e1b15e9f3'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201119%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201119T002400Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=2075999849bc7372b8ccf5fe3e096024758a962a1225855fa05e2225ac4cc039'>
       </div>
     
   
@@ -14004,68 +14125,6 @@ Over the past few years, I've begun or contributed to a number of open source pr
 
 <div class='item-footer'>
    00:41 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2020/Oct/12/evernote-to-sqlite/#atom-everything'>evernote-to-sqlite</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   evernote-to-sqlite 
- The latest tool in my Dogsheep series of utilities for personal analytics: evernote-to-sqlite takes Evernote note exports en their ENEX XML format and loads them into a SQLite database. Embedded images are loaded into a BLOB column and the output of their cloud-based OCR system is added to a full-text search index. Notes have a latitude and longitude which means you can visual
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://github.com/dogsheep/evernote-to-sqlite">evernote-to-sqlite</a></p>
-<p>The latest tool in my Dogsheep series of utilities for personal analytics: evernote-to-sqlite takes Evernote note exports en their ENEX XML format and loads them into a SQLite database. Embedded images are loaded into a BLOB column and the output of their cloud-based OCR system is added to a full-text search index. Notes have a latitude and longitude which means you can visualize your notes on a map using Datasette and datasette-cluster-map.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:38 &bull;
    1 months ago
 </div>
 
@@ -15047,7 +15106,7 @@ capitalism, and chances are, you do, too!</p>
  .
 </p>
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/docker.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201118%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201118T181029Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=728e7cde5da46f17e61b9057e9be4c2926f69fde86eaba053a63134af593dbf3">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/docker.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201119%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201119T002400Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=45bb34ff69a515b3cbf0154283aa8726b652c2d19fc6c68a8f0558eb37c6df5a">
   
  </a>
 </p>
@@ -15884,7 +15943,7 @@ cd - &gt; /dev/null
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/dockeryard.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201118%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201118T181029Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=bb0e09fa1bd654b41c972aab463a2843769ced0db166aec7a63cf4d344c77e23'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/dockeryard.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201119%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201119T002400Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=88610aa5afc3424078d96a4f5a41a37290e6f1193cf7fddaedd921c1081c8d4f'>
       </div>
     
   
@@ -22536,7 +22595,7 @@ get covered these days in it in some way?</p>
 
 <div class='item-footer'>
    20:50 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
