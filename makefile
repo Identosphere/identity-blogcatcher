@@ -1,4 +1,4 @@
-.PHONY: merge build orgsfeed test testorg
+.PHONY: merge build orgsfeed test testorg try
 
 merge:
 	pluto m planetid.ini -t planetid -o docs
@@ -15,6 +15,9 @@ build:
 	git commit -a -m "build feeds"
 	git pull
 	git push
+
+try:
+	pluto b try.ini -t planetid -o try
 
 test:
 	pluto m planetid.ini -t planetid -o test
