@@ -313,7 +313,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 10:39 AM December 10, 2020 (UTC)</sup>
+<sup>Last Update 3:41 PM December 10, 2020 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identosphere - Organization Blog Feeds</h1>
@@ -325,6 +325,208 @@
  <h2 class='new-date'>
   Thursday, 10. December 2020
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.ceramic.network/'>Ceramic Network</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.ceramic.network/how-to-store-encrypted-secrets-using-idx/'>How to store encrypted secrets using IDX</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Learn to encrypt, store, and recover user-managed secrets with IDX.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This tutorial will demonstrate how to allow users of your application or platform to encrypt secrets with a DID and store them in their <a href="https://idx.xyz/">IDX</a>. Apps and libraries can use this pattern to easily store and recover seeds, secret keys, personal information, application data, and credentials that they may need for their own systems, simply based on the ability to authenticate a DID. </p><p>Because IDX allows any data to be associated to a DID in a decentralized manner, the secrets and information stored in IDX are secure, 100% owned by the user, and can easily be discovered and accessed by any application or platform allowed by the user. (Interop!) Under the hood, IDX uses <a href="https://www.ceramic.network/">Ceramic</a> as a decentralized data storage protocol.</p><p>In this tutorial we will use the following technologies:</p>  <a href="https://github.com/3box/identity-wallet-js">DIDs</a>: a W3C standard for decentralized identifiers  <a href="https://tools.ietf.org/html/rfc7516">JWE</a>: an IETF standard for encrypted content  <a href="https://docs.ceramic.network/modules/_ceramicnetwork_http_client.html">Ceramic HTTP client</a>: a JS client for interacting with a remote Ceramic node over HTTP  <a href="https://idx.xyz/docs/libs-idx">IDX</a>: a protocol for user-centric data management based on DIDs  <a href="https://github.com/ceramicnetwork/key-did-provider-ed25519/">Ed25519 Key DID provider</a>: a library for using the Key DID method  <a href="https://github.com/achingbrain/uint8arrays">uint8arrays</a>: a utility library for converting between binary and text data   Environment setup <p>To get started using IDX, we'll first need to install the Ceramic and IDX CLIs using <code>npm</code>. You'll also need to have <code>node</code> installed.</p> <code>npm install -g @ceramicnetwork/cli @ceramicstudio/idx-cli</code> <p>Then we'll start the Ceramic daemon to run a local Ceramic node:</p> <code>ceramic daemon
+</code> <p>We will also need to make sure the Ceramic node supports IDX documents, using the following command:</p> <code>idx bootstrap</code> <p>Now let's create a DID and give it the label <code>local</code> so we can more easily reference it throughout the rest of this tutorial. We will use this DID for authentication when interacting with the CLI as a developer (not an end-user):</p> <code>idx did:create --label=local</code>  Data model <p>To store our encrypted secret using Ceramic and IDX, we will need two things:</p>  A JSON schema for the encrypted payload (JWE)  An IDX definition to uniquely identify our encrypted secret in the user's IDX index   JWE schema <p>We will use the following JSON schema to validate that the encrypted payloads match the JWE specification when storing them on Ceramic:</p> <code>{
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  title: 'JWE',
+  type: 'object',
+  properties: {
+    protected: { type: 'string' },
+    iv: { type: 'string' },
+    ciphertext: { type: 'string' },
+    tag: { type: 'string' },
+    aad: { type: 'string' },
+    recipients: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          header: {
+            type: 'object',
+            properties: {
+              alg: { type: 'string' },
+              iv: { type: 'string' },
+              tag: { type: 'string' },
+              epk: { type: 'object' },
+              kid: { type: 'string' },
+            },
+            required: ['alg', 'iv', 'tag'],
+          },
+          encrypted_key: { type: 'string' },
+        },
+        required: ['header', 'encrypted_key'],
+      },
+    },
+  },
+  required: ['protected', 'iv', 'ciphertext', 'tag'],
+}</code> <p>Using the DID previously created, we can publish the schema to the local Ceramic node. Use the <code>idx schema:publish</code> command as shown below:</p> <code>idx schema:publish local '{"$schema":"http://json-schema.org/draft-07/schema#","title":"JWE","type":"object","properties":{"protected":{"type":"string"},"iv":{"type":"string"},"ciphertext":{"type":"string"},"tag":{"type":"string"},"aad":{"type":"string"},"recipients":{"type":"array","items":{"type":"object","properties":{"header":{"type":"object","properties":{"alg":{"type":"string"},"iv":{"type":"string"},"tag":{"type":"string"},"epk":{"type":"object"},"kid":{"type":"string"}},"required":["alg","iv","tag"]},"encrypted_key":{"type":"string"}},"required":["header","encrypted_key"]}}},"required":["protected","iv","ciphertext","tag"]}'</code> <p>Successfully running this command will display the schema URL, which will be used in the next step. In my case the URL is <code>ceramic://k3y52l7qbv1fryd65pd3dyu9dim46vx39z4bgzrrligbi5sfd0e3mwump2p6pdn9c</code> but when you run the command with your own DID, it will be different.</p> Encrypted secret definition <p>Now that we have a generic JWE schema, we need to create a unique definition for the secret data we want to store using the <code>idx definition:create</code> command. Multiple definitions can use the same schema, but each definition functions as a unique key in the user's IDX index.</p> <code>idx definition:create local --schema=&lt;schema URL from previous command&gt; --name="my secret data" --description="encrypted payload"</code> <p>Running this command with display the unique document ID for the definition, which we will need in the following step. In my case this ID is <code>kjzl6cwe1jw14adxazb6clhiiniffhkedz69mrkvi4i1miad62iwazktfiy8rgm</code> but it will be different for you.</p> Using our definition <p>Let's create a simple script that uses our definition to check if the encrypted secret is present in a user's IDX index, or create and store a new one if needed.</p> Dependencies <p>We'll need to install the following dependencies from <code>npm</code>: <a href="https://docs.ceramic.network/modules/_ceramicnetwork_http_client.html">Ceramic HTTP client</a>, <a href="https://idx.xyz/docs/libs-idx">IDX</a>, <a href="https://github.com/ceramicnetwork/key-did-provider-ed25519/">Ed25519 Key DID provider</a>, and <a href="https://github.com/achingbrain/uint8arrays">uint8arrays</a>.</p> <code>npm install @ceramicnetwork/http-client @ceramicstudio/idx key-did-provider-ed25519 uint8arrays</code> <p>Now let's create a simple script in a <code>secret.js</code> file, importing these dependencies along with <code>randomBytes</code> from the <code>crypto</code> module:</p> <code>const { randomBytes } = require('crypto')
+const Ceramic = require('@ceramicnetwork/http-client').default
+const { IDX } = require('@ceramicstudio/idx')
+const { Ed25519Provider } = require('key-did-provider-ed25519')
+const { fromString, toString } = require('uint8arrays')</code> secret.js file Ceramic authentication <p>In order to allow a user to encrypt their secret and store it in their IDX index, we will need our Ceramic client to be authenticated. Here we will use the <code>Ed25519Provider</code> requiring a 32 bytes seed that we will either get from the environment, or by generating a random one:</p> <code>function getSeed() {
+  let seed
+  if (process.env.SEED) {
+    seed = fromString(process.env.SEED, 'base16')
+    console.log('Using provided seed')
+  } else {
+    seed = new Uint8Array(randomBytes(32))
+    console.log(`Created seed: ${toString(seed, 'base16')}`)
+  }
+  return seed
+}</code> secret.js file<p>In order to access secret data already associated to a DID, we will need to use the same seed by setting the <code>SEED=&lt;base16-encoded string&gt;</code> environment variable, otherwise a new DID will be created.</p><p>Now let's use this <code>getSeed()</code> function to authenticate our Ceramic client:</p> <code>async function getCeramic() {
+  const ceramic = new Ceramic('http://localhost:7007')
+  await ceramic.setDIDProvider(new Ed25519Provider(getSeed()))
+  return ceramic
+}</code> secret.js file Encrypted secret interactions <p>We will now create two functions to interact with our encrypted secret: one to encrypt and store, and another one to load and decrypt, using the definition we created from the CLI. Note, make sure to replace <code>kjzl6cwe1jw14adxazb6clhiiniffhkedz69mrkvi4i1miad62iwazktfiy8rgm</code> in the code below with the definition ID you created:</p> <code>const KEY = 'kjzl6cwe1jw14adxazb6clhiiniffhkedz69mrkvi4i1miad62iwazktfiy8rgm'
+
+async function uploadSecret(idx, payload) {
+  const jwe = await idx.did.createJWE(payload, [idx.did.id])
+  await idx.set(KEY, jwe)
+}
+
+async function downloadSecret(idx) {
+  const jwe = await idx.get(KEY)
+  return jwe ? await idx.did.decryptJWE(jwe) : null
+}</code> secret.js file<p>We provide our own DID <code>idx.did.id</code> when calling <code>idx.did.createJWE()</code> so that only the authenticated DID can decrypt the created JWE payload. It's not the case in this example, but if you would like to allow other DIDs to decrypt the payload you would include them here.</p><blockquote>As an alternative to <code>createJWE</code> and <code>decryptJWE</code>, we could use the <code><a href="https://ceramicnetwork.github.io/js-did/classes/did.html#createdagjwe">createDagJWE</a></code> and <code><a href="https://ceramicnetwork.github.io/js-did/classes/did.html#decryptdagjwe">decryptDagJWE</a></code> methods to encrypt JSON data instead of binary as we are doing in this example.</blockquote> Interaction logic <p>Finally, let's create a function to implement a simple flow of checking if the encrypted secret exists and display it, or create and store a new secret:</p> <code>async function run() {
+  const ceramic = await getCeramic()
+  const idx = new IDX({ ceramic })
+  console.log(`Connected with DID: ${idx.id}`)
+
+  const existing = await downloadSecret(idx)
+  if (existing == null) {
+    const secret = new Uint8Array(randomBytes(32))
+    await uploadSecret(idx, secret)
+    console.log('Created secret:')
+    console.log(secret)
+  } else {
+    console.log('Found existing secret:')
+    console.log(existing)
+  }
+}
+
+run().catch(console.error)</code> secret.js Running our script <p>Let's run our script a first time, this will generate both a random seed for the DID and a random secret:</p> <code>node ./secret.js</code> <p>This will log the created seed, DID and created secret.</p><p>Now let's run the script again but providing the created seed as logged above:</p> <code>SEED=&lt;base16-encoded string&gt; node ./secret.js</code> <p>The script should log the same DID and decrypted secret.</p> Full script <p>Here is the full <code>secret.js</code> script for convenience, don't forget to change the <code>KEY</code> value with your own definition ID before running it:</p> <code>const { randomBytes } = require('crypto')
+const Ceramic = require('@ceramicnetwork/http-client').default
+const { IDX } = require('@ceramicstudio/idx')
+const { Ed25519Provider } = require('key-did-provider-ed25519')
+const { fromString, toString } = require('uint8arrays')
+
+function getSeed() {
+  let seed
+  if (process.env.SEED) {
+    seed = fromString(process.env.SEED, 'base16')
+    console.log('Using provided seed')
+  } else {
+    seed = new Uint8Array(randomBytes(32))
+    console.log(`Created seed: ${toString(seed, 'base16')}`)
+  }
+  return seed
+}
+
+async function getCeramic() {
+  const ceramic = new Ceramic('http://localhost:7007')
+  await ceramic.setDIDProvider(new Ed25519Provider(getSeed()))
+  return ceramic
+}
+
+const KEY = 'kjzl6cwe1jw14adxazb6clhiiniffhkedz69mrkvi4i1miad62iwazktfiy8rgm'
+
+async function uploadSecret(idx, payload) {
+  const jwe = await idx.did.createJWE(payload, [idx.did.id])
+  await idx.set(KEY, jwe)
+}
+
+async function downloadSecret(idx) {
+  const jwe = await idx.get(KEY)
+  return jwe ? await idx.did.decryptJWE(jwe) : null
+}
+
+async function run() {
+  const ceramic = await getCeramic()
+  const idx = new IDX({ ceramic })
+  console.log(`Connected with DID: ${idx.id}`)
+
+  const existing = await downloadSecret(idx)
+  if (existing == null) {
+    const secret = new Uint8Array(randomBytes(32))
+    await uploadSecret(idx, secret)
+    console.log('Created secret:')
+    console.log(secret)
+  } else {
+    console.log('Found existing secret:')
+    console.log(existing)
+  }
+}
+
+run().catch(console.error)</code> secret.js file Use case: Encrypted seeds <p>There are many exciting use cases for storing and retrieving encrypted secrets using IDX. Let's walk through a very important one – storing encrypted seeds.</p><p>Many decentralized systems rely on public key cryptography for performing authenticated transactions, such as signing and encrypting information. In these systems, a private key (seed) is used to sign a message which can then be validated against the corresponding public key (identifier) belonging to the user. Public key cryptography allows the decentralized system to verify that an interaction has originated from a given user without requiring the use of servers. Most of these types of systems require users to manage a dedicated seed for their system, which means that as users use more systems, they have and ever-growing list of keys to manage.</p><p>This model poses many challenges to users and application developers. Here are some common questions that arise when using decentralized technologies dependent on seeds for authenticated transactions: </p>  How should I securely store this seed to make sure only the intended user can access it?   How can an app or library check if an account (seed) has already been created for a given user?   How can my app make use of multiple decentralized technologies without requiring users to manage a different seed for each one?  <p>As we have demonstrated throughout this tutorial, storing encrypted seeds directly with users on IDX using their DID can solve all of these challenges. And as the number of decentralized systems that users will need to interact with is only increasing, the need to simplify secret management in a platform-agnostic way is becoming ever more valuable. </p> What's next? <p>The examples in this tutorial were intentionally kept simple but more complex schemas could be created, for example, to store public data along with encrypted secrets to support more specific use cases.</p><p>Learn more about IDX by visiting the <a href="https://idx.xyz">IDX website</a> and <a href="https://idx.xyz/docs">documentation</a>.</p><p>If you need any help or just want to say hi, join the <a href="https://chat.idx.xyz">IDX Discord channel</a>!</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blog.ceramic.network/content/images/2020/12/encrypt-and-recover-secrets.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:43 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -380,7 +582,7 @@
 
 <div class='item-footer'>
    09:53 &bull;
-   an hour ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -511,7 +713,7 @@
 
 <div class='item-footer'>
    15:59 &bull;
-   19 hours ago
+   24 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -581,7 +783,7 @@
 
 <div class='item-footer'>
    15:25 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -749,7 +951,7 @@
 
 <div class='item-footer'>
    15:20 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -866,7 +1068,7 @@
 
 <div class='item-footer'>
    14:58 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1866,7 +2068,7 @@ sharing infrastructure is “linking it up.” This requires:</p>
 
 <div class='item-footer'>
    20:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1940,7 +2142,7 @@ sharing infrastructure is “linking it up.” This requires:</p>
 
 <div class='item-footer'>
    19:17 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2128,7 +2330,7 @@ in Community College Leadership, New Jersey City University</p>
 
 <div class='item-footer'>
    00:04 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3097,7 +3299,7 @@ Monday, 3 August 2020<br>
 
 <div class='item-footer'>
    00:00 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4341,7 +4543,7 @@ CPRA applies to personal information collected after January 1, 2022, and comes 
 
 <div class='item-footer'>
    00:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5195,7 +5397,7 @@ Celero is realizing this vision is by delivering a digital technology, integrati
 
 <div class='item-footer'>
    00:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5683,7 +5885,7 @@ The world's attention has turned to healthcare this year, with many initiatives 
 
 <div class='item-footer'>
    03:35 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5747,7 +5949,7 @@ The world's attention has turned to healthcare this year, with many initiatives 
 
 <div class='item-footer'>
    03:21 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5998,7 +6200,7 @@ Informative Pages
 
 <div class='item-footer'>
    00:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6207,7 +6409,7 @@ The definition of each metadata type also specifies comparison rules, significan
 
 <div class='item-footer'>
    00:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6341,7 +6543,7 @@ Several companies worked together to create the demo. Unibright extracted the do
 
 <div class='item-footer'>
    00:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6977,7 +7179,7 @@ Several companies worked together to create the demo. Unibright extracted the do
 
 <div class='item-footer'>
    00:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7043,7 +7245,7 @@ Several companies worked together to create the demo. Unibright extracted the do
 
 <div class='item-footer'>
    00:00 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7409,7 +7611,7 @@ Several companies worked together to create the demo. Unibright extracted the do
 
 <div class='item-footer'>
    00:00 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11089,76 +11291,6 @@ Figure 1: HL Fabric-Indy/Aries integration
 
 <div class='item-footer'>
    23:31 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.ceramic.network/'>Ceramic Network</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.ceramic.network/idx-and-skydb-hackathon/'>IDX and SkyDB join forces for a future of Web3 hackathon</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Build with IDX + SkyDB to win more than $12,000 in prizes.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>In recent months, the Web3 ecosystem has seen an explosion of of new tools and platforms that allow developers to build mature, sophisticated dweb applications with functionality that was previously unimaginable.</p><p>To celebrate this evolution in Web3, <a href="https://medium.com/3box/idx-a-devkit-for-open-identity-48edc88e8e85">IDX</a> is teaming up with <a href="https://blog.sia.tech/skydb-a-mutable-database-for-the-decentralized-web-7170beeaa985">SkyDB</a> to kick off a hackathon which gives you the opportunity to experiment with and build applications that combine these two new technologies. Our teams are offering a combined $12,000 in rewards paid out in Siacoin (SC), and to make things even sweeter there’s a consolation prize paid out to every eligible submission.</p><p>The hackathon kicks off today November 2nd on <a href="https://gitcoin.co/hackathon/skydb/onboard">Gitcoin</a>, and lasts for three weeks until November 23. Here’s how to get started:</p>  <a href="https://gitcoin.co/hackathon/skydb/onboard">Register for the hackathon</a>  <a href="https://gitcoin.co/issue/ceramicnetwork/ceramic/36/100024033">Check out the IDX + SkyDB bounty</a>  <a href="https://chat.idx.xyz/">Hop into the IDX Discord</a> and the <a href="https://discord.gg/sia">Sia Discord</a> for help or to share what you’re working on. We’re more than happy to help discuss your IDX integration with SkyDB.    Build apps on a next-gen Web3 stack <p><a href="https://blog.sia.tech/skydb-a-mutable-database-for-the-decentralized-web-7170beeaa985">SkyDB</a> is a decentralized database system built on <a href="https://siasky.net/">Sia</a> and <a href="https://medium.com/3box/idx-a-devkit-for-open-identity-48edc88e8e85">IDX</a> is a decentralized identity system built on <a href="https://ceramic.network/">Ceramic</a>. By combining these two technologies, developers can easily build full-stack, data-rich applications that give users direct control and full ownership over their information — all without running servers or siloing information to a particular key pair, application, or database technology.</p> SkyDB: A mutable DB for dweb apps <p>The SkyDB database allows developers to build any feature that requires a decentralized, mutable key-value store. Being able to store user and/or application data in a mutable but decentralized way opens up a world of new possibilities for dweb applications. You can use it to store user-generated content, files, media, application state, or any other type of dynamic information without worrying about managing one-off skylinks for each individual content update. For a quick-start intro to SkyDB, check out this blog post which makes a simple Skynet app that uses SkyDB.</p><a href="https://blog.sia.tech/skydb-example-a-note-to-self-app-ccd4e7ba31ba">  SkyDB Example: A Note-to-Self App  This is a quick tutorial showing you how to use SkyDB. In this tutorial, we will be creating SkyDB accounts, checking those accounts for data, and then updating the data in those accounts. The…  Ivaylo NovakovSia Blog    </a> IDX: An open identity system for dweb apps <p>The IDX identity framework allows you to tap into a universal decentralized identity layer that makes user and data management for your dweb app much more open and powerful. IDX provides a universal cross-platform identity (DID) for users that can be used everywhere across the Web3 ecosystem, a way to store/access public metadata such as profiles and social graphs, a way to associate your app’s data storage systems (i.e. SkyDB) to the user’s identity, a way to discover and import available third-party data sources for the user (even ones outside of the SkyDB ecosystem such as Filecoin files, TextileDBs, OrbitDBs, and much more!), and a way to publish schemas for your data so that others might easily make use of your application data within another application or context.</p><p>By design, IDX is completely agnostic as to which wallet users authenticate with and which backend configuration you choose to build with — including any blockchain and data storage system — so it easily integrates into the rest of your stack and allows you to build truly cross-platform interoperable applications. You can save data wherever you choose, and import data from other applications that may even be outside of the SkyDB ecosystem!</p><a href="https://medium.com/3box/idx-a-devkit-for-open-identity-48edc88e8e85">  IDX: A Devkit for Open Identity  IDX is a brand new SDK for building with decentralized identity and user-centric data from the 3Box Labs team. IDX is in alpha but if you’d like to start experimenting, join our discord and jump into…  Michael Sena3Box    </a> <p>Good luck to all the hackers! Don’t forget to register for the hackathon now — <a href="https://gitcoin.co/hackathon/skydb/onboard">https://gitcoin.co/hackathon/skydb/onboard</a>. Also, j<a href="https://chat.idx.xyz/">oin the IDX Discord</a> and <a href="https://discord.gg/sia">Sia Discord</a> for help or questions.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blog.ceramic.network/content/images/2020/11/hackidxskydb.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:14 &bull;
    1 months ago
 </div>
 
@@ -15205,7 +15337,7 @@ Verifiable credentials for reviewers of scientific publishing and research fundi
                            Phone*    Would you like to sign-up for our email updates?   
 								
 								Yes
-							       Phone   This field is for validation purposes and should be left unchanged.  
+							       Name   This field is for validation purposes and should be left unchanged.  
                               
            
             
@@ -17035,7 +17167,7 @@ Madeline Howard
 
 <div class='item-footer'>
    11:13 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17285,7 +17417,7 @@ Madeline Howard
                            Phone*    Would you like to sign-up for our email updates?   
 								
 								Yes
-							       Phone   This field is for validation purposes and should be left unchanged.  
+							       Name   This field is for validation purposes and should be left unchanged.  
                               
            
             
