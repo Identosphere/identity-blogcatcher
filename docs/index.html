@@ -719,7 +719,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 3:43 PM December 19, 2020 (UTC)</sup>
+<sup>Last Update 8:40 PM December 19, 2020 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -731,6 +731,249 @@
  <h2 class='new-date'>
   Saturday, 19. December 2020
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2020/Dec/19/dogsheep-beta/#atom-everything'>Building a search engine for datasette.io</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   This week I added a search engine to datasette.io, using the search indexing tool I've been building for Dogsheep. 
+  
+ Project search for Datasette 
+ The Datasette project has a lot of constituent parts. There's the project itself and its documentation - 171 pages when exported to PDF and counting. Then there are the 48 plugins, sqlite-utils and 21 more tools for creating SQLite databases, the Do
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2020/dogsheep-beta-ripgrep.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>This week I added <a href="https://datasette.io/-/beta">a search engine</a> to <a href="https://datasette.io/">datasette.io</a>, using the search indexing tool I've been building for <a href="https://datasette.substack.com/p/dogsheep-personal-analytics-with">Dogsheep</a>.</p>
+<p></p>
+ Project search for Datasette 
+<p>The Datasette project has a lot of constituent parts. There's the project itself and its <a href="https://docs.datasette.io/">documentation</a> - 171 pages when exported to PDF and counting. Then there are the <a href="https://datasette.io/plugins">48 plugins</a>, <a href="https://datasette.io/tools/sqlite-utils">sqlite-utils</a> and <a href="https://datasette.io/tools">21 more tools</a> for creating SQLite databases, the <a href="https://dogsheep.github.io/">Dogsheep</a> collection and over three years of content I've written about the project <a href="https://simonwillison.net/tags/datasette/">on my blog</a>.</p>
+<p>The new <a href="https://datasette.io/-/beta">datasette.io search engine</a> provides a faceted search interface to all of this material in one place. It currently searches across:</p>
+ 
+ Every section of the latest documentation (415 total) 
+ 48 plugin READMEs 
+ 22 tool READMEs 
+ 63 news items posted on the Datasette website 
+ 212 items from my blog 
+ Release notes from 557 package releases 
+ 
+<p>I plan to extend it with more data sources in the future.</p>
+ How it works: Dogsheep Beta 
+<p>I'm reusing the search engine I originally built for my Dogsheep personal analytics project (see <a href="https://simonwillison.net/2020/Nov/14/personal-data-warehouses/">Personal Data Warehouses: Reclaiming Your Data</a>). I call that search engine <a href="https://github.com/dogsheep/beta">Dogsheep Beta</a>. The name is <a href="https://datasette.substack.com/p/dogsheep-personal-analytics-with">a pun</a>.</p>
+<p>SQLite has great <a href="https://sqlite.org/fts5.html">full-text search</a> built in, and I make extensive use of that in Datasette projects already. But out of the box it's not quite right for this kind of search engine that spans multiple different content types.</p>
+<p>The problem is relevance calculation. I wrote about this in <a href="https://simonwillison.net/2019/Jan/7/exploring-search-relevance-algorithms-sqlite/">Exploring search relevance algorithms with SQLite</a> - short version: query relevance is calculated using statistics against the whole corpus, so search terms that occur rarely in the overall corpus contribute a higher score than more common terms.</p>
+<p>This means that calculated full-text ranking scores calculated against one table of data cannot be meaningfully compared to scores calculated independently against a separate table, as the corpus statistics used to calculate the rank will differ.</p>
+<p>To get usable scores, you need everything in a single table. That's what Dogsheep Beta does: it creates a new table, called <code>search_index</code>, and copies searchable content from the other tables into that new table.</p>
+<p>This is analagous to how an external search index like Elasticsearch works: you store your data in the main database, then periodically update an index in Elasticsearch. It's the <a href="https://2017.djangocon.us/talks/the-denormalized-query-engine-design-pattern/">denormalized query engine</a> design pattern in action.</p>
+ Configuring Dogsheep Beta 
+<p>There are two components to Dogsheep Beta: a command-line tool for building a search index, and a Datasette plugin for providing an interface for running searches.</p>
+<p>Both of these run off a YAML configuration file, which defines the tables that should be indexed and also defines how those search results should be displayed.</p>
+<p>(Having one configuration file handle both indexing and display feels a little inelegant, but it's extremely productive for iterating on so I'm letting that slide.)</p>
+<p>Here's the full <a href="https://github.com/simonw/datasette.io/blob/0e3e839ca1efb19cd84100291789521c0a1a3561/templates/dogsheep-beta.yml">Dogsheep configuration for datasette.io</a>. An annotated extract:</p>
+  # Index material in the content.db SQLite file
+content.db:
+  # Define a search type called 'releases'
+  releases:
+    # Populate that search type by executing this SQL
+    sql: |-
+      select
+        releases.id as key,
+        repos.name || ' ' || releases.tag_name as title,
+        releases.published_at as timestamp,
+        releases.body as search_1,
+        1 as is_public
+      from
+        releases
+        join repos on releases.repo = repos.id
+    # When displaying a search result, use this SQL to
+    # return extra details about the item
+    display_sql: |-
+      select
+        -- highlight() is a custom SQL function
+        highlight(render_markdown(releases.body), :q) as snippet,
+        html_url
+      from releases where id = :key
+    # Jinja template fragment to display the result
+    display: |-
+      &lt;h3&gt;Release: &lt;a href="{{ display.html_url }}"&gt;{{ title }}&lt;/a&gt;&lt;/h3&gt;
+      &lt;p&gt;{{ display.snippet|safe }}&lt;/p&gt;
+      &lt;p&gt;&lt;small&gt;Released {{ timestamp }}&lt;/small&gt;&lt;/p&gt;  
+<p>The core pattern here is the <code>sql:</code> key, which defines a SQL query that must return the following columns:</p>
+ 
+ 
+<code>key</code> - a unique identifier for this search item 
+ 
+<code>title</code> - a title for this indexed document 
+ 
+<code>timestamp</code> - a timestamp for when it was created. May be null. 
+ 
+<code>search_1</code> - text to be searched. I may add support for <code>search_2</code> and <code>search_3</code> later on to store text that will be treated with a lower relevance score. 
+ 
+<code>is_public</code> - should this be considered "public" data. This is a holdover from Dogsheep Beta's application for personal analytics, I don't actually need it for datasette.io. 
+ 
+<p>To create an index, run the following:</p>
+ <code>dogsheep-beta index dogsheep-index.db dogsheep-config.yml
+</code> 
+<p>The <code>index</code> command will loop through every configured search type in the YAML file, execute the SQL query and use it to populate a <code>search_index</code> table in the <code>dogsheep-index.db</code> SQLite database file.</p>
+<p>Here's <a href="https://datasette.io/dogsheep-index/search_index">the search_index table</a> for <a href="https://datasette.io/">datasette.io</a>.</p>
+<p>When you run a search, the plugin queries that table and gets back results sorted by relevance (or other sort criteria, if specified).</p>
+<p>To display the results, it loops through each one and uses the Jinja template fragment from the configuration file to turn it into HTML.</p>
+<p>If a <code>display_sql:</code> query is defined, that query will be executed for each result to populate the <code>{{ display }}</code> object made available to the template. <a href="https://www.sqlite.org/np1queryprob.html">Many Small Queries Are Efficient In SQLite</a>.</p>
+ Search term highlighting 
+<p>I spent <a href="https://github.com/simonw/datasette.io/issues/49">a bit of time</a> thinking about search highlighting. SQLite has an implementation of highlighting built in - <a href="https://sqlite.org/fts5.html#the_snippet_function">the snippet() function</a> - but it's not designed to be HTML-aware so there's a risk it might mangle HTML by adding highlighting marks in the middle of a tag or attribute.</p>
+<p>I ended up rolling borrowing a BSD licensed <a href="https://github.com/django-haystack/django-haystack/blob/v3.0/haystack/utils/highlighting.py">highlighting class</a> from the <a href="https://github.com/django-haystack/django-haystack">django-haystack</a> project. It deals with HTML by stripping tags, which seems to be more-or-less what Google do for their own search results so I figured that's good enough for me.</p>
+<p>I used this <a href="https://github.com/simonw/datasette.io/blob/0e3e839ca1efb19cd84100291789521c0a1a3561/plugins/sql_functions.py">one-off site plugin</a> to wrap the highlighting code in a custom SQLite function. This meant I could call it from the <code>display_sql:</code> query in the Dogsheep Beta YAML configuration.</p>
+<p>A custom template tag would be more elegant, but I don't yet have a mechanism to expose custom template tags in the Dogsheep Beta rendering mechanism.</p>
+ Build, index, deploy 
+<p>The Datasette website implements the Baked Data pattern, where the content is compiled into SQLite database files and bundled with the application code itself as part of the deploy.</p>
+<p>Building the index is just another step of that process.</p>
+<p>Here's <a href="https://github.com/simonw/datasette.io/blob/0e3e839ca1efb19cd84100291789521c0a1a3561/.github/workflows/deploy.yml">the deploy.yml</a> GitHub workflow used by the site. It roughly does the following:</p>
+ 
+ Download the current version of the <a href="https://datasette.io/content">content.db</a> database file. This is so it doesn't have to re-fetch release and README content that was previously stored there. 
+ Download the current version of <a href="https://datasette.io/blog">blog.db</a>, with entries from my blog. This means I don't have to fetch all entries, just the new ones. 
+ Run <a href="https://github.com/simonw/datasette.io/blob/0e3e839ca1efb19cd84100291789521c0a1a3561/build_directory.py">build_directory.py</a>, the script which fetches data for the plugins and tools pages.
+ 
+ This hits the GitHub GraphQL API to find new repositories tagged <code>datasette-io</code> and <code>datasette-plugin</code> and <code>datasette-tool</code>. 
+ That GraphQL query alos returns the most recent release. The script then checks to see if those releases have previously been fetched and, if not, uses <a href="https://datasette.io/tools/github-to-sqlite">github-to-sqlite</a> to fetch them. 
+ 
+ 
+ Imports the data from <a href="https://github.com/simonw/datasette.io/blob/0e3e839ca1efb19cd84100291789521c0a1a3561/news.yaml">news.yaml</a> into a <code>news</code> table using <a href="https://datasette.io/tools/yaml-to-sqlite">yaml-to-sqlite</a>
+ 
+ Imports the latest PyPI download statistics for my packages from my <a href="https://github.com/simonw/package-stats">simonw/package-stats</a> repository, which implements <a href="https://simonwillison.net/2020/Oct/9/git-scraping/">git scraping</a> against the most excellent <a href="https://pypistats.org/">pypistats.org</a>. 
+ Runs the <code>dogsheep-beta index</code> command to build a <code>dogsheep-index.db</code> search index. 
+ Runs some soundness checks, e.g. <code>datasette . --get "/plugins"</code>, to verify that Datasette is likely to at least return 200 results for some critical pages once published. 
+ Uses <code>datasette publish cloudrun</code> to deploy the results to Google Cloud Run, which hosts the website. 
+ 
+<p>I love building websites this way. You can have as much complexity as you like in the build script (my TIL website build script <a href="https://simonwillison.net/2020/Sep/3/weeknotes-airtable-screenshots-dogsheep/#weeknotes-2020-09-03-social-media-cards-tils">generates screenshots using Puppeteer</a>) but the end result is some simple database files running on inexpensive, immutable, scalable hosting.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2020/dogsheep-beta-ripgrep.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:12 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2020/Dec/19/shopify-webassembly/#atom-everything'>How Shopify Uses WebAssembly Outside of the Browser</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   How Shopify Uses WebAssembly Outside of the Browser 
+ I'm fascinated by applications of WebAssembly outside the browser. As a Python programmer I'm excited to see native code libraries herring compiled to WASM in a way that lets me call them from Python code via a bridge, but the other interesting application is executing untrusted code in a sandbox.  Shopify are doing exactly that - they are buil
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://shopify.engineering/shopify-webassembly">How Shopify Uses WebAssembly Outside of the Browser</a></p>
+<p>I'm fascinated by applications of WebAssembly outside the browser. As a Python programmer I'm excited to see native code libraries herring compiled to WASM in a way that lets me call them from Python code via a bridge, but the other interesting application is executing untrusted code in a sandbox.<br><br>Shopify are doing exactly that - they are building a kind-of plugin mechanism where partner code compiled to WASM runs inside their architecture using Fastly's Lucet. The performance numbers are un the same ballpark as native code.<br><br>Also interesting: they're recommending AssemblyScript, a TypeScript-style language designed to compile directly to WASM without needing any additional interpreter support, as required by dynamic languages such as JavaScript, Python or Ruby.</p>
+
+    <p>Via <a href="https://news.ycombinator.com">Hacker News</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:46 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -805,7 +1048,7 @@ App Specific Password<br></p>
 
 <div class='item-footer'>
    02:03 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -866,7 +1109,7 @@ App Specific Password<br></p>
 
 <div class='item-footer'>
    02:02 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -943,7 +1186,7 @@ App Specific Password<br></p>
 
 <div class='item-footer'>
    23:08 &bull;
-   17 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1015,7 +1258,7 @@ App Specific Password<br></p>
 
 <div class='item-footer'>
    22:01 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1047,9 +1290,7 @@ App Specific Password<br></p>
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-    At GitHub, we want to protect developer privacy, and we find cookie banners quite irritating, so we decided to look for a solution. After a brief search, we found one: just don’t use any non-essential cookies. Pretty simple, really. 🤔
-
-So, we have removed all non-essential cookies from GitHub, and visiting our website does not send any information to third-party analytics services.   — Nat Friedm
+    At GitHub, we want to protect developer privacy, and we find cookie banners quite irritating, so we decided to look for a solution. After a brief search, we found one: just don’t use any non-essential cookies. Pretty simple, really. 🤔  So, we have removed all non-essential cookies from GitHub, and visiting our website does not send any information to third-party analytics services.   — Nat Friedm
    
   
   
@@ -1066,9 +1307,7 @@ So, we have removed all non-essential cookies from GitHub, and visiting our webs
  -->
 <div class='wrap'>
 
-  <blockquote cite="https://github.blog/2020-12-17-no-cookie-for-you/"><p>At GitHub, we want to protect developer privacy, and we find cookie banners quite irritating, so we decided to look for a solution. After a brief search, we found one: just don’t use any non-essential cookies. Pretty simple, really. 🤔
-
-So, we have removed all non-essential cookies from GitHub, and visiting our website does not send any information to third-party analytics services.</p></blockquote><p>— <a href="https://github.blog/2020-12-17-no-cookie-for-you/">Nat Friedman</a></p>
+  <blockquote cite="https://github.blog/2020-12-17-no-cookie-for-you/"><p>At GitHub, we want to protect developer privacy, and we find cookie banners quite irritating, so we decided to look for a solution. After a brief search, we found one: just don’t use any non-essential cookies. Pretty simple, really. 🤔<br><br>So, we have removed all non-essential cookies from GitHub, and visiting our website does not send any information to third-party analytics services.</p></blockquote><p>— <a href="https://github.blog/2020-12-17-no-cookie-for-you/">Nat Friedman</a></p>
    
   
   
@@ -1378,7 +1617,7 @@ So, we have removed all non-essential cookies from GitHub, and visiting our webs
 
 <div class='item-footer'>
    05:35 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2377,7 +2616,7 @@ Statistical visualizations for Datasette using Seaborn
 
 <div class='item-footer'>
    08:34 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2781,7 +3020,7 @@ Statistical visualizations for Datasette using Seaborn
 
 <div class='item-footer'>
    06:39 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2847,7 +3086,7 @@ Statistical visualizations for Datasette using Seaborn
 
 <div class='item-footer'>
    04:11 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2912,7 +3151,7 @@ Statistical visualizations for Datasette using Seaborn
 
 <div class='item-footer'>
    03:55 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3767,7 +4006,7 @@ and the giant pile of katamaris that is this blogpost.</p>
 
 <div class='item-footer'>
    04:22 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3834,7 +4073,7 @@ and the giant pile of katamaris that is this blogpost.</p>
 
 <div class='item-footer'>
    04:15 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4632,7 +4871,7 @@ Experiences?</p>
 
 <div class='item-footer'>
    05:46 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6289,7 +6528,7 @@ Experiences?</p>
 
 <div class='item-footer'>
    06:23 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7370,7 +7609,7 @@ window.addEventListener("hashchange", highlightLineFromFragment);
 
 <div class='item-footer'>
    06:51 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7518,7 +7757,7 @@ window.addEventListener("hashchange", highlightLineFromFragment);
 
 <div class='item-footer'>
    08:36 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8226,7 +8465,7 @@ The editors met yesterday to discuss the issues that were pulled out of the prev
 
 <div class='item-footer'>
    05:00 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8772,7 +9011,7 @@ The editors met yesterday to discuss the issues that were pulled out of the prev
 
 <div class='item-footer'>
    04:11 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9668,72 +9907,6 @@ In CBOR, one point of extensibility is the definition of CBOR tags. RFC 7049 def
 <article class='item'>
 
 
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2020/Nov/20/trouble-transactionatomic/#atom-everything'>The trouble with transaction.atomic</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   The trouble with transaction.atomic 
- David Seddon provides a detailed explanation of Django's nestable transaction.atomic() context manager and describes a gotcha that can occur if you lose track of whether your code is already running in a transaction block, since you may be working with savepoints instead - along with some smart workarounds. 
-
-     Via @adamchainz 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://seddonym.me/2020/11/19/trouble-atomic/">The trouble with transaction.atomic</a></p>
-<p>David Seddon provides a detailed explanation of Django's nestable transaction.atomic() context manager and describes a gotcha that can occur if you lose track of whether your code is already running in a transaction block, since you may be working with savepoints instead - along with some smart workarounds.</p>
-
-    <p>Via <a href="https://twitter.com/adamchainz/status/1329790716239810561">@adamchainz</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:57 &bull;
-   29 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
 <h4 class='feed-title'>
   <a href='https://www.mydigitalfootprint.com/'>MyDigitalFootprint</a>
 </h4>
@@ -9871,74 +10044,6 @@ In CBOR, one point of extensibility is the definition of CBOR tags. RFC 7049 def
  <h2 class='new-date'>
   Thursday, 19. November 2020
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2020/Nov/19/internet-archive-flash/#atom-everything'>Internet Archive Software Library: Flash</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Internet Archive Software Library: Flash 
- A fantastic new initiative from the Internet Archive: they're now archiving Flash (.swf) files and serving them for modern browsers using Ruffle, a Flash Player emulator written in Rust and compiled to WebAssembly. They are fully interactive and audio works too. Considering the enormous quantity of creative material released in Flash over the decades this
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://archive.org/details/softwarelibrary_flash">Internet Archive Software Library: Flash</a></p>
-<p>A fantastic new initiative from the Internet Archive: they're now archiving Flash (.swf) files and serving them for modern browsers using Ruffle, a Flash Player emulator written in Rust and compiled to WebAssembly. They are fully interactive and audio works too. Considering the enormous quantity of creative material released in Flash over the decades this helps fill a big hole in the Internet's cultural memory.</p>
-
-    <p>Via <a href="https://twitter.com/textfiles/status/1329525300846276608">Jason Scott</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:19 &bull;
-   30 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -16915,7 +17020,7 @@ Successfully installed package-boilerplate-1.0.0
  
 
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201219T154508Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=3bc5705c0ca03981175f864dd225791ad9462880c205c363087d926afe3e9ee5">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201219T204108Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=035a3a860721c95c452668434a90abeb467e58e08854c22495c7c8a8efd0507e">
   
  </a>
  And the text is orange like we wanted! What if we wanted to import the module in a different project? Let's try:
@@ -16946,7 +17051,7 @@ Type "help", "copyright", "credits" or "license" for more information.
  
 
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201219T154508Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=27f4895bcdf6c6108f1b42c1679f5b3ccbe9d9c75101a88a2b968c7c54a2693e">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201219T204108Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=46d18ec563a879d1f95fa6833c7bae93df50057fd1cf1b08943061a5d9ab0716">
   
  </a>
  It works! And we even get the coloured text.
@@ -16968,7 +17073,7 @@ Type "help", "copyright", "credits" or "license" for more information.
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201219T154508Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=e2f9403ccede5ddca228f5961b5c1d7e9b9cf59e69f0c2f8a52a1f0246e6a48f'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201219T204108Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=3277adcb0b33bdbb729e07856a2943c67a4741f1919b7d041bb1a3df08032dbd'>
       </div>
     
   
@@ -17903,7 +18008,7 @@ September, 2020 with an iPhone Xs.</p>
  .
 </p>
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/docker.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201219T154508Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=11540a2180fcca752f00f2c6cb8aa194100f786a3c9dec06bc9533c133a00dd1">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/docker.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201219T204108Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=284f756c7273f42306d3c0227a298a669834a8e8da4523e9d791a40439bacc2f">
   
  </a>
 </p>
@@ -18740,7 +18845,7 @@ cd - &gt; /dev/null
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/dockeryard.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201219T154508Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=742441f8af036925152929f7dc995339f4f58ae7003e6e5aba453967feeb332b'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/dockeryard.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201219%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201219T204108Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=751305118e086bfe72b903a9e5c92e364f7dd822b64324921b47bc626f949111'>
       </div>
     
   
@@ -19059,7 +19164,7 @@ with an iPhone Xs.</p>
 
 <div class='item-footer'>
    17:33 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
