@@ -17,6 +17,7 @@ build:
 	git push
 
 try:
+	rm try.db
 	pluto b try.ini -t planetid -o try
 
 test:
