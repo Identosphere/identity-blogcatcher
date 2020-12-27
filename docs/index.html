@@ -719,11 +719,179 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 1:42 AM December 27, 2020 (UTC)</sup>
+<sup>Last Update 5:47 AM December 27, 2020 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Sunday, 27. December 2020
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2020/Dec/27/weeknotes-datasette-internals/#atom-everything'>Weeknotes: Datasette internals</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I've been working on some fundamental changes to Datasette's internal workings - they're not quite ready for a release yet, but they're shaping up in an interesting direction. 
+ One of my goals for Datasette is to be able to handle a truly enormous variety of data in one place. The Datasette Library ticket tracks this effort - I'd like a newsroom (or any other information-based organization) to be
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2020/_internal__columns__132_rows.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I've been working on some fundamental changes to Datasette's internal workings - they're not quite ready for a release yet, but they're shaping up in an interesting direction.</p>
+<p>One of my goals for Datasette is to be able to handle a truly enormous variety of data in one place. The <a href="https://github.com/simonw/datasette/issues/417">Datasette Library</a> ticket tracks this effort - I'd like a newsroom (or any other information-based organization) to be able to keep hundreds of databases with potentially thousands of tables all in a single place.</p>
+<p>SQLite databases are just files on disk, so if you have a TB of assorted databases of all shapes and sizes I'd like to be able to present them in a single Datasette instance.</p>
+<p>If you have a hundred database files each with a hundred tables, that's 10,000 tables total. This implies a need for <a href="https://github.com/simonw/datasette/issues/461">pagination of the homepage</a>, plus the ability to search and filter within the tables that are available to the Datasette instance.</p>
+<p>Sounds like the kind of problem I'd normally solve with Datasette!</p>
+<p>So in <a href="https://github.com/simonw/datasette/issues/1150">issue #1150</a> I've implemented the first part of a solution. On startup, Datasette now creates an in-memory SQLite database representing all of the connected databases and tables, plus those tables' columns, indexes and foreign keys.</p>
+<p>For a demo, first <a href="https://latest.datasette.io/login-as-root">sign in as root</a> to the <code>latest.datasette.io</code> demo instance and then visit the private <a href="https://latest.datasette.io/_internal">_internal database</a>.</p>
+<p></p>
+<p>This new internal database is currently private because I don't want to expose any metadata about tables that may themselves be covered by Datasette's permissions mechanism.</p>
+<p>The new in-memory database represents the schemas of the underlying database files - but what if those change, as new tables are added or modified?</p>
+<p>SQLite has a neat trick to help with this: <a href="https://www.sqlite.org/pragma.html#pragma_schema_version">PRAGMA schema_version</a> returns an integer representing the current version of the schema, which changes any time a table is created or modified.</p>
+<p>This means I can cache the table schemas and only recalculate them if something has changed. Running <code>PRAGMA schema_version</code> against a connection to a database is an extremly fast query.</p>
+<p>I first used this trick <a href="https://github.com/simonw/datasette-graphql/issues/51">in datasette-graphql</a> to cache the results of GraphQL schema introspection, so I'm confident it will work here too.</p>
+ The problem with permissions 
+<p>There's one really gnarly challenge I still need to solve here: permissions.</p>
+<p>Datasette's <a href="https://docs.datasette.io/en/stable/authentication.html#permissions">permissions system</a>, added <a href="https://simonwillison.net/2020/Jun/12/annotated-release-notes/">in Datasette 0.44</a> back in June, works against plugin hooks. Permissions plugins can answer questions along the lines of "is the current authenticated actor allowed to perform the action <code>view-table</code> against table X?". Every time that question is asked, the plugins are queried via <a href="https://docs.datasette.io/en/stable/plugin_hooks.html#permission-allowed-datasette-actor-action-resource">a plugin hook</a>.</p>
+<p>When I designed the permissions system I forgot a crucial lesson I've learned about permissions systems before: at some point, you're going to need to answer the question "show me the list of all Xs that this actor has permission to act on".</p>
+<p>That time has now come. If I'm going to render a paginated homepage for Datasette listing 10,000+ tables, I need an efficient way to calculate the subset of those 10,000 tables that the current user is allowed to see.</p>
+<p>Looping through and calling that plugin hook 10,000 times isn't going to cut it.</p>
+<p>So I'm starting to rethink permissions a bit - I'm glad I've not hit Datasette 1.0 yet!</p>
+<p>In my favour is SQLite. Efficiently answering permissions questions in bulk, in a generic, customizable way, is a really hard problem. It's made a lot easier by the presence of a relational database.</p>
+<p><a href="https://github.com/simonw/datasette/issues/1152">Issue #1152</a> tracks some of my thinking on this. I have a hunch that the solution is going to involve a new plugin hook, potentially along the lines of "return a fragment of SQL that identifies databases or tables that this user can access". I can then run that SQL against the new <code>_internal</code> database (potentially combined with SQL returend by other plugins answering the same hook, using a <code>AND</code> or a <code>UNION</code>) to construct a set of tables that the user can access.</p>
+<p>If I can do that, and then run the query against an in-memory SQLite database, I should be able to provide a paginated, filtered interface to 10,000+ tables on the homepage that easily fulfills my performance goals.</p>
+<p>I'd like to ship the new <code>_internal</code> database in a release quite soon, so I may end up implementing a slower version of this first. It's definitely an interesting problem.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2020/_internal__columns__132_rows.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:38 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2020/three-new-years-resolutions'>Three new year’s resolutions</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ I hope to maintain three streaks and turn them into habits:  Exercise every day. No exceptions, unless I'm really sick. I've done more regular exercise over the last year than I'd managed since I moved to California, but I'd like to make it&nbsp;more regular, for the good of my own health.  Write every day. It doesn't have to be a complete story or a full-length essay, but I need to get somethin
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+<p>I hope to maintain three streaks and turn them into habits:</p><p>Exercise every day. No exceptions, unless I'm really sick. I've done more regular exercise over the last year than I'd managed since I moved to California, but I'd like to make it&nbsp;more regular, for the good of my own health.</p><p>Write every day. It doesn't have to be a complete story or a full-length essay, but I need to get something down that I'd be willing to share on something other than social media. This doesn't explicitly mean I want to post to my website every day, but I'd like to try to do that, too.</p><p>Practice thankfulness. I want to find three things I'm grateful for before I go to sleep every night. Gratitude is important, but more than anything, it's about training myself to find small joys and call them out.</p><p>And one overarching theme:</p><p>Lose the rat race. I'm not here to hustle, gain followers, be a thought leader, build wealth, work myself to death, or rise to the top of the career ladder. I want to explore ideas, tinker with stuff, reflect, make bad art, and be human. In 2021 you'll probably see more eclectic stuff in this space as a result. Sorry / not sorry.</p> 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:52 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -797,7 +965,7 @@
 
 <div class='item-footer'>
    18:18 &bull;
-   7 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -3265,7 +3433,7 @@ content.db:
 
 <div class='item-footer'>
    16:46 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3783,7 +3951,7 @@ App Specific Password<br></p>
 
 <div class='item-footer'>
    14:01 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4225,7 +4393,7 @@ App Specific Password<br></p>
 
 <div class='item-footer'>
    17:47 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4291,7 +4459,7 @@ App Specific Password<br></p>
 
 <div class='item-footer'>
    17:44 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4608,7 +4776,7 @@ central member of The DID Alliance….
 
 <div class='item-footer'>
    17:28 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6157,7 +6325,7 @@ and the giant pile of katamaris that is this blogpost.</p>
 
 <div class='item-footer'>
    14:41 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6858,7 +7026,7 @@ become Year 1 of the user-controlled personal data revolution.</p>
 
 <div class='item-footer'>
    17:21 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7329,7 +7497,7 @@ Experiences?</p>
 
 <div class='item-footer'>
    16:32 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8087,7 +8255,7 @@ Experiences?</p>
 
 <div class='item-footer'>
    17:06 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8513,7 +8681,7 @@ Experiences?</p>
 
 <div class='item-footer'>
    17:34 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8764,7 +8932,7 @@ Experiences?</p>
 
 <div class='item-footer'>
    15:31 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9338,7 +9506,7 @@ of the Sovrin Foundation Guardianship Working Group….
 
 <div class='item-footer'>
    17:43 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9491,7 +9659,7 @@ Photo by <a href="https://unsplash.com/@lazycreekimages?utm_source=unsplash&amp;
 
 <div class='item-footer'>
    14:24 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9639,84 +9807,6 @@ Created by @PrivacyMaverick. Updated link.</p>
 
 <div class='item-footer'>
    23:23 &bull;
-   28 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2020/deals-from-the-matterverse'>Deals from the Matterverse</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- As many of you know, I spent a couple of years as west coast Director of Investments at Matter, an early-stage startup accelerator supporting entrepreneurs with the potential to create a more informed, inclusive, and empathetic society. Before I worked there, I went through the program as the co-founder of Known. It's a community I still care deeply about and keep in touch with as much as I can.
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://werd.io/file/5fc2ac75b16ea12ff8368812'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p>As many of you know, I spent a couple of years as west coast Director of Investments at Matter, an early-stage startup accelerator supporting <a href="https://medium.com/matter-driven-narrative/meet-matter-seven-d07f02683108">entrepreneurs with the potential to create a more informed, inclusive, and empathetic society</a>. Before I worked there, <a href="https://knightfoundation.org/articles/startups-pitch-projects-matter-three-demo-day/">I went through the program as the co-founder of Known</a>. It's a community I still care deeply about and keep in touch with as much as I can.</p><p>It's the weekend between Black Friday and Cyber Monday, and I thought I would round up some of the deals being offered by some of these companies. These aren't affiliate links, nobody asked me to write this, and I don't gain anything from promoting them, although I do have a small amount of carry in Matter's second fund.</p><p><a href="https://creativeaction.network/"></a></p><p><a href="https://creativeaction.network/collections/all">Creative Action Network is offering 21% off and free shipping on orders of $50 or more.</a> They work with independent artists to create campaigns for great causes like EarthJustice, the Dream Corps and Sunrise Movement. I have a bunch of their stuff. <a href="https://creativeaction.network/blogs/news/2020-holiday-gift-guide">Read more.</a></p><p><a href="https://www.enterholovista.com/"></a></p><p><a href="https://apps.apple.com/us/app/holovista/id1474114304">Aconite's beautiful iOS HoloVista game is on sale for $2.99.</a> NME called it <a href="https://www.nme.com/en_asia/reviews/game-reviews/holovista-review-an-intoxicating-journey-to-another-world-2791088">an intoxicating journey to another world</a>. Star, Nadya, and their team have created an incredible experience unlike anything I've played before. <a href="http://www.aconite.co/holovista/">Check it out.</a></p><p><a href="https://www.mother.ly/shop/motherly-shop-black-friday-2020-sale"></a></p><p><a href="https://www.mother.ly/shop/motherly-shop-black-friday-2020-sale/">Motherly is running a Black Friday sale in its store.</a> Motherly is a lifestyle brand for modern women who choose to be parents. Its store contains some lovely, comforting items for parents of both babies and children, including <a href="https://shop.mother.ly/collections/gear-sale">20% off a SNOO sleeper</a>.</p><p>Also:</p><p><a href="https://www.kweli.tv/"></a></p><p>It's not on sale, but <a href="https://www.kweli.tv/?locale=en">KweliTV is a low price every month.</a> It's a streaming service for global black stories that have not received the distribution they deserved, available for your smart TV platform of choice. I'm a subscriber and you should be too.</p> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://werd.io/file/5fc2ac75b16ea12ff8368812'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:07 &bull;
    28 days ago
 </div>
 
@@ -11276,72 +11366,6 @@ The editors met yesterday to discuss the issues that were pulled out of the prev
 <article class='item'>
 
 
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2020/Nov/21/i-lived-through-stupid-coup-america-having-one-now/#atom-everything'>I Lived Through A Stupid Coup. America Is Having One Now</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I Lived Through A Stupid Coup. America Is Having One Now 
- If, like me, you have been avoiding the word "coup" since it feels like a clear over-reaction to what's going on, I challenge you to read this piece and not change your mind. 
-
-     Via Harper Reed 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://medium.com/indica/i-lived-through-a-coup-america-is-having-one-now-437934b1dac3">I Lived Through A Stupid Coup. America Is Having One Now</a></p>
-<p>If, like me, you have been avoiding the word "coup" since it feels like a clear over-reaction to what's going on, I challenge you to read this piece and not change your mind.</p>
-
-    <p>Via <a href="https://twitter.com/simonw/status/1330130649546711040">Harper Reed</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:21 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
 <h4 class='feed-title'>
   <a href='http://self-issued.info'>Mike Jones: self-issued</a>
 </h4>
@@ -12334,7 +12358,7 @@ jobs:
 
 <div class='item-footer'>
    05:00 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17995,7 +18019,7 @@ Successfully installed package-boilerplate-1.0.0
  
 
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201227T014329Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=7cc0acefdd78c9de52a58f254157b93740928a15d6456374a325345986e9de57">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201227T054812Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=45e63803d1b467e0674ab0c9222aac2b55d7185c12ff953cc98db24fbf15f2a4">
   
  </a>
  And the text is orange like we wanted! What if we wanted to import the module in a different project? Let's try:
@@ -18026,7 +18050,7 @@ Type "help", "copyright", "credits" or "license" for more information.
  
 
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201227T014329Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=255997692cdd9ed0dbcf7f280872d10c4865ca05d09818e582c636cf80e9107a">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python_package_tutorial_screenshot_2.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201227T054812Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=2b4689c240a97fe9b191879c3d07ccd412245ea012177bedd16c5b5d82b6e398">
   
  </a>
  It works! And we even get the coloured text.
@@ -18048,7 +18072,7 @@ Type "help", "copyright", "credits" or "license" for more information.
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201227T014329Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=27707d6e1fcae34c123ff21a7eb48ebceadf8e4c8ae32f2960219a97227fdcb3'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/python.jpeg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201227T054812Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=d1cf813b4f829779a8b56d1a52e7733537318a9267c79a617cadd897ac89ee4b'>
       </div>
     
   
@@ -18909,7 +18933,7 @@ September, 2020 with an iPhone Xs.</p>
  .
 </p>
 <p>
- <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/docker.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201227T014330Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=47ad894c4c62475a275aded84e9e0b9e41180ca1f5a1063382ffffd4b2b4eca6">
+ <a href="https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/docker.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&amp;X-Amz-Date=20201227T054812Z&amp;X-Amz-Expires=3600&amp;X-Amz-SignedHeaders=host&amp;X-Amz-Signature=d1409f3bfc713c7cf1cfee1e8491ff1c72609ab20b85b81ceb31621513b51eb1">
   
  </a>
 </p>
@@ -19746,7 +19770,7 @@ cd - &gt; /dev/null
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/dockeryard.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201227T014330Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=4382accc39b85b6e56bea4fa49fbc04c5d91c620ea6f1eeb264b4d5844d05b58'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lucent.sfo2.digitaloceanspaces.com/nrempel-media/original_images/dockeryard.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=IFX4QGKAQXU6KVNBEA3L%2F20201227%2Fsfo2%2Fs3%2Faws4_request&X-Amz-Date=20201227T054812Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=4ac14859cadabd0808d4cd67b30d11d7d130e55c3460d691dca390ef3d7c1ef9'>
       </div>
     
   
