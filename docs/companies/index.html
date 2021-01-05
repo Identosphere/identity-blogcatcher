@@ -659,7 +659,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 9:02 PM January 04, 2021 (UTC)</sup>
+<sup>Last Update 2:04 AM January 05, 2021 (UTC)</sup>
 
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
@@ -735,7 +735,7 @@
 
 <div class='item-footer'>
    15:20 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -809,7 +809,7 @@
 
 <div class='item-footer'>
    12:03 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -882,7 +882,438 @@
 
 <div class='item-footer'>
    09:06 &bull;
-   12 hours ago
+   17 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.okta.com/'>Okta</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://developer.okta.com/blog/2021/01/04/offline-jwt-validation-with-go'>Offline JWT Validation with Go</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Modern authentication systems use and generate JSON Web Tokens (JWT). There are many different ways that JWTs are used but, in this post, we will concentrate on JWTs that are used as OIDC access tokens. When a user successfully logs in to an application using a service like Okta, an OIDC access token is generated in the form of a JWT. That token can be passed in requests to the backend. The backen
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Modern authentication systems use and generate JSON Web Tokens (JWT). There are many different ways that JWTs are used but, in this post, we will concentrate on JWTs that are used as OIDC access tokens. When a user successfully logs in to an application using a service like Okta, an OIDC access token is generated in the form of a JWT. That token can be passed in requests to the backend. The backend can then validate that token and reject all requests with invalid or missing tokens.</p>
+
+<p>A common way to validate OIDC access tokens is to simply make an API request to the issuer with the access token. While this is the simplest method to use, it is far faster to validate tokens “offline”.</p>
+
+<p>Today, we are going to build a simple web application that uses the Okta authentication widget to log users in. An access token will be generated and sent to an API written in Go which will validate the token. Let’s get started!</p>
+
+<p>PS: The code for this project can be found on <a href="https://github.com/oktadeveloper/okta-offline-jwt-validation-example">GitHub</a>.</p>
+
+ Prerequisites to Building a Go Application 
+
+<p>First things first, if you haven’t already got Go installed on your computer you will need to <a href="https://golang.org/doc/install">Download and install - The Go Programming Language</a>.</p>
+
+<p>Next, create a directory where all of your future code will live.</p>
+
+   <code>mkdir jwt-go
+cd jwt-go
+</code>   
+
+<p>Next, we will make our directory a Go module and install the Gin web server package, and the JWT verifier package.</p>
+
+   <code>go mod init jwt-go
+go get github.com/gin-gonic/gin
+go get github.com/dgrijalva/jwt-go
+</code>   
+
+<p>A file called <code>go.mod</code> containing these dependencies will be created by the <code>go get</code> command.</p>
+
+<p>To use Okta authentication, you need to have a free [Okta Developer account] (https://developer.okta.com). Once you’ve done this, sign in to the developer console and select Applications &gt; Add Application. Then select Single-Page App and hit Next. The next page is filled in with default values, most of which are sufficient for this application and don’t need to be changed. Important: Add the URL <code>http://localhost:8080</code> to the allowed redirect URLs. Hit Done.</p>
+
+<p>There are two pieces of information that you need to obtain from the Okta Developer Console. These are your Okta domain name (e.g. <code>dev-12345.okta.com</code>) and your client id (e.g. <code>0ab1c2defg3AB4Chi567</code>).</p>
+
+ How to Build a Web Client in Go with Okta Authentication 
+
+<p>First, we need to create a directory for the static web pages.</p>
+
+   <code>mkdir client
+</code>   
+
+<p>Next, create a file called <code>client/index.html</code> which loads the Okta JavaScript, and has a <code>&lt;div&gt;</code> with an id of <code>widget-container</code> for use by the Okta authentication widget, and a form to send messages to a backend API.</p>
+
+   <code>&lt;html&gt;
+    &lt;head&gt;
+        &lt;meta charset="UTF-8" /&gt;
+        &lt;title&gt;Offline JWT Validation with Go&lt;/title&gt;
+        &lt;script src="https://global.oktacdn.com/okta-signin-widget/4.3.2/js/okta-sign-in.min.js" type="text/javascript"&gt;&lt;/script&gt;
+        &lt;link href="https://global.oktacdn.com/okta-signin-widget/4.3.2/css/okta-sign-in.min.css" type="text/css" rel="stylesheet"/&gt;
+        &lt;link href="style.css" rel="stylesheet" type="text/css" /&gt;
+        &lt;script src="control.js" defer&gt;&lt;/script&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;h1&gt;Offline JWT Validation with Go&lt;/h1&gt;
+        &lt;div id="widget-container"&gt;&lt;/div&gt;
+        &lt;div class="centred"&gt;
+            &lt;form id="messageForm"&gt;
+                Message: &lt;input id="message" name="message" type="message"/&gt;
+                &lt;input type="button" value="Send" onclick="onmessage()"/&gt;
+            &lt;/form&gt;
+            &lt;textarea id="messages" name="messages" rows="10" cols="50"&gt;Messages&lt;/textarea&gt;&lt;br/&gt;
+        &lt;/div&gt;
+    &lt;/body&gt;
+&lt;/html&gt;
+</code>   
+
+<p>Next, create a file called <code>client/control.js</code> containing the following JavaScript code:</p>
+
+   <code>var accessToken = null;
+
+var signIn = new OktaSignIn({
+    baseUrl: 'http://${yourOktaDomain}',
+    clientId: '${yourClientId}',
+    redirectUri: window.location.origin,
+    authParams: {
+        issuer: 'https://${yourOktaDomain}/oauth2/default',
+        responseType: ['token', 'id_token']
+    }
+});
+
+signIn.renderEl({
+    el: '#widget-container'
+}, function success(res) {
+    if (res.status === 'SUCCESS') {
+        accessToken = res.tokens.accessToken.accessToken;
+        signIn.hide();
+    } else {
+        alert('fail);')
+    }
+}, function(error) {
+    alert('error ' + error);
+});
+
+function onmessage() {
+    const url = "/api/messages";
+    var headers = {}
+    if (accessToken != null) {
+        headers = { 'Authorization': 'Bearer ' + accessToken }
+    }
+    fetch(url, {
+        method : "POST",
+        mode: 'cors',
+        headers: headers,
+        body: new URLSearchParams(new FormData(document.getElementById("messageForm"))),
+    })
+    .then((response) =&gt; {
+        if (!response.ok) {
+            throw new Error(response.error)
+        }
+        return response.text();
+    })
+    .then(data =&gt; {
+        var msgs = JSON.parse(data) 
+        document.getElementById('messages').value = msgs.messages.join('\n');
+    })
+    .catch(function(error) {
+        document.getElementById('messages').value = "Permission denied";
+    });
+}
+</code>   
+
+<p>So, what is this code doing? First, a variable named <code>accessToken</code> is created to store the JWT access token.</p>
+
+<p>Next, we have created an <code>OktaSignIn</code> object named <code>signIn</code>. Note You need to replace both occurrences of <code>${yourOktaDomain}</code> with the Okta domain name from the console. Also, replace <code>${yourClientId}</code> with the client ID from the application we previously created in the console.</p>
+
+<p>The <code>renderEl()</code> function displays the authentication UI and performs the authentication. If successful, a JWT access token is returned and saved. The UI is then hidden.</p>
+
+<p>The <code>onmessage()</code> function is called when the “Send” button is clicked to submit the message form. This function makes a POST request to an <code>/api/messages</code> endpoint that we will be creating later on. The <code>onmessage()</code> function also passes in the message text to <code>/api/messages/</code>. The request to the <code>/api/messages</code> endpoint will also include the access token in an HTTP <code>Authorization</code> header. As it is a token the header needs to specify its type as <code>Bearer</code>. When the response comes back, the messages are all displayed in the text area.</p>
+
+ How to Build a Simple Go Web Server 
+
+<p>We are going to implement a web server using the Go Gin library. Create a file called <code>main.go</code> containing the following Go code in the <code>jwt-go</code> directory that you created at the beginning of this post:</p>
+
+   <code>package main
+
+import (
+    "net/http"
+
+    "github.com/gin-contrib/static"
+    "github.com/gin-gonic/gin"
+)
+
+var messages []string
+
+func Messages(c *gin.Context) {
+    message := c.PostForm("message")
+    messages = append(messages, message)
+    c.JSON(http.StatusOK, gin.H{"messages": messages})
+}
+
+func main() {
+    r := gin.Default()
+    r.Use(static.Serve("/", static.LocalFile("./client", false)))
+    r.POST("/api/messages", Messages)
+    r.Run()
+}
+</code>   
+
+<p>So, what does this code do? The messages are stored in a slice of strings called <code>messages</code>. The <code>main()</code> function creates a default instance of a Gin HTTP web framework engine. It serves the static content, which we have already created, from the <code>client</code> directory. It calls the function <code>Messages()</code> on receipt of POST requests to <code>/api/Messages</code>.</p>
+
+<p>The <code>Messages()</code> function extracts the message from the POST form data and appends it to the list of messages. It then returns the list of messages back to the requester as a JSON object.</p>
+
+<p>Now, we can test the application by running the server and pointing a web browser at http://localhost:8080.</p>
+
+   <code>go run main.go
+</code>   
+ Introduction to  Complex Data Structures in Go 
+
+<p>For those new to Go, some of the more complex code which we will see later will make more sense if we understand how Go handles lists and maps (also known as dictionaries or hash tables). Here is a short introduction to lists and maps in Go:</p>
+
+<p>Consider an application which reads a JSON object from a file or a network resource. For example:</p>
+
+   <code>[{ "name":"John", "age":30, "car":null },
+ { "name":"Jane", "age":27, "car":"Mini" }]
+</code>   
+
+<p>We want to use the Go JSON decoder to turn the JSON string into a list of maps.</p>
+ 
+   Map and list values can be of type nil, int, float, string, list, and map. 
+   Go is a compiled language and it is also strongly typed. 
+   Map keys are always strings. 
+   The values of any map or list can be a mixture of types, so the values of a map or list can’t be given an explicit type in the code. 
+ 
+
+<p>For example, In the code above, we declared a list of type <code>string</code> with this code:</p>
+
+   <code>var messages []string
+</code>   
+
+<p>In order to overcome the typing issues, Go allows maps and lists to have values of any type by declaring the type as an interface, for example:</p>
+
+   <code>var persons []interface{}
+var person map[string]interface{}
+</code>   
+
+<p>This leads to another issue. When writing the code, it is impossible to know for certain what the actual type of the value is. For example, the JSON structure could change. The type can only be determined at runtime. This makes it important to know what the data structure actually is. If you know the type, you can use a type assertion that tells the compiler what the actual type is. In our example above, <code>persons</code> is a list of maps and <code>person</code> is a map containing a number of attributes.</p>
+
+<p>The type assertions become:</p>
+
+   <code>person, err := persons[0].(map[string]interface{})
+name, err := person["name"].(string)
+</code>   
+
+<p>If the type assertion agrees with the actual type the <code>err</code> will be <code>nil</code>. You can omit the <code>err</code> return value, but if the type assertion fails then an exception will be thrown. Multiple type assertions can be used in the same expression:</p>
+
+   <code>name := persons[0].(map[string]interface[])["name"].(string)
+</code>   
+
+<p>Finally, if you don’t know the actual type of an interface value, then you can use <code>reflect</code> to find it out:</p>
+
+   <code>print(reflect.TypeOf(persons[0]))
+</code>   
+
+ How to Validate a JWT Token in Go 
+
+<p>Now that we have the application working, it is time to validate the access token which is the focus of this article.</p>
+
+<p>First of all, what is a JWT? It is three base64 encoded components separated by a <code>.</code> character.</p>
+
+<p>The first component is the header. This is a map. The most important fields of the map are <code>alg</code> which specifies the cryptographic algorithm used, and the <code>kid</code> or key identifier which identifies which public key to use to verify the JWT.</p>
+
+<p>The second component is the payload, which is a set of claims. A claim is a map. Important claims are <code>aud</code> which is the audience, and <code>iss</code> which is the issuer of the token.</p>
+
+<p>The final component is the signature, which is a digital signature of the header and payload.</p>
+
+<p>In order to validate the token, we first need the public key so that we can validate the signature. Start by modifying the <code>import</code> section of <code>main.go</code> to look like this:</p>
+
+   <code>import (
+    "net/http"
+    "crypto/rsa"
+    "encoding/json"
+    "encoding/base64"
+    "math/big"
+    "os"
+
+     "github.com/gin-contrib/static"
+     "github.com/gin-gonic/gin"
+)
+</code>   
+
+<p>Next, add the following Go code to <code>main.go</code>:</p>
+
+   <code>var rsakeys map[string]*rsa.PublicKey
+
+func GetPublicKeys() {
+    rsakeys = make(map[string]*rsa.PublicKey)
+    var body map[string]interface{}
+    uri := "https://" + os.Getenv("OKTA_DOMAIN") + "/oauth2/default/v1/keys"
+    resp, _ := http.Get(uri)
+    json.NewDecoder(resp.Body).Decode(&amp;body)
+    for _, bodykey := range body["keys"].([]interface{}) {
+        key := bodykey.(map[string]interface{})
+        kid := key["kid"].(string)
+        rsakey := new(rsa.PublicKey)
+        number, _ := base64.RawURLEncoding.DecodeString(key["n"].(string))
+        rsakey.N = new(big.Int).SetBytes(number)
+        rsakey.E = 65537
+        rsakeys[kid] = rsakey
+    }
+}
+</code>   
+
+<p>Then and add a call to the <code>Keys()</code> function to the <code>main()</code> function, like this:</p>
+
+   <code>func main() {
+    GetPublicKeys()
+    r := gin.Default()
+    r.Use(static.Serve("/", static.LocalFile("./client", false)))
+    r.POST("/api/messages", Messages)
+    r.Run()
+}
+</code>   
+
+<p>What do these changes do? First of all, in <code>GetPublicKeys()</code> a GET request is made to the Okta API to get the signing public keys for the Okta domain stored in the $OKTA_DOMAIN environment variable. The response is a JSON object containing a list of keys.</p>
+
+<p>Next, we parse the JSON object to extract one or more of the  RSA public keys that we will use to verify access tokens from Okta. The key has two components, a number (called “N”), and an exponent (called “E”). The number is base64 encoded and the exponent is usually 65537 so we just hard-code it.</p>
+
+<p>Now we need to add some code to do the actual verification. Update your <code>import</code> section so it looks like this:</p>
+
+   <code>import (
+    "crypto/rsa"
+    "encoding/base64"
+    "encoding/json"
+    "math/big"
+    "os"
+    "strings"
+    "net/http"
+
+    "github.com/dgrijalva/jwt-go"
+    "github.com/gin-contrib/static"
+    "github.com/gin-gonic/gin"
+)
+</code>   
+
+<p>Then, add the following code to <code>main.go</code>.</p>
+
+   <code>func Verify(c *gin.Context) bool {
+    isValid := false
+    errorMessage := ""
+    tokenString := c.Request.Header.Get("Authorization")
+    if strings.HasPrefix(tokenString, "Bearer ") {
+        tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+        token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+            return rsakeys[token.Header["kid"].(string)], nil
+        })
+        if err != nil {
+            errorMessage = err.Error()
+        } else if !token.Valid {
+            errorMessage = "Invalid token"
+        } else if token.Header["alg"] == nil {
+            errorMessage = "alg must be defined"
+        } else if token.Claims.(jwt.MapClaims)["aud"] != "api://default" {
+            errorMessage = "Invalid aud"
+        } else if !strings.Contains(token.Claims.(jwt.MapClaims)["iss"].(string), os.Getenv("OKTA_DOMAIN")) {
+            errorMessage = "Invalid iss"
+        } else {
+            isValid = true
+        }
+        if !isValid {
+            c.String(http.StatusForbidden, errorMessage)
+        }
+    } else {
+        c.String(http.StatusUnauthorized, "Unauthorized")
+    }
+    return isValid
+}
+</code>   
+
+<p>The function extracts an <code>Authorization</code> request header and looks for a <code>Bearer</code> token. If it does not exist, then a 401 <code>Unauthorized</code> response is sent.</p>
+
+<p>The token string is then passed to the <code>jwt.Parse()</code> function, the second parameter being a function that returns the public key.</p>
+
+<p>Now, we can validate the token. It must be rejected if any of the following are true:</p>
+ 
+   The parse function returns an error which means that the token can’t be decoded, or more likely that the public key can’t decrypt the signature. 
+   The token is invalid. 
+   The cryptographic algorithm must be RSA256. 
+   The audience does not match the expected audience. 
+   The issuer is not the expected issuer. 
+   The token has no key identifier. 
+ 
+
+<p>Finally, modify the API functions to call <code>Verify()</code>.</p>
+
+   <code>func Messages(c *gin.Context) {
+    if Verify(c) {
+        message := c.PostForm("message")
+        messages = append(messages, message)
+        c.JSON(http.StatusOK, gin.H{"messages": messages})
+    }
+}
+</code>   
+
+ Testing it all out 
+
+<p>We can now test end to end. Start by  running the server:</p>
+
+   <code>go run main.go
+</code>   
+
+<p>Next, point a web browser at http://localhost:8080.</p>
+
+<p>Enter a message and hit the submit button. You should get an authorization error.</p>
+
+<p>Now, login and try sending another message. This should send a token that gets validated correctly. Your message should be displayed.</p>
+
+ Conclusion 
+
+<p>In this post, we have learned how to authenticate with Okta to get a JWT, how to use that JWT in the <code>Authentication</code> header of an HTTP GET request, and how to perform “offline” validation of that JWT in Go.</p>
+
+<p>If you like this topic, be sure to <a href="https://twitter.com/oktadev">follow us on Twitter</a>, subscribe to <a href="https://youtube.com/c/oktadev">our YouTube Channel</a>, and <a href="https://www.twitch.tv/oktadev">follow us on Twitch</a>.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:00 &bull;
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -956,7 +1387,7 @@
 
 <div class='item-footer'>
    02:06 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1028,7 +1459,7 @@
 
 <div class='item-footer'>
    22:25 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1170,7 +1601,7 @@ The post <a href="https://idramp.com/idramp-offers-market-ready-decentralized-id
 
 <div class='item-footer'>
    10:32 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1352,7 +1783,7 @@ The post <a href="https://idramp.com/idramp-offers-market-ready-decentralized-id
 
 <div class='item-footer'>
    13:15 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1426,7 +1857,7 @@ The post <a href="https://idramp.com/idramp-offers-market-ready-decentralized-id
 
 <div class='item-footer'>
    12:44 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1490,7 +1921,7 @@ The post <a href="https://idramp.com/idramp-offers-market-ready-decentralized-id
 
 <div class='item-footer'>
    09:21 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2756,7 +3187,7 @@ The post <a href="https://idramp.com/idramp-offers-market-ready-decentralized-id
 
 <div class='item-footer'>
    10:37 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2821,7 +3252,7 @@ The post <a href="https://idramp.com/idramp-offers-market-ready-decentralized-id
 
 <div class='item-footer'>
    10:35 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3455,7 +3886,7 @@ public class DashboardLineItem
 
 <div class='item-footer'>
    13:56 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3585,7 +4016,7 @@ public class DashboardLineItem
 
 <div class='item-footer'>
    10:30 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5220,7 +5651,7 @@ FinCEN's announcement of the Notice of Proposed Rulemaking (NPRM) on unhosted wa
 
 <div class='item-footer'>
    11:31 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6939,7 +7370,7 @@ global void updateUser(Id userId, Id portalId, Auth.UserData data) {
 
 <div class='item-footer'>
    12:25 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7115,6 +7546,80 @@ global void updateUser(Id userId, Id portalId, Auth.UserData data) {
 
 <div class='item-footer'>
    08:01 &bull;
+   14 days ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://medium.com/caribou-digital'>Caribou Digital</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://medium.com/caribou-digital/female-livelihoods-in-the-gig-economy-tensions-and-opportunities-f14982b6aaad?source=rss----be144764b2ed---4'>Female livelihoods in the gig economy: tensions and opportunities</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Diagnostic: Female livelihoods in the gig&nbsp;economy  Tensions and opportunities  Diagnostic is a series of essays and hosted conversations exploring the challenges of building more inclusive Digital economies. For hosted (virtual) conversations, like the one described below, Caribou Digital convenes a diverse set of experts and thought leaders with unique insights on an issue, and facilitates t
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/450/0*x8OFdbfFZfjaj0Yz'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ Diagnostic: Female livelihoods in the gig&nbsp;economy  Tensions and opportunities <p>Diagnostic is a series of essays and hosted conversations exploring the challenges of building more inclusive Digital economies. For hosted (virtual) conversations, like the one described below, Caribou Digital convenes a diverse set of experts and thought leaders with unique insights on an issue, and facilitates the exploration of a topic together.</p><p>For this conversation, we had 12 experts on women and platform work in emerging markets, ranging from those running platforms to donors, private sector, academia and advocacy. The conversation was under Chatham House rules so this is an edited summary of the key themes and not attributed to any one person. However, we have a list of names and resources discussed at the end of this&nbsp;piece.</p>A still from a promotional video for HelloTask, illustrating the importance of identity and professionalism What’s the landscape in a COVID-19&nbsp;world? <p>As we began our Diagnostic discussion, we acknowledged that COVID-19 illustrated the worst case scenario for many platform workers, and even more so for women. Research by Caribou Digital and Qhala in partnership with Mastercard Foundation has shown that platform work for women <a href="http://www.platformlivelihoods.com/gender">holds many tensions</a>, and this has been further heightened by the lack of a safety net during COVID-19. The myth of flexible work may in many cases be no more than cheap labour in disguise, and self employment a way for employers to shift responsibility to workers. This can impact women more so than men. COVID-19 also brought home the reality (perhaps obvious) that women still carry most of household duties while also working, another flip side of flexibility which puts more strain on women trying to combine both kinds of&nbsp;work.</p><p>Below, we distill our discussion into three tensions, three actions and the way forward on women and platform work, especially in emerging economies.</p> The tensions of formal, flexible&nbsp;work <p>On the one hand, the formality of platforms was seen as a plus point. Being given an identity (e.g. a badge, a relationship) was something women valued, according to one platform provider. It had a similar appeal for the customer: “I think, people use a platform rather than go the traditional way for the responsibility a platform always takes. The way Uber verifies rides, indemnifies any problems users face and takes users’ feedback seriously…every platform should take the responsibility of ensuring a digital identity, verifying ID cards and including for finance”. However, too many restrictions have made platform work unfair. A <a href="https://www.nbcnews.com/news/world/uber-made-big-promises-kenya-drivers-say-it-s-ruined-n1247964">report on Kenya</a>, for example, showed that drivers were “worse off” after the introduction of Uber. Platform lock-in can also be disadvantageous to the worker (for example, when a woman works across different companies or platforms… shouldn’t they be able to have ownership over their identity and ratings)?</p><p>Equally, in theory, platforms provide an opportunity for women’s emancipation, notably by providing “flexible” work, i.e. flexible hours, working from home etc. Yet, even pre-COVID,<a href="https://www.theguardian.com/us-news/2020/feb/06/uber-rideshare-lyft-safety-crime"> many platforms fell short</a> of protecting their workers. Now, the flexibility benefits of platform work, especially for women, are being questioned, as a kind of “bogus self-employment”. From a gender perspective, real change is unclear. One participant stated that “platforms do nothing to change the gendered occupational segmentation that characterises offline labour markets around the&nbsp;world”.</p> Building identity…or having to fake&nbsp;it <p>What do platforms do regarding workers’ sense of identity? On the one hand, platforms provide a sense of identity and belonging: “helpers are motivated to work on HelloTask’s platforms because of the identity they get on our platform rather than working like a ghost.” On the other hand, workers can fake their identity to counter the racial or gender biases that exist on platforms. For example, some female workers in Kenya were adopting “white, male” identities to get (more) work, depending on the type of work. In some sectors, being a woman will be preferred, (e.g. beauticians, domestic work). So how much does one need to identify&nbsp;oneself?</p> Broad reach versus high-tech <p>Despite this significant opportunity for women’s emancipation mentioned above, how can we ensure we move beyond only higher skilled women having the opportunity for digital work? One study mentions the increasing integration of <a href="https://www.youtube.com/watch?v=e7dUW9S519I&amp;amp%3Bfeature=youtu.be&amp;amp%3Bab_channel=DWMImpact">social commerce for female-headed small and medium enterprises</a>. However at the same time the risk of “too much tech” was brought forward — with a large part of potential gig workers (the “<a href="https://migrationology.com/jua-kali-kenyan-informal-labor-sector/">jua kali</a>” type workers, as described in Kenya’s informal economy) not being digitised, not having smartphones let alone computers.<a href="https://www.cgap.org/blog/digital-gender-divide-wont-close-itself-heres-why"> Women are particularly affected by the digital ga</a>p, often only accessing feature phones and either unable to participate or participating through intermediaries, for example giving someone else’s contact number or bank account for payment, which increases the risk of dependence.</p> What are the priority actions and who is responsible for&nbsp;them? <p>Making platforms accessible to all — including the lower income and often unemployed communities, especially women was one of the key points. How to ensure that inclusion and who is responsible for it is a harder “hot potato” question. We agreed that platforms had a significant role to play, in some cases along with funders/investors, regulators/policy bodies, workers themselves and workers’ organisations.</p> More feature phone integration <p>One way of encouraging scale and inclusion is by integrating basic feature phone access to platform services. For example HelloTask used IVR to connect with domestic workers when there is a job for them as they rarely had smartphones. Similarly, using SMS and USSD services is key to ensuring platforms reach all workers — including at the last mile. However, there was skepticism on interest and investor funding on this: “I wonder what chances you’d get in 2020 at getting funding for an SMS-based service when most money seems to be drawn to the web and&nbsp;apps”.</p> Address analogue gaps such as&nbsp;ID <p>Women are particularly at risk of not having their own ID credentials resorting to their family’s ID (often father/brother) which raises a first question as to whether platforms can change the existing informal power relationships or do they leave them unchanged. Intertwined with ID requirements are payments and financial inclusion as not having an ID may often lead women to being financially excluded. Platforms’ payments structures <a href="https://www.tandfonline.com/doi/abs/10.1080/02681102.2020.1818544">often do not favour workers</a>: “wage management and payment processes are set up for the convenience of the “employers” who are upper/middle class clients.” This not only limits access but also impacts on other issues such as credit scoring or financial independence. Platforms and digital financial service providers could push for these types of processes to be put in&nbsp;place.</p> Invest in education and&nbsp;training <p>Education and training of workers is required to ensure that they can fully leverage the opportunities platforms provide — especially in order to get more skilled and better paid gig work online. Currently, to fill the existing training and knowledge gaps, workers organically regroup on social media platforms to create self-help groups. However this may not be sufficient and women may not have the time or possibility to join these groups in the first&nbsp;place.</p><p>Platforms seem to take on the responsibility of trust in the worker for the customer’s sake (e.g. vetting a domestic helper) but not necessarily being responsible for the worker’s health and safety or their training: “platforms avoid training as it can be used for a claim that they have misclassified independent contractors as employees/workers…this is why algorithmic control is preferred to explicit methods of control / direction / training in many&nbsp;cases”.</p> The way&nbsp;forward <p>As a group, we agreed that all stakeholders had a responsibility, especially platforms themselves — be it in training or security. Platform work should not just be work but meaningful and dignified work. This is obviously not just an emerging markets issue. Governments around the world — the Canadian government was mentioned as an example — and regulators do not always seem to know what to do as this is still a nascent area. As a whole, we could devise metrics on women’s inclusion and safety on platforms (see the work of the <a href="https://fair.work/en/fw/homepage/">Fairwork Foundation</a> for example). One suggestion was that: “development agencies and investors could play the role of the regulator to ensure certain metrics are met when it comes to ensuring gender parity”. <a href="https://www.foodstersunited.ca/">Worker rights movements or organisations</a>, women’s rights bodies and unions could exert pressure. Private bodies such as <a href="http://perks.gg">Perks</a> could also create sustainable models for gig workers’ benefits for safety nets and guidance on how to ensure that platforms provide decent work to workers, in particular women. In short, there is still much work to be done on women and platform work worldwide, including in emerging&nbsp;markets.</p> Participants   Anjali Banthia,&nbsp;Tala  Dr. Jamie Woodcock, Open University, <a href="https://www.jamiewoodcock.net/">https://www.jamiewoodcock.net</a>  Jessica Colaço, Brave Venture&nbsp;Labs  Dr. Kathi Kitner, Payments, Google  Katie Highet, FinEquity, convened by&nbsp;CGAP  Ken Banks,&nbsp;Yoti  Mahmudul Hasan Likhon, HelloTask  Rani Deshpande, CGAP  Shikoh Gitau,&nbsp;Qhala  Shyam Krishna, Royal Holloway, University of&nbsp;London  Dr. Tricia Williams, Mastercard Foundation  <p>Other participants chose to remain anonymous</p> <p><a href="https://medium.com/caribou-digital/female-livelihoods-in-the-gig-economy-tensions-and-opportunities-f14982b6aaad">Female livelihoods in the gig economy: tensions and opportunities</a> was originally published in <a href="https://medium.com/caribou-digital">Caribou Digital</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/450/0*x8OFdbfFZfjaj0Yz'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:16 &bull;
    14 days ago
 </div>
 
@@ -7606,7 +8111,7 @@ global void updateUser(Id userId, Id portalId, Auth.UserData data) {
 
 <div class='item-footer'>
    10:44 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8346,6 +8851,80 @@ Avoid using the <code>none</code> algorithm.  When possible, configure your JWT 
 
 
 <h4 class='feed-title'>
+  <a href='https://medium.com/caribou-digital'>Caribou Digital</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://medium.com/caribou-digital/transformation-in-a-digital-age-9068338fd778?source=rss----be144764b2ed---4'>Transformation in a Digital Age</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Digital transformation is everywhere. It is used to describe so many things that it risks losing its meaning, and with it, the potential for a common approach to supporting it in pursuit of equitable, sustainable development. We’re sharing this blog, then, as part of defining this important area.  Digital transformation should include both the processes and outcomes of mindful, intentional, and sh
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*IAS2A4OjzTGG1oBwYipkJA.jpeg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Digital transformation is everywhere. It is used to describe so many things that it risks losing its meaning, and with it, the potential for a common approach to supporting it in pursuit of equitable, sustainable development. We’re sharing this blog, then, as part of defining this important area.</p><p>Digital transformation should include both the processes and outcomes of mindful, intentional, and shapeable efforts that lead to intended, prosocial effects. Definitions of digital transformation at the firm level tend to focus on existing or new business models. For McKinsey, it is to “<a href="https://www.mckinsey.com/business-functions/mckinsey-digital/our-insights/digital-transformation-improving-the-odds-of-success#">enable existing business models by integrating advanced technologies</a>,” while for Salesforce, it’s “<a href="https://www.salesforce.com/products/platform/what-is-digital-transformation/">using digital technologies to create new — or modify existing — business processes, culture, and customer experiences</a>.”</p><p>Definitions at the national level tend to take a broader perspective. The European Commission characterizes digital transformation as “<a href="https://ec.europa.eu/growth/industry/policy/advanced-technologies_en">a fusion of advanced technologies and the integration of physical and digital systems</a>.” The OECD defines it as “t<a href="https://doi.org/10.1787/9789264312012-en">he economic and societal effects of digitization and digitalization</a>.” This is important; while the first three definitions focus on process, the last focuses on effects and the consequences of these significant changes.</p><p>Development-focused definitions emphasize this outcome-focused perspective but highlight challenges and risk. The Pathways Commission at Oxford University cautions that “<a href="https://bsg-pathwaystoprosperity.s3.eu-west-2.amazonaws.com/The_Digital_Roadmap.pdf">The use of digital technologies will not automatically lead to the inclusion of the poor and marginalized</a>.” UNCTAD points to the <a href="https://unctad.org/en/PublicationsLibrary/der2019_en.pdf">challenge of measuring the broader national digital economy</a> and emphasizes how digital transformation is “<a href="https://unctad.org/topic/ecommerce-and-digital-economy/ungis-dialogue#:~:text=In%20this%20context%2C%20the%20United,UNGIS%20presents%20for%20more%20effective">highlighting the significant divides that exist.</a>” The United Nations Foundation Digital Impact Alliance, having reviewed over 30 frameworks, concludes that “<a href="https://digitalimpactalliance.org/accelerating-national-digital-transformation-announcing-the-first-in-dials-new-series-of-leadership-briefs/">more work is required to attempt an overarching articulation of the most important elements</a>” of digital transformation. This blog is a contribution to this continuing effort.</p><p>We believe that the emphasis on transformation as both process and effects is particularly important, especially as although digitization and digitalization are well underway, accelerated by the response to COVID-19 (remote working, payments, etc.), these are not inevitable processes. They are the results of human decisions. Similarly, the effects of these are not inevitable, either. We agree that technologies <a href="https://dl.acm.org/doi/10.1145/1940761.1940772">amplify</a> intent, and left unchecked, digital transformation may amplify the most powerful, strengthening autocracy and dystopia. With strategic engagement and clear intention, it is possible to build ethical and inclusive digital economies, societies, and politics that mitigate risk and prioritize protection.</p><p>Digital transformation that works for all requires values-based intentional focus on the promises of this new era and mindfulness to mitigate their perils. The following five considerations are insights that help us ensure we are intentional in our support to governments, donors, and other partners in their work to ensure digital transformation prioritizes people, protects fundamental rights, and promotes equality of opportunity.</p>  <a href="https://medium.com/caribou-digital/five-reflections-on-five-years-cc63120363d2">Digital transformation as development in a digital age</a>. Since we made this phrase central to our work in 2016, we’ve only become more convinced that while digital is fundamental to processes of change in politics, economy, and society, the emphasis needs to be not on digital but on the changes and developmental outcomes. It is vital to recognize that this is not simply focusing on technology to drive changes, and that there are particular characteristics and challenges to achieve developmental goals in a digital age. As we wrote for one donor, “Digital transformation introduces new risks as well as opportunities,” so building inclusive, ethical transformation demands engaging “<a href="https://link.medium.com/ZfiwxERgubb">with complex, nuanced concepts around agency, literacy, power, and structure in the digital&nbsp;age.</a>”  <a href="https://medium.com/caribou-digital/five-reflections-on-five-years-cc63120363d2">Digital transformation requires an ecosystem approach</a>. Most digital development projects still exist in sectoral silos and/or are driven by a relentlessly optimistic approach to “connecting the last billion.” This is despite all the evidence pointing to the significant cross-cutting — both negative and positive — impacts of digital technologies on economies and societies as the excellent<a href="http://www.worldbank.org/en/publication/wdr2016"> 2016 World Development Report</a> on “Digital Dividends” laid out. We have found it helpful to firstly define and bind <a href="https://www.digitaldevelopment.org/digital-ecosystems">digital ecosystems</a>, at the national or firm level, for example, and to engage at this level — for example, on mapping a <a href="https://medium.com/caribou-digital/five-reflections-on-five-years-cc63120363d2">digital identity</a> or on <a href="https://link.springer.com/chapter/10.1057/978-1-137-57878-5_4">entrepreneurial ecosystems</a>. Although the map is not the territory, it is vital to know the terrain before plotting a course to successfully reach your&nbsp;goal.  Digital transformation must be inclusive, leave no one behind, and prioritize the protection of vulnerable communities. Otherwise, at best, it will leave them behind, or at worse, it will increase vulnerability and exclusion. The promise of digital transformation in terms of added value to government and the economy are increasingly recognized, but there is a growing realization of the harms these transformations can bring, particularly on the most vulnerable. We have found that for groups such as <a href="https://medium.com/caribou-digital/report-launch-identity-at-the-margins-identification-systems-for-refugees-69466244fa62">refugees</a>, <a href="https://medium.com/caribou-digital/why-is-id-important-for-women/home">women</a>, and <a href="https://www.platformlivelihoods.com/">informal, gig, and platform</a> workers, there are increased risks to privacy, personal protection, and secure jobs that enable social wellbeing — not forgetting the risks to <a href="https://medium.com/caribou-digital/unbundling-the-imaginary-community-adf1eb7e5ea8">political process and social polarization</a>. In supporting clients to develop digital transformation strategies, we have emphasized the importance of incorporating “responsible digital” and “digital inclusion” as critical components of strategy to support ethical and inclusive digital transformation.  Digital transformation should be integrative, not additive. In our work with partners, we are often asked to develop a digital program — building a new team and developing a program of work. We have found that to effectively influence the arc of digital transformation, development outcomes can be better achieved if programs and organizations incorporate digital into existing teams, programs, and work. We advised on ways that <a href="https://medium.com/caribou-digital/digital-identity-and-management-information-systems-for-humanitarian-and-social-protection-response-b1b25e5623a2">digital information systems might enable humanitarian to social protection transitions</a> while emphasizing protection and security. We worked with Oxfam to help their team conceptualize, develop, and sustain an <a href="https://policy-practice.oxfam.org.uk/our-approach/ict-in-programme]">approach that emphasized digital</a> technologies that “<a href="https://policy-practice.oxfam.org.uk/our-approach/ict-in-programme]">are not an end in themselves; but&nbsp;…integrated into existing programs</a>.”  Digital transformation requires leadership and ownership. All change is hard, and without leadership, it is often sidelined and withers. Efforts to direct digital transformation are no different, and require leadership to own and push for the changes that are required. Globally, efforts such as the <a href="https://digitalpublicgoods.net/">Digital Public Goods Alliance</a> provide helpful normative framings. With national governments, we’ve found it to be critical to identify champions who take ownership and invest political capital in attaining success. However, champions cannot be isolated figures. One international development donor that we supported in developing a team of digital champions found they were unable to gain traction because they had no ownership over the processes they tried to influence.  <p>There are many different interests advancing the processes and effects of digital transformations, but for these to lead to inclusive development outcomes requires purposeful, intentional, and considered engagement. This will be particularly important as the challenges of equitable progress, social inclusion, and climate change place ever greater demands on the international community and its capacity to&nbsp;respond.</p> <p><a href="https://medium.com/caribou-digital/transformation-in-a-digital-age-9068338fd778">Transformation in a Digital Age</a> was originally published in <a href="https://medium.com/caribou-digital">Caribou Digital</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*IAS2A4OjzTGG1oBwYipkJA.jpeg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:25 &bull;
+   17 days ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://fission.codes'>Fission</a>
 </h4>
 
@@ -8538,7 +9117,7 @@ Avoid using the <code>none</code> algorithm.  When possible, configure your JWT 
 
 <div class='item-footer'>
    13:20 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8666,7 +9245,7 @@ Avoid using the <code>none</code> algorithm.  When possible, configure your JWT 
 
 <div class='item-footer'>
    13:00 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8730,7 +9309,7 @@ Avoid using the <code>none</code> algorithm.  When possible, configure your JWT 
 
 <div class='item-footer'>
    10:59 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8817,7 +9396,7 @@ Avoid using the <code>none</code> algorithm.  When possible, configure your JWT 
 
 <div class='item-footer'>
    09:51 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10179,7 +10758,7 @@ VaccineGuard achieves this in a secure GDPR compliant way providing a feedback l
 
 <div class='item-footer'>
    14:04 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10247,7 +10826,7 @@ VaccineGuard achieves this in a secure GDPR compliant way providing a feedback l
 
 <div class='item-footer'>
    11:13 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10321,7 +10900,7 @@ VaccineGuard achieves this in a secure GDPR compliant way providing a feedback l
 
 <div class='item-footer'>
    10:32 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11851,7 +12430,7 @@ In the event of loss or destruction of the key, it will nevertheless be very sim
 
 <div class='item-footer'>
    13:31 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11925,7 +12504,7 @@ In the event of loss or destruction of the key, it will nevertheless be very sim
 
 <div class='item-footer'>
    12:33 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11989,7 +12568,7 @@ In the event of loss or destruction of the key, it will nevertheless be very sim
 
 <div class='item-footer'>
    11:34 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12074,7 +12653,7 @@ In the event of loss or destruction of the key, it will nevertheless be very sim
 
 <div class='item-footer'>
    10:54 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12138,7 +12717,7 @@ In the event of loss or destruction of the key, it will nevertheless be very sim
 
 <div class='item-footer'>
    09:43 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13953,7 +14532,7 @@ tokens) allow.</p>
 
 <div class='item-footer'>
    10:44 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14027,318 +14606,6 @@ tokens) allow.</p>
 
 <div class='item-footer'>
    10:32 &bull;
-   20 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.okta.com/'>Okta</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://developer.okta.com/blog/2020/12/15/okta-linux-dotnet-server-support'>How to Support .NET Core SameSite + OAuth Apps on Linux</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Google’s recent approach to SameSite cookie attributes caused a bit of confusion among developers. Especially in cases where handling redirects is necessary. After doing some research in the topic I’d like this article to be a guide on how to handle SameSite cookie attributes properly in production. This guide can serve as the basis for deploying an application to any Linux based environment—such 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>Google’s recent approach to SameSite cookie attributes caused a bit of confusion among developers. Especially in cases where handling redirects is necessary. After doing some research in the topic I’d like this article to be a guide on how to handle SameSite cookie attributes properly in production. This guide can serve as the basis for deploying an application to any Linux based environment—such as <a href="https://aws.amazon.com/elasticbeanstalk">AWS Elastic Beanstalk</a>, <a href="https://cloud.google.com/appengine">Google Cloud App Engine</a>—or any VPS Linux deployment. Also I created a sample application to demonstrate redirect handling with the Okta login flow. I won’t discuss the topic of <a href="https://developer.okta.com/blog/2019/09/18/build-a-simple-dotnet-core-app-in-docker">containerization</a> as a possible solution, as we have resources available that give a great overview.</p>
-
- What is Okta? 
-
-<p>Okta is a cloud service that allows developers to create, edit, and securely store user accounts and user account data, and connect them with one or multiple applications. Using Okta, you don’t have to worry about implementing sign up, login and logout flows manually. <a href="https://developer.okta.com/signup/">Sign up for a forever-free account</a> if you don’t have one already, to handle auth for your users easily.</p>
-
- Prerequisites 
-
-<p>An <a href="https://releases.ubuntu.com/20.04/">Ubuntu 20.04</a> Linux machine with SSH access. You can use <a href="https://multipass.run">Multipass</a> to run a virtual machine as a playground.</p>
-
- SameSite Enforcement and the Decline of the Cookie 
-
-<p>In February 2020, Google <a href="https://blog.chromium.org/2019/10/developers-get-ready-for-new.html">implemented an update</a> in Chrome on how to interpret the <a href="https://owasp.org/www-community/SameSite">SameSite</a> attribute of cookies. Up until now, it was assumed that all cookie data could be shared across domains— unless told otherwise. However, after February 2020, the default became that cookies could only be used on the site of origin, so no cookie data would be shared across domains. The reason for this, according to Google, is to increase security against CSRF (<a href="https://owasp.org/www-community/attacks/csrf">Cross Site Request Forgery</a>) attacks. So now, developers have to make sure to set the <code>sameSite=None</code> attribute.</p>
-
- Preparing the .NET Core 3.1 Application 
-
-<p>.NET Core 3.0 supports the updated SameSite values and adds an extra enum value, SameSiteMode.Unspecified to the SameSiteMode enum. This new value indicates no SameSite should be sent with the cookie. You can take a look at <a>this post</a> to see how Okta ties into the app for authentication. The rest of this article will focus on the configuration strategies to deal with SameSite specifically within that application.</p>
-
- Setting Cookie Authentication 
-
-<p>In <code>Startup.cs</code>, <code>ConfigureServices(IServiceCollection services)</code> method.</p>
-
-   <code>services.AddAuthentication(options =&gt;
-{
-    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
-})
-.AddCookie(options =&gt;
-{
-    options.Cookie.SameSite = SameSiteMode.None;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-    options.Cookie.IsEssential = true;
-})
-</code>   
-
- Setting Session State Cookies 
-
-<p>In <code>Startup.cs</code>, <code>ConfigureServices(IServiceCollection services)</code> method.</p>
-
-   <code>services.AddSession(options =&gt;
-{
-    options.Cookie.SameSite = SameSiteMode.None;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-    options.Cookie.IsEssential = true;
-});
-</code>   
-
- Intercepting Cookies 
-
-<p>In <code>Startup.cs</code>, <code>Configure(IApplicationBuilder app, IWebHostEnvironment env)</code> method. Use <code>CookiePolicy</code> middleware to intercept cookies. It should be placed into the HTTP request pipeline before any components that write cookies.</p>
-
-   <code>public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
-{
-    if (env.IsDevelopment())
-    {
-        app.UseDeveloperExceptionPage();
-    }
-    else
-    {
-            app.UseExceptionHandler("/Home/Error");
-            app.UseHsts();
-    }
-    app.UseHttpsRedirection();
-    app.UseStaticFiles();
-    app.UseRouting();
-    app.UseAuthorization();
-    app.UseCookiePolicy();
-    app.UseForwardedHeaders(new ForwardedHeadersOptions
-    {
-        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-    });
-
-    app.UseAuthentication();
-    app.UseEndpoints(endpoints =&gt;
-    {
-        endpoints.MapControllerRoute(
-            name: "default",
-            pattern: "{controller=Home}/{action=Index}/{id?}");
-    });
-}
-</code>   
-
- Preparing the Linux Server 
-
-<p>Now let’s get started with configuration.</p>
-
- Install .NET Core Runtime 
-
-   <code>wget https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-</code>   
-
-   <code>sudo dpkg -i packages-microsoft-prod.deb
-</code>   
-
-   <code>sudo apt-get update; \
-  sudo apt-get install -y apt-transport-https &amp;&amp; \
-  sudo apt-get update &amp;&amp; \
-  sudo apt-get install -y dotnet-sdk-3.1
-</code>   
-
- Installing Nginx Reverse Proxy 
-
-<p>A reverse proxy is responsible for terminating the HTTP/HTTPS request and forwarding it to the ASP.NET Core app.</p>
-
-   <code>sudo apt-get update
-</code>   
-
-   <code>sudo apt-get install nginx
-</code>   
-
- Configuring Nginx to use SSL 
-
-<p>To make the Okta login work, we need to set up Nginx to handle HTTPS requests. I’ll create self-signed certificates, however if you have your own certs for your own domain, you can skip this step.</p>
-
- Creating Self-Signed Certificates 
-
-   <code>sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/nginx-selfsigned.key -out /etc/ssl/certs/nginx-selfsigned.crt
-</code>   
-
-<p>You can answer the questions with your own data. Common Name is the important line. You can add your own domain name or the server’s IP address. You can get your server’s IP address by running <code>hostname -I</code> command.</p>
-
-<p>Output:</p>
-
-   <code>Output
-Country Name (2 letter code) [AU]:US
-State or Province Name (full name) [Some-State]:New York
-Locality Name (eg, city) []:New York City
-Organization Name (eg, company) [Internet Widgits Pty Ltd]:Bouncy Castles, Inc.
-Organizational Unit Name (eg, section) []:Ministry of Water Slides
-Common Name (e.g. server FQDN or YOUR name) []:server_IP_address
-Email Address []:admin@your_domain.com
-</code>   
-
-<p>Creating a Diffie-Hellman group, which is used in negotiating <a href="https://en.wikipedia.org/wiki/Forward_secrecy">Perfect Forward Secrecy</a> with clients. This may take a few minutes.</p>
-
-   <code>sudo openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048
-</code>   
-
- Updating Nginx Configuration 
-
-<p>I have prepared a configuration file for this example. You can download and update the current Nginx config using:</p>
-
-   <code>sudo curl https://raw.githubusercontent.com/oktadeveloper/okta-netcore3-deploy-samesite-example/main/default &gt; 
-default
-</code>   
-
-<p>Open Nginx configuration file and change the server_name variable to match your server’s IP address.</p>
-
-   <code>sudo nano /etc/nginx/sites-available/default
-</code>   
-
-<p>Your Nginx config should look like the following.</p>
-
-<p>Please note the 3 lines related to buffer size. These configurations are necessary to allocate enough buffers to read response headers.</p>
-
-   <code>server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-
-    location / {
-        proxy_pass         https://localhost:5001;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade $http_upgrade;
-        proxy_set_header   Connection keep-alive;
-        proxy_set_header   Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-        proxy_buffer_size          128k;
-        proxy_buffers              4 256k;
-        proxy_busy_buffers_size    256k;
-     }
-    
-    ssl_certificate /etc/ssl/certs/nginx-selfsigned.crt;
-    ssl_certificate_key /etc/ssl/private/nginx-selfsigned.key;
-
-    server_name 192.168.64.2; #Replace with your server's IP address or domain name
-
-    ssl_protocols TLSv1.2;
-    ssl_prefer_server_ciphers on;
-    ssl_dhparam /etc/nginx/dhparam.pem;
-    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
-    ssl_ecdh_curve secp384r1; # Requires nginx &gt;= 1.1.0
-    ssl_session_timeout  10m;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_tickets off; # Requires nginx &gt;= 1.5.9
-    ssl_stapling on; # Requires nginx &gt;= 1.3.7
-    ssl_stapling_verify on; # Requires nginx =&gt; 1.3.7
-    resolver 8.8.8.8 8.8.4.4 valid=300s;
-    resolver_timeout 5s;
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-}
-
-server {
-    listen 80;
-    listen [::]:80;
-
-    server_name 192.168.64.2;
-
-    return 302 https://$server_name$request_uri;
-}
-</code>   
-
- Adjusting the Firewall 
-
-<p>You need to adjust the settings of the Firewall to allow SSL traffic.</p>
-
-   <code>sudo ufw allow 'Nginx Full'
-</code>   
-
- Enabling Changes in Nginx 
-
-<p>Now that you’ve made your changes and adjusted the firewall, you can restart Nginx to implement your changes.</p>
-
-<p>First, let’s validate the configuration.</p>
-
-   <code>sudo nginx -t
-</code>   
-
-<p>Then restart Nginx to implement your changes.</p>
-
-   <code>sudo systemctl restart nginx
-</code>   
-
- Takeaways 
-
-<p>To make sure <a href="https://developer.okta.com/docs/concepts/okta-hosted-flows">Okta redirect flows</a> are working properly in a .NET Core 3.1 application that is running on Linux, we should take into account the following considerations:</p>
-
- 
-   Make sure to set the <code>sameSite=None</code>attribute in the .NET Core application. 
-   The Linux server needs to handle HTTPS requests properly to support Okta redirect flows. 
-   Setting the  Nginx buffer size is critical to allocate enough buffer size to read response headers. 
- 
-
-<p>You can find this project code on <a href="https://github.com/oktadeveloper/okta-netcore3-deploy-samesite-example">Github</a>.</p>
-
- Learn More About SameSite and .NET Core Apps on Linux 
-
- 
-   <a href="https://developer.okta.com/blog/2020/11/25/how-to-install-dotnetcore-on-linux">Install .NET Core Apps on Linux in 5 Minutes</a> 
-   <a href="https://developer.okta.com/blog/2020/12/09/dotnet-cloud-host-publish">How to Deploy Your .NET Core App to Google Cloud, AWS or Azure</a> 
-   <a href="https://developer.okta.com/blog/2020/09/28/adapt-dotnet-app-for-samesite-fix">How to Adapt Your .NET App for SameSite</a> 
-   <a href="https://docs.microsoft.com/en-us/aspnet/core/host-and-deploy/linux-nginx?view=aspnetcore-3.1">Host ASP.NET Core on Linux with Nginx</a> 
-   <a href="https://michaelscodingspot.com/dotnet-trace">Performance Profiling of .NET Core 3 applications on Linux with dotnet-trace and PerfView</a> 
- 
-
-<p>If you like this topic, be sure to <a href="https://twitter.com/oktadev">follow us on Twitter</a>, subscribe to <a href="https://youtube.com/c/oktadev">our YouTube Channel</a>, and <a href="https://www.twitch.tv/oktadev">follow us on Twitch</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:00 &bull;
    21 days ago
 </div>
 
@@ -15408,7 +15675,7 @@ server {
 
 <div class='item-footer'>
    12:46 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15472,7 +15739,7 @@ server {
 
 <div class='item-footer'>
    09:41 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16797,7 +17064,7 @@ server {
 
 <div class='item-footer'>
    10:52 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16861,7 +17128,7 @@ server {
 
 <div class='item-footer'>
    10:11 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17372,7 +17639,7 @@ server {
 
 <div class='item-footer'>
    13:42 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17469,7 +17736,7 @@ server {
 
 <div class='item-footer'>
    13:08 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17533,7 +17800,7 @@ server {
 
 <div class='item-footer'>
    13:00 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17597,7 +17864,7 @@ server {
 
 <div class='item-footer'>
    10:44 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18275,7 +18542,7 @@ Crowded market by <a href="https://unsplash.com/@glitchyowl?utm_source=medium&am
 
 <div class='item-footer'>
    12:15 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18349,7 +18616,7 @@ Crowded market by <a href="https://unsplash.com/@glitchyowl?utm_source=medium&am
 
 <div class='item-footer'>
    12:02 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19459,7 +19726,7 @@ Crowded market by <a href="https://unsplash.com/@glitchyowl?utm_source=medium&am
 
 <div class='item-footer'>
    12:53 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19523,7 +19790,7 @@ Crowded market by <a href="https://unsplash.com/@glitchyowl?utm_source=medium&am
 
 <div class='item-footer'>
    09:23 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19688,6 +19955,290 @@ Crowded market by <a href="https://unsplash.com/@glitchyowl?utm_source=medium&am
 
 
 <h4 class='feed-title'>
+  <a href='https://medium.com/caribou-digital'>Caribou Digital</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://medium.com/caribou-digital/social-commerce-and-e-commerce-not-enough-orders-conversations-with-africas-platform-sellers-a9e1963ddd91?source=rss----be144764b2ed---4'>Social commerce and e-commerce: Not enough orders — Conversations with Africa’s platform sellers</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Social commerce and e-commerce: Not enough&nbsp;orders  Conversations with Africa’s platform&nbsp;sellers  These conversations took place between March, 2020 and September, 2020  Social commerce and e-commerce are increasingly becoming popular for young people running micro and small businesses to sell anything&nbsp;online.  While e-commerce platforms such as Jumia and Jiji were intentionally desi
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/540/0*rdbPK5mwQVPIFNXj'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ Social commerce and e-commerce: Not enough&nbsp;orders  Conversations with Africa’s platform&nbsp;sellers <p>These conversations took place between March, 2020 and September, 2020</p><p>Social commerce and e-commerce are increasingly becoming popular for young people running micro and small businesses to sell anything&nbsp;online.</p><p>While e-commerce platforms such as Jumia and Jiji were intentionally designed to help African micro-entrepreneurs sell online, selling on Facebook, WhatsApp, Instagram, and Twitter are becoming the norm in Uganda, Kenya, Nigeria, and&nbsp;Ghana.</p><p>The COVID-19 pandemic, however, has presented several new challenges that are now threatening the existence of many of these small home-based businesses.</p><p>A <a href="https://dataforgood.fb.com/wp-content/uploads/2020/07/GlobalStateofSmallBusinessReport.pdf">Facebook/World Bank survey</a> on the global impact of COVID-19 on small businesses was released in July. According to the report, 62% of microbusinesses generated lower sales in the previous 30 days compared to the same period in 2019, and approximately 30% of microbusinesses had been forced to close at the time of the survey, with female-led ones more affected.</p>Olive, a social commerce&nbsp;seller<p>Of the eight platform sellers I spoke to, five of the six women use social media exclusively to sell their products. They said it is more cost-effective than e-commerce websites that charge monthly subscription fees.</p><p>When Uganda went into lockdown on March 28 after COVID-19 was declared a pandemic, Olive’s shop in downtown Kampala was forced to close. She hoped she’d be able to sustain her business, selling African print hoodies and headwraps, via her Facebook, WhatsApp, Twitter, and Instagram channels. However, with people locked indoors and the increased uncertainty about the future, her online customers also decreased.</p><blockquote>“Online sales were reduced by 60% in March, to 40% in April to 0% in May,” Olive said last&nbsp;June.</blockquote><p>Olive decided to add masks with matching headbands to her product line, but most of her fabric was locked up in the shop so she couldn’t accumulate stock.</p><p>“However much I could still do business online, I couldn’t access my materials,” she&nbsp;said.</p>Olive’s hood collection<p>By September, most businesses in Uganda had been allowed to open. With fewer sales over the last months and less revenue, however, Olive was faced with rent arrears on the shop that she couldn’t pay. She took out a loan to pay some of the rent and is now considering finding a more affordable location for her shop. A few orders had started coming in by September. However, “I can’t take my things out of the shop until the arrears are paid,” she&nbsp;said.</p><p>In Nigeria, 21-year-old Tosin’s shoe and handbag online business was thriving at the beginning of the pandemic.</p><p>“Most people were at home on their phones. I ran targeted ads and started getting customers. I reached many people and in March, April and May, I made some money,” she said in June. All that changed between June and September.</p>Tosin’s Instagram page<p>She thinks it is because there are now more businesses online and the competition is high. “The market is saturated. There are many people selling bags and shoes. We are all selling the same thing,” she said, adding that the last time she sold anything was in&nbsp;July.</p><p>Things were even tougher for Dorcas, 41, a baker in Kenya who lost most of her cake orders in June because people could no longer host events or gatherings. Dorcus relies on WhatsApp, Facebook, and logistic platforms to conduct most of her business as she is homebound due to suffering from&nbsp;lupus.</p><p>With no sales coming in, Dorcas had to get creative to diversify her source of income. She created a WhatsApp-based marketplace that brought together potential customers and anyone selling goods and services in the community where she lives. Even though her efforts to turn it into a revenue stream have so far been unsuccessful, she is glad she is helping people in her community to generate income this way. As she waits for her cake business to pick up, Dorcas is now selling shoes for children and teenagers online.</p><blockquote>“This has picked up more than the cake business. I am using Facebook, Facebook groups, Instagram, and WhatsApp groups. Every day I post in 20 different groups,” Dorcas told me in September.</blockquote>Dorcas E-commerce <p>Edwin, 20, in Nigeria and Robert, 30, in Kenya are both e-commerce sellers on Jiji and Jumia, respectively. They both faced serious stock issues at the beginning of the pandemic as borders closed, which affected the import of merchandise from China — solar products for Edwin and phones for&nbsp;Robert.</p><p>In June, Robert was only able to get half of the stock he usually gets and his sales also suffered.</p><blockquote>“People are not purchasing. They are at home and not getting any money. They would rather not spend the little they have on phones,” he said in&nbsp;June.</blockquote><p>In September, Robert told me that he plans to add health and beauty products to his catalogue so he can earn&nbsp;more.</p>Robert<p>Edwin registered a 10% increase in his business online in June but by September, his sales also went down, forcing him to rethink the monthly subscription fee he paid to Jiji. Customers are slowly coming back, but to his physical shop in a market in Abuja, not online. Most of his customers, he says, prefer to see the goods before they buy. He is looking forward to making more sales during the festive season. “It’s when people buy a lot and lighting is a priority for comfort,” he told me in September. However, he added that the dollar rate has left the Naira weaker, making importation of products more expensive.</p>Edwin<p>Damilola, 29, who sells mannequins, salon equipment, and fashion accessories on Jiji, Konga, and Jumia in Nigeria, completely closed her shop in May. She didn’t have that much stock and struggled to import it from abroad. She opened her shop again after two months, but by September, the depreciation of the Naira against the dollar had forced her to increase the price of her products — a challenge to her business as most people could barely afford to buy non-essential items.</p><p>In Uganda, Gloria, 32, co-founder of House of Penda that sells fashion accessories on social media, is also hoping that the festive season will revive the business. Few sales over the last several months left both Gloria and her co-founder demotivated, pushing them to close shop in September and rethink strategy.</p>Gloria, co-founder, House of&nbsp;Penda<blockquote>“For Christmas, we are looking at ways of repackaging our products. We’re going to have gift boxes with a mix of products,” she&nbsp;said.</blockquote><p>House of Penda is now planning to enter partnerships with other women-led businesses to sell combined products throughout the festive&nbsp;season.</p><p>It remains to be seen if the festive season will indeed bring a much-anticipated relief.</p><p>The workers and sellers whose real names and/or photos are used in our blogs consented to their use. <br>These conversations were conducted with support from the<a href="https://mastercardfdn.org/"> Mastercard Foundation</a>.</p> <p><a href="https://medium.com/caribou-digital/social-commerce-and-e-commerce-not-enough-orders-conversations-with-africas-platform-sellers-a9e1963ddd91">Social commerce and e-commerce: Not enough orders — Conversations with Africa’s platform sellers</a> was originally published in <a href="https://medium.com/caribou-digital">Caribou Digital</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/540/0*rdbPK5mwQVPIFNXj'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   19:24 &bull;
+   28 days ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://medium.com/caribou-digital/tough-gigs-on-demand-labour-and-freelancing-conversations-with-africas-platform-workers-d6d22b3c030d?source=rss----be144764b2ed---4'>Tough gigs: On-demand labour and freelancing — Conversations with Africa’s platform workers</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Tough gigs: On-demand labour and freelancing  Conversations with Africa’s platform&nbsp;workers  These conversations took place between March, 2020 and September, 2020  Lynk is an on-demand local labour platform in Kenya, through which plumbers, painters, cleaners, carpenters and many other professionals secure paid&nbsp;work. Stanley When COVID-19 was declared a pandemic, Stanley, a cleaner on th
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/500/0*QV0KlQrfnMK0Zqe1'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ Tough gigs: On-demand labour and freelancing  Conversations with Africa’s platform&nbsp;workers <p>These conversations took place between March, 2020 and September, 2020</p><p><a href="https://lynk.co.ke/">Lynk</a> is an on-demand local labour platform in Kenya, through which plumbers, painters, cleaners, carpenters and many other professionals secure paid&nbsp;work.</p>Stanley<p>When COVID-19 was declared a pandemic, Stanley, a cleaner on the platform knew that his work days were numbered. The offices he, and many others on the platform, regularly clean had closed. Even homes were no longer accessible. “Clients are too conscious and everybody is afraid to offer us jobs to clean their homes or offices,” Stanley told me in&nbsp;June.</p><p>Stanley was part of an incubation program at Lynk, where workers were provided with a monthly salary and upskilling opportunities. In April, due to the high costs associated with the incubation program, Lynk transitioned workers out of these programs and into independent contractor roles. However for Stanley, not only did his incubation program end, but all cleaning services were discontinued on the platform due to lack of demand. Short-term relief came for Stanley when Lynk secured a contract with <a href="https://www.safehandskenya.com/">Safe Hands Kenya</a> to disinfect the slums in Nairobi but that ended quickly and by July, there was no more&nbsp;work.</p><p>When COVID started, Lynk ensured that all pros — including Stanley — were compensated with one month of pay regardless of whether or not their clients continued to engage them. Stanley also received a recommendation letter from Lynk to help support him in his job&nbsp;search.</p><p>A father of two, Stanley, 34, was eventually forced to leave Nairobi and relocate to the village with his family. He sold some of his belongings including his phone, to afford the transport costs. He and his family now temporarily live with his mother in the village and his landlord has since put a padlock on their house back in the city due to rent arrears. The family, he says, will eventually have to return to the house in the city when the children resume school. Stanley now earns a living by collecting grass for cattle keepers, and is paid mostly in food. “If you are lucky, you get cash but it is also very little. It is KES150 (USD 1.4) for each time someone needs grass. I have about three clients,” he&nbsp;says.</p> Lynk’s support interventions <p>In addition to the one month pay, Lynk rolled out a number of interventions to help their workers weather the storm. Akinyi Ooko-Ombaka who heads the Lynk Academy told us the platform provided a monthly transport allowance of KES 30000 (USD 30) to each worker, distributed PPE, conducted multiple sensitization training and even reached out to partners for additional support. “BuildHer, one of our recruitment partners, provided food packages to all workers in our shop,” Akinyi told us. They also partnered with an organisation to provide cash transfers to their most vulnerable workers.</p><p>“While the impact of COVID is ubiquitous, workers on the platform have been affected differently not only based on their socio-economic status, but their trade. For instance we’ve seen significant growth in our Furniture segment whereas services like Beauty were the most hard hit. Even before COVID, informal workers were vulnerable COVID has forced us to think more deeply about supporting our workers to build resilience.” Akinyi&nbsp;said.</p> Freelancing Photo by<a href="https://unsplash.com/@flysi3000?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText"> Simon Abrams</a> on<a href="https://unsplash.com/s/photos/remote-work-africa?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText">&nbsp;Unsplash</a><p>While the COVID-19 pandemic popularised freelancing (self-employed workers who take on contracts from various companies) globally as more people went online to find jobs they could do remotely, the demand side didn’t increase fast enough to meet supply. According to a <a href="https://pubs.payoneer.com/docs/2020-gig-economy-index.pdf">survey</a> by Payoneer, a global company that provides financial services to freelancers, close to 32% of freelancers reported that demand had greatly decreased after COVID-19 was declared a pandemic in&nbsp;March.</p><p>Only one out of the seven freelancers I spoke to in June was getting more work due to COVID-19. Ainomugisha, 27, a Ugandan professional content solutions provider, said the pandemic was a blessing in disguise.</p><p>“It has created a huge content gap that companies and publications world over are scrambling to fill with informative articles, essays, blog posts, newsletters, etc about COVID-19 for their respective audiences,” he&nbsp;said.</p><p>But for the others, hours were reduced and some long-running contracts were ended prematurely. Kwesi, a 30-year-old Ghanian virtual assistant on Upwork and Fiverr said he lost a long-term contract after the company he was working for told him they were restructuring.</p><p>“My income has gone down by more than 50%,” Kwesi told me in June. When we spoke again in September, Kwesi had just found a job as a radio presenter and now commits less time to finding online&nbsp;gigs.</p><p>Other freelancers in Nigeria, Kenya, and Ghana shared similar stories. Some thought that they were getting less work because of increased competition- that there were more people joining the platforms in search of work. Another global <a href="https://pubs.payoneer.com/images/the-state-of-freelancing-during-covid-19.pdf">Payoneer survey</a> reported that freelance marketplaces had seen a rapid growth in new freelancers joining the platforms.</p> Need for new&nbsp;skills <p>With more freetime on their hands the freelancers recognised the need to upgrade their skills in order to compete more favourably in a now crowded world of online&nbsp;work.</p><p>Ama (not real name), 36, an Upwork virtual assistant based in Ghana had been doing clerical work since she joined the platform in 2015. She was making up to $800 a month pre-Covid, but her income reduced to $300 in June after one of her main clients ended the contract because of COVID. She’s since received requests from clients asking if she has other skills like WordPress, database management or app development.</p><p>“Those skills are mostly requested by the clients as part of the virtual assistant job,” Ama said. She now plans to start a course on one of the three in January next&nbsp;year.</p><p>Carol (not real name), 26, a Ugandan on Upwork who conducts market research on products for companies that sell on Amazon is adding data visualization to her skillset so she can also get more&nbsp;jobs.</p><p>And Kelechi, 33, a market researcher also on Upwork, has enrolled in a digital marketing course on Udemy. While he still has a daytime office job, Kelechi is keen to make online freelancing his main source of income, and to do so he realises he needs to make sure he has a set of strong skills to stand out from the&nbsp;crowd.</p><p><a href="https://medium.com/caribou-digital/social-commerce-and-e-commerce-not-enough-orders-conversations-with-africas-platform-sellers-a9e1963ddd91">In the last blog, we share the stories of those who sell goods and services through marketplace websites like Jumia, Jiji, and on social&nbsp;media.</a></p><p>The workers and sellers whose real names and/or photos are used in our blogs consented to their use. <br>These conversations were conducted with support from the<a href="https://mastercardfdn.org/"> Mastercard Foundation</a>.</p> <p><a href="https://medium.com/caribou-digital/tough-gigs-on-demand-labour-and-freelancing-conversations-with-africas-platform-workers-d6d22b3c030d">Tough gigs: On-demand labour and freelancing — Conversations with Africa’s platform workers</a> was originally published in <a href="https://medium.com/caribou-digital">Caribou Digital</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/500/0*QV0KlQrfnMK0Zqe1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   19:14 &bull;
+   28 days ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://medium.com/caribou-digital/conversations-with-africas-platform-workers-on-ride-hailing-fewer-customers-less-income-49973f8f5e8e?source=rss----be144764b2ed---4'>Conversations with Africa’s platform workers on ride-hailing: fewer customers, less income</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Conversations with Africa’s platform&nbsp;workers  Ride-hailing: Fewer customers, less&nbsp;income  Conversations took place between March, 2020 and September, 2020  Kwame (not his real name), 24, lives in Kumasi, Ghana. He started driving for Bolt just over a year ago. His plan was to make enough money to be able to continue his education beyond high school. He secured a car on hire purchase, and
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*KFKL-n_D4Pj8qy652C-lSg.jpeg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ Conversations with Africa’s platform&nbsp;workers  Ride-hailing: Fewer customers, less&nbsp;income <p>Conversations took place between March, 2020 and September, 2020</p><p>Kwame (not his real name), 24, lives in Kumasi, Ghana. He started driving for Bolt just over a year ago. His plan was to make enough money to be able to continue his education beyond high school. He secured a car on hire purchase, and was paying it off weekly. All was going fairly well until the pandemic hit. Kwame went from making 25 trips per day, pre-COVID, to less than five. After paying the car rental fees and Bolt’s 25%, he earned 50–100 Ghana Cedis (USD 9–17) per day, far less than the 300 Ghana Cedis (USD 51) he was making daily&nbsp;before.</p><p>“I am working but I cannot even buy food. I have been eating roasted maize for the last three days. It is just hard for me,” Kwame told me in&nbsp;June.</p><p>He was also forced to move in with his sister because he couldn’t afford his own rent anymore. “At least there is food there,” he&nbsp;said.</p>Michael is an Uber driver in Nairobi,&nbsp;Kenya<p>Michael, an Uber driver in Kenya, has a similar story. Fewer rides left him barely able to take care of his family of four. With kids stuck at home due to school closures, he was spending more on printing study materials and buying food for the family. To close the gap caused by his reduced income, Michael borrowed KES 4000 (USD 37) from TALA, a mobile loans company, in May. By September, he was still unable to pay it&nbsp;back.</p><p>In Uganda, Ismail, 27, an IT graduate, joined Uber in 2018 when he failed to find a job after graduation. His trips were halved to five a day at the beginning of the pandemic. When Uganda went into complete lockdown on March 28, Ismail was left with no work due to <a href="https://www.monitor.co.ug/uganda/news/national/president-museveni-bans-private-cars-declares-curfew--1883252">new regulation</a>s prohibiting anyone, apart from a few authorized drivers, from being on the&nbsp;road.</p><p>Motorcycle taxis (locally known as boda boda), however, were allowed to make deliveries, which meant that Bob, a Ugandan <a href="https://safeboda.com/ug/">SafeBoda</a> rider, could continue earning some money during the lockdown. But when restrictions on vehicle movement were lifted in June, and people began to do their own shopping, Bob was left with little to no business, with bans still on place on carrying passengers.</p>Photo/SafeBoda.com<p>Bob eventually quit SafeBoda because, he said, the rates are too low and “It doesn’t make financial sense to continue using the app given the current situation.” He now only serves a few of his long-time customers. He is also doing deliveries for an agro-seed company, which he says brings in a little more, especially now that it is planting season for the farmers. Between September and November, farmers order seeds, pesticides, fertilizers, and other products in preparation for the planting&nbsp;season.</p><p>However, if the Uganda government’s plan to ban boda bodas from the Kampala Central Business District comes to pass on November 1, Bob will be left with no work at&nbsp;all.</p> Pivoting to&nbsp;delivery <p>In Africa, as was the situation globally during the pandemic, most ride-hailing companies pivoted toward deliveries. Unfortunately, this didn’t bring in enough for the majority of the drivers and riders we spoke to. Only Geoffrey who rides for a logistics company in Kenya — Sendy — was lucky enough to make decent money when the company launched <a href="https://businesstoday.co.ke/sendy-launches-home-delivery-service/">SendyGo</a> in May, a home delivery option in Nairobi. But even then, this decent money, Geoffrey said, was just enough to cover his rent, food, and other essentials without leaving much for anything else, prompting him to borrow money to meet his other&nbsp;needs.</p>Geoffrey/Sendy<p>“The work has increased. When COVID started, there was a shock but now people have adapted. They now use SendyGo to help get food and essentials delivered to their home,” Geoffrey told me in June. In September, things were still going well for him. He had even managed to pay off 95% of a loan he had taken out in May from the Sendy SACCO, a savings scheme for the&nbsp;riders.</p>Samuel<p>However, for the two <a href="https://max.ng/">MAX.NG</a> riders in Lagos, Nigeria, Samuel and Muhammed, doing deliveries did not pick up or pay off. To make things worse, the Lagos State <a href="https://qz.com/africa/1797369/lagos-okada-ban-sparks-protests-hits-bike-hailing-startups/">government banned</a> okadas (motorcycle taxis) from operating in the city in February, right before the pandemic. Both riders said that the ban was worse than the pandemic as they were dependent on the little money they made from deliveries.</p><p>“You cannot make more than 4 or 5 trips. It is not the same as it was when we had passengers,” Samuel told me in&nbsp;June.</p> Platform responses <p>While Africa-based platforms like Sendy, SafeBoda, and MAX.NG <a href="https://www.devex.com/news/opinion-the-impact-of-covid-19-on-african-gig-workers-and-what-needs-to-be-done-97301">ensured</a> that the riders had the information, hand sanitizer, and masks to operate safely during the pandemic, global platforms like Uber and Bolt did little beyond providing health and safety information, the drivers said. Buying hand sanitizer and masks became an additional expense for those who were already making less&nbsp;money.</p>Photo/MAX.NG<p>Fairwork, which has kept a close eye on labor platforms and their COVID-19 policies, <a href="https://botpopuli.net/covid-19-gigwork-precarity-platforms">found</a> a glaring gap between policy and practice. For example, Fairwork found that while Uber announced it would provide financial support for 14 days to drivers who have been diagnosed, a small print in the policy noted that <a href="https://fair.work/wp-content/uploads/sites/97/2020/09/COVID-19-Report-September-2020.pdf">paid leave is “conditional on producing a sick note,”</a> something that many drivers find difficult to&nbsp;acquire.</p><p>For the Africa-based Uber and Bolt drivers I spoke to, they had little to no knowledge of such policies and didn’t know how they would get in touch with the companies if they got&nbsp;sick.</p><p>Ismail said Uber asked them to send photos of receipts when they buy masks and hand sanitizer, but he said it was a time-consuming process. He preferred that Uber give them the items with no such conditions.</p><p>“At the moment, there is no cost that is bearable. Even spending Shs 10,000 (USD 2.7) on hand sanitizer is too much for me,” Ismail&nbsp;said.</p><p>The drivers also said they expected Uber and Bolt to reduce their commission but that didn’t happen. Instead, in trying to woo customers, the companies reduced fares and gave discounts to customers, leaving the drivers with less income but still expecting them to remit the 25% commission daily.</p> Future of platform&nbsp;work <p>In September, things were looking up for both riders and drivers. Still, with continuing restrictions on people and businesses, no one was getting as many customers as they used to before the pandemic. Ongoing curfews in some countries like Uganda and Kenya have reduced the drivers’ working hours. “The problem is that there is curfew. Many of the clients were people who would go out on weekends,” Michael told me in September.</p><p>The increased cost of living, high fuel prices, weekly car rental fees, and increased expenditure at home have become the characteristics of everyday life for most of the drivers and&nbsp;riders.</p><p>The precarious nature of gig work, combined with rising unemployment in all four countries — Ghana, Kenya, Nigeria, and Uganda — is forcing platform workers to think of ways to depend less on what used to be a good enough source of income. Some are contemplating abandoning it altogether if the situation doesn’t change for the&nbsp;better.</p><p>Kwame is one of those already planning a way out. He has applied to join the army. “I’m already buying small things like boots and khakis,” he says. As Kwame waits for the phone call from the army, he says he will continue driving as it is his only source of income for&nbsp;now.</p><p><a href="https://medium.com/caribou-digital/tough-gigs-on-demand-labour-and-freelancing-conversations-with-africas-platform-workers-d6d22b3c030d">In the next blog, we share the stories of freelancers and on-demand laborers.</a></p><p>The workers and sellers whose real names and/or photos are used in our blogs consented to their use. <br>These conversations were conducted with support from the<a href="https://mastercardfdn.org/"> Mastercard Foundation</a>.</p> <p><a href="https://medium.com/caribou-digital/conversations-with-africas-platform-workers-on-ride-hailing-fewer-customers-less-income-49973f8f5e8e">Conversations with Africa’s platform workers on ride-hailing: fewer customers, less income</a> was originally published in <a href="https://medium.com/caribou-digital">Caribou Digital</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*KFKL-n_D4Pj8qy652C-lSg.jpeg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:50 &bull;
+   28 days ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://medium.com/caribou-digital/covid-19-and-the-platform-livelihoods-of-young-african-workers-f0b5efa1d9c?source=rss----be144764b2ed---4'>COVID-19 and the platform livelihoods of young African workers</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   As part of Caribou Digital’s ongoing focus on emerging platform livelihoods, and with the support of the Mastercard Foundation, we spoke to 30 young African platform workers in March, June, and September about the effects of the pandemic. These young men and women from Nigeria, Kenya, Uganda, and Ghana, the majority of whom are below 35 years old, make their living through digital platforms as rid
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*e8fB3K7kwA6dSPsGMbvl2A.jpeg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>As part of Caribou Digital’s ongoing focus on emerging platform livelihoods, and with the support of the <a href="https://mastercardfdn.org/">Mastercard Foundation</a>, we spoke to 30 young African platform workers in March, June, and September about the effects of the pandemic. These young men and women from Nigeria, Kenya, Uganda, and Ghana, the majority of whom are below 35 years old, make their living through digital platforms as ride-hailing drivers, delivery drivers, freelancers, e-commerce sellers, and on-demand laborers.</p><p>While pegged to the pandemic, these conversations bring out similar experiences — both positive and negative — captured within the <a href="https://www.platformlivelihoods.com/">12 elements</a> of Caribou Digital’s recently published <a href="https://medium.com/caribou-digital/platform-livelihoods-3258b05aa83d">platform livelihoods framework</a>. Through this framework, we map several kinds of platform livelihoods, uncover trends and identify cross cutting issues, based on our own original research and that of the wider digital development community.</p><p>With high unemployment rates in all four countries, platforms offer opportunities and, more importantly, access to work and markets and earnings, as you will read in the three blogs that&nbsp;follow.</p><p>It is interesting to learn how these workers and sellers often engage with several platforms, “multihoming” and working fractionally across one to augment another. Some on Upwork, for example, advertise their services on social media. Similarly, those selling on e-commerce websites like Jumia, often advertise or use their personal networks on social media to market their physical&nbsp;shops.</p><p>Additionally, even though the platforms provide access to a wider market, this doesn’t always translate into enough earnings. COVID-19 has forced some ride-hailing and delivery drivers to look ‘off-platform’ to find more work. One driver in Kenya said he would start buying farm produce when he makes longer trips to the countryside. He would then sell this produce in the city. Another driver in Ghana said he is considering starting a fabric business for his wife and delivering to customers himself, in between&nbsp;rides.</p><p>For these youth, platforms have offered a first entry point into work, whether as drivers, freelancers, or micro-entrepreneurs. Students are taking up driving and engaging in social commerce to raise money to pay for their education and other necessities.</p><p>Another thing worth noting is that of the eight digital commerce sellers we spoke to, six are women; of these, five use social media exclusively to sell their products due to the low barriers to entry as compared to e-commerce. They make enough to pay for Facebook or Instagram Ads but do not want to be burdened with subscription fees charged by platforms like Jiji and&nbsp;Jumia.</p><p>Hidden hierarchies are visible in the ride-hailing business. Most drivers we spoke to don’t own the cars they are driving, so paying weekly rental fees takes a big chunk of their income. They are driving to own; they dream of owning a fleet of cars and being bosses&nbsp;someday.</p><p>However, with the disruption caused by the pandemic, which led to less earnings across the board, the workers and sellers were exposed to the precariousness of platform work. Some are contemplating finding “better paying” full-time jobs, some are thinking about quitting, while others have already left the platform. However for some, the options for finding work elsewhere remain few, and platforms continue to provide the lifeline they&nbsp;need.</p><p><a href="https://medium.com/caribou-digital/social-commerce-and-e-commerce-not-enough-orders-conversations-with-africas-platform-sellers-a9e1963ddd91">In</a> <a href="https://medium.com/caribou-digital/tough-gigs-on-demand-labour-and-freelancing-conversations-with-africas-platform-workers-d6d22b3c030d">these</a> <a href="https://medium.com/caribou-digital/conversations-with-africas-platform-workers-on-ride-hailing-fewer-customers-less-income-49973f8f5e8e">blogs</a> (listed below), we share the experience of some of the 30 platform workers and sellers, highlighting not only their struggles but also the ways they adapted to ride the pandemic wave — from<a href="https://www.transformationalupskilling.org/"> upskilling</a> and expanding product offerings, to finding innovative approaches to earn a&nbsp;living.</p><p>In January 2021, you will get a glimpse into the lives of 10 platform workers and sellers through our <a href="https://www.platformlivelihoods.com/video-storytelling-about-covid-19/">video storytelling project</a>. In a series of short self-shot videos, the platform workers and sellers will share their real-life experiences as digital laborers during the pandemic.</p><p><a href="https://medium.com/caribou-digital/social-commerce-and-e-commerce-not-enough-orders-conversations-with-africas-platform-sellers-a9e1963ddd91">Social commerce and e-commerce: Not enough&nbsp;orders</a></p><p><a href="https://medium.com/caribou-digital/conversations-with-africas-platform-workers-on-ride-hailing-fewer-customers-less-income-49973f8f5e8e">Ride-hailing: Fewer customers, less&nbsp;income</a></p><p><a href="https://medium.com/caribou-digital/tough-gigs-on-demand-labour-and-freelancing-conversations-with-africas-platform-workers-d6d22b3c030d">Tough gigs: On-demand labour and freelancing</a></p> <p><a href="https://medium.com/caribou-digital/covid-19-and-the-platform-livelihoods-of-young-african-workers-f0b5efa1d9c">COVID-19 and the platform livelihoods of young African workers</a> was originally published in <a href="https://medium.com/caribou-digital">Caribou Digital</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*e8fB3K7kwA6dSPsGMbvl2A.jpeg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:41 &bull;
+   28 days ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://oceanprotocol.com'>Ocean Protocol</a>
 </h4>
 
@@ -19744,7 +20295,7 @@ Crowded market by <a href="https://unsplash.com/@glitchyowl?utm_source=medium&am
 
 <div class='item-footer'>
    10:56 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -27746,449 +28297,6 @@ Wed, 2020-11-25 - 09:05
 
 <div class='item-footer'>
    14:24 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.kuppingercole.com'>KuppingerCole</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.kuppingercole.com/report/lc80040'>CIAM Platforms</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   by John Tolbert  This report provides an overview of the market for Consumer Identity and Access Management and provides you with a compass to help you to find the Consumer Identity and Access Management product that best meets your needs.&nbsp; We examine the market segment, vendor product and service functionality, relative market share, and innovative approaches to providing CIAM solutions. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>by <a href="https://www.kuppingercole.com/team/tolbert">John Tolbert</a></p><p>This report provides an overview of the market for Consumer Identity and Access Management and provides you with a compass to help you to find the Consumer Identity and Access Management product that best meets your needs.&nbsp; We examine the market segment, vendor product and service functionality, relative market share, and innovative approaches to providing CIAM solutions.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:42 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.kuppingercole.com/report/ev80055'>Cisco Zero Trust Security</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   by Alexei Balaganski  Cisco’s approach towards Zero Trust combines several foundational access policy solutions for securing your workforce, workloads and workspace with a broad range of additional security products to ensure complete visibility, protection, and compliance throughout the whole enterprise. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>by <a href="https://www.kuppingercole.com/team/balaganski">Alexei Balaganski</a></p><p>Cisco’s approach towards Zero Trust combines several foundational access policy solutions for securing your workforce, workloads and workspace with a broad range of additional security products to ensure complete visibility, protection, and compliance throughout the whole enterprise.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:36 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.bloki-chain.com/'>www.bloki-chain.com</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.bloki-chain.com/index.php/2020/11/24/la-blockchain-non-solo-soluzioni-un-modo-vivere-le-risorse-umane-lorganizzazione-aziendale/'>LA BLOCKCHAIN: NON SOLO SOLUZIONI, MA UN NUOVO MODO DI VIVERE LE RISORSE UMANE E L’ORGANIZZAZIONE AZIENDALE</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Il 19 novembre, in particolare, e’ stato il “Digital Innovation Day”. B2Lab, oltre che come partner dell’12ma edizione del Forum delle Risorse Umane, ha partecipato attivamente all’evento con uno speech dedicato alla Blockchain dal titolo “La Blockchain: non solo soluzioni, ma un nuovo modo di vivere le risorse umane e l’organizzazione aziendale”, in cui e’ intervenuta Donatella Maisto, B2Lab Acad
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Il 19 novembre, in particolare, e’ stato il “Digital Innovation Day”. B2Lab, oltre che come partner dell’12ma edizione del Forum delle Risorse Umane, ha partecipato attivamente all’evento con uno speech dedicato alla Blockchain dal titolo “La Blockchain: non solo soluzioni, ma un nuovo modo di vivere le risorse umane e l’organizzazione aziendale”, in cui e’ intervenuta Donatella Maisto, B2Lab AcadeMy Director e B2Lab Business Development, mentre Giuliano Pierucci, B2Lab CEO, ha rappresentato B2Lab durante la tavola tematica “CYBERSECURITY 2.0: LO SMART WORKING E LA TUTELA DEI DATI AZIENDALI”.</p>
-<p><a href="https://www.bloki-chain.com/wordpress/wp-content/uploads/2020/11/NEWSLETTER-HR-FORUM.pdf">NEWSLETTER – HR FORUM</a></p>
-<p>L'articolo <a href="https://www.bloki-chain.com/index.php/2020/11/24/la-blockchain-non-solo-soluzioni-un-modo-vivere-le-risorse-umane-lorganizzazione-aziendale/">LA BLOCKCHAIN: NON SOLO SOLUZIONI, MA UN NUOVO MODO DI VIVERE LE RISORSE UMANE E L’ORGANIZZAZIONE AZIENDALE</a> proviene da <a href="https://www.bloki-chain.com">www.bloki-chain.com</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   11:40 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.elliptic.co/'>Elliptic</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.elliptic.co/blog/the-occ-paves-the-path-for-crypto-businesses'>Crypto Regulatory Affairs: The US OCC Paves the Path for Crypto Businesses</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    
-    
-     
- OCC Comptroller Announces 'Payments Charter' availability and a 'National Trust Charter' for crypto banks&nbsp; 
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://www.elliptic.co/hubfs/bitcoin%20for%20banks.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  
- <a href="https://www.elliptic.co/blog/the-occ-paves-the-path-for-crypto-businesses" title="">  </a> 
-     
-<p>OCC Comptroller Announces 'Payments Charter' availability and a 'National Trust Charter' for crypto banks&nbsp;</p>    
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.elliptic.co/hubfs/bitcoin%20for%20banks.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   09:00 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 23. November 2020
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.forgerock.com/blog'>Forgerock Blog</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.forgerock.com/blog/2019-visionary-access-management-now-2020-leader'>A 2019 Visionary in Access Management Is Now a 2020 Leader</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   CEO Perspective&nbsp; 
-
- Gartner has just published the 2020 Gartner Magic Quadrant for Access Management* report, which includes the latest deep marketplace insights on this rapidly evolving sector.&nbsp; 
-
- In the 2020 Gartner Magic Quadrant for Access Management, ForgeRock has just been named a Leader. We were scored among&nbsp;highest 3 scores across all use cases in the 2020 Critical Capabili
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   CEO Perspective&nbsp; 
-
-<p>Gartner has just published the 2020 Gartner Magic Quadrant for Access Management* report, which includes the latest deep marketplace insights on this rapidly evolving sector.&nbsp;</p>
-
-<p>In the 2020 Gartner Magic Quadrant for Access Management, ForgeRock has just been named a Leader. We were scored among&nbsp;highest 3 scores across all use cases in the 2020 Critical Capabilities for Access Management.</p>
-
-<p>We believe this is a testament to our philosophy of increasing the pace of innovation while remaining customer focused. In the last 12 months, we have made significant improvements to our Identity Access Management (IAM) platform to move from visionary in 2019 to a leader in 2020. Now, ForgeRock has dozens of new features in our flagship IAM platform, including revolutionary drag-and-drop access trees that help our customers create user journeys faster than ever.</p>
-
-<p>Access management is at the heart of today’s digital ecosystem. Users of all types, <a href="https://www.forgerock.com/digital-identity/customer-identity">consumers</a>, <a href="https://www.forgerock.com/digital-identity/employee-identity-access-management">workforce</a>, and <a href="https://www.forgerock.com/iot">things</a>, demand seamless and secure access to applications, services, and resources anytime, anywhere, using any device without disruption and at scale.&nbsp;</p>
-
-<p>To support these requirements, organizations need to offer easy access while ensuring people can only access what they should. Additionally, given the rise in malicious activity, organizations also need an IAM solution that provides strict security standards that uphold user trust and brand reputation.</p>
-
-<p>ForgeRock provides a single integrated digital identity platform that fuels its entire suite of products and gives organizations a kickstart to convergence. Organizations can use ForgeRock’s modern <a href="https://www.forgerock.com/platform/autonomous-identity">AI-driven</a> platform as they transition from their legacy solutions. Whether users sign on from a <a href="https://www.forgerock.com/iot">mobile device</a>, <a href="https://www.forgerock.com/iot/connected-car">connected car,</a> home appliance, or the next innovation, ForgeRock enables a safe and exceptional digital experience.</p>
-
-<p>We believe the report will help IT decision-makers select a partner that supports modern digital identity requirements driven by dynamic and expanding business demands.</p>
-
-<p>Get the right access management solution for your organization. <a href="https://www.forgerock.com/resources/analyst-report/gartner-mq-access-management">Read the report now.</a></p>
-
-<p>&nbsp;</p>
-
-<p>*Gartner “Magic Quadrant for Access Management” by analysts Michael Kelley, Abhyuday Data and Henrique Teixeira. November 17, 2020.&nbsp;</p>
-
-<p>This graphic was published by Gartner, Inc. as part of a larger research document and should be evaluated in the context of the entire document. The Gartner document is available upon request from ForgeRock.&nbsp;</p>
-
-<p>Gartner does not endorse any vendor, product or service depicted in its research publications, and does not advise technology users to select only those vendors with the highest ratings or other designation. Gartner research publications consist of the opinions of Gartner’s research organization and should not be construed as statements of fact. Gartner disclaims all warranties, express or implied, with respect to this research, including any warranties of merchantability or fitness for a particular purpose.</p>
-
-<p>&nbsp;</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   17:36 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://oceanprotocol.com'>Ocean Protocol</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.oceanprotocol.com/ocean-conversations-crypto-custody-standards-and-cyber-security-dfe5503926e3?source=rss----9d6d3078be3d---4'>Ocean Conversations | Crypto Custody, Standards and Cyber Security</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   A discussion with Markus Perdrizat, CEO of Swiss Crypto Vault and Head Custody at Bitcoin&nbsp;Suisse  In an interview with Markus Perdrizat, CEO of Swiss Crypto Vault and Head Custody at Bitcoin Suisse, we learn about his long career in security, the importance of standards and his vision for Web3&nbsp;custody.  Markus, please introduce yourself and tell us about what you&nbsp;do.  Markus Perdriz
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*ampoLrhkK3qz9hEiMqCTAQ.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- A discussion with Markus Perdrizat, CEO of Swiss Crypto Vault and Head Custody at Bitcoin&nbsp;Suisse <p>In an interview with <a href="https://www.linkedin.com/in/perdrizat/?originalSubdomain=ch">Markus Perdrizat</a>, CEO of <a href="https://swisscryptovault.ch/">Swiss Crypto Vault</a> and Head Custody at <a href="https://www.bitcoinsuisse.com/">Bitcoin Suisse</a>, we learn about his long career in security, the importance of standards and his vision for Web3&nbsp;custody.</p> Markus, please introduce yourself and tell us about what you&nbsp;do. <p>Markus Perdrizat: I am the CEO of Swiss Crypto Vault and Head Custody at Bitcoin Suisse, responsible for more than $1B USD worth of crypto assets in highly secured custody for crypto assets. Prior to that, I was leading PwC’s Blockchain Competence Centre in Switzerland. We helped grow that over four years to help clients build secure custody and trading desks and also audit trading desks, brokerage and custody for our audit clients. At the beginning of my career, I was working at a major Swiss bank responsible for decentralized databases and data management. So I understand the challenges of having a distributed database around the globe — and what it means to provide secure, safe and high performance access to&nbsp;data.</p> What would you say was the biggest challenge in your career until&nbsp;now? <p>Markus: It’s about helping users, including professional users, understand the key properties of the system. Especially in the blockchain space, when can professional companies start using blockchain as a reliable store of financial assets or as a processing layer? How do you assess the quality of a project team working on a technology stack?</p><p>And that’s all saying that we spent a lot of time on both at PwC, but obviously also now at Bitcoin Suisse. We help our clients as a pathfinder make sense of what’s going on in decentralized finance and when it is the right time to make use of all these modern and new ways of transacting on the blockchain.</p> Decentralization versus centralization for data -, cyber — and crypto security. What’s your take on&nbsp;this? <p>Markus: What we see now is a changing society where people and commercial entities are becoming more decentralized, working from home around the globe, being more focused on the individual.And that is a change from the past, where it was more about society, family and corporate entities. This changing society also requires a change in technology and blockchain is very well positioned to support this change. And that’s why now for the last 12 years, we’ve all been talking about Bitcoin and blockchain and bringing more of the workloads into blockchain. However, we’re still at a very early stage and there are many very interesting projects out there, including Ocean.</p><p>There is a challenge in ramping up the workload that’s going into blockchain. And here we comeback to the biggest challenge I mentioned earlier, knowing where these blockchain projects are and are they ready to take on serious workloads. At the beginning, everybody will just dip their toe into these new projects, put in some tiny workload, run proofs-of-concept.</p><p>As the technologies mature, as the marketplace becomes bigger, as the security stacks or the security cracks get more experienced and build solutions up to years and tens of years, decades, trust will become&nbsp;bigger.</p><p>We see that the same shift has happened in the old world prior to blockchain, when the Internet first came on. IP-based communication started about 50 years ago. And it has taken 30 years to really come to the point where people know and trust running workloads over the Internet. And it has taken another 20 years for cloud computing to run computer workloads and storage in a more decentralized way over the Internet. And it is going to take blockchain-based computing and data processing a similar amount of time from the inception of having the first ideas about business models on top of blockchain to actually being a reliable and trusted provider of data and computing capacity.</p> What’s the main advantage of decentralization? <p>Markus: It’s obviously supporting changes in society, the shift in society that I mentioned. The main advantage of decentralization is that each participant in the decentralized economy is able to participate in exactly the way that they would like to participate. As a single person, I have a different use case, different access pattern, different requirements from a corporate entity and a small corporate entity has different use cases from a large corporate entity. And I can contribute and participate in exactly the way that fits me personally without any dependencies on&nbsp;others.</p> What’s your vision for changing custody requirements for&nbsp;Web3? <p>Markus: We’ve all been working as an industry in securing users’ private keys since the inception of Bitcoin, and this has been relying in turn on technology and processes that have been out there for a longer time, public infrastructures, hardware, security&nbsp;modules.</p><p>This is all known and familiar, but it’s also very static. When we secure a private key, when we take it offline — then the assets that are accessible through the private key are static and cannot change because of the way it’s protected. With Web3, this has to become a lot more dynamic. People have an expectation that when they own assets, with a blockchain protected by a private key, they can still participate in the economy on that blockchain.</p><p>We’ve enabled that with Staking in the Bitcoin Suisse Vault as a first step. We have Tezos staking on there and will support many more currencies with staking. With Web3, we have a large push into DeFi. Everybody’s crazy about DeFi right now. But how do you participate in DeFi with these smart contracts? That requires a bridging layer from the security of the vault to the agility of the decentralized economy. And as we move into Ocean’s value proposition, obviously, people need to be able to participate in the economy, the marketplace, the storage of their assets in real time. This means keys need to be available to sign transactions when needed, and they need to be protected from within the security of the&nbsp;vault.</p><p>So that’s bringing a challenge to us as a custody provider; that we need to provide top notch security, keeping the users’ private keys secure and offline at all times and at the same time give them the ability to sign transactions to participate in the marketplace in real time. We’re working hard, we’re putting a lot of resources into enabling that from a technology perspective. And we also work on assessing which of the projects are safe and secure and mature enough, so that we know that our clients can safely participate in these decentralized economies.</p> Can you elaborate on technical excellence for industrial and enterprise systems? <p>Markus: That’s really going back to the first part of my career in banking, and industrial systems have similar requirements. Here, it’s very important to have a long term stability and support period when a financial company or an industrial company is researching new technologies and looking to bring in new technology or products into their technology stack. They are obviously assessing the technical capabilities, they’re assessing the security of the system, but also assessing the long-term viability and stability of the platform.</p><p>When these companies build an application or an infrastructure in their environment, then there’s an expectation that typically it has to be there for three, five or even 10 plus more years. This means that having a proper track record and having a team that is able to guarantee stability is important because these kinds of companies would like to avoid having to spend immense amounts of money to just keep applications running.</p><p>They would like to focus their IT development efforts on actually writing new applications and supporting new business initiatives instead of keeping the old ones running. If the underlying infrastructure from hard operating systems and including blockchain based, decentralized infrastructures in the future is changing too frequently- or if the APIs change, if the economy changes, if the way they participate as a node changes then it always needs an update on their end, and this can be quite difficult. They can go through massive change management processes that are expensive, and they would like to avoid that as much as possible.</p><p>So as a startup, as a new technology provider going into the enterprise space, it’s important that you appeal both to the buyer, who is very eager to get technology capabilities, and also to the operator of the environment, who is very much concerned about the stability of the system, the APIs and the platform, because they will need to maintain this for up to 10 years, or more if you speak about the production line of a&nbsp;factory.</p> What do you think would facilitate the adoption for these very large and complex industrial enterprise systems? <p>Markus: The best way is when users and prospective users see and experience how it is going to improve their lives. We see the same thing with the Bitcoin Suisse Vault also on our end. That’s the best way to onboard them to your technology stack. We do this by demonstrating the Vault and by showing the capabilities of blockchain in a way that’s affecting the user. See, at Bitcoin Suisse, we’re pushing payment terminals across our market, Switzerland at this time, so that people can get first hand experience and we’re showing them how easy it is to use our high security Bitcoin Suisse Vault, including the storage for Ocean and the other coins. As a more industrial enterprise-oriented technology stack, you should have solved a problem that your clients have as part of their business or operations and be able to show that as a demo or use&nbsp;case.</p><p>You should have people who have experience doing this, including outside blockchain. And when you go to the clients, you need to speak the language of the people who solve the same problems. When you have a demonstration or use case that has a wow effect, and people immediately come to say ‘Yes, the Ocean team knows what my problem is, and they have a technology that solves my problem’, then you win. Plus, they also need to see that your platform provides the stability and long term guarantees that they need to solve the problem sustainably.</p><p>And as a side note here, “long term”, this can be 10 years plus in industrial solutions. And in many cases, maybe it’s also just two years. If you solve a shorter term problem that’s also good if there’s an expectation that it will be surpassed by yet another development later&nbsp;on.</p><p>But frequently, and that’s where I’m coming from in this industrial space and in the finance space, people do have a very long term focus and it’s always a challenge as a startup to demonstrate that you’re going to be around and that technology stack is going to keep working, even if things change in the founding team, for example, or in the industry.</p> Why are standards so important? <p>Markus: When you tackle the enterprise space, it’s important to show what security standards and what technology or ISO standards you follow, because that’s a tick the box exercise that many companies do when they evaluate which solution to onboard to. Especially in the area of security, but also in the reliability space. It’s not just about the technology expertise of the team implementing Ocean, but also having some level of familiarity with the traditional world. Because on one hand, the blockchain teams building applications on Ocean, they’re very familiar with blockchain and they will build on Ocean because of the technical excellence of the team and the protocol.</p><p>And when you go beyond blockchain projects and would like to market Ocean to people who are not yet convinced of blockchain — traditional enterprises, for example — then they need to be able to anchor that technology in terms and ways of thinking that they’re familiar with. And that frequently is along standards, i.e. for us as custodian these are cyber security standards for securing private&nbsp;keys.</p><p>There are also application development standards and programming paradigms, support paradigms, that will be important to hit. So that the commercial buyers and enterprises will be better able to relate to how the Ocean protocol works, understand the value proposition you bring and know they can rely on your&nbsp;product.</p><p>Follow Ocean Protocol on <a href="https://twitter.com/oceanprotocol">Twitter,</a> <a href="https://t.me/oceanprotocol_community">Telegram</a>, <a href="https://www.linkedin.com/company/ocean-protocol/">LinkedIn</a>, <a href="https://github.com/oceanprotocol">GitHub</a> &amp; <a href="https://oceanprotocol.com/newsletter/">Newsletter</a> for project updates and announcements. And chat directly with other developers on&nbsp;<a href="https://discord.gg/TnXjkR5">Discord</a>.</p> <p><a href="https://blog.oceanprotocol.com/ocean-conversations-crypto-custody-standards-and-cyber-security-dfe5503926e3">Ocean Conversations | Crypto Custody, Standards and Cyber Security</a> was originally published in <a href="https://blog.oceanprotocol.com">Ocean Protocol</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*ampoLrhkK3qz9hEiMqCTAQ.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:54 &bull;
    1 months ago
 </div>
 
