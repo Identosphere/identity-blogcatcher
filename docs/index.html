@@ -711,7 +711,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:51 AM April 04, 2021 (UTC)</sup>
+<sup>Last Update 5:52 AM April 04, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -724,6 +724,478 @@
  <h2 class='new-date'>
   Sunday, 04. April 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2021/Apr/4/animated-choropleth-of-vaccinations-by-us-county/#atom-everything'>Animated choropleth of vaccinations by US county</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Last week I mentioned that I've recently started scraping and storing the CDC's per-county vaccination numbers in my cdc-vaccination-history GitHub repository. This week I used an Observable notebook and d3's TopoJSON support to render those numbers on an animated choropleth map. 
+  
+ The full code is available at https://observablehq.com/@simonw/us-county-vaccinations-choropleth-map 
+ From scrape
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2021/animated-choropleth.gif'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Last week <a href="https://simonwillison.net/2021/Mar/28/weeknotes/#cdc-vaccination-datasette">I mentioned</a> that I've recently started scraping and storing the CDC's per-county vaccination numbers in my <a href="https://github.com/simonw/cdc-vaccination-history">cdc-vaccination-history</a> GitHub repository. This week I used <a href="https://observablehq.com/@simonw/us-county-vaccinations-choropleth-map">an Observable notebook</a> and d3's TopoJSON support to render those numbers on an animated choropleth map.</p>
+<p></p>
+<p>The full code is available at <a href="https://observablehq.com/@simonw/us-county-vaccinations-choropleth-map">https://observablehq.com/@simonw/us-county-vaccinations-choropleth-map</a></p>
+ From scraper to Datasette 
+<p>My scraper for this data is <a href="https://github.com/simonw/cdc-vaccination-history/blob/f89e0c8166b25645f8e92ebc148f9cb9db119554/.github/workflows/scrape.yml#L20">a single line</a> in a GitHub Actions workflow:</p>
+ <code>curl https://covid.cdc.gov/covid-data-tracker/COVIDData/getAjaxData?id=vaccination_county_condensed_data \
+  | jq . &gt; counties.json
+</code> 
+<p>I pipe the data through <code>jq</code> to pretty-print it, just to get nicer diffs.</p>
+<p>My <a href="https://github.com/simonw/cdc-vaccination-history/blob/f89e0c8166b25645f8e92ebc148f9cb9db119554/build_database.py">build_database.py</a> script then iterates over the accumulated git history of that <code>counties.json</code> file and uses <a href="https://sqlite-utils.datasette.io/">sqlite-utils</a> to build a SQLite table:</p>
+ for i, (when, hash, content) in enumerate(
+    iterate_file_versions(".", ("counties.json",))
+):
+    try:
+        counties = json.loads(
+            content
+        )["vaccination_county_condensed_data"]
+    except ValueError:
+        # Bad JSON
+        continue
+    for county in counties:
+        id = county["FIPS"] + "-" + county["Date"]
+        db[
+            "daily_reports_counties"
+        ].insert(
+            dict(county, id=id), pk="id",
+            alter=True, replace=True
+        ) 
+<p>The resulting table can be seen at <a href="https://cdc-vaccination-history.datasette.io/cdc/daily_reports_counties">cdc/daily_reports_counties</a>.</p>
+ From Datasette to Observable 
+<p>Observable notebooks are my absolute favourite tool for prototyping new visualizations. There are examples of pretty much anything you could possibly want to create, and the Observable ecosystem actively encourages forking and sharing new patterns.</p>
+<p>Loading data from Datasette into Observable is easy, using Datasette's various HTTP APIs. For this visualization I needed to pull two separate things from Datasette.</p>
+<p>Firstly, for any given date I need the full per-county vaccination data. Here's the full table <a href="https://cdc-vaccination-history.datasette.io/cdc/daily_reports_counties?Date=2021-04-02">filtered for April 2nd</a> for example.</p>
+<p>Since that's 3,221 rows Datasette's JSON export would need to be paginated... but Datasette's CSV export can stream all 3,000+ rows in a single request. So I'm using that, fetched using the <code>d3.csv()</code> function:</p>
+  county_data = await d3.csv(
+    `https://cdc-vaccination-history.datasette.io/cdc/daily_reports_counties.csv?_stream=on&amp;Date=${county_date}&amp;_size=max`
+);  
+<p>In order to animate the different dates, I need a list of available dates. I can get those with a SQL query:</p>
+  select distinct Date
+from daily_reports_counties
+order by Date  
+<p>Datasette's JSON API has a <code>?_shape=arrayfirst</code> option which will return a single JSON array of the first values in each row, which means I can do this:</p>
+<p><a href="https://cdc-vaccination-history.datasette.io/cdc.json?sql=select%20distinct%20Date%20from%20daily_reports_counties%20order%20by%20Date&amp;_shape=arrayfirst">https://cdc-vaccination-history.datasette.io/cdc.json?sql=select%20distinct%20Date%20from%20daily_reports_counties%20order%20by%20Date&amp;_shape=arrayfirst</a></p>
+<p>And get back just the dates as an array:</p>
+  [
+  "2021-03-26",
+  "2021-03-27",
+  "2021-03-28",
+  "2021-03-29",
+  "2021-03-30",
+  "2021-03-31",
+  "2021-04-01",
+  "2021-04-02",
+  "2021-04-03"
+]  
+<p>Mike Bostock has a handy <a href="https://observablehq.com/@mbostock/scrubber">Scrubber</a> implementation which can provide a slider with the ability to play and stop iterating through values. In the notebook that can be used like so:</p>
+  viewof county_date = Scrubber(county_dates, {
+  delay: 500,
+  autoplay: false
+})
+
+county_dates = (await fetch(
+  "https://cdc-vaccination-history.datasette.io/cdc.json?sql=select%20distinct%20Date%20from%20daily_reports_counties%20order%20by%20Date&amp;_shape=arrayfirst"
+)).json()
+
+import { Scrubber } from "@mbostock/scrubber"  
+ Drawing the map 
+<p>The map itself is rendered using <a href="https://github.com/topojson/topojson">TopoJSON</a>, an extension to GeoJSON that efficiently encodes topology.</p>
+<p>Consider the map of 3,200 counties in the USA: since counties border each other, most of those border polygons end up duplicating each other to a certain extent.</p>
+<p>TopoJSON only stores each shared boundary once, but still knows how they relate to each other which means the data can be used to draw shapes filled with colours.</p>
+<p>I'm using the <code>https://d3js.org/us-10m.v1.json</code> TopoJSON file built and published with d3. Here's my JavaScript for rendering that into an SVG map:</p>
+  {
+  const svg = d3
+    .create("svg")
+    .attr("viewBox", [0, 0, width, 700])
+    .style("width", "100%")
+    .style("height", "auto");
+
+  svg
+    .append("g")
+    .selectAll("path")
+    .data(
+      topojson.feature(topojson_data, topojson_data.objects.counties).features
+    )
+    .enter()
+    .append("path")
+    .attr("fill", function(d) {
+      if (!county_data[d.id]) {
+        return 'white';
+      }
+      let v = county_data[d.id].Series_Complete_65PlusPop_Pct;
+      return d3.interpolate("white", "green")(v / 100);
+    })
+    .attr("d", path)
+    .append("title") // Tooltip
+    .text(function(d) {
+      if (!county_data[d.id]) {
+        return '';
+      }
+      return `${
+        county_data[d.id].Series_Complete_65PlusPop_Pct
+      }% of the 65+ population in ${county_data[d.id].County}, ${county_data[d.id].StateAbbr.trim()} have had the complete vaccination`;
+    });
+  return svg.node();
+}  
+ Datasette 0.56 
+<p>Also this week, I shipped <a href="https://docs.datasette.io/en/stable/changelog.html#v0-56">Datasette 0.56</a>. It's a relatively small release - mostly documentation improvements and bug fixes, but I've alse bundled SpatiaLite 5 with the official Datasette Docker image.</p>
+ TIL this week 
+ 
+ <a href="https://github.com/simonw/til/blob/main/markdown/markdown-extensions-python.md">Useful Markdown extensions in Python</a> 
+ 
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/airtable-export">airtable-export</a>: <a href="https://github.com/simonw/airtable-export/releases/tag/0.6">0.6</a> - (<a href="https://github.com/simonw/airtable-export/releases">8 total releases</a>) - 2021-04-02
+<br>Export Airtable data to YAML, JSON or SQLite files on disk 
+ 
+<a href="https://github.com/simonw/datasette">datasette</a>: <a href="https://github.com/simonw/datasette/releases/tag/0.56">0.56</a> - (<a href="https://github.com/simonw/datasette/releases">85 total releases</a>) - 2021-03-29
+<br>An open source multi-tool for exploring and publishing data 
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2021/animated-choropleth.gif'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:37 &bull;
+   18 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/04/04/if-you-are.html'> If you are watching NFT auctions - Metakovan is biffing for </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   If you are watching NFT auctions - Metakovan is biffing for everything … (s)he’s pumping the market I think. 
+
+  
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2021/1c00b6ed13.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>If you are watching NFT auctions - Metakovan is biffing for everything … (s)he’s pumping the market I think.</p>
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2021/1c00b6ed13.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:59 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/04/04/just-listened-to.html'> Just listened to the latest Core Intuition. For me the topic</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Just listened to the latest Core Intuition. For me the topic wasn’t interesting BUT the laughter, humour, fun, pleasure of @manton and @danielpunkass kept me there - it sounded that this show was something they enjoyed in a way they haven’t for a while. 
+
+ Just Me? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Just listened to the latest Core Intuition. For me the topic wasn’t interesting BUT the laughter, humour, fun, pleasure of <a href="https://micro.blog/manton">@manton</a> and <a href="https://micro.blog/danielpunkass">@danielpunkass</a> kept me there - it sounded that this show was something they enjoyed in a way they haven’t for a while.</p>
+
+<p>Just Me?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:34 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://identitywoman.net'>Identity Woman</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://identitywoman.net/quoted-in-everything-you-need-to-know-about-vaccine-passports/'>Quoted In: Everything You Need to Know About “Vaccine Passports”</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Earlier this week I spoke to Molly who wrote this article about so called “vaccine passports” we don’t call them that though (Only government’s issue passports). Digital Vaccination Certificates would be more accurate. Early on when the Covid-19 Credentials Initiative was founded I joined to help. In December the initiative joined LFPH and I become […] 
+ The post Quoted In: Everything You Need to 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Earlier this week I spoke to Molly who wrote this article about so called “vaccine passports” we don’t call them that though (Only government’s issue passports). Digital Vaccination Certificates would be more accurate. Early on when the Covid-19 Credentials Initiative was founded I joined to help. In December the initiative joined LFPH and I become […]</p>
+<p>The post <a href="https://identitywoman.net/quoted-in-everything-you-need-to-know-about-vaccine-passports/">Quoted In: Everything You Need to Know About “Vaccine Passports”</a> appeared first on <a href="https://identitywoman.net">Identity Woman</a>.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:19 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://identitywoman.net/article-cointelegraph-women-changing-face-of-enterprise-blockchain/'>Article: CoinTelegraph, Women Changing Face of Enterprise Blockchain</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   This article is about what it says it is and quotes me. CoinTelegraph, Women Changing Face of Enterprise Blockchain 
+ The post Article: CoinTelegraph, Women Changing Face of Enterprise Blockchain appeared first on Identity Woman. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>This article is about what it says it is and quotes me. CoinTelegraph, Women Changing Face of Enterprise Blockchain</p>
+<p>The post <a href="https://identitywoman.net/article-cointelegraph-women-changing-face-of-enterprise-blockchain/">Article: CoinTelegraph, Women Changing Face of Enterprise Blockchain</a> appeared first on <a href="https://identitywoman.net">Identity Woman</a>.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:12 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -787,7 +1259,7 @@
 
 <div class='item-footer'>
    00:49 &bull;
-   an hour ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -852,7 +1324,7 @@
 
 <div class='item-footer'>
    00:45 &bull;
-   an hour ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -917,7 +1389,7 @@
 
 <div class='item-footer'>
    00:44 &bull;
-   an hour ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -984,7 +1456,7 @@
 
 <div class='item-footer'>
    00:44 &bull;
-   an hour ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1051,7 +1523,7 @@
 
 <div class='item-footer'>
    00:44 &bull;
-   an hour ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1124,7 +1596,7 @@
 
 <div class='item-footer'>
    00:32 &bull;
-   an hour ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1191,7 +1663,7 @@
 
 <div class='item-footer'>
    00:25 &bull;
-   an hour ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1281,7 +1753,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    23:04 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1355,7 +1827,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    02:59 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1428,7 +1900,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    02:57 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1790,7 +2262,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    14:45 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2004,7 +2476,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    16:47 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2267,7 +2739,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    14:40 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2999,7 +3471,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    14:40 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3309,7 +3781,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    16:52 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3543,7 +4015,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    16:02 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4117,150 +4589,6 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 <article class='item'>
 
 
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/03/27/we-relenquish-all.html'> We relenquish all titles and claims to the Royal family. 
-
- </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   We relenquish all titles and claims to the Royal family. 
-
- We reject that racist family. 
-
- Meghan and Harry’s Daughter Due to Be Born a Lady Despite Feud Over Titles. 
-
- They really are just like cyclists. 
-
- (Choose what you are based on personal convenience at a given moment.) 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>We relenquish all titles and claims to the Royal family.</p>
-
-<p>We reject that racist family.</p>
-
-<p><a href="https://apple.news/Abv6fY1NRT5GEfOlyW3iqlg">Meghan and Harry’s Daughter Due to Be Born a Lady Despite Feud Over Titles.</a></p>
-
-<p>They really are just like cyclists.</p>
-
-<p>(Choose what you are based on personal convenience at a given moment.)</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:48 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/03/27/qanons-suez-canal.html'> QAnon’s Suez Canal Dick Ship Conspiracies Are Getting Wilder</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   QAnon’s Suez Canal Dick Ship Conspiracies Are Getting Wilder and Wilder. 
-
- The Human Race is D O O M E D 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://apple.news/AWtp70QzYSmKGvVpowPUyvA">QAnon’s Suez Canal Dick Ship Conspiracies Are Getting Wilder and Wilder.</a></p>
-
-<p>The Human Race is D O O M E D</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:41 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
 <h4 class='feed-title'>
   <a href='https://hyperonomy.com/'>Hyperonomy Digital Identity Lab</a>
 </h4>
@@ -4594,7 +4922,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4658,7 +4986,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    14:34 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5235,7 +5563,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    15:14 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6095,7 +6423,7 @@ devaluing or dismissing the people who have suffered them.</p>
 
 <div class='item-footer'>
    15:17 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6515,7 +6843,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    17:39 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6591,7 +6919,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    15:43 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6868,7 +7196,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    16:48 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6946,7 +7274,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    15:13 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7090,7 +7418,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    16:55 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7154,7 +7482,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    16:44 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7220,7 +7548,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    15:48 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8147,7 +8475,7 @@ The post おすすめの隠れた名曲〜ダマーズ:フルート、オーボ�
 
 <div class='item-footer'>
    14:42 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8611,7 +8939,7 @@ Neither–they’re destructive. They limit the breadth of ideas concerning thin
 
 <div class='item-footer'>
    14:23 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8808,7 +9136,7 @@ But when trying to teach or explain a medium that is visual, other tools can be 
 
 <div class='item-footer'>
    17:50 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9550,7 +9878,7 @@ But when trying to teach or explain a medium that is visual, other tools can be 
 
 <div class='item-footer'>
    14:53 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11470,70 +11798,6 @@ But when trying to teach or explain a medium that is visual, other tools can be 
 
 <div class='item-footer'>
    05:24 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Feb/23/yoz-grahame/#atom-everything'>Quoting Yoz Grahame</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    I strongly suspect that the single most impactful thing I did during my 5+ years at Linden Lab was shortly before I left: set up a weekly meeting between a couple of leads from Support and Engineering to go over the top 10 support issues.   — Yoz Grahame 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <blockquote cite="https://twitter.com/yoz/status/1364031237472493570"><p>I strongly suspect that the single most impactful thing I did during my 5+ years at Linden Lab was shortly before I left: set up a weekly meeting between a couple of leads from Support and Engineering to go over the top 10 support issues.</p></blockquote><p>— <a href="https://twitter.com/yoz/status/1364031237472493570">Yoz Grahame</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:49 &bull;
    1 months ago
 </div>
 
@@ -15138,7 +15402,7 @@ next time.</p>
 
 <div class='item-footer'>
    02:54 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -15206,68 +15470,6 @@ next time.</p>
 
 <div class='item-footer'>
    03:41 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://identitywoman.net/quoted-in-nyt/'>Quoted in NYT</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I was quoted in this article about Tim Berner’s Lee and the Solid Project. ….“No one will argue with the direction,” said Liam Broza, a founder of LifeScope, an open-source data project. “He’s on the right side of history. But is what he’s doing really going to work?” Others say the Solid-Inrupt technology is only […] 
- The post Quoted in NYT appeared first on Identity Woman. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>I was quoted in this article about Tim Berner’s Lee and the Solid Project. ….“No one will argue with the direction,” said Liam Broza, a founder of LifeScope, an open-source data project. “He’s on the right side of history. But is what he’s doing really going to work?” Others say the Solid-Inrupt technology is only […]</p>
-<p>The post <a href="https://identitywoman.net/quoted-in-nyt/">Quoted in NYT</a> appeared first on <a href="https://identitywoman.net">Identity Woman</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:25 &bull;
    3 months ago
 </div>
 
@@ -17610,72 +17812,6 @@ This specification defines how a series of Security Event Tokens (SETs) can be d
  <h2 class='new-date'>
   Wednesday, 23. December 2020
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://identitywoman.net'>Identity Woman</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://identitywoman.net/human-centered-security-podcast/'>Human Centered Security Podcast</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I was invited to join Heidi Trost to join her on my new podcast focused on Human Centered Security. We had a great chat focused on Self-Sovereign Identity. You can find it here on the Web, Spotifiy or Apple Podcast In this episode we talk about: What Kaliya describes as a new “layer” to the […] 
- The post Human Centered Security Podcast appeared first on Identity Woman. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>I was invited to join Heidi Trost to join her on my new podcast focused on Human Centered Security. We had a great chat focused on Self-Sovereign Identity. You can find it here on the Web, Spotifiy or Apple Podcast In this episode we talk about: What Kaliya describes as a new “layer” to the […]</p>
-<p>The post <a href="https://identitywoman.net/human-centered-security-podcast/">Human Centered Security Podcast</a> appeared first on <a href="https://identitywoman.net">Identity Woman</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:59 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
