@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:52 AM April 05, 2021 (UTC)</sup>
+<sup>Last Update 10:51 AM April 05, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -729,6 +729,514 @@
  <h2 class='new-date'>
   Monday, 05. April 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/04/05/creating-verifiable-credentials-in-asp-net-core-for-decentralized-identities-using-trinsic/'>Creating Verifiable credentials in ASP.NET Core for decentralized identities using Trinsic</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how verifiable credentials can be created in ASP.NET Core for decentralized identities using the Trinsic platform which is a Self-sovereign identity implementation with APIs to integrate. The verifiable credentials can be downloaded to your digital wallet if you have access and can be used in separate application which understands the Trinsic APIs. […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how verifiable credentials can be created in ASP.NET Core for decentralized identities using the <a href="https://trinsic.id/">Trinsic</a> platform which is a <a href="https://sovrin.org/faq/what-is-self-sovereign-identity/">Self-sovereign identity</a> implementation with APIs to integrate. The verifiable credentials can be downloaded to your digital wallet if you have access and can be used in separate application which understands the Trinsic APIs.</p>
+
+
+
+<p>Code: <a href="https://github.com/swiss-ssi-group/TrinsicAspNetCore">https://github.com/swiss-ssi-group/TrinsicAspNetCore</a></p>
+
+
+
+<p>Setup</p>
+
+
+
+<p>We want implement the flow shown in the following figure. The National Driving license application is responsible for issuing driver licenses and administrating licenses for users which have authenticated correctly. The user can see his or her driver license and a verifiable credential displayed as a QR code which can be used to add the credential to a digital wallet. When the application generates the credential, it adds the credential DID to the blockchain ledger with the cryptographic proof of the issuer and the document. When you scan the QR Code, the DID will get validated and will be added to the wallet along with the request claims. The digital wallet must be able to find the DID on the correct network and the schema and needs to search for the ledger in the correct blockchain. A good wallet should take care of this for you. The schema is required so that the data in the DID document can be understood.</p>
+
+
+
+
+
+
+
+<p>Trinsic Setup</p>
+
+
+
+<p>Trinsic is used to connect to the blockchain and create the DIDs, credentials in this example. Trinsic provides good getting started <a href="https://docs.trinsic.id/docs">docs</a>.</p>
+
+
+
+<p>In Trinsic, you need to create an organisation for the Issuer application.</p>
+
+
+
+
+
+
+
+<p>Click on the details of the organisation to get the API key. This is required for the application. This API Key cannot be replaced or updated, so if you make a mistake and lose this, commit it in code, you would have to create a new organisation. It is almost important to note the network. This is where you can find the DID to get the credentials produced by this issuer. </p>
+
+
+
+
+
+
+
+<p>To issuer credentials, you need to create a template or schema with the claims which are issued in the credential using the template. The issuer application provides values for the claims.</p>
+
+
+
+
+
+
+
+<p>Implementing the ASP.NET Core Issuer </p>
+
+
+
+<p>The verifiable credentials issuer is implemented in an ASP.NET Core application using Razor pages and Identity. This application needs to authenticate the users before issuing a verifiable credential for the user. FIDO2 with the correct authenticate flow would be a good choice as this would protect against phishing. You could use credentials as well, if the users of the applications had a trusted ID. You would still have to protect against phishing. The quality of the credentials issued depends on the security of the issuing application. If the application has weak user authentication, then the credentials cannot be trusted. For a bank, gov IDs, drivings license, a high level of security is required. Open ID Connect FAPI with FIDO2 would make a good solution to authenticate the user. Or a user with a trusted gov issued credential together with FIDO2 would also be good. </p>
+
+
+
+<p>The ASP.NET Core application initializes the services and adds the Trinsic client using the API Key from the organisation which issues the credentials. The Trinsic.ServiceClients Nuget package is used for the Trinsic integration. ASP.NET Core Identity is used to add, remove users and add driving licenses for the users in the administration part of the application. MFA should be setup but as this is a demo, I have not forced this.</p>
+
+
+  public void ConfigureServices(IServiceCollection services)
+{
+	services.AddScoped&lt;TrinsicCredentialsService&gt;();
+	services.AddScoped&lt;DriverLicenseService&gt;();
+
+	services.AddTrinsicClient(options =&gt;
+	{
+		// For CredentialsClient and WalletClient
+		// API key of National Driving License (Organisation which does the verification)
+		options.AccessToken = Configuration["Trinsic:ApiKey"];
+		// For ProviderClient
+		// options.ProviderKey = providerKey;
+	});
+
+	services.AddDbContext&lt;ApplicationDbContext&gt;(options =&gt;
+		options.UseSqlServer(
+			Configuration.GetConnectionString("DefaultConnection")));
+	services.AddDatabaseDeveloperPageExceptionFilter();
+
+	services.AddIdentity&lt;IdentityUser, IdentityRole&gt;(
+		options =&gt; options.SignIn.RequireConfirmedAccount = false)
+	 .AddEntityFrameworkStores&lt;ApplicationDbContext&gt;()
+	 .AddDefaultTokenProviders();
+
+	services.AddSingleton&lt;IEmailSender, EmailSender&gt;();
+	services.AddScoped&lt;IUserClaimsPrincipalFactory&lt;IdentityUser&gt;,
+		AdditionalUserClaimsPrincipalFactory&gt;();
+
+	services.AddAuthorization(options =&gt;
+	{
+		options.AddPolicy("TwoFactorEnabled",
+			x =&gt; x.RequireClaim("amr", "mfa")
+		);
+	});
+
+	services.AddRazorPages();
+}
+  
+
+
+<p>User secrets are used to add the secrets required for the application in development. The secrets can be added to the  Json secrets file and not to the code source. If deploying this to Azure, the secrets would be read from Azure Key vault. The application requires the Trinsic API Key and the credential template definition ID created in Trinsic studio.</p>
+
+
+  {
+  "ConnectionStrings": {
+    "DefaultConnection": "--db-connection-string--"
+  },
+  "Trinsic": {
+    "ApiKey":  "--your-api-key-organisation--",
+    "CredentialTemplateDefinitionId": "--Template-credential-definition-id--"
+  }
+}
+  
+
+
+<p>The driving license service is responsible for creating driver license for each user. This is just an example of logic and is not related to SSI.</p>
+
+
+  using Microsoft.EntityFrameworkCore;
+using NationalDrivingLicense.Data;
+using System.Threading.Tasks;
+
+namespace NationalDrivingLicense
+{
+    public class DriverLicenseService
+    {
+        private readonly ApplicationDbContext _applicationDbContext;
+
+        public DriverLicenseService(ApplicationDbContext applicationDbContext)
+        {
+            _applicationDbContext = applicationDbContext;
+        }
+
+        public async Taskbool&gt; HasIdentityDriverLicense(string username)
+        {
+            if (!string.IsNullOrEmpty(username))
+            {
+                var driverLicense = await _applicationDbContext.DriverLicenses.FirstOrDefaultAsync(
+                    dl =&gt; dl.UserName == username &amp;&amp; dl.Valid == true
+                );
+
+                if (driverLicense != null)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public async Task&lt;DriverLicense&gt; GetDriverLicense(string username)
+        {
+            var driverLicense = await _applicationDbContext.DriverLicenses.FirstOrDefaultAsync(
+                    dl =&gt; dl.UserName == username &amp;&amp; dl.Valid == true
+                );
+
+            return driverLicense;
+        }
+
+        public async Task UpdateDriverLicense(DriverLicense driverLicense)
+        {
+            _applicationDbContext.DriverLicenses.Update(driverLicense);
+            await _applicationDbContext.SaveChangesAsync();
+        }
+    }
+}
+  
+
+
+<p>The Trinsic credentials service is responsible for creating the verifiable credentials. It uses the users drivers license and creates a new credential using the Trinsic client API using the CreateCredentialAsync method. The claims must match the template created in the studio. A Trinsic specific URL is returned. This can be used to create a QR Code which can be scanned from a Trinsic digital wallet.</p>
+
+
+  public class TrinsicCredentialsService
+{
+        private readonly ICredentialsServiceClient _credentialServiceClient;
+        private readonly IConfiguration _configuration;
+        private readonly DriverLicenseService _driverLicenseService;
+
+        public TrinsicCredentialsService(ICredentialsServiceClient credentialServiceClient,
+            IConfiguration configuration,
+            DriverLicenseService driverLicenseService)
+        {
+            _credentialServiceClient = credentialServiceClient;
+            _configuration = configuration;
+            _driverLicenseService = driverLicenseService;
+        }
+
+        public async Task&lt;string&gt; GetDriverLicenseCredential(string username)
+        {
+            if (!await _driverLicenseService.HasIdentityDriverLicense(username))
+            {
+                throw new ArgumentException("user has no valid driver license");
+            }
+
+            var driverLicense = await _driverLicenseService.GetDriverLicense(username);
+
+            if (!string.IsNullOrEmpty(driverLicense.DriverLicenseCredentials))
+            {
+                return driverLicense.DriverLicenseCredentials;
+            }
+
+            string connectionId = null; // Can be null | &lt;connection identifier&gt;
+            bool automaticIssuance = false;
+            IDictionary&lt;string, string&gt; credentialValues = new Dictionary&lt;String, String&gt;() {
+                {"Issued At", driverLicense.IssuedAt.ToString()},
+                {"Name", driverLicense.Name},
+                {"First Name", driverLicense.FirstName},
+                {"Date of Birth", driverLicense.DateOfBirth.Date.ToString()},
+                {"License Type", driverLicense.LicenseType}
+            };
+
+            CredentialContract credential = await _credentialServiceClient
+                .CreateCredentialAsync(new CredentialOfferParameters
+                {
+                    DefinitionId = _configuration["Trinsic:CredentialTemplateDefinitionId"],
+                    ConnectionId = connectionId,
+                    AutomaticIssuance = automaticIssuance,
+                    CredentialValues = credentialValues
+                });
+
+            driverLicense.DriverLicenseCredentials = credential.OfferUrl;
+            await _driverLicenseService.UpdateDriverLicense(driverLicense);
+
+            return credential.OfferUrl;
+        }
+}
+  
+
+
+<p>The DriverLicenseCredentials Razor page uses the Trinsic service and returns the credentials URL if the user has a valid drivers license. </p>
+
+
+  using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc.RazorPages;
+using NationalDrivingLicense.Data;
+
+namespace NationalDrivingLicense.Pages
+{
+    public class DriverLicenseCredentialsModel : PageModel
+    {
+        private readonly TrinsicCredentialsService _trinsicCredentialsService;
+        private readonly DriverLicenseService _driverLicenseService;
+
+        public string DriverLicenseMessage { get; set; } = "Loading credentials";
+        public bool HasDriverLicense { get; set; } = false;
+        public DriverLicense DriverLicense { get; set; }
+
+        public string CredentialOfferUrl { get; set; }
+        public DriverLicenseCredentialsModel(TrinsicCredentialsService trinsicCredentialsService,
+           DriverLicenseService driverLicenseService)
+        {
+            _trinsicCredentialsService = trinsicCredentialsService;
+            _driverLicenseService = driverLicenseService;
+        }
+        public async Task OnGetAsync()
+        {
+            DriverLicense = await _driverLicenseService.GetDriverLicense(HttpContext.User.Identity.Name);
+
+            if (DriverLicense != null)
+            {
+                var offerUrl = await _trinsicCredentialsService
+                    .GetDriverLicenseCredential(HttpContext.User.Identity.Name);
+                DriverLicenseMessage = "Add your driver license credentials to your wallet";
+                CredentialOfferUrl = offerUrl;
+                HasDriverLicense = true;
+            }
+            else
+            {
+                DriverLicenseMessage = "You have no valid driver license";
+            }
+        }
+    }
+}
+  
+
+
+<p>The Razor page template displays the QR code and information about the driver license issued to the logged in user.</p>
+
+
+  @page
+@model NationalDrivingLicense.Pages.DriverLicenseCredentialsModel
+@{
+}
+
+&lt;h3&gt;@Model.DriverLicenseMessage&lt;/h3&gt;
+&lt;br /&gt;
+&lt;br /&gt;
+
+@if (Model.HasDriverLicense)
+{
+    &lt;div class="container-fluid"&gt;
+        &lt;div class="row"&gt;
+            &lt;div class="col-sm"&gt;
+                &lt;div class="qr" id="qrCode"&gt;&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class="col-sm"&gt;
+                &lt;div&gt;
+                    &lt;img src="~/ndl_car_01.png" width="200" alt="Driver License"&gt;
+                    &lt;div&gt;
+                        &lt;b&gt;Driver Licence: @Html.DisplayFor(model =&gt; model.DriverLicense.UserName)&lt;/b&gt;
+                        &lt;hr /&gt;
+                        &lt;dl class="row"&gt;
+                            &lt;dt class="col-sm-4"&gt;Issued&lt;/dt&gt;
+                            &lt;dd class="col-sm-8"&gt;
+                                @Model.DriverLicense.IssuedAt.ToString("MM/dd/yyyy")
+                            &lt;/dd&gt;
+                            &lt;dt class="col-sm-4"&gt;
+                                @Html.DisplayNameFor(model =&gt; model.DriverLicense.Name)
+                            &lt;/dt&gt;
+                            &lt;dd class="col-sm-8"&gt;
+                                @Html.DisplayFor(model =&gt; model.DriverLicense.Name)
+                            &lt;/dd&gt;
+                            &lt;dt class="col-sm-4"&gt;First Name&lt;/dt&gt;
+                            &lt;dd class="col-sm-8"&gt;
+                                @Html.DisplayFor(model =&gt; model.DriverLicense.FirstName)
+                            &lt;/dd&gt;
+                            &lt;dt class="col-sm-4"&gt;License Type&lt;/dt&gt;
+                            &lt;dd class="col-sm-8"&gt;
+                                @Html.DisplayFor(model =&gt; model.DriverLicense.LicenseType)
+                            &lt;/dd&gt;
+                            &lt;dt class="col-sm-4"&gt;Date of Birth&lt;/dt&gt;
+                            &lt;dd class="col-sm-8"&gt;
+                                @Model.DriverLicense.DateOfBirth.ToString("MM/dd/yyyy")
+                            &lt;/dd&gt;
+                            &lt;dt class="col-sm-4"&gt;Issued by&lt;/dt&gt;
+                            &lt;dd class="col-sm-8"&gt;
+                                @Html.DisplayFor(model =&gt; model.DriverLicense.Issuedby)
+                            &lt;/dd&gt;
+                            &lt;dt class="col-sm-4"&gt;
+                                @Html.DisplayNameFor(model =&gt; model.DriverLicense.Valid)
+                            &lt;/dt&gt;
+                            &lt;dd class="col-sm-8"&gt;
+                                @Html.DisplayFor(model =&gt; model.DriverLicense.Valid)
+                            &lt;/dd&gt;
+                        &lt;/dl&gt;
+                    &lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+}
+
+@section scripts {
+    &lt;script src="~/js/qrcode.min.js"&gt;&lt;/script&gt;
+    &lt;script type="text/javascript"&gt;
+        new QRCode(document.getElementById("qrCode"),
+            {
+                text: "@Html.Raw(Model.CredentialOfferUrl)",
+                width: 300,
+                height: 300
+            });
+    $(document).ready(() =&gt; {
+        document.getElementById('begin_token_check').click();
+    });
+    &lt;/script&gt;
+}
+  
+
+
+<p>When the application is started, you can register and create a new license in the license administration. </p>
+
+
+
+
+
+
+
+<p>Add licences as required. The credentials will not be created here, only when you try to get a driver license as a user.</p>
+
+
+
+
+
+
+
+<p>The QR code of the license is displayed which can be scanned and added to your Trinsic digital wallet.</p>
+
+
+
+
+
+
+
+<p>Notes</p>
+
+
+
+<p>This works fairly good but has a number of problems. The digital wallets are vendor specific and the QR Code, credential links are dependent on the product used to create this. The wallet implementations and the URL created for the credentials are all specific and rely on good will of the different implementations of the different vendors. This requires an RFC specification or something like this, if SSI should become easy to use and mainstream. Without this, users would require n-wallets for all the different applications and would also have problems using credentials between different systems.</p>
+
+
+
+<p>Another problem is the organisations API keys use the represent the issuer or the verifier applications. If this API keys get leaked which they will, the keys are hard to replace.</p>
+
+
+
+<p>Using the wallet, the user also needs to know which network to use to load the credentials, or to login to your product.  A default user will not know where to find the required DID. </p>
+
+
+
+<p>If signing in using the wallet credentials, the application does not protect against phishing. This is not good enough for high security authentication. FIDO2 and WebAuthn should be used if handling such sensitive data as this is designed for.</p>
+
+
+
+<p>Self sovereign identities is in the very early stages but holds lots of potential. A lot will depend on how easy it is to use and how easy it is to implement and share credentials between systems. The quality of the credential will depend on the quality of the application issuing it.</p>
+
+
+
+<p>In a follow up blog to this one, <a href="https://github.com/Franklin89">Matteo </a>will use the verifiable credentials added to the digital wallet and verify them in  a second application.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://studio.trinsic.id/">https://studio.trinsic.id/</a></p>
+
+
+
+<p><a href="https://www.youtube.com/watch?v=mvF5gfMG9ps">https://www.youtube.com/watch?v=mvF5gfMG9ps</a></p>
+
+
+
+<p><a href="https://github.com/trinsic-id/verifier-reference-app">https://github.com/trinsic-id/verifier-reference-app</a></p>
+
+
+
+<p><a href="https://docs.trinsic.id/docs/tutorial">https://docs.trinsic.id/docs/tutorial</a></p>
+
+
+
+<p><a href="https://sovrin.org/faq/what-is-self-sovereign-identity/">Self sovereign identity</a></p>
+
+
+
+<p><a href="https://techcommunity.microsoft.com/t5/identity-standards-blog/ion-we-have-liftoff/ba-p/1441555">https://techcommunity.microsoft.com/t5/identity-standards-blog/ion-we-have-liftoff/ba-p/1441555</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/03/ssi_credentials_trinsic_01.png?w=722'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   10:35 &bull;
+   19 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -793,7 +1301,7 @@
 
 <div class='item-footer'>
    05:12 &bull;
-   44 minutes ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -861,7 +1369,7 @@
 
 <div class='item-footer'>
    04:48 &bull;
-   an hour ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -946,7 +1454,7 @@
 
 <div class='item-footer'>
    22:51 &bull;
-   7 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1025,7 +1533,7 @@
 
 <div class='item-footer'>
    22:31 &bull;
-   7 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1104,7 +1612,7 @@
 
 <div class='item-footer'>
    22:17 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1170,7 +1678,7 @@
 
 <div class='item-footer'>
    16:28 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1234,7 +1742,7 @@
 
 <div class='item-footer'>
    16:15 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2508,7 +3016,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    21:43 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2653,7 +3161,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    22:40 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2719,7 +3227,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    18:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2935,7 +3443,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    18:42 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3066,7 +3574,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    20:29 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3136,7 +3644,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    19:53 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3924,7 +4432,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    21:09 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4270,7 +4778,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    22:41 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4348,7 +4856,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    21:19 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4874,7 +5382,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    18:21 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4938,7 +5446,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    18:13 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5116,7 +5624,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    19:29 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5190,7 +5698,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    18:27 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5504,7 +6012,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    21:53 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5574,7 +6082,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    21:13 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5640,7 +6148,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    20:35 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5863,7 +6371,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    19:43 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5997,7 +6505,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    19:19 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6455,7 +6963,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    20:22 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7329,7 +7837,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    18:57 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7535,7 +8043,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    22:36 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7614,7 +8122,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    20:38 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8238,7 +8746,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    20:31 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8787,7 +9295,7 @@ The post Fin/Sum 2021 Day 2に出演します〜ポストコロナで金融サ�
 
 <div class='item-footer'>
    18:32 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9391,7 +9899,7 @@ Neither–they’re destructive. They limit the breadth of ideas concerning thin
 
 <div class='item-footer'>
    20:48 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9472,7 +9980,7 @@ Neither–they’re destructive. They limit the breadth of ideas concerning thin
 
 <div class='item-footer'>
    19:36 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13811,7 +14319,7 @@ if (result.Succeeded)
 
 <div class='item-footer'>
    07:09 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16207,339 +16715,6 @@ public async Task&lt;Azure.Response&lt;BlobDownloadInfo&gt;&gt; DownloadFile(str
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/02/01/implement-app-roles-authorization-with-azure-ad-and-asp-net-core/'>Implement app roles authorization with Azure AD and ASP.NET Core</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post shows how to implement Azure AD App roles and applied to users or groups in Azure AD. The roles are used in an ASP.NET Core Razor page application as well as a ASP.NET Core API. The roles from the access token and the id token are used to authorize the identity which is […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post shows how to implement Azure AD App roles and applied to users or groups in Azure AD. The roles are used in an ASP.NET Core Razor page application as well as a ASP.NET Core API. The roles from the access token and the id token are used to authorize the identity which is authenticated.</p>
-<p>Code: <a href="https://github.com/damienbod/AzureADAuthRazorUiServiceApiCertificate/tree/main/AppRoles">App roles</a></p>
-<p>Create an Azure App registration for Web APP</p>
-<p>In this example, a web application will implement authentication and will use a second ASP.NET Core application which implements the user API. Two Azure AD App registrations are created for this, one for each application.</p>
-<p>The ASP.NET Core Razor page application is a client which can be authenticated, as well as the identity using the application. It has a trusted back end which can keep a secret. The Azure AD App registration uses a standard web application with a client secret. You could also use a certificate instead of a secret to authenticate the client.</p>
-<p>App roles are added to the App registration for the UI client. These roles are used in the UI application which are returned in a user data profile request or in the id token, depending how your client implemented the OIDC standard.</p>
-<p>Three roles were added to the Azure AD App registration using the App roles | preview blade.</p>
-<p></p>
-<p>The roles could also be added directly in the manifest json file. </p>
- "appRoles": [
-{
-	"allowedMemberTypes": [
-		"User"
-	],
-	"description": "web app admin role",
-	"displayName": "web-app-role-admin",
-	"id": "3731c162-330a-412d-8b2f-7b0fe1bc7150",
-	"isEnabled": true,
-	"lang": null,
-	"origin": "Application",
-	"value": "web-app-role-admin"
-},
-{
-	"allowedMemberTypes": [
-		"User"
-	],
-	"description": "web app student role",
-	"displayName": "web-app-role-student",
-	"id": "53b2db3e-fb5e-484a-a294-4f68bbc543c8",
-	"isEnabled": true,
-	"lang": null,
-	"origin": "Application",
-	"value": "web-app-role-student"
-},
-{
-	"allowedMemberTypes": [
-		"User"
-	],
-	"description": "web app user role",
-	"displayName": "web-app-role-user",
-	"id": "9c2bae5f-8347-410a-a1bf-cd2ee0e4bb49",
-	"isEnabled": true,
-	"lang": null,
-	"origin": "Application",
-	"value": "web-app-role-user"
-}
-],
- 
-<p>The API permissions are setup to include the scope created in the API Azure AD App registration. The standard OIDC scopes are added to the registration. All scopes are delegated scopes. </p>
-<p></p>
-<p>Create an Azure App registration for Web API</p>
-<p>The App registration used for the API implements NO authentication flows. This App registration exposes an API and defines roles for the API project authorization. An access_as_user scope is added to the Azure App registration which is a delegated scope type. </p>
-<p></p>
-<p>Three roles were added to the Azure AD App registration for the API. These roles are for the API and will be added to the access token if the identity has been assigned the roles in the enterprise application of the Azure AD directory. The roles could also be added directly in the manifest. </p>
-<p></p>
-<p>Apply roles in Azure AD enterprise applications</p>
-<p>The new roles which were defined in the Azure AD App registration can now be used. This is setup in the Enterprise application blade of the Azure AD directory. In the Enterprise application list, select the App registration for the API. New users or groups can be added here, and the roles can then be assigned.</p>
-<p></p>
-<p>In the Add user/group a user or a group can be selected (! Groups can only be selected if you have the correct license) and the roles which were created in the Azure AD App registration can be applied. </p>
-<p></p>
-<p>If creating applications for tenants with lots of users, groups would be used. </p>
-<p>Implement ASP.NET Core API</p>
-<p>The API is implemented in ASP.NET Core. The startup class is used to setup the authorization of the access tokens. The <a href="https://github.com/AzureAD/microsoft-identity-web">Microsoft.Identity.Web</a> Nuget package is used for this. This application configuration will match the configuration of the Azure AD App registration setup for the API. The AddMicrosoftIdentityWebApiAuthentication method is used for this. </p>
-<p>ASP.NET Core adds namespaces per default to the claims which are extracted from the access token. We do not want this and so disable the default claim mapping. The roles and the name can should also be mapped, as the default setting does not match what Azure AD returns in the token. </p>
- public void ConfigureServices(IServiceCollection services)
-{
-	JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-	// IdentityModelEventSource.ShowPII = true;
-
-	// Adds Microsoft Identity platform (AAD v2.0) support to protect this Api
-	services.AddMicrosoftIdentityWebApiAuthentication(Configuration);
-
-	services.Configure&lt;OpenIdConnectOptions&gt;(
-	   OpenIdConnectDefaults.AuthenticationScheme, options =&gt;
-	{
-		// The claim in the Jwt token where App roles are available.
-		options.TokenValidationParameters.RoleClaimType = "roles";
-		options.TokenValidationParameters.NameClaimType = "name";
-	});
- 
-<p>Authorization is added for the API using the AddAuthorization method or it can be added global as a filter. The roles claims are mapped to <a href="https://docs.microsoft.com/en-us/aspnet/core/security/authorization/policies">policies</a> which can then be enforced throughout the application. You could also do this directly using the roles property in the authorize attribute, but I prefer to use policies and separate the authorization. Only policies are used in the application.</p>
-<p>A ValidateAccessTokenPolicy policy is implemented to do validation on the access token. The scp claim is validated for an access_as_user value as this is a user API for delegated access and not an application token. The azp claim is used to validate the client calling the API. The API is made specifically for the UI application and so we can validate that only access tokens created for the UI application can use this API. The azp claim is only sent in version 2 Azure App registrations. You must set this in the manifest. </p>
-<p>The azpacr claim is also validated. Only authenticated clients can use this API. Any application which gets an access token for this API must use a secret as the value of “1” is controlled. This ensures that public clients cannot create access tokens for this API. If this was a value of “2”, only clients which used certificates to authenticate can acquire access tokens for this API. </p>
-<p>It is good to validate the intended user, if possible.</p>
- services.AddAuthorization(policies =&gt;
-{
-	policies.AddPolicy("p-web-api-with-roles-user", p =&gt; 
-	{
-		p.RequireClaim("roles","web-api-with-roles-user");
-	});
-	policies.AddPolicy("p-web-api-with-roles-student", p =&gt;
-	{
-		p.RequireClaim("roles", "web-api-with-roles-student");
-	});
-	policies.AddPolicy("p-web-api-with-roles-admin", p =&gt;
-	{
-		p.RequireClaim("roles", "web-api-with-roles-admin");
-	});
-
-	policies.AddPolicy("ValidateAccessTokenPolicy", validateAccessTokenPolicy =&gt;
-	{
-		validateAccessTokenPolicy.RequireClaim("scp", "access_as_user");
-
-		// Validate id of application for which the token was created
-		// In this case the UI application 
-		validateAccessTokenPolicy.RequireClaim("azp", "5c201b60-89f6-47d8-b2ef-9d9fe2a42751");
-
-		// only allow tokens which used "Private key JWT Client authentication"
-		// // https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens
-		// Indicates how the client was authenticated. For a public client, the value is "0". 
-		// If client ID and client secret are used, the value is "1". 
-		// If a client certificate was used for authentication, the value is "2".
-		validateAccessTokenPolicy.RequireClaim("azpacr", "1");
-	});
-});
-
- 
-<p>Authorization can also be added globally as a filter in the AddControllers. This would be applied to this middleware.</p>
- services.AddControllers(options =&gt;
-{
-	// global
-	var policy = new AuthorizationPolicyBuilder()
-		.RequireAuthenticatedUser()
-	   // disabled this to test with users that have no email (no license added)
-	   // .RequireClaim("email") 
-		.Build();
-	options.Filters.Add(new AuthorizeFilter(policy));
-});
- 
-<p>The policies can then be applied in the API application as required. The access token used to access the API must fulfil all policies used on the API endpoint. If any single policy fails, the a 403 forbidden is returned. </p>
- using System.Collections.Generic;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-
-namespace WebApiWithRoles.Controllers
-{
-    [Authorize(Policy = "p-web-api-with-roles-user")]
-    [Authorize(Policy = "ValidateAccessTokenPolicy")]
-    [ApiController]
-    [Route("api/[controller]")]
-    public class UserDataController : ControllerBase
-    {
-        [HttpGet]
-        public IActionResult Get()
-        {
-            return Ok(new List&lt;string&gt; { "user data 1", "user data 2" });
-        }
-    }
-}
-
- 
-<p>Implement ASP.NET Core Razor Page APP</p>
-<p>The ASP.NET Core Razor Page application uses an OIDC interactive flow to authenticate using Azure AD as the identity provider. Both the client application and the identity are authenticated. Microsoft.Identity.Web is used to implement the client code which uses Open ID connect. The AddMicrosoftIdentityWebAppAuthentication method is used in the Startup class in the ConfigureServices method. The downstream APIs are enabled as well as in memory cache. In memory cache is a bit of a problem with testing, as you need to delete the cookies in the browser manually after every test run. You can fix this by using a persistent cache.  A filter is added so that an authenticated user is required.</p>
- public void ConfigureServices(IServiceCollection services)
-{
-	services.AddTransient&lt;ClientApiWithRolesService&gt;();
-	services.AddHttpClient();
-
-	services.AddOptions();
-
-	string[] initialScopes = Configuration.GetValue&lt;string&gt;
-		("ApiWithRoles:ScopeForAccessToken")?.Split(' ');
-
-	services.AddMicrosoftIdentityWebAppAuthentication(Configuration)
-		.EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
-		.AddInMemoryTokenCaches();
-
-	services.AddRazorPages().AddMvcOptions(options =&gt;
-	{
-		var policy = new AuthorizationPolicyBuilder()
-			.RequireAuthenticatedUser()
-			.Build();
-		options.Filters.Add(new AuthorizeFilter(policy));
-	}).AddMicrosoftIdentityUI();
-}
- 
-<p>The app.settings.json file contains the configurations for the Azure AD authentication of the application which uses the Microsoft.Identity.Web client. The ClientId from the Web APP App registration and the TenantId for the directory are added here. The ClientSecret also needs to be defined. This should be added to the user secrets in development or added to an Azure Key Vault if deploying to Azure. The ApiWithRoles configuration added the API scope and the URL for the API. </p>
-   "AzureAd": {
-    "Instance": "https://login.microsoftonline.com/",
-    "Domain": "damienbodhotmail.onmicrosoft.com",
-    "TenantId": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
-    "ClientId": "5c201b60-89f6-47d8-b2ef-9d9fe2a42751",
-    "CallbackPath": "/signin-oidc",
-    "SignedOutCallbackPath ": "/signout-callback-oidc"
-    // "ClientSecret": "in the user secrets, or a key vault"
-  },
-  "ApiWithRoles": {
-    "ScopeForAccessToken": "api://5511b8d6-4652-4f2f-9643-59c61234e3c7/access_as_user",
-    "ApiBaseAddress": "https://localhost:44323"
-  },
- 
-<p>The GetDataFromApi method calls the APIs. The UI application can call any one of the APIs, user, student or admin, each which required a different role. The policies were applied to these APIs. If an error is returned, the exception is handled and returned as a list to demonstrate. The ITokenAcquisition interface is used to get the access token from cache or from the Azure AD identity provider and the access token is added to the Authorization header of the HTTP request as a Bearer token. </p>
- private async Task&lt;JArray&gt; GetDataFromApi(string path)
-{
-	try
-	{
-		var client = _clientFactory.CreateClient();
-
-		var scope = _configuration["ApiWithRoles:ScopeForAccessToken"];
-		var accessToken = await _tokenAcquisition
-			.GetAccessTokenForUserAsync(new[] { scope });
-
-		client.BaseAddress = new Uri(
-			_configuration["ApiWithRoles:ApiBaseAddress"]);
-		client.DefaultRequestHeaders.Authorization = 
-			new AuthenticationHeaderValue("Bearer", accessToken);
-		client.DefaultRequestHeaders.Accept.Add(
-			new MediaTypeWithQualityHeaderValue("application/json"));
-
-		var response = await client.GetAsync($"api/{path}");
-		if (response.IsSuccessStatusCode)
-		{
-			var responseContent = await response.Content.ReadAsStringAsync();
-			var data = JArray.Parse(responseContent);
-
-			return data;
-		}
-		var errorList = new List&lt;string&gt; { $"Status code: {response.StatusCode}", 
-			$"Error: {response.ReasonPhrase}" };
-		return JArray.FromObject(errorList);
-	}
-	catch (Exception e)
-	{
-		throw new ApplicationException($"Exception {e}");
-	}
-}
- 
-<p>To demonstrate the application, the user has been assigned the user “web-api-with-roles-user” and the “web-api-with-roles-admin” roles but not the  “web-api-with-roles-student” for the API access. The “web-app-with-roles-user”  was assigned for the UI application.</p>
-<p>After a successful authentication, the claims from Azure AD are added to the HttpContext.User. A single roles claim (“web-app-with-roles-user”) is added for the UI application. This is as we expected.</p>
-<p></p>
-<p>If the API is called, the access token can be extracted from the debugger and pasted to jwt.ms or jwt.io. The access token contains two roles, “web-api-with-roles-user”, “web-api-with-roles-admin” as was configured in the enterprise application for this user. The access token also has the scp claim with the access_as_user. The azp claim and the azpacr claims have the expected values. A secret was using to signin to the client UI application which we allow.</p>
- {
-  "typ": "JWT",
-  "alg": "RS256",
-  "kid": "nOo3ZDrODXEK1jKWhXslHR_KXEg"
-}.{
-  "aud": "5511b8d6-4652-4f2f-9643-59c61234e3c7",
-  "iss": "https://login.microsoftonline.com/7ff95b15-dc21-4ba6-bc92-824856578fc1/v2.0",
-  "azp": "5c201b60-89f6-47d8-b2ef-9d9fe2a42751",
-  "azpacr": "1",
-  "roles": [
-    "web-api-with-roles-user",
-    "web-api-with-roles-admin"
-  ],
-  "scp": "access_as_user",
-  "ver": "2.0"
-  // + more claims
-}.[Signature]
- 
-<p>A breakpoint was added to Visual Studio in the API project and the claims from the access token can be inspected. We expect the same values like in the access token and without the ASP.NET Core extras.</p>
-<p></p>
-<p>The ASP.NET Core UI application displays the results of the three API calls. The user and the admin APIs return data and the student API returns a forbidden result. This is what was configured. Now if the user is assigned new roles, after a logout, login, the new claims will be included in the tokens. </p>
-<p></p>
-<p>This approach works well if you do not have many roles, groups or claims, or if you do not need to change the authorization without re-authentication. The size of the access_token is important, this should not become large. If you require lots of claims for the authorization rules, the claims should not be included in the access token and Microsoft Graph API could be used to access these, or you could implement your own policy management. </p>
-<p>Links</p>
-<p><a href="https://docs.microsoft.com/en-us/azure/architecture/multitenant-identity/app-roles">https://docs.microsoft.com/en-us/azure/architecture/multitenant-identity/app-roles</a></p>
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/active-directory-enterprise-app-role-management">https://docs.microsoft.com/en-us/azure/active-directory/develop/active-directory-enterprise-app-role-management</a></p>
-<p><a href="https://github.com/Azure-Samples/active-directory-aspnetcore-webapp-openidconnect-v2/tree/master/5-WebApp-AuthZ/5-1-Roles">https://github.com/Azure-Samples/active-directory-aspnetcore-webapp-openidconnect-v2/tree/master/5-WebApp-AuthZ/5-1-Roles</a></p>
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/microsoft-identity-web">https://docs.microsoft.com/en-us/azure/active-directory/develop/microsoft-identity-web</a></p>
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/id-tokens">https://docs.microsoft.com/en-us/azure/active-directory/develop/id-tokens</a></p>
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens">https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens</a></p>
-<p><a href="https://damienbod.com/2020/06/13/restricting-access-to-an-azure-ad-protected-api-using-azure-ad-groups/">https://damienbod.com/2020/06/13/restricting-access-to-an-azure-ad-protected-api-using-azure-ad-groups/</a></p>
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authorization/policies">https://docs.microsoft.com/en-us/aspnet/core/security/authorization/policies</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/01/azuread_approles_01.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:55 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Saturday, 30. January 2021
  </h2>
@@ -18197,7 +18372,7 @@ next time.</p>
 
 <div class='item-footer'>
    06:45 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
