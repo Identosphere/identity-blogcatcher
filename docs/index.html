@@ -716,12 +716,470 @@
 
 </div>
 </div>
-<sup>Last Update 1:52 AM April 12, 2021 (UTC)</sup>
+<sup>Last Update 5:52 AM April 12, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 12. April 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2021/Apr/12/porting-vaccinateca-to-django/#atom-everything'>Porting VaccinateCA to Django</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   As I mentioned back in February, I've been working with the VaccinateCA project to try to bring the pandemic to an end a little earlier by helping gather as accurate a model as possible of where the Covid vaccine is available in California and how people can get it. 
+ The key activity at VaccinateCA is calling places to check on their availability and eligibility criteria. Up until last night this
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2021/vial-index.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>As I mentioned <a href="https://simonwillison.net/2021/Feb/28/vaccinateca/">back in February</a>, I've been working with the <a href="https://www.vaccinateca.com/">VaccinateCA</a> project to try to bring the pandemic to an end a little earlier by helping gather as accurate a model as possible of where the Covid vaccine is available in California and how people can get it.</p>
+<p>The key activity at VaccinateCA is calling places to check on their availability and eligibility criteria. Up until last night this was powered by a heavily customized Airtable instance, accompanied by a custom JavaScript app for the callers that communicated with the Airtable API via some Netlify functions.</p>
+<p>Today, the flow is powered by a new custom Django backend, running on top of PostgreSQL.</p>
+ The thing you should never do 
+<blockquote><p>Here's one that took me fifteen years to learn: "let's build a new thing and replace this" is hideously dangerous: 90% of the time you won't fully replace the old thing, and now you have two problems!</p>- Simon Willison (@simonw) <a href="https://twitter.com/simonw/status/1145114228170190848?ref_src=twsrc%5Etfw">June 29, 2019</a></blockquote>
+<p>Replacing an existing system with a from-scratch rewrite is risky. Replacing a system that is built on something as flexible as Airtable that is evolving on a daily basis is positively terrifying!</p>
+<p>Airtable served us extremely well, but unfortunately there are hard limits to the number of rows Airtable can handle and we've already bounced up against them and had to archive some of our data. To keep scaling the organization we needed to migrate away.</p>
+<p>We needed to build a matching relational database with a comprehensive, permission-controlled interface for editing it, plus APIs to drive our website and application. And we needed to do it using the most <a href="http://boringtechnology.club/">boring technology</a> possible, so we could focus on solving problems directly rather than researching anything new.</p>
+<p>It will never cease to surprise me that Django has attained boring technology status! VaccineCA sits firmly in Django's sweet-spot. So we used that to build our replacement.</p>
+<p>The new Django-based system is called VIAL, for "Vaccine Information Archive and Library" - a neat <a href="https://twitter.com/obra">Jesse Vincent</a> bacronym.</p>
+<p>We switched things over to VIAL last night, but we still have activity in Airtable as well. I expect we'll keep using Airtable for the lifetime of the organization - there are plenty of ad-hoc data projects for which it's a perfect fit.</p>
+<p>The most important thing here is to have a trusted single point of truth for any piece of information. I'm not quite ready to declare victory on that point just yet, but hopefully once things settle down over the next few days.</p>
+
+<p></p>
+
+ Data synchronization patterns 
+<p>The first challenge, before even writing any code, was how to get stuff out of Airtable. I built a tool for this a while ago called <a href="https://datasette.io/tools/airtable-export">airtable-export</a>, and it turned out the VaccinateCA team were using it already before I joined!</p>
+<p><code>airtable-export</code> was already running several times an hour, backing up the data in JSON format to a GitHub repository (a form of <a href="https://simonwillison.net/2020/Oct/9/git-scraping/">Git scraping</a>). This gave us a detailed history of changes to the Airtable data, which occasionally proved extremely useful for answering questions about when a specific record was changed or deleted.</p>
+<p>Having the data in a GitHub repository was also useful because it gave us somewhere to pull data from that wasn't governed by Airtable's rate limits.</p>
+<p>I iterated through a number of different approaches for writing importers for the data.</p>
+<p>Each Airtable table ended up as a single JSON file in our GitHub repository, containing an array of objects - those files got pretty big, topping out at about 80MB.</p>
+<p>I started out with Django management commands, which could be passed a file or a URL. A neat thing about using GitHub for this is that you can use the "raw data" link to obtain a URL with a short-lived token, which grants access to that file. So I could create a short-term URL and paste it directly to my import tool.</p>
+<p>I don't have a good pattern for running Django management commands on Google Cloud Run, so I started moving to API-based import scripts instead.</p>
+<p>The pattern that ended up working best was to provide a <code>/api/importRecords</code> API endpoint which accepts a JSON array of items.</p>
+<p>The API expects the input to have a unique primary key in each record - <code>airtable_id</code> in our case. It then uses Django's <a href="https://docs.djangoproject.com/en/3.2/ref/models/querysets/#update-or-create">update_or_create()</a> ORM method to create new records if they were missing, and update existing records otherwise.</p>
+<p>One remaining challenge: posting 80MB of JSON to an API in one go would likely run into resource limits. I needed a way to break that input up into smaller batches.</p>
+<p>I ended up building a new tool for this called <a href="https://github.com/simonw/json-post">json-post</a>. It has an extremely specific use-case: it's for when you want to POST a big JSON array to an API endpoint but you want to first break it up into batches!</p>
+<p>Here's how to break up the JSON in <code>Reports.json</code> into 50 item arrays and send them to that API as separate POSTs:</p>
+ <code>json-post Reports.json \                              
+   "https://example.com/api/importReports" \
+   --batch-size 50
+</code> 
+<p>Here are some more complex options. Here we need to pass an <code>Authorization: Beraer XXXtokenXXX</code> API key header, run the array in reverse, record our progress (the JSON responses from the API as newline-delimited JSON) to a log file, set a longer HTTP read timeout and filter for just specific items:</p>
+ <code>% json-post Reports.json \                              
+   "https://example.com/api/importReports" \
+  -h Authorization 'Bearer XXXtokenXXX' \
+  --batch-size 50 \
+  --reverse \
+  --log /tmp/progress.txt \
+  --http-read-timeout 20 \
+  --filter 'item.get("is_soft_deleted")'
+</code> 
+<p>The <code>--filter</code> option proved particularly useful. As we kicked the tires on VIAL we would spot new bugs - things like the import script failing to correctly record the <code>is_soft_deleted</code> field we were using in Airtable. Being able to filter that input file with a command-line flag meant we could easily re-run the import just for a subset of reports that were affected by a particular bug.</p>
+<p><code>--filter</code> takes a Python expression that gets compiled into a function and passed <code>item</code> as the current item in the list. I borrowed the pattern from <a href="https://datasette.io/tools/sqlite-transform#user-content-lambda-for-executing-your-own-code">my sqlite-transform tool</a>.</p>
+ The value of API logs 
+<p>VaccineCA's JavaScript caller application used to send data to Airtable via a Netlify function, which allowed additional authentication to be added built using  Auth0.</p>
+<p>Back in February, the team had the bright idea to log the API traffic to that function to a separate base in Airtable - including full request and response bodies.</p>
+<p>This proved invaluable for debugging. It also meant that when I started building VIAL's alternative implementation of the "submit a call report" API I could replay historic API traffic that had been recorded in that table, giving me a powerful way to exercise the new API with real-world traffic.</p>
+<p>This meant that when we turned on VIAL we could switch our existing JavaScript SPA over to talking to it using a fully tested clone of the existing Airtable-backed API.</p>
+<p>VIAL implements this logging pattern again, this time using Djanog and PostgreSQL.</p>
+<p>Given that the writable APIs will recieve in the low thousands of requests a day, keeping them in a database table works great. The table has grown to 90MB so far. I'm hoping that the pandemic will be over before we have to worry about logging capacity!</p>
+<p>We're using PostgreSQL <code>jsonb</code> columns to store the incoming and returned JSON, via Django's <a href="https://docs.djangoproject.com/en/3.2/ref/models/fields/#jsonfield">JSONField</a>. This means we can do in-depth API analysis using PostgreSQL's JSON SQL functions! Being able to examine returned JSON error messages or aggregate across incoming request bodies helped enormously when debugging problems with the API import scripts.</p>
+ Storing the original JSON 
+<p>Today, almost all of the data stored in VIAL originated in Airtable. One trick that has really helped build the system is that each of the tables that might contain imported data has both an <code>airtable_id</code> nullable column and an <code>import_json</code> JSON field.</p>
+<p>Any time we import a record from airtable, we record both the ID and the full, original Airtable JSON that we used for the import.</p>
+<p>This is another powerful tool for debugging: we can view the original Airtable JSON directly in the Django admin interface for a record, and confirm that it matches the ORM fields that we set from that.</p>
+<p>I came up with a simple pattern for <a href="https://til.simonwillison.net/django/pretty-print-json-admin">Pretty-printing all read-only JSON in the Django admin</a> that helps with this too.</p>
+ Staying as flexible as possible 
+<p>The thing that worried me most about replacing Airtable with Django was Airtable's incredible flexibility. In the organization's short life it has already solved so many problems by adding new columns in Airtable, or building new views.</p>
+<p>Is it possible to switch to custom software without losing that huge cultural advantage?</p>
+<p>This is the same reason it's so hard for custom software to compete with spreadsheets.</p>
+<p>We've only just made the switch, so we won't know for a while how well we've done at handling this. I have a few mechanisms in place that I'm hoping will help.</p>
+<p>The first is <a href="https://github.com/simonw/django-sql-dashboard">django-sql-dashboard</a>. I wrote about this project in previous weeknotes <a href="https://simonwillison.net/2021/Mar/14/weeknotes/">here</a> and <a href="https://simonwillison.net/2021/Mar/21/django-sql-dashboard-widgets/">here</a> - the goal is to bring some of the ideas from <a href="https://datasette.io/">Datasette</a> into the Django/PostgreSQL world, by providing a read-only mechanism for constructing SQL queries, bookmarking and saving the results and outputting simple SQL-driven visualizations.</p>
+<p>We have a lot of SQL knowledge at VaccinateCA, so my hope is that people with SQL will be able to solve their own problems, and people who don't know SQL yet will have no trouble finding someone who can help them.</p>
+<p>In the <a href="http://boringtechnology.club/#17">boring technology</a> model of things, <code>django-sql-dashboard</code> counts as the main innovation token I'm spending for this project. I'm optimistic that it will pay off.</p>
+<p>I'm also leaning heavily on Django's migration system, with the aim of making database migrations common and boring, rather than their usual default of being rare and exciting. We're up to 77 migrations already, in a codebase that is just over two months old!</p>
+<p>I think a culture that evolves the database schema quickly and with as little drama as possible is crucial to maintaining the agility that this kind of organization needs.</p>
+<p>Aside from the Django Admin providing the editing interface, everything that comes into and goes out of VIAL happens through APIs. These are fully documented: I want people to be able to build against the APIs independently, especially for things like data import.</p>
+<p>After seeing significant success with PostgreSQL JSON already, I'm considering using it to add even more API-driven flexbility to VIAL in the future. Allowing our client developers to start collecting a new piece of data from our volunteers in an existing JSON field, then migrating that into a separate column once it has proven its value, is very tempting indeed.</p>
+ Open source tools we are using 
+<p>An incomplete list of open source packages we are using for VIAL so far:</p>
+ 
+ 
+<a href="https://pydantic-docs.helpmanual.io/">pydantic</a> - as a validation layer for some of the API endpoints 
+ 
+<a href="https://github.com/python-social-auth/social-app-django">social-auth-app-django</a> - to integrate with <a href="https://auth0.com/">Auth0</a>
+ 
+ <a href="https://github.com/adamchainz/django-cors-headers">django-cors-headers</a> 
+ 
+<a href="https://github.com/mpdavis/python-jose">python-jose</a> - for JWTs, which were already in use by our Airtable caller app 
+ 
+<a href="https://github.com/etianen/django-reversion">django-reversion</a> and <a href="https://github.com/jedie/django-reversion-compare/">django-reversion-compare</a> to provide a diffable, revertable history of some of our core models 
+ 
+<a href="https://github.com/django-admin-tools/django-admin-tools">django-admin-tools</a> - which adds a handy customizable menu to the admin, good for linking to additional custom tools 
+ 
+<a href="https://github.com/3YOURMIND/django-migration-linter">django-migration-linter</a> - to help avoid accidentally shipping migrations that could cause downtime during a deploy 
+ 
+<a href="https://pytest-django.readthedocs.io/en/latest/">pytest-django</a>, <a href="https://github.com/adamchainz/time-machine">time-machine</a> and <a href="https://colin-b.github.io/pytest_httpx/">pytest-httpx</a> for our unit tests 
+ 
+<a href="https://docs.sentry.io/platforms/python/">sentry-sdk</a>, <a href="https://docs.honeycomb.io/getting-data-in/python/beeline/">honeycomb-beeline</a> and  <a href="https://github.com/prometheus/client_python">prometheus-client</a> for error logging and observability 
+ 
+ Want to help out? 
+<p>VaccinateCA <a href="https://twitter.com/patio11/status/1379587878624190466">is hiring</a>! It's an interesting gig, because the ultimate goal is to end the pandemic and put this non-profit permanently out of business. So if you want to help end things faster, get in touch.</p>
+
+<blockquote><p>VaccinateCA is hiring a handful of engineers to help scale our data ingestion and display by more than an order of magnitude.<br><br>If you'd like to register interest:<a href="https://t.co/BSvi40sW1M">https://t.co/BSvi40sW1M</a><br><br>Generalists welcome. Three subprojects; Python backend/pedestrian front-end JS.</p>- Patrick McKenzie (@patio11) <a href="https://twitter.com/patio11/status/1379587878624190466?ref_src=twsrc%5Etfw">April 7, 2021</a></blockquote>
+ TIL this week 
+ 
+ <a href="https://github.com/simonw/til/blob/main/vscode/language-specific-indentation-settings.md">Language-specific indentation settings in VS Code</a> 
+ <a href="https://github.com/simonw/til/blob/main/django/efficient-bulk-deletions-in-django.md">Efficient bulk deletions in Django</a> 
+ <a href="https://github.com/simonw/til/blob/main/postgresql/unnest-csv.md">Using unnest() to use a comma-separated string as the input to an IN query</a> 
+ 
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/json-post">json-post</a>: <a href="https://github.com/simonw/json-post/releases/tag/0.2">0.2</a> - (<a href="https://github.com/simonw/json-post/releases">3 total releases</a>) - 2021-04-11
+<br>Tool for posting JSON to an API, broken into pages 
+ 
+<a href="https://github.com/simonw/airtable-export">airtable-export</a>: <a href="https://github.com/simonw/airtable-export/releases/tag/0.7.1">0.7.1</a> - (<a href="https://github.com/simonw/airtable-export/releases">10 total releases</a>) - 2021-04-09
+<br>Export Airtable data to YAML, JSON or SQLite files on disk 
+ 
+<a href="https://github.com/simonw/django-sql-dashboard">django-sql-dashboard</a>: <a href="https://github.com/simonw/django-sql-dashboard/releases/tag/0.6a0">0.6a0</a> - (<a href="https://github.com/simonw/django-sql-dashboard/releases">13 total releases</a>) - 2021-04-09
+<br>Django app for building dashboards using raw SQL queries 
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2021/vial-index.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:18 &bull;
+   36 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/04/12/securing-blazor-web-assembly-using-cookies-and-auth0/'>Securing Blazor Web assembly using Cookies and Auth0</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The article shows how an ASP.NET Core Blazor web assembly UI hosted in an ASP.NET Core application can be secured using cookies. Auth0 is used as the identity provider. The trusted application is protected using the Open ID Connect code flow with a secret and using PKCE. The API calls are protected using the secure […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The article shows how an ASP.NET Core Blazor web assembly UI hosted in an ASP.NET Core application can be secured using cookies. <a href="https://auth0.com/">Auth0</a> is used as the identity provider. The trusted application is protected using the Open ID Connect code flow with a secret and using PKCE. The API calls are protected using the secure cookie and anti-forgery tokens to protect against CSRF. This architecture is also known as the Backends for Frontends (BFF) Pattern.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/SeparatingApisPerSecurityLevel">https://github.com/damienbod/SeparatingApisPerSecurityLevel</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/03/08/securing-blazor-web-assembly-using-cookies/">Securing Blazor Web assembly using Cookies and Azure AD</a>  Securing Blazor Web assembly using Cookies and Auth0  
+
+
+
+<p>The application was built as described in the previous blog in this series. Please refer to that blog for implementation details about the WASM application, user session and anti-forgery tokens. Setting up the Auth0 authentication and the differences are described in this blog.</p>
+
+
+
+<p>An Auth0 account is required and a Regular Web Application was setup for this. This is not an SPA application and must always be deployed with a backend which can keep a secret. The WASM client can only use the APIs on the same domain and uses cookies. All application authentication is implemented in the trusted backend and the secure data is encrypted in the cookie.</p>
+
+
+
+
+
+
+
+<p>The Microsoft.AspNetCore.Authentication.OpenIdConnect Nuget package is used to add the authentication to the ASP.NET Core application. User secrets are used for configuration which uses the Auth0 sensitive data</p>
+
+
+  &lt;Project Sdk="Microsoft.NET.Sdk.Web"&gt;
+
+  &lt;PropertyGroup&gt;
+    &lt;TargetFramework&gt;net5.0&lt;/TargetFramework&gt;
+    &lt;WebProject_DirectoryAccessLevelKey&gt;1&lt;/WebProject_DirectoryAccessLevelKey&gt;
+    &lt;UserSecretsId&gt;de0b7f31-65d4-46d6-8382-30c94073cf4a&lt;/UserSecretsId&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;ProjectReference Include="..\Client\BlazorAuth0Bff.Client.csproj" /&gt;
+    &lt;ProjectReference Include="..\Shared\BlazorAuth0Bff.Shared.csproj" /&gt;
+  &lt;/ItemGroup&gt;
+  
+  &lt;ItemGroup&gt;
+    &lt;PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="5.0.5" /&gt;
+    &lt;PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="5.0.5" NoWarn="NU1605" /&gt;
+    &lt;PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="5.0.5" NoWarn="NU1605" /&gt;
+    &lt;PackageReference Include="IdentityModel" Version="5.1.0" /&gt;
+    &lt;PackageReference Include="IdentityModel.AspNetCore" Version="3.0.0" /&gt;
+  &lt;/ItemGroup&gt;
+
+&lt;/Project&gt;
+
+  
+
+
+<p>The ConfigureServices method in the Startup class of the ASP.NET Core Blazor server application is used to add the authentication. The Open ID Connect code flow with PKCE and a client secret is used for the default challenge and a cookie is used to persist the tokens if authenticated. The Blazor client WASM uses the cookie to access the API.</p>
+
+
+
+<p></p>
+
+
+
+<p>The Open ID Connect is configured to match the Auth0 settings for the client. A client secret is required and used to authenticate the application. The PKCE option is set explicitly to use PKCE with the client configuration. The required scopes are set so that the profile is returned and an email. These are OIDC standard scopes. The user profile API is used to return the profile data and so keep the id_token small. The tokens are persisted. If successful, the data is persisted to an identity cookie. The logout client is configured as documented by Auth0 in its example.</p>
+
+
+  services.AddAuthentication(options =&gt; {
+	options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+	options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie(options =&gt;
+{
+	options.Cookie.Name = "__Host-BlazorServer";
+	options.Cookie.SameSite = SameSiteMode.Lax;
+})
+.AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =&gt; {
+	options.Authority = $"https://{Configuration["Auth0:Domain"]}";
+	options.ClientId = Configuration["Auth0:ClientId"];
+	options.ClientSecret = Configuration["Auth0:ClientSecret"];
+	options.ResponseType = OpenIdConnectResponseType.Code;
+	options.Scope.Clear();
+	options.Scope.Add("openid");
+	options.Scope.Add("profile");
+	options.Scope.Add("email");
+	options.CallbackPath = new PathString("/signin-oidc");
+	options.ClaimsIssuer = "Auth0";
+	options.SaveTokens = true;
+	options.UsePkce = true;
+	options.GetClaimsFromUserInfoEndpoint = true;
+	options.TokenValidationParameters.NameClaimType = "name";
+
+	options.Events = new OpenIdConnectEvents
+	{
+		// handle the logout redirection 
+		OnRedirectToIdentityProviderForSignOut = (context) =&gt;
+		{
+			var logoutUri = $"https://{Configuration["Auth0:Domain"]}/v2/logout?client_id={Configuration["Auth0:ClientId"]}";
+
+			var postLogoutUri = context.Properties.RedirectUri;
+			if (!string.IsNullOrEmpty(postLogoutUri))
+			{
+				if (postLogoutUri.StartsWith("/"))
+				{
+					// transform to absolute
+					var request = context.Request;
+					postLogoutUri = request.Scheme + "://" + request.Host + request.PathBase + postLogoutUri;
+				}
+				logoutUri += $"&amp;returnTo={ Uri.EscapeDataString(postLogoutUri)}";
+			}
+
+			context.Response.Redirect(logoutUri);
+			context.HandleResponse();
+
+			return Task.CompletedTask;
+		}
+	};
+});
+  
+
+
+<p>The Configure method is implement to require authentication. The UseAuthentication extension method is required. Our endpoints are added like in the previous blog.</p>
+
+
+  public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+{
+	// IdentityModelEventSource.ShowPII = true;
+	JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+
+	app.UseHttpsRedirection();
+	app.UseBlazorFrameworkFiles();
+	app.UseStaticFiles();
+
+	app.UseRouting();
+	app.UseAuthentication();
+	app.UseAuthorization();
+
+	app.UseEndpoints(endpoints =&gt;
+	{
+		endpoints.MapRazorPages();
+		endpoints.MapControllers();
+		endpoints.MapFallbackToPage("/_Host");
+	});
+}
+  
+
+
+<p>The Auth0 configuration can be downloaded in the sample application, or you can configure this direct in the Auth0 UI and copy this. Three properties are required. I added these to the user secrets in my application development. If I deployed this to Azure, I would add these to an Azure Key Vault and can then use managed identities to access the secrets.</p>
+
+
+  "Auth0": {
+   "Domain": "your-domain-in-auth0",
+   "ClientId": "--in-secrets--",
+   "ClientSecret": "--in-secrets--"
+}
+  
+
+
+<p>Now everything will run and you can now use ASP.NET Core Blazor BFF with Auth0. We don’t need any access tokens in the browser.  This was really simple to configure and only ASP.NET Core standard Nuget packages are used. Security best practices are supported by Auth0 and it is really easy to setup. In production I would force MFA and FIDO2 if possible. </p>
+
+
+
+
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://damienbod.com/2021/03/08/securing-blazor-web-assembly-using-cookies/">Securing Blazor Web assembly using Cookies and Azure AD</a></p>
+
+
+
+<p><a href="https://auth0.com/">https://auth0.com/</a></p>
+
+
+
+ 
+<a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/components/prerendering-and-integration?view=aspnetcore-5.0&amp;pivots=webassembly#configuration">https://docs.microsoft.com/en-us/aspnet/core/blazor/components/prerendering-and-integration?view=aspnetcore-5.0&amp;pivots=webassembly#configuration</a>
+ 
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/anti-request-forgery">https://docs.microsoft.com/en-us/aspnet/core/security/anti-request-forgery</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security">https://docs.microsoft.com/en-us/aspnet/core/blazor/security</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security/webassembly/additional-scenarios">https://docs.microsoft.com/en-us/aspnet/core/blazor/security/webassembly/additional-scenarios</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/04/bff_auth0_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:38 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -788,7 +1246,7 @@
 
 <div class='item-footer'>
    22:49 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -852,7 +1310,7 @@
 
 <div class='item-footer'>
    22:48 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -916,7 +1374,7 @@
 
 <div class='item-footer'>
    16:53 &bull;
-   9 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1575,7 +2033,7 @@ Also, that I need to catch up with The Crown.</p>
 
 <div class='item-footer'>
    17:53 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1635,7 +2093,7 @@ Also, that I need to catch up with The Crown.</p>
 
 <div class='item-footer'>
    16:21 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1884,7 +2342,7 @@ Who’s doing this *well*? Which indie ebooks are high quality?</p>
 
 <div class='item-footer'>
    16:18 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2141,7 +2599,7 @@ For the 22nd Vienna Digital Identity Meetup* we hosted three of the lead
 
 <div class='item-footer'>
    16:58 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3476,7 +3934,7 @@ namespace NationalDrivingLicense.Pages
 
 <div class='item-footer'>
    16:28 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5092,7 +5550,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    16:47 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5290,7 +5748,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    14:40 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5520,7 +5978,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    14:40 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5811,7 +6269,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    16:52 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6045,7 +6503,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    16:02 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6605,7 +7063,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6669,7 +7127,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    14:34 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7246,7 +7704,7 @@ Photo: Gaston Brito Miserocchi (Getty Images)</p>
 
 <div class='item-footer'>
    15:14 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8224,7 +8682,7 @@ devaluing or dismissing the people who have suffered them.</p>
 
 <div class='item-footer'>
    15:17 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8656,7 +9114,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    15:43 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8947,7 +9405,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    16:44 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9013,7 +9471,7 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    15:48 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13365,140 +13823,6 @@ public class AzStorageFilesModel : PageModel
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Feb/28/vaccinateca/#atom-everything'>Trying to end the pandemic a little earlier with VaccinateCA</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   This week I got involved with the VaccinateCA effort. We are trying to end the pandemic a little earlier, by building the most accurate database possible of vaccination locations and availability in California. 
-
- VaccinateCA 
- I’ve been following this project for a while through Twitter, mainly via Patrick McKenzie - here’s his tweet about the project from January 20th. 
-
-  https://t.co/JrD5mb4TA
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>This week I got involved with the <a href="https://www.vaccinateca.com/">VaccinateCA</a> effort. We are trying to end the pandemic a little earlier, by building the most accurate database possible of vaccination locations and availability in California.</p>
-
- VaccinateCA 
-<p>I’ve been following this project for a while through Twitter, mainly via <a href="https://twitter.com/patio11">Patrick McKenzie</a> - here’s <a href="https://twitter.com/patio11/status/1351942635682816002">his tweet</a> about the project from January 20th.</p>
-
-<blockquote><p><a href="https://t.co/JrD5mb4TAN">https://t.co/JrD5mb4TAN</a> calls medical professionals daily to ask who they could vaccinate and how to get in line. We publish this, covering the entire state of California, to help more people get their vaccines faster. Please tell your friends and networks.</p>- Patrick McKenzie (@patio11) <a href="https://twitter.com/patio11/status/1351942635682816002?ref_src=twsrc%5Etfw">January 20, 2021</a></blockquote>
-
-<p>The core idea is one of those things that sounds obviously correct the moment you hear it. The Covid vaccination roll-out is decentralized and pretty chaotic. VaccinateCA figured out that the best way to figure out where the vaccine is available is to call the places that are distributing it - pharmacies, hospitals, clinics - as often as possible and ask if they have any in stock, who is eligible for the shot and how people can sign up for an appointment.</p>
-<p><a href="https://blog.vaccinateca.com/what-weve-learned-so-far/">What We've Learned (So Far)</a> by Patrick talks about lessons learned in the first 42 days of the project.</p>
-<p>There are three public-facing components to VaccinateCA:</p>
- 
- 
-<a href="https://www.vaccinateca.com/">www.vaccinateca.com</a> is a website to help you find available vaccines near you. 
- <code>help.vaccinateca</code> is the web app used by volunteers who make calls - it provides a script and buttons to submit information gleaned from the call. If you’re interested in volunteering there’s <a href="https://www.vaccinateca.com/about-us">information on the website</a>. 
- <code>api.vaccinateca</code> is the public API, which is <a href="https://docs.vaccinateca.com/reference">documented here</a> and is also used by the end-user facing website. It provides a full dump of collected location data, plus information on county policies and large-scale providers (pharmacy chains, health care providers). 
- 
-<p>The system currently mostly runs on <a href="https://airtable.com/">Airtable</a>, and takes advantage of pretty much every feature of that platform.</p>
- Why I got involved 
-<p><a href="https://twitter.com/obra">Jesse Vincent</a> convinced me to get involved. It turns out to be a perfect fit for both my interests and my skills and experience.</p>
-<p>I’ve built crowdsourcing platforms before - for <a href="https://simonwillison.net/2009/Dec/20/crowdsourcing/">MP’s expense reports at the Guardian</a>, and then for conference and event listings with our startup, Lanyrd.</p>
-<p>VaccinateCA is a very data-heavy organization: the key goal is to build a comprehensive database of vaccine locations and availability. My background in data journalism and the last three years I’ve spent working on <a href="https://datasette.io/">Datasette</a> have given me a wealth of relevant experience here.</p>
-<p>And finally… VaccinateCA are quickly running up against the limits of what you can sensibly do with Airtable - especially given Airtable’s hard limit at 100,000 records. They need to port critical tables to a custom PostgreSQL database, while maintaining as much as possible the agility that Airtable has enabled for them.</p>
-<p><a href="https://www.djangoproject.com/">Django</a> is a great fit for this kind of challenge, and I know quite a bit about both Django and using Django to quickly build robust, scalable and maintainable applications!</p>
-<p>So I spent this week starting a Django replacement for the Airtable backend used by the volunteer calling application. I hope to get to feature parity (at least as an API backend that the application can write to) in the next few days, to demonstrate that a switch-over is both possible and a good idea.</p>
- What about Datasette? 
-<p>On Monday I spun up a Datasette instance at <a href="https://vaccinateca.datasette.io/">vaccinateca.datasette.io</a> (<a href="https://github.com/simonw/vaccinate-ca-datasette/">underlying repository</a>) against data from the public VaccinateCA API. The map visualization of <a href="https://vaccinateca.datasette.io/vaccinateca/locations?_facet=Affiliation&amp;_facet=Latest+report+yes%3F&amp;_facet_array=Availability+Info">all of the locations</a> instantly proved useful in helping spot locations that had incorrectly been located with latitudes and longitudes outside of California.</p>
-<p>I hope to use Datasette for a variety of tasks like this, but it shouldn’t be the core of the solution. VaccinateCA is the perfect example of a problem that needs to be solved with <a href="http://boringtechnology.club/">Boring Technology</a> - it needs to Just Work, and time that could be spent learning exciting new technologies needs to be spent building what’s needed as quickly, robustly and risk-free as possible.</p>
-<p>That said, I’m already starting to experiment with the new <a href="https://docs.djangoproject.com/en/3.1/ref/models/fields/#django.db.models.JSONField">JSONField</a> introduced in Django 3.1 - I’m hoping that a few JSON columns can help compensate for the lack of flexibility compared to Airtable, which makes it ridiculously easy for anyone to add additional columns.</p>
-<p>(To be fair JSONField has been a feature of the Django PostgreSQL Django extension since <a href="https://docs.djangoproject.com/en/3.1/releases/1.9/">version 1.9 in 2015</a> so it’s just about made it into the boring technology bucket by now.)</p>
- Also this week 
-<p>Working on VaccinateCA has given me a chance to use some of my tools in new and interesting ways, so I got to ship a bunch of small fixes, detailed in <a>Releases this week</a> below.</p>
-<p>On Friday I gave a talk at <a href="https://speakeasyjs.com/">Speakeasy JS</a>, "the JavaScript meetup for 🥼 mad science, 🧙‍♂️ hacking, and 🧪 experiments" about why "SQL in your client-side JavaScript is a great idea". The video for that <a href="https://www.youtube.com/watch?v=JyOYqJGrWak">is on YouTube</a> and I plan to provide a full write-up soon.</p>
-<p>I also recorded a five minute lightning talk about <a href="https://simonwillison.net/2020/Oct/9/git-scraping/">Git Scraping</a> for next week's <a href="https://www.ire.org/training/conferences/nicar-2021/">NICAR 2021</a> data journalism conference.</p>
-<p>I also made a few small cosmetic upgrades to the way tags are displayed on my blog - they now show with a rounded border and purple background, and include a count of items published with that tag. My <a href="https://simonwillison.net/tags/">tags page</a> is one example of where I've now applied this style.</p>
- TIL this week 
- 
- <a href="https://til.simonwillison.net/til/til/sphinx_sphinx-ext-extlinks.md">Using sphinx.ext.extlinks for issue links</a> 
- <a href="https://til.simonwillison.net/til/til/postgresql_show-schema.md">Show the SQL schema for a PostgreSQL database</a> 
- <a href="https://til.simonwillison.net/til/til/github-actions_postgresq-service-container.md">Running tests against PostgreSQL in a service container</a> 
- <a href="https://til.simonwillison.net/til/til/django_extra-read-only-admin-information.md">Adding extra read-only information to a Django admin change page</a> 
- <a href="https://til.simonwillison.net/til/til/postgresql_read-only-postgresql-user.md">Granting a PostgreSQL user read-only access to some tables</a> 
- 
- Releases this week 
- 
- 
-<a href="https://github.com/simonw/flatten-single-item-arrays">flatten-single-item-arrays</a>: <a href="https://github.com/simonw/flatten-single-item-arrays/releases/tag/0.1">0.1</a> - 2021-02-25
-<br>Given a JSON list of objects, flatten any keys which always contain single item arrays to just a single value 
- 
-<a href="https://github.com/simonw/datasette-auth-github">datasette-auth-github</a>: <a href="https://github.com/simonw/datasette-auth-github/releases/tag/0.13.1">0.13.1</a> - (<a href="https://github.com/simonw/datasette-auth-github/releases">25 releases total</a>) - 2021-02-25
-<br>Datasette plugin that authenticates users against GitHub 
- 
-<a href="https://github.com/simonw/datasette-block">datasette-block</a>: <a href="https://github.com/simonw/datasette-block/releases/tag/0.1.1">0.1.1</a> - (<a href="https://github.com/simonw/datasette-block/releases">2 releases total</a>) - 2021-02-25
-<br>Block all access to specific path prefixes 
- 
-<a href="https://github.com/simonw/github-contents">github-contents</a>: <a href="https://github.com/simonw/github-contents/releases/tag/0.2">0.2</a> - 2021-02-24
-<br>Python class for reading and writing data to a GitHub repository 
- 
-<a href="https://github.com/simonw/csv-diff">csv-diff</a>: <a href="https://github.com/simonw/csv-diff/releases/tag/1.1">1.1</a> - (<a href="https://github.com/simonw/csv-diff/releases">9 releases total</a>) - 2021-02-23
-<br>Python CLI tool and library for diffing CSV and JSON files 
- 
-<a href="https://github.com/simonw/sqlite-transform">sqlite-transform</a>: <a href="https://github.com/simonw/sqlite-transform/releases/tag/0.4">0.4</a> - (<a href="https://github.com/simonw/sqlite-transform/releases">5 releases total</a>) - 2021-02-22
-<br>Tool for running transformations on columns in a SQLite database 
- 
-<a href="https://github.com/simonw/airtable-export">airtable-export</a>: <a href="https://github.com/simonw/airtable-export/releases/tag/0.5">0.5</a> - (<a href="https://github.com/simonw/airtable-export/releases">7 releases total</a>) - 2021-02-22
-<br>Export Airtable data to YAML, JSON or SQLite files on disk 
- 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:40 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Friday, 26. February 2021
  </h2>
@@ -16021,425 +16345,6 @@ PICO_ENGINE_HOME=~/.iot_image pico-engine
 
 <div class='item-footer'>
    14:56 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/02/08/secure-azure-ad-user-account-file-upload-with-azure-ad-storage-and-asp-net-core/'>Secure Azure AD User File Upload with Azure AD Storage and ASP.NET Core</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post shows how files can be uploaded to Azure blob storage using ASP.NET Core in a secure way using OAuth and Open ID Connect. Azure AD is used to authenticate the users. The uploaded file descriptions are saved to an SQL database using EF Core so that listing or searching files can be implemented […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post shows how files can be uploaded to <a href="https://docs.microsoft.com/en-us/azure/storage/blobs/storage-blobs-introduction">Azure blob storage</a> using ASP.NET Core in a secure way using OAuth and Open ID Connect. Azure AD is used to authenticate the users. The uploaded file descriptions are saved to an SQL database using EF Core so that listing or searching files can be implemented easily.</p>
-<p>Azure AD user accounts are used to authorize the user uploads and downloads to the Azure storage container. A user access token is used to access the Azure storage container and so each user, or group which the user is assigned to, muss have the correct role to access the files. This makes it possible to implement authorization for the users with Azure roles and role assignments.</p>
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreAzureAdAzureStorage">https://github.com/damienbod/AspNetCoreAzureAdAzureStorage</a></p>
-<p>Blogs in this series</p>
- 
- <a href="https://damienbod.com/2021/02/08/secure-azure-ad-user-account-file-upload-with-azure-ad-storage-and-asp-net-core/">Secure Azure AD User File Upload with Azure AD Storage and ASP.NET Core</a> 
- <a href="https://damienbod.com/2021/02/16/adding-asp-net-core-authorization-for-an-azure-blob-storage-and-azure-ad-users-using-role-assignments/">Adding ASP.NET Core authorization for an Azure Blob Storage and Azure AD users using role assignments</a> 
- <a href="https://damienbod.com/2021/03/01/using-azure-ad-groups-authorization-in-asp-net-core-for-an-azure-blob-storage/">Using Azure AD groups authorization in ASP.NET Core for an Azure Blob Storage</a> 
- 
-<p>Creating the Azure AD Blob Storage and Container</p>
-<p>An Azure storage was created in Azure. The Azure storage requires role assignments for the application users or the groups which user this.</p>
-<p>Add new role assignments for the admin user, yourself and all the users or groups that will upload or download blobs (files) to the storage container. The role “Storage Blob Data Contributor” is used for what we require. </p>
-<p></p>
-<p>You must create a new container in the Azure storage and set the Authentication method to Azure AD User Account. In this mode, the Azure AD user access tokens are used to access the container. If you do not have the rights for this, assign yourself the correct role in the parent Azure storage.</p>
-<p></p>
-<p>The uploaded and downloaded files are for private access only. We do not want a public URL which can be used to download the blobs, or upload these. Only requests with the correct access token can use the Azure storage container.  In the configuration of the Azure storage, set the “Allow Blob public access” to disabled. </p>
-<p></p>
-<p>It is important that public access is disabled. This is per default enabled. Upload a file to the container and get the URL for this blob. Try to access the blob using a different browser with unauthorized access. A forbidden response must be returned.</p>
-<p></p>
-<p>Now the Azure storage is ready to be used along with the container and the correct RBAC for the required users. Azure AD user access tokens are used to access the container.</p>
-<p>Creating the Azure AD App registration</p>
-<p>An Azure App registration is required for the ASP.NET Core authentication. A trusted web application is created and a secret is required to use the Azure App registration. This is not a public client. A version 2 client is used, so set this in the manifest.</p>
-<p>In the API permissions, the delegated access to the Azure storage is added. Add a permission and select the delegated user_impersonation access from the Azure storage.</p>
-<p></p>
-<p>The Azure storage delegated permission should be set up.</p>
-<p></p>
-<p>The rest of the Azure App registration is standard like in the <a href="https://github.com/AzureAD/microsoft-identity-web/wiki">Microsoft.Identity.Web</a> documentation.</p>
-<p>ASP.NET Core File Upload</p>
-<p>An ASP.NET Core Razor page is used to upload and download the files. The files are saved to the Azure storage blob and the file descriptions are added to an SQL database. A multipart/form-data form is used with an input of type file and some additional data to select the files is added with the uploaded files.</p>
- @page
-@model AspNetCoreAzureStorage.Pages.AzStorageFilesModel
-@{
-    ViewData["Title"] = "Azure Storage Files";
-    Layout = "~/Pages/Shared/_Layout.cshtml";
-}
-
-&lt;div class="card"&gt;
-    &lt;div class="card-header"&gt;Uploaded Files&lt;/div&gt;
-    &lt;div class="card-body"&gt;
-        &lt;form enctype="multipart/form-data" asp-page="/AzStorageFiles" id="ajaxUploadForm" novalidate="novalidate"&gt;
-
-            &lt;fieldset&gt;
-
-                &lt;div class="col-xs-12" style="padding: 10px;"&gt;
-                    &lt;div class="col-xs-4"&gt;
-                        &lt;label&gt;Description&lt;/label&gt;
-                    &lt;/div&gt;
-                    &lt;div class="col-xs-7"&gt;
-                        &lt;textarea rows="2" placeholder="Description" class="form-control" asp-for="FileDescriptionShort.Description"&gt;&lt;/textarea&gt;
-                    &lt;/div&gt;
-                &lt;/div&gt;
-
-                &lt;div class="col-xs-12" style="padding: 10px;"&gt;
-                    &lt;div class="col-xs-4"&gt;
-                        &lt;label&gt;Upload&lt;/label&gt;
-                    &lt;/div&gt;
-                    &lt;div class="col-xs-7"&gt;
-                        &lt;input type="file" asp-for="FileDescriptionShort.File" multiple&gt;
-                    &lt;/div&gt;
-                &lt;/div&gt;
-
-                &lt;div class="col-xs-12" style="padding: 10px;"&gt;
-                    &lt;div class="col-xs-4"&gt;
-                        &lt;input type="submit" value="Upload" id="ajaxUploadButton" class="btn btn-primary col-sm-12"&gt;
-                    &lt;/div&gt;
-                    &lt;div class="col-xs-7"&gt;
-
-                    &lt;/div&gt;
-                &lt;/div&gt;
-
-            &lt;/fieldset&gt;
-
-        &lt;/form&gt;
-    &lt;/div&gt;
-&lt;/div&gt;
-
- 
-<p>The attribute AuthorizeForScopes from the Microsoft.Identity.Web is used to validate that the correct scopes are required to used the page. The Azure storage <a href="https://storage.azure.com/user_impersonation">https://storage.azure.com/user_impersonation</a> scope is required to used this service.</p>
- [AuthorizeForScopes(Scopes = new string[] 
-	{ "https://storage.azure.com/user_impersonation" })]
-public class AzStorageFilesModel : PageModel
-{
- 
-<p>The OnPostAsync method of the Razor page is used to validate the form HTTP post request and call the services to upload the files to the Azure storage blob container. The IFormFile data is passed onto the Azure storage service. Each file from the multiple file upload is passed in a separate request. The file descriptions are also used in the database provider to save the data to the SQL database.</p>
- private readonly AzureStorageProvider _azureStorageService;
-private readonly FileDescriptionProvider _fileDescriptionProvider;
-
-[BindProperty]
-public FileDescriptionUpload FileDescriptionShort { get; set; }
-
-public AzStorageFilesModel(AzureStorageProvider azureStorageService,
-	FileDescriptionProvider fileDescriptionProvider)
-{
-	_azureStorageService = azureStorageService;
-	_fileDescriptionProvider = fileDescriptionProvider;
-}
-
-public void OnGet()
-{
-	FileDescriptionShort = new FileDescriptionUpload
-	{
-		Description = "enter description"
-	};
-}
-
-public async Task&lt;IActionResult&gt; OnPostAsync()
-{
-	var fileInfos = new List&lt;(string FileName, string ContentType)&gt;();
-	if (ModelState.IsValid)
-	{
-		if (!IsMultipartContentType(HttpContext.Request.ContentType))
-		{
-			ModelState.AddModelError("FileDescriptionShort.File", "not a MultipartContentType");
-			return Page();
-		}
-
-		foreach (var file in FileDescriptionShort.File)
-		{
-			if (file.Length &gt; 0)
-			{
-				var fileName = ContentDispositionHeaderValue.Parse(file.ContentDisposition).FileName.ToString().Trim('"');
-
-				fileInfos.Add((fileName, file.ContentType));
-
-				await _azureStorageService.AddNewFile(new BlobFileUpload
-				{
-					Name = fileName,
-					Description = FileDescriptionShort.Description,
-					UploadedBy = HttpContext.User.Identity.Name
-				},
-				file);
-			}
-		}
-	}
-
-	var files = new UploadedFileResult
-	{
-		FileInfos = fileInfos,
-		Description = FileDescriptionShort.Description,
-		UploadedBy = HttpContext.User.Identity.Name,
-		CreatedTimestamp = DateTime.UtcNow,
-		UpdatedTimestamp = DateTime.UtcNow,
-	};
-
-	await _fileDescriptionProvider.AddFileDescriptionsAsync(files);
-
-	return Page();
-}
-
-
-private static bool IsMultipartContentType(string contentType)
-{
-	return !string.IsNullOrEmpty(contentType) &amp;&amp; contentType.IndexOf("multipart/", StringComparison.OrdinalIgnoreCase) &gt;= 0;
-}
- 
-<p>The AzureStorageProvider class uses the Azure.Storage.Blobs nuget package to upload and download the blobs to the Azure storage blob container. The files are persisted to Azure storage using the BlobClient. Metadata is added to the upload using the BlobUploadOptions and the stream is uploaded with the UploadAsync method.</p>
- public class AzureStorageProvider
-{
-	private readonly TokenAcquisitionTokenCredential _tokenAcquisitionTokenCredential;
-	private readonly IConfiguration _configuration;
-
-	public AzureStorageProvider(TokenAcquisitionTokenCredential tokenAcquisitionTokenCredential,
-		IConfiguration configuration)
-	{
-		_tokenAcquisitionTokenCredential = tokenAcquisitionTokenCredential;
-		_configuration = configuration;
-	}
-
-	[AuthorizeForScopes(Scopes = new string[] { "https://storage.azure.com/user_impersonation" })]
-	public async Task&lt;string&gt; AddNewFile(BlobFileUpload blobFileUpload, IFormFile file)
-	{
-		try
-		{
-			return await PersistFileToAzureStorage(blobFileUpload, file);
-		}
-		catch (Exception e)
-		{
-			throw new ApplicationException($"Exception {e}");
-		}
-	}
-
-	private async Task&lt;string&gt; PersistFileToAzureStorage(
-		BlobFileUpload blobFileUpload,
-		IFormFile formFile,
-		CancellationToken cancellationToken = default)
-	{
-		var storage = _configuration.GetValue&lt;string&gt;("AzureStorage:StorageAndContainerName");
-		var fileFullName = $"{storage}{blobFileUpload.Name}";
-		var blobUri = new Uri(fileFullName);
-
-		var blobUploadOptions = new BlobUploadOptions
-		{
-			Metadata = new Dictionary&lt;string, string&gt;
-			{
-				{ "uploadedBy", blobFileUpload.UploadedBy },
-				{ "description", blobFileUpload.Description }
-			}
-		};
-
-		var blobClient = new BlobClient(blobUri, _tokenAcquisitionTokenCredential);
-
-		var inputStream = formFile.OpenReadStream();
-		await blobClient.UploadAsync(inputStream, blobUploadOptions, cancellationToken);
-
-		return $"{blobFileUpload.Name} successfully saved to Azure Storage Container";
-	}
-}
- 
-<p>The TokenAcquisitionTokenCredential class which implements the TokenCredential class is required by the BlobClient to upload or download the blobs. The class uses the ITokenAcquisition interface to get the access token from the Micosoft.Identity.Web nuget package. The required scope is read from the configuration.</p>
- public class TokenAcquisitionTokenCredential : TokenCredential
-{
-	private ITokenAcquisition _tokenAcquisition;
-	private readonly IConfiguration _configuration;
-
-	public TokenAcquisitionTokenCredential(ITokenAcquisition tokenAcquisition,
-		IConfiguration configuration)
-	{
-		_tokenAcquisition = tokenAcquisition;
-		_configuration = configuration;
-	}
-
-	public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
-	{
-		throw new System.NotImplementedException();
-	}
-
-	public override async ValueTask&lt;AccessToken&gt; GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
-	{
-		// requestContext.Scopes "https://storage.azure.com/.default"
-		string[] scopes = _configuration["AzureStorage:ScopeForAccessToken"]?.Split(' ');
-
-		AuthenticationResult result = await _tokenAcquisition
-			.GetAuthenticationResultForUserAsync(scopes)
-			.ConfigureAwait(false);
-
-		return new AccessToken(result.AccessToken, result.ExpiresOn);
-	}
-}
- 
-<p>SQL Database</p>
-<p>Entity Framework Core is used to persist the file descriptions to a Microsoft SQL database. The file context has just one DbSet, ie a single table which can be selected of searched as required. If you were making this for an application which has a lot of data, maybe a search engine, search persistence would be the better choice. </p>
- public class FileContext : DbContext
-{
-	public FileContext(DbContextOptions&lt;FileContext&gt; options) : base(options)
-	{ }
-
-	public DbSet&lt;FileDescription&gt; FileDescriptions { get; set; }
-
-	protected override void OnModelCreating(ModelBuilder builder)
-	{
-		builder.Entity&lt;FileDescription&gt;().HasKey(m =&gt; m.Id);
-		base.OnModelCreating(builder);
-	}
-}
- 
-<p>The AddFileDescriptionsAsync method takes the data from the ASP.NET Core Razor page and saves the data to the table. This can be used to select the uploaded files from the Azure blob container.</p>
- public async Task AddFileDescriptionsAsync(UploadedFileResult uploadedFileResult)
-{
-	foreach (var (FileName, ContentType) in uploadedFileResult.FileInfos)
-	{
-		_context.FileDescriptions.Add(new FileDescription
-		{
-			FileName = FileName,
-			ContentType = ContentType,
-			Description = uploadedFileResult.Description,
-			UploadedBy = uploadedFileResult.UploadedBy,
-			CreatedTimestamp = uploadedFileResult.CreatedTimestamp,
-			UpdatedTimestamp = uploadedFileResult.UpdatedTimestamp
-		});
-	}
-
-	await _context.SaveChangesAsync();
-
-}
- 
-<p>ASP.NET Core Startup</p>
-<p>The ASP.NET Core Startup class adds the authentication using the Microsoft.Identity.Web nuget package. This is a server rendered application which can be trusted and so uses a secret to authenticate the client application. The Azure App registration was setup to require a secret to use the registration. The secret is saved to the user secrets in Visual Studio and would be read from Azure Key vault in a deployment, or something like this. The required services are added to the IoC and the Razor pages are setup to require an authenticated user. All access requirs an authenticated user, all the way down to the Azure storage blob container. </p>
-<p>If the user is authenticated, the identity can use the application. This does not mean the user has access. The Azure AD user must be assigned a role to access the Azure storage blob container. In this demo the role  “Storage Blob Data Contributor” is used. </p>
- public void ConfigureServices(IServiceCollection services)
-{
-	services.AddTransient&lt;AzureStorageProvider&gt;();
-	services.AddTransient&lt;TokenAcquisitionTokenCredential&gt;();
-	services.AddDbContext&lt;FileContext&gt;(options =&gt;
-		options.UseSqlServer(Configuration
-			.GetConnectionString("DefaultConnection")));
-	services.AddTransient&lt;FileDescriptionProvider&gt;();
-
-	services.AddHttpClient();
-	services.AddOptions();
-
-	string[] initialScopes = Configuration.GetValue&lt;string&gt;
-		("AzureStorage:ScopeForAccessToken")?.Split(' ');
-
-	services.AddMicrosoftIdentityWebAppAuthentication(Configuration)
-		.EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
-		.AddInMemoryTokenCaches();
-
-	services.AddRazorPages().AddMvcOptions(options =&gt;
-	{
-		var policy = new AuthorizationPolicyBuilder()
-			.RequireAuthenticatedUser()
-			.Build();
-		options.Filters.Add(new AuthorizeFilter(policy));
-	}).AddMicrosoftIdentityUI();
-}
- 
-<p>ASP.NET Core File Download</p>
-<p>The files can be downloaded using a link from the list of files selected from the SQL database. When the authenticated user clicks a link, the OnGetDownloadFile method is called. This method uses the DownloadFile method  to get the blob from the Azure storage.</p>
- public async Task&lt;ActionResult&gt; OnGetDownloadFile(string fileName)
-{
-	var file = await _azureStorageService.DownloadFile(fileName);
-
-	return File(file.Value.Content, file.Value.ContentType, fileName);
-}
- 
-<p>The BlobClient is used to access the Azure storage. The DownloadAsync method gets the blob and returns the stream. </p>
-<p>The stream is then returned as a file to the user. This will only work is the user has the correct role in Azure AD.  </p>
- [AuthorizeForScopes(Scopes = new string[] { "https://storage.azure.com/user_impersonation" })]
-public async Task&lt;Azure.Response&lt;BlobDownloadInfo&gt;&gt; DownloadFile(string fileName)
-{
-	try
-	{
-		var storage = _configuration.GetValue&lt;string&gt;("AzureStorage:StorageAndContainerName");
-		var fileFullName = $"{storage}{fileName}";
-		var blobUri = new Uri(fileFullName);
-		var blobClient = new BlobClient(blobUri, _tokenAcquisitionTokenCredential);
-		return await blobClient.DownloadAsync();
-	}
-	catch (Exception e)
-	{
-		throw new ApplicationException($"Exception {e}");
-	}
-}
- 
-<p>When the application is started, the authenticated user can upload files and add a description. This will be added to the blob meta data.</p>
-<p></p>
-<p>Once uploaded, this can be checked in the Azure portal using the Azure storage container.   </p>
-<p></p>
-<p>If the files menu is open, the user can download a file by clicking a link. The file is returned and can be saved to your browser downloads.</p>
-<p></p>
-<p>If the user is authenticated but does not have the correct role to access the files, an exception will be thrown.</p>
-<p></p>
-<p>Conclusion</p>
-<p>Using Azure AD to access to blob storage works well and provides many possibilities to implement the authorization as wished. The next step would be to implement this authorization in the ASP.NET Core application. </p>
-<p>Links:</p>
-<p><a href="https://github.com/Azure-Samples/storage-dotnet-azure-ad-msal">https://github.com/Azure-Samples/storage-dotnet-azure-ad-msal</a></p>
-<p><a href="https://winsmarts.com/access-azure-blob-storage-with-standards-based-oauth-authentication-b10d201cbd15">https://winsmarts.com/access-azure-blob-storage-with-standards-based-oauth-authentication-b10d201cbd15</a></p>
-<p><a href="https://stackoverflow.com/questions/45956935/azure-ad-roles-claims-missing-in-access-token">https://stackoverflow.com/questions/45956935/azure-ad-roles-claims-missing-in-access-token</a></p>
-<p><a href="https://github.com/AzureAD/microsoft-identity-web/wiki">https://github.com/AzureAD/microsoft-identity-web/wiki</a></p>
-<p><a href="https://docs.microsoft.com/en-us/azure/storage/blobs/storage-blobs-introduction">https://docs.microsoft.com/en-us/azure/storage/blobs/storage-blobs-introduction</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/02/azurestorageupload_user_aad_02.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:02 &bull;
    2 months ago
 </div>
 
