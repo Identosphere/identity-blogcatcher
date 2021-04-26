@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:56 AM April 26, 2021 (UTC)</sup>
+<sup>Last Update 5:52 AM April 26, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -729,6 +729,395 @@
  <h2 class='new-date'>
   Monday, 26. April 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/04/26/securing-an-asp-net-core-app-and-web-api-using-windows-authentication/'>Securing an ASP.NET Core app and web API using windows authentication</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how an ASP.NET Core Web API and an ASP.NET Core Razor page application can be implemented to use windows authentication. The Razor page application uses Javascript to display an autocomplete control which gets the data indirectly from the service API which is protected using windows authentication. The Razor Page application uses the […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how an ASP.NET Core Web API and an ASP.NET Core Razor page application can be implemented to use windows authentication. The Razor page application uses Javascript to display an autocomplete control which gets the data indirectly from the service API which is protected using windows authentication. The Razor Page application uses the API to get the auto-complete suggestions data. Both applications are protected using windows authentication.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/PoCWindowsAuth">https://github.com/damienbod/PoCWindowsAuth</a></p>
+
+
+
+<p>Setup the API</p>
+
+
+
+<p>The ASP.NET Core demo API is setup to use windows authentication. The launch settings windowsAuthentication property is set to true and the anonymousAuthentication property to false. The application host file settings on your development PC would also need to be configured to allow windows authentication, which is disabled by default. See the stack overflow link at the bottom for more information.</p>
+
+
+  {
+  "iisSettings": {
+    "windowsAuthentication": true,
+    "anonymousAuthentication": false,
+    "iisExpress": {
+      "applicationUrl": "https://localhost:44364",
+      "sslPort": 44364
+    }
+  },
+  
+
+
+<p>The Startup ConfigureServices method is configured to require authentication using the IISDefaults.AuthenticationScheme scheme. This would need to be changed if you were using a different hosting model.</p>
+
+
+  public void ConfigureServices(IServiceCollection services)
+{
+	services.AddAuthentication(IISDefaults.AuthenticationScheme);
+
+	services.AddControllers().AddJsonOptions(option =&gt;
+		option.JsonSerializerOptions
+              .PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
+}
+
+public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+{
+	if (env.IsDevelopment())
+	{
+		app.UseDeveloperExceptionPage();
+	}
+
+	app.UseHttpsRedirection();
+
+	app.UseRouting();
+
+	app.UseAuthentication();
+	app.UseAuthorization();
+
+	app.UseEndpoints(endpoints =&gt;
+	{
+		endpoints.MapControllers();
+	});
+}
+  
+
+
+<p>The API is protected using the authorize attribute. This example returns the user name from the windows authentication.</p>
+
+
+  [Authorize]
+[ApiController]
+[Route("api/[controller]")]
+public class MyDataController : ControllerBase
+{
+
+	private readonly ILogger&lt;MyDataController&gt; _logger;
+
+	public MyDataController(ILogger&lt;MyDataController&gt; logger)
+	{
+		_logger = logger;
+	}
+
+	[HttpGet]
+	public IEnumerable&lt;string&gt; Get()
+	{
+		return new List&lt;string&gt; { User.Identity.Name };
+	}
+}
+  
+
+
+<p>Implement the ASP.NET Core Razor pages</p>
+
+
+
+<p>The application calling the API also requires windows authentication and requests the data from the API project. The HttpClient instance requesting the data from the API project must send the default credentials with each API call. A HttpClientHandler is used to implement this. The HttpClientHandler is added to a named AddHttpClient service  which can be used anywhere in the application.</p>
+
+
+  public void ConfigureServices(IServiceCollection services)
+{
+	services.AddAuthentication(IISDefaults.AuthenticationScheme);
+
+	services.AddHttpClient();
+
+	HttpClientHandler handler = new HttpClientHandler()
+	{
+		UseDefaultCredentials = true
+	};
+
+	services.AddHttpClient("windowsAuthClient", c =&gt;{ })
+		.ConfigurePrimaryHttpMessageHandler(() =&gt; handler);
+
+	services.AddScoped&lt;MyDataClientService&gt;();
+	services.AddRazorPages().AddJsonOptions(option =&gt;
+		option.JsonSerializerOptions
+			.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
+}
+  
+
+
+<p>A client service is implemented to call the API from the second project. This client uses the IHttpClientFactory to create instances of the HttpClient. The CreateClient method is used to create an instance using the named client which was configured in the Startup class. This instance will send credentials to the API.</p>
+
+
+  public MyDataClientService(
+	IConfiguration configurations,
+	IHttpClientFactory clientFactory)
+{
+	_configurations = configurations;
+	_clientFactory = clientFactory;
+	_jsonSerializerOptions = new JsonSerializerOptions
+	{
+		PropertyNameCaseInsensitive = true,
+	};
+}
+
+public async Task&lt;List&lt;string&gt;&gt; GetMyData()
+{
+	try
+	{
+		var client = _clientFactory.CreateClient("windowsAuthClient");
+		client.BaseAddress = new Uri(_configurations["MyApiUrl"]);
+
+		var response = await client.GetAsync("api/MyData");
+		if (response.IsSuccessStatusCode)
+		{
+			var data = await JsonSerializer.DeserializeAsync&lt;List&lt;string&gt;&gt;(
+			await response.Content.ReadAsStreamAsync());
+
+			return data;
+		}
+
+		var error = await response.Content.ReadAsStringAsync();
+		throw new ApplicationException($"Status code: {response.StatusCode}, Error: {response.ReasonPhrase}, Message: {error}");
+
+	}
+	catch (Exception e)
+	{
+		throw new ApplicationException($"Exception {e}");
+	}
+}
+  
+
+
+<p>Javascript UI</p>
+
+
+
+<p>If using Javascript to call the API protected with window authentication, this can become a bit tricky due to CORS when using windows authentication. I prefer to avoid this and use a backend to proxy the calls from my trusted backend to the API. The OnGetAutoCompleteSuggest method is used to call the API. The would also make it easy to map DTOs from my API to my view DTOs as required.</p>
+
+
+   public class IndexModel : PageModel
+    {
+        private readonly ILogger&lt;IndexModel&gt; _logger;
+        private readonly MyDataClientService _myDataClientService;
+        public List&lt;string&gt; DataFromApi;
+        public string SearchText { get; set; }
+        public List&lt;PersonCity&gt; PersonCities;
+
+        public IndexModel(MyDataClientService myDataClientService,
+            ILogger&lt;IndexModel&gt; logger)
+        {
+            _myDataClientService = myDataClientService;
+            _logger = logger;
+        }
+
+        public async Task OnGetAsync()
+        {
+            DataFromApi = await _myDataClientService.GetMyData();
+        }
+
+        public async Task&lt;ActionResult&gt; OnGetAutoCompleteSuggest(string term)
+        {
+            PersonCities = await _myDataClientService.Suggest(term);
+            SearchText = term;
+
+            return new JsonResult(PersonCities);
+        }
+    }
+  
+
+
+<p>The Razor Page underneath uses an autocomplete implemented in Javascript to suggest data requested from the API. Any Javascript framework can be used in this way.</p>
+
+
+  @page "{handler?}"
+@model IndexModel
+@{
+    ViewData["Title"] = "Home page";
+}
+
+&lt;div class="text-center"&gt;
+    &lt;p&gt;Data from API:&lt;/p&gt;
+
+    @foreach (string item in Model.DataFromApi)
+    {
+        &lt;p&gt;@item&lt;/p&gt;&lt;br /&gt;
+    }
+&lt;/div&gt;
+
+&lt;hr /&gt;
+
+&lt;fieldset class="form"&gt;
+    &lt;legend&gt;Search for a person in the search engine&lt;/legend&gt;
+    &lt;table width="500"&gt;
+        &lt;tr&gt;
+            &lt;th&gt;&lt;/th&gt;
+        &lt;/tr&gt;
+        &lt;tr&gt;
+            &lt;td&gt;
+                &lt;input class="form-control" id="autocomplete" type="text" style="width:500px" /&gt;
+            &lt;/td&gt;
+        &lt;/tr&gt;
+    &lt;/table&gt;
+&lt;/fieldset&gt;
+
+&lt;br /&gt;
+
+
+&lt;div class="card" id="results"&gt;
+    &lt;h5 class="card-header"&gt;
+        &lt;span id="docName"&gt;&lt;/span&gt;
+        &lt;span id="docFamilyName"&gt;&lt;/span&gt;
+    &lt;/h5&gt;
+    &lt;div class="card-body"&gt;
+        &lt;p class="card-text"&gt;&lt;span id="docInfo"&gt;&lt;/span&gt;&lt;/p&gt;
+        &lt;p class="card-text"&gt;&lt;span id="docCityCountry"&gt;&lt;/span&gt;&lt;/p&gt;
+        &lt;p class="card-text"&gt;&lt;span id="docWeb"&gt;&lt;/span&gt;&lt;/p&gt;
+    &lt;/div&gt;
+&lt;/div&gt;
+
+@section scripts
+{
+    &lt;script type="text/javascript"&gt;
+        var items;
+        $(document).ready(function () {
+            $("#results").hide();
+            $("input#autocomplete").autocomplete({
+                source: function (request, response) {
+                    $.ajax({
+                        url: "Index/AutoCompleteSuggest",
+                        dataType: "json",
+                        data: {
+                            term: request.term,
+                        },
+                        success: function (data) {
+                            var itemArray = new Array();
+                            for (i = 0; i &lt; data.length; i++) {
+                                itemArray[i] = {
+                                    label: data[i].name + " " + data[i].familyName,
+                                    value: data[i].name + " " + data[i].familyName,
+                                    data: data[i]
+                                }
+                            }
+
+                            console.log(itemArray);
+                            response(itemArray);
+                        },
+                        error: function (data, type) {
+                            console.log(type);
+                        }
+                    });
+                },
+                select: function (event, ui) {
+                    $("#results").show();
+                    $("#docNameId").text(ui.item.data.id);
+                    $("#docName").text(ui.item.data.name);
+                    $("#docFamilyName").text(ui.item.data.familyName);
+                    $("#docInfo").text(ui.item.data.info);
+                    $("#docCityCountry").text(ui.item.data.cityCountry);
+                    $("#docWeb").text(ui.item.data.web);
+                    console.log(ui.item);
+                }
+            });
+        });
+    &lt;/script&gt;
+}
+
+  
+
+
+<p>If all is setup correctly, the ASP.NET Core application displays the API data which is protected using the windows authentication.</p>
+
+
+
+
+
+
+
+<p>CRSF</p>
+
+
+
+<p>If using windows authentication, you need to protect against CSRF forgery like any application using cookies. It is also recommended NOT to use windows authentication in the public domain. Modern security architectures should be used like Open ID Connect whenever possible. This works well on intranets or for making changes to existing applications which use windows authentication in secure networks.</p>
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://stackoverflow.com/questions/36946304/using-windows-authentication-in-asp-net">https://stackoverflow.com/questions/36946304/using-windows-authentication-in-asp-net</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/web-api/overview/security/integrated-windows-authentication">https://docs.microsoft.com/en-us/aspnet/web-api/overview/security/integrated-windows-authentication</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/04/windowsauth_01-1.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:59 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -783,7 +1172,7 @@
 
 <div class='item-footer'>
    01:44 &bull;
-   15 minutes ago
+   4 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -852,7 +1241,7 @@
  Matching and concordances 
 <p>If you're combining data about vaccination locations from a range of different sources, one of the biggest challenges is de-duplicating the data: it's important the same location doesn't show up multiple times (potentially with slightly differing details) due to appearing in multiple sources.</p>
 <p>Our first step towards handling this involved the addition of "concordance identifiers" to VIAL.</p>
-<p>I first encountered the term "concordance" being used for this <a href="https://whosonfirst.org/docs/concordances/">in the Who's On First project</a>, which is building a gazetteers of every city/state/country/county/etc on earth.</p>
+<p>I first encountered the term "concordance" being used for this <a href="https://whosonfirst.org/docs/concordances/">in the Who's On First project</a>, which is building a gazetteer of every city/state/country/county/etc on earth.</p>
 <p>A concordance is an identifier in another system. Our location ID for RITE AID PHARMACY 05976 in Santa Clara is <code>receu5biMhfN8wH7P</code> - which is <code>e3dfcda1-093f-479a-8bbb-14b80000184c</code> in <a href="https://vaccinefinder.org/">VaccineFinder</a> and <code>7537904</code> in <a href="https://www.vaccinespotter.org/">Vaccine Spotter</a> and <code>ChIJZaiURRPKj4ARz5nAXcWosUs</code> in Google Places.</p>
 <p>We're storing them in a Django table called <code>ConcordanceIdentifier</code>: each record has an <code>authority</code> (e.g. <code>vaccinespotter_org</code>) and an identifier (<code>7537904</code>) and a many-to-many relationship to our <code>Location</code> model.</p>
 <p>Why many-to-many? Surely we only want a single location for any one of these identifiers?</p>
@@ -870,7 +1259,7 @@
 <p>While working on this I realized that my idea of what size of data is appropriate for a dynamic web application to return more or less formed back in 2005. I still think it's rude to serve multiple MBs of JavaScript up to an inexpensive mobile phone on an expensive connection, but for server-to-server or server-to-automation-script situations serving up 50+ MB of JSON in one go turns out to be a perfectly cromulent way of doing things.</p>
  Export full results from django-sql-dashboard 
 <p><a href="https://github.com/simonw/django-sql-dashboard">django-sql-dashboard</a> is my Datasette-inspired library for adding read-only arbitrary SQL queries to any Django+PostgreSQL application.</p>
-<p>I built the first version <a href="https://simonwillison.net/2021/Mar/14/weeknotes/">last month</a> to help compensate for switching VaccinateCA away from Airtable - one of the many benefits of Airtable is that it allows all kinds of arbitrary reporting, and Datasette has shown be that bookmarkable SQL queries can provide a huge amount of that value with very little written code, especially within organizations where SQL is already widely understood.</p>
+<p>I built the first version <a href="https://simonwillison.net/2021/Mar/14/weeknotes/">last month</a> to help compensate for switching VaccinateCA away from Airtable - one of the many benefits of Airtable is that it allows all kinds of arbitrary reporting, and Datasette has shown me that bookmarkable SQL queries can provide a huge amount of that value with very little written code, especially within organizations where SQL is already widely understood.</p>
 <p>While it allows people to run any SQL they like (against a read-only PostgreSQL connection with a time limit) it restricts viewing to the first 1,000 records to be returned - because building robust, performante pagination against arbitrary SQL queries is a hard problem to solve.</p>
 <p>Today I released <a href="https://github.com/simonw/django-sql-dashboard/releases/tag/0.10a0">datasette-sql-dashboard 0.10a0</a> with the ability to export all results for a query as a downloadable CSV or TSV file, using the same <code>StreamingHttpResponse</code> technique as my Django admin CSV export and all-results-at-once search endpoint.</p>
 <p>I expect it to be pretty useful! It means I can run any SQL query I like against a Django project and get back the full results - often dozens of MBs - in a form I can import into other tools (including Datasette).</p>
@@ -904,7 +1293,7 @@
 
 <div class='item-footer'>
    01:02 &bull;
-   an hour ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -982,7 +1371,7 @@
 
 <div class='item-footer'>
    21:51 &bull;
-   4 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2646,7 +3035,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    17:01 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3372,7 +3761,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    17:49 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3447,7 +3836,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    17:32 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6616,7 +7005,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    16:53 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7123,7 +7512,7 @@ Also, that I need to catch up with The Crown.</p>
 
 <div class='item-footer'>
    17:53 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7183,7 +7572,7 @@ Also, that I need to catch up with The Crown.</p>
 
 <div class='item-footer'>
    16:21 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8010,7 +8399,7 @@ namespace NationalDrivingLicense.Pages
 
 <div class='item-footer'>
    16:28 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8680,7 +9069,7 @@ import { Scrubber } from "@mbostock/scrubber"
 
 <div class='item-footer'>
    16:47 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8878,7 +9267,7 @@ import { Scrubber } from "@mbostock/scrubber"
 
 <div class='item-footer'>
    14:40 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9108,7 +9497,7 @@ import { Scrubber } from "@mbostock/scrubber"
 
 <div class='item-footer'>
    14:40 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9408,7 +9797,7 @@ import { Scrubber } from "@mbostock/scrubber"
 
 <div class='item-footer'>
    16:52 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9642,7 +10031,7 @@ import { Scrubber } from "@mbostock/scrubber"
 
 <div class='item-footer'>
    16:02 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9962,7 +10351,7 @@ import { Scrubber } from "@mbostock/scrubber"
 
 <div class='item-footer'>
    03:03 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -13692,7 +14081,7 @@ identity in the European mode
 
 <div class='item-footer'>
    04:05 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17233,333 +17622,6 @@ Why France’s New Tech ‘Repairability Index’ Is a Big Deal.  Wired.</p>
 
 <div class='item-footer'>
    16:57 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Friday, 19. February 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/02/19/require-user-password-verification-with-asp-net-core-identity-to-access-razor-page/'>Require user password verification with ASP.NET Core Identity to access Razor Page</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post shows how an ASP.NET Core application which uses ASP.NET Core Identity to authenticate and authorize users of the application can be used to require user password verification to view specific Razor pages in the application. If the user opens one of the Razor pages which require a password verification to open the page, […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post shows how an ASP.NET Core application which uses ASP.NET Core Identity to authenticate and authorize users of the application can be used to require user password verification to view specific Razor pages in the application. If the user opens one of the Razor pages which require a password verification to open the page, the user will be redirected to a separate Razor page to re-enter a password. All good, the original page can be opened.</p>
-<p>Code <a href="https://github.com/damienbod/AspNetCoreHybridFlowWithApi">https://github.com/damienbod/AspNetCoreHybridFlowWithApi</a></p>
-<p>Setup the required password verification page</p>
-<p>The RequirePasswordVerificationModel class implements the Razor page which requires that a user has verified a password for the identity user within the last ten minutes. The razor page inherits from the PasswordVerificationBase Razor page which implements the verification check. The constructor of the class needs to pass the parent dependencies. If the user has a valid verification, the page will be displayed, otherwise the application redirects to the password verification route.</p>
- public class RequirePasswordVerificationModel : PasswordVerificationBase
-{
-	public RequirePasswordVerificationModel(
-		UserManager&lt;ApplicationUser&gt; userManager) : base(userManager){}
-
-	public async Task&lt;IActionResult&gt; OnGetAsync()
-	{
-		var passwordVerificationOk = await ValidatePasswordVerification();
-		
-		if (!passwordVerificationOk)
-		{
-			return RedirectToPage("/PasswordVerification", 
-				new { ReturnUrl = "/DoUserChecks/RequirePasswordVerification" });
-		}
-
-		return Page();
-	}
-}
- 
-<p>The PasswordVerificationBase Razor page implements the PageModel. The ValidatePasswordVerification method checks if the user is already authenticated. It then checks if the user has not signed in after the last successful verification. The UserManager is used to fetch the data from the database. The last verification is implemented so that it can be no longer that ten minutes old.</p>
- public class PasswordVerificationBase : PageModel
-{
-	public static string PasswordCheckedClaimType = "passwordChecked";
-
-	private readonly UserManager&lt;ApplicationUser&gt; _userManager;
-
-	public PasswordVerificationBase(UserManager&lt;ApplicationUser&gt; userManager)
-	{
-		_userManager = userManager;
-	}
-
-	public async Task&lt;bool&gt; ValidatePasswordVerification()
-	{
-		if (User.Identity.IsAuthenticated)
-		{
-			if (User.HasClaim(c =&gt; c.Type == PasswordCheckedClaimType))
-			{
-				var user = await _userManager.FindByEmailAsync(User.Identity.Name);
-
-				var lastLogin = DateTime.FromFileTimeUtc(
-					Convert.ToInt64(user.LastLogin));
-
-				var lastPasswordVerificationClaim 
-					= User.FindFirst(PasswordCheckedClaimType);
-					
-				var lastPasswordVerification = DateTime.FromFileTimeUtc(
-					Convert.ToInt64(lastPasswordVerificationClaim.Value));
-
-				if (lastLogin &gt; lastPasswordVerification)
-				{
-					return false;
-				}
-				else if (DateTime.UtcNow.AddMinutes(-10.0) &gt; lastPasswordVerification)
-				{
-					return false;
-				}
-
-				return true;
-			}
-		}
-
-		return false;
-	}
-}
- 
-<p>If the user needs to re-enter credentials, the PasswordVerificationModel Razor page is used for this. This class was built using the identity scaffolded login Razor page from ASP.NET Core Identity. The old password verifications claims are removed using the UserManager service. A new password verification claim is created, if the user successfully re-entered the password and the sign in is refreshed with the new ClaimIdentity instance.</p>
- public class PasswordVerificationModel : PageModel
-{
-	private readonly UserManager&lt;ApplicationUser&gt; _userManager;
-	private readonly SignInManager&lt;ApplicationUser&gt; _signInManager;
-	private readonly ILogger&lt;PasswordVerificationModel&gt; _logger;
-
-	public PasswordVerificationModel(SignInManager&lt;ApplicationUser&gt; signInManager,
-		ILogger&lt;PasswordVerificationModel&gt; logger,
-		UserManager&lt;ApplicationUser&gt; userManager)
-	{
-		_userManager = userManager;
-		_signInManager = signInManager;
-		_logger = logger;
-	}
-
-	[BindProperty]
-	public CheckModel Input { get; set; }
-
-	public IList&lt;AuthenticationScheme&gt; ExternalLogins { get; set; }
-
-	public string ReturnUrl { get; set; }
-
-	[TempData]
-	public string ErrorMessage { get; set; }
-
-	public class CheckModel
-	{
-		[Required]
-		[DataType(DataType.Password)]
-		public string Password { get; set; }
-	}
-
-	public async Task&lt;IActionResult&gt; OnGetAsync(string returnUrl = null)
-	{
-		if (!string.IsNullOrEmpty(ErrorMessage))
-		{
-			ModelState.AddModelError(string.Empty, ErrorMessage);
-		}
-
-		var user = await _userManager.GetUserAsync(User);
-		if (user == null)
-		{
-			return NotFound($"Unable to load user with ID '{_userManager.GetUserId(User)}'.");
-		}
-
-		var hasPassword = await _userManager.HasPasswordAsync(user);
-		if (!hasPassword)
-		{
-			return NotFound($"User has no password'{_userManager.GetUserId(User)}'.");
-		}
-
-		returnUrl ??= Url.Content("~/");
-		ReturnUrl = returnUrl;
-
-		return Page();
-	}
-
-	public async Task&lt;IActionResult&gt; OnPostAsync(string returnUrl = null)
-	{
-		returnUrl ??= Url.Content("~/");
-
-		var user = await _userManager.GetUserAsync(User);
-		if (user == null)
-		{
-			return NotFound($"Unable to load user with ID '{_userManager.GetUserId(User)}'.");
-		}
-
-		if (ModelState.IsValid)
-		{
-			// This doesn't count login failures towards account lockout
-			// To enable password failures to trigger account lockout, set lockoutOnFailure: true
-			var result = await _signInManager.PasswordSignInAsync(user.Email, Input.Password, false, lockoutOnFailure: false);
-			if (result.Succeeded)
-			{
-				_logger.LogInformation("User password re-entered");
-
-				await RemovePasswordCheck(user);
-				var claim = new Claim(PasswordVerificationBase.PasswordCheckedClaimType,
-					DateTime.UtcNow.ToFileTimeUtc().ToString());
-				await _userManager.AddClaimAsync(user, claim);
-				await _signInManager.RefreshSignInAsync(user);
-
-				return LocalRedirect(returnUrl);
-			}
-			if (result.IsLockedOut)
-			{
-				_logger.LogWarning("User account locked out.");
-				return RedirectToPage("./Lockout");
-			}
-			else
-			{
-				ModelState.AddModelError(string.Empty, "Invalid login attempt.");
-				return Page();
-			}
-		}
-
-		// If we got this far, something failed, redisplay form
-		return Page();
-	}
-
-	private async Task RemovePasswordCheck(ApplicationUser user)
-	{
-		if (User.HasClaim(c =&gt; c.Type == PasswordVerificationBase.PasswordCheckedClaimType))
-		{
-			var claims = User.FindAll(PasswordVerificationBase.PasswordCheckedClaimType);
-			foreach (Claim c in claims)
-			{
-				await _userManager.RemoveClaimAsync(user, c);
-			}
-		}
-	}
-}
- 
-<p>The PasswordVerificationModel Razor page html template displays the user input form with the password field.</p>
- @page
-@model PasswordVerificationModel
-
-@{
-    ViewData["Title"] = "Password Verification";
-}
-
-&lt;h1&gt;@ViewData["Title"]&lt;/h1&gt;
-&lt;div class="row"&gt;
-    &lt;div class="col-md-4"&gt;
-        &lt;section&gt;
-            &lt;form id="account" method="post"&gt;
-                &lt;h4&gt;Verify account using your password&lt;/h4&gt;
-                &lt;hr /&gt;
-                &lt;div asp-validation-summary="All" class="text-danger"&gt;&lt;/div&gt;
-                &lt;div class="form-group"&gt;
-                    &lt;label asp-for="Input.Password"&gt;&lt;/label&gt;
-                    &lt;input asp-for="Input.Password" class="form-control" /&gt;
-                    &lt;span asp-validation-for="Input.Password" 
-                       class="text-danger"&gt;&lt;/span&gt;
-                &lt;/div&gt;
-                &lt;div class="form-group"&gt;
-                    &lt;button type="submit" class="btn btn-primary"&gt;
-                       Re-enter password
-                    &lt;/button&gt;
-                &lt;/div&gt;
-            &lt;/form&gt;
-        &lt;/section&gt;
-    &lt;/div&gt;
-&lt;/div&gt;
-
-@section Scripts {
-    &lt;partial name="_ValidationScriptsPartial" /&gt;
-}
-
- 
-<p>The Login Razor page needs to be updated to add a login file time value for DateTime.UtcNow when the login successfully occurred. This value is used in the base Razor page to verify the password check. The LastLogin property was added for this.</p>
- var result = await _signInManager.PasswordSignInAsync(
-	Input.Email, Input.Password, 
-	Input.RememberMe, 
-	lockoutOnFailure: false);
-	
-if (result.Succeeded)
-{
-	_logger.LogInformation("User logged in.");
-
-	var user = await _userManager.FindByEmailAsync(Input.Email);
-	if (user == null)
-	{
-		return NotFound("help....");
-	}
-	user.LastLogin = DateTime.UtcNow.ToFileTimeUtc().ToString();
-
-	var lastLoginResult = await _userManager.UpdateAsync(user);
-
-	return LocalRedirect(returnUrl);
-}
- 
-<p>The LastLogin property was added to the ApplicationUser which implements the IdentityUser. This value is persisted to the Entity Framework Core database.</p>
- public class ApplicationUser : IdentityUser
-{
-	public string LastLogin { get; set; }
-}
- 
-<p>When the application is started, the user can login and will need to verify a password to access the Razor page implemented to require this feature.</p>
-<p></p>
-<p>Notes:</p>
-<p>This was relatively simple to implement thanks to the helpers in ASP.NET Core Identity. It requires a user password login to work which is not always available or used. A FIDO2 verification would probably be better or a simple authenticator push notification. Some applications have the requirement for password verification to use a page, a view or a service for some extra sensitive processing and this would help here.</p>
-<p>Links:</p>
-<p><a href="https://www.learnrazorpages.com/razor-pages/">https://www.learnrazorpages.com/razor-pages/</a></p>
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/razor-pages">https://docs.microsoft.com/en-us/aspnet/core/razor-pages</a></p>
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security">https://docs.microsoft.com/en-us/aspnet/core/security</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/02/userverify.gif'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:09 &bull;
    2 months ago
 </div>
 
@@ -21629,7 +21691,7 @@ for the foreseeable future.</p>
 
 <div class='item-footer'>
    04:05 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27173,7 +27235,7 @@ jobs:
 
 <div class='item-footer'>
    05:00 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
