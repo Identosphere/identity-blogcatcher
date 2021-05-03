@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:50 AM May 03, 2021 (UTC)</sup>
+<sup>Last Update 6:48 AM May 03, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -729,6 +729,272 @@
  <h2 class='new-date'>
   Monday, 03. May 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2021/May/3/adding-geodjango-to-an-existing-django-project/#atom-everything'>Adding GeoDjango to an existing Django project</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Work on VIAL for Vaccinate The States continues. 
+ I talked about matching last week. I've been building more features to support figuring out if a newly detected location is already listed or not, with one of the most significant being the ability to search for locations within a radius of a specific point. 
+ I've experimented with a PostgreSQL/Django version of the classic cos/sin/radians query 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Work on VIAL for <a href="https://www.vaccinatethestates.com/">Vaccinate The States</a> continues.</p>
+<p>I talked about <a href="https://simonwillison.net/2021/Apr/26/vaccinate-the-states/">matching</a> last week. I've been building more features to support figuring out if a newly detected location is already listed or not, with one of the most significant being the ability to search for locations within a radius of a specific point.</p>
+<p>I've experimented with a PostgreSQL/Django version of <a href="https://til.simonwillison.net/postgresql/closest-locations-to-a-point">the classic cos/sin/radians query for this</a> but if you're going to do this over a larger dataset it's worth using a proper spatial index for it - and <a href="https://docs.djangoproject.com/en/3.2/ref/contrib/gis/">GeoDjango</a> has provided tools for this since Django 1.0 in 2008!</p>
+<p>I have to admit that outside of a few prototypes I've never used GeoDjango extensively myself - partly I've not had the right project for it, and in the past I've also been put off by the difficulty involved in installing all of the components.</p>
+<p>That's a lot easier in 2021 than it was in 2008. But VIAL is a project in-flight, so here are some notes on what it took to get GeoDjango added to an existing Django project.</p>
+<p><a href="https://github.com/alexmv">Alex Vandiver</a> has been working with me on VIAL and helped figure out quite a few of these steps.</p>
+ Activating PostgreSQL 
+<p>The first step was to install the PostGIS PostgreSQL extension. This can be achieved using a Django migration:</p>
+ from django.contrib.postgres.operations import CreateExtension
+from django.db import migrations
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("my_app", "0108_previous-migration"),
+    ]
+
+    operations = [
+        CreateExtension("postgis"),
+    ] 
+<p>Most good PostgreSQL hosting already makes this extension available - in our case we are using Google Cloud SQL which <a href="https://cloud.google.com/sql/docs/postgres/extensions#postgresql-extensions-supported-by-cloud-sql">supports various extensions</a>, including PostGIS. I use <a href="https://postgresapp.com/">Postgres.app</a> for my personal development environment which bundles PostGIS too.</p>
+<p>So far, so painless!</p>
+ System packages needed by GeoDjango 
+<p>GeoDjango <a href="https://docs.djangoproject.com/en/3.2/ref/contrib/gis/install/geolibs/">needs the GEOS, GDAL and PROJ</a> system libraries. Alex added these to our Dockerfile (used for our production deployments) like so:</p>
+  RUN apt-get update &amp;&amp; apt-get install -y \
+    binutils \
+    gdal-bin \
+    libproj-dev \
+    &amp;&amp; rm -rf /var/lib/apt/lists/*  
+ Adding a point field to a Django model 
+<p>I already had a <code>Location</code> model, which looked something like this:</p>
+ class Location(models.Model):
+    name = models.CharField()
+    # ...
+    latitude = models.DecimalField(
+        max_digits=9, decimal_places=5
+    )
+    longitude = models.DecimalField(
+        max_digits=9, decimal_places=5
+    ) 
+<p>I made three changes to this class: I changed the base class to this:</p>
+ from django.contrib.gis.db import models as gis_models
+
+class Location(gis_models.Model):
+    # ... 
+<p>I added a <code>point</code> column:</p>
+     point = gis_models.PointField(
+        blank=True,
+        null=True,
+        spatial_index=True
+    ) 
+<p>And I set up a custom <code>save()</code> method to populate that <code>point</code> field with a point representing the latitude and longitude every time the object was saved:</p>
+ from django.contrib.gis.geos import Point
+
+# ...
+
+    def save(self, *args, **kwargs):
+        # Point is derived from latitude/longitude
+        if self.longitude and self.latitude:
+            self.point = Point(
+                float(self.longitude),
+                float(self.latitude),
+                srid=4326
+            )
+        else:
+            self.point = None
+        super().save(*args, **kwargs) 
+<p><code>srid=4326</code> ensures the point is stored using WGS84 - the most common coordinate system for latitude and longitude values across our planet.</p>
+<p>Running <code>./manage.py makemigrations</code> identified the new <code>point</code> Point column and created the corresponding migration for me.</p>
+ Backfilling the point column with a migration 
+<p>The <code>.save()</code> method would populate <code>point</code> for changes going forward, but I had 40,000 records that already existed which I needed to backfill. I used this migration to do that:</p>
+ from django.db import migrations
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("core", "0110_location_point"),
+    ]
+
+    operations = [
+        migrations.RunSQL(
+            sql="""
+            update location
+            set point = ST_SetSRID(
+                ST_MakePoint(
+                    longitude, latitude
+                ),
+                4326
+            );""",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+    ] 
+ latitude/longitude/radius queries 
+<p>With the new <code>point</code> column created and populated, here's the code I wrote to support simple latitude/longitude/radius queries:</p>
+ from django.contrib.gis.geos import Point
+from django.contrib.gis.measure import Distance
+
+def search_locations(request):
+    qs = Location.objects.filter(soft_deleted=False)
+    latitude = request.GET.get("latitude")
+    longitude = request.GET.get("longitude")
+    radius = request.GET.get("radius")
+    if latitude and longitude and radius:
+        # Validate latitude/longitude/radius
+        for value in (latitude, longitude, radius):
+            try:
+                float(value)
+            except ValueError:
+                return JsonResponse(
+                    {"error": "latitude/longitude/radius should be numbers"}, status=400
+                )
+        qs = qs.filter(
+            point__distance_lt=(
+                Point(
+                    float(longitude),
+                    float(latitude)
+                ),
+                Distance(m=float(radius)),
+            )
+        )
+    # ... return JSON for locations 
+<p>In writing up these notes I realize that this isn't actually the best way to do this, because it fails to take advantage of the spatial index on that column! I've filed myself an issue to switch to the spatial-index-friendly <a href="https://docs.djangoproject.com/en/3.1/ref/contrib/gis/geoquerysets/#dwithin">dwithin</a> instead.</p>
+ Getting CI to work 
+<p>The hardest part of all of this turned out to be getting our CI suites to pass.</p>
+<p>We run CI in two places at the moment: GitHub Actions and Google Cloud Build (as part of our continuous deployment setup).</p>
+<p>The first error I hit was this one:</p>
+<blockquote>
+<p><code>psycopg2.errors.UndefinedFile: could not open extension control file "/usr/share/postgresql/13/extension/postgis.control": No such file or directory</code></p>
+</blockquote>
+<p>It turns out that's what happens when your PostgreSQL server doesn't have the PostGIS extension available.</p>
+<p>Our GitHub Actions configuration started like this:</p>
+  name: Run tests
+
+on: [push]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vaccinate
+        options:
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+        ports:
+        - 5432:5432
+    steps:  
+<p>The <code>postgres:13</code> image doesn't have PostGIS. Swapping that out for <code>postgis/postgis:13-3.1</code> fixed that (using <a href="https://registry.hub.docker.com/r/postgis/postgis/">this image</a>).</p>
+<p>Our Cloud Build configuration included this:</p>
+    # Start up a postgres for tests
+  - id: "start postgres"
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      - "run"
+      - "-d"
+      - "--network=cloudbuild"
+      - "-e"
+      - "POSTGRES_HOST_AUTH_METHOD=trust"
+      - "--name"
+      - "vaccinate-db"
+      - "postgres"
+
+  - id: "test image"
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      - "run"
+      - "-t"
+      - "--network=cloudbuild"
+      - "-e"
+      - "DATABASE_URL=postgres://postgres@vaccinate-db:5432/vaccinate"
+      - "${_IMAGE_NAME}:latest"
+      - "pytest"
+      - "-v"  
+<p>I tried swapping out that last <code>postgres</code> argument for <code>postgis/postgis:13-3.1</code>, like I had with the GitHub Actions one... and it failed with this error instead:</p>
+<blockquote>
+<p><code>django.db.utils.OperationalError: could not connect to server: Connection refused</code>
+<code>Is the server running on host "vaccinate-db" (192.168.10.3) and accepting</code>
+<code>TCP/IP connections on port 5432?</code></p>
+</blockquote>
+<p>This one stumped me. Eventually Alex figured out the problem: the extra extension meant the PostgreSQL was taking slightly longer to start - something that was covered in our GitHub Actions configuration by the <code>pg_isready</code> line. He added this step to our Cloud Build configuration:</p>
+    - id: "wait for postgres"
+    name: "jwilder/dockerize"
+    args: ["dockerize", "-timeout=60s", "-wait=tcp://vaccinate-db:5432"]  
+<p>It uses <a href="https://github.com/jwilder/dockerize">jwilder/dockerize</a> to wait until the database container starts accepting connections on port 5432.</p>
+ Next steps 
+<p>Now that we have GeoDjango I'm excited to start exploring new capabilities for our software. One thing in particular that interests me is teaching VIAL to backfill the county for a location based on its latitude and longitude - the US Census provide a shapefile of county polygons which I use with Datasette and SpatiaLite in my <a href="https://github.com/simonw/us-counties-datasette">simonw/us-counties-datasette</a> project, so I'm confident it would work well using PostGIS instead.</p>
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/django-sql-dashboard">django-sql-dashboard</a>: <a href="https://github.com/simonw/django-sql-dashboard/releases/tag/0.11a0">0.11a0</a> - (<a href="https://github.com/simonw/django-sql-dashboard/releases">22 total releases</a>) - 2021-04-26
+<br>Django app for building dashboards using raw SQL queries 
+ 
+ TIL this week 
+ 
+ <a href="https://github.com/simonw/til/blob/main/django/migrations-runsql-noop.md">migrations.RunSQL.noop for reversible SQL migrations</a> 
+ <a href="https://github.com/simonw/til/blob/main/datasette/datasette-on-replit.md">Running Datasette on Replit</a> 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:38 &bull;
+   14 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -1417,7 +1683,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    04:50 &bull;
-   an hour ago
+   2 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1486,7 +1752,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    01:12 &bull;
-   5 hours ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1556,7 +1822,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    18:55 &bull;
-   11 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1624,7 +1890,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    18:01 &bull;
-   12 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1726,7 +1992,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    15:06 &bull;
-   15 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -8073,7 +8339,7 @@ public async Task&lt;IActionResult&gt; GetAsync()
 
 <div class='item-footer'>
    18:40 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8141,7 +8407,7 @@ public async Task&lt;IActionResult&gt; GetAsync()
 
 <div class='item-footer'>
    18:22 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8673,7 +8939,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    18:01 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14782,72 +15048,6 @@ as markdown from blog_blogmark;
 
 <div class='item-footer'>
    16:44 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Mar/17/logpaste/#atom-everything'>logpaste</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   logpaste 
- Useful example of how to use the Litestream SQLite replication tool in a Dockerized application: S3 credentials are passed to the container on startup, it then attempts to restore the SQLite database from S3 and starts a Litestream process in the same container to periodically synchronize changes back up to the S3 bucket. 
-
-     Via @deliberatecoder 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://github.com/mtlynch/logpaste/tree/fe53779aef25cdc9dfaabd9404ff801951730ddb">logpaste</a></p>
-<p>Useful example of how to use the Litestream SQLite replication tool in a Dockerized application: S3 credentials are passed to the container on startup, it then attempts to restore the SQLite database from S3 and starts a Litestream process in the same container to periodically synchronize changes back up to the S3 bucket.</p>
-
-    <p>Via <a href="https://twitter.com/deliberatecoder/status/1371993772549103621">@deliberatecoder</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:48 &bull;
    2 months ago
 </div>
 
@@ -25279,7 +25479,7 @@ The post 季節のご挨拶〜J. S. バッハ: 羊は安らかに草を食み（
 
 <div class='item-footer'>
    06:21 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
