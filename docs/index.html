@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 10:50 AM May 10, 2021 (UTC)</sup>
+<sup>Last Update 3:52 PM May 10, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -729,6 +729,196 @@
  <h2 class='new-date'>
   Monday, 10. May 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2021/May/10/django-sql-dashboard/#atom-everything'>Django SQL Dashboard</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I've released the first non-alpha version of Django SQL Dashboard, which provides an interface for running arbitrary read-only SQL queries directly against a PostgreSQL database, protected by the Django authentication scheme. It can also be used to create saved dashboards that can be published or shared internally. 
+ I started building this tool back in March as part of my work to port VaccinateCA
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2021/blog_tags_1.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I've released the first non-alpha version of <a href="https://github.com/simonw/django-sql-dashboard">Django SQL Dashboard</a>, which provides an interface for running arbitrary read-only SQL queries directly against a PostgreSQL database, protected by the Django authentication scheme. It can also be used to create saved dashboards that can be published or shared internally.</p>
+<p>I started building this tool <a href="https://simonwillison.net/2021/Mar/14/weeknotes/">back in March</a> as part of my work to port VaccinateCA away from Airtable <a href="https://simonwillison.net/2021/Apr/12/porting-vaccinateca-to-django/">to a custom Django backend</a>. One of the  strengths of Airtable is that it allows ad-hoc data exploration and reporting, and I wanted to provide an alternative to that for the new Django backend.</p>
+<p>I also wanted to try out some new ideas for <a href="https://datasette.io/">Datasette</a>, which doesn't (yet) work with PostgreSQL.</p>
+ First, a demo 
+<p>I recorded this three minute video demo introducing the software, using my blog's database as an example.</p>
+
+
+
+<p>In the video I run the following SQL queries to explore the many-to-many table that maps tags to my blog entries:</p>
+  select * from blog_entry_tags;  
+<p>The table starts out looking like this - not particularly interesting:</p>
+<p></p>
+<p>Then I run this query to join it against the <code>blog_tag</code> table and get the details of each tag:</p>
+  select * from blog_entry_tags
+join blog_tag on blog_tag.id = blog_entry_tags.tag_id  
+<p></p>
+<p>This is a bit more useful. I then click on the "count" link at the top of that "tag" column. This constructs a SQL query for me that uses a <code>count(*)</code> and <code>group by</code> to return a count of each value in that column:</p>
+  select "tag", count(*) as n from (
+  select * from blog_entry_tags
+  join blog_tag on blog_tag.id = blog_entry_tags.tag_id
+) as results group by "tag" order by n desc  
+<p></p>
+<p>Finally, I demonstrate some of the default widget visualizations that come with Django SQL Dashboard. If I rewrite the query to return columns called <code>bar_label</code> and <code>bar_quantity</code> the tool will render the results as a bar chart:</p>
+  select "tag" as bar_label, count(*) as bar_quantity from (
+  select * from blog_entry_tags
+  join blog_tag on blog_tag.id = blog_entry_tags.tag_id
+) as results
+group by "tag" order by bar_quantity desc  
+<p></p>
+<p>Next, I demonstrate a similar trick that instead produces a word cloud by aliasing the columns to <code>wordcloud_word</code> and <code>wordcloud_count</code>:</p>
+  select "tag" as wordcloud_word, count(*) as wordcloud_count from (
+  select * from blog_entry_tags
+  join blog_tag on blog_tag.id = blog_entry_tags.tag_id
+) as results
+group by "tag" order by wordcloud_count desc  
+<p></p>
+<p>Finally, I show how that query can be turned into a saved dashboard and made available to the public. Here's the saved dashboard I created in the video:</p>
+<p><a href="https://simonwillison.net/dashboard/tag-cloud/">https://simonwillison.net/dashboard/tag-cloud/</a></p>
+<p>This illustrates a key idea underlying both Django SQL dashboard and Datasette: a complete application can be defined as a SQL query!</p>
+<p>Much of the work we do as web application developers can be boiled down to constructing a SQL query and hooking it up to output to a web page. If you can safely execute SQL queries from page query strings this means you can build custom applications that exist entirely as bookmarkable URLs.</p>
+<p>My <a href="https://simonwillison.net/2021/Jan/24/drawing-shapes-spatialite/">draw-a-shape-on-a-map application</a> for searching mini parks in California from a few months ago is another example of this pattern in action.</p>
+ Custom widgets 
+<p>Building new custom widgets for this tool is _extremely_easy - hence the word cloud example which I built for this demo. All you need to provide is a single Django template file.</p>
+<p>If your widget is going to respond to returned columns <code>wordcloud_word</code> and <code>wordcloud_count</code> the name of that template is those columns, sorted alphabetically and joined with hyphens:</p>
+<p><code>wordcloud_count-wordcloud_word.html</code></p>
+<p>Place that in a <code>django_sql_dashboard/widgets</code> template directory and the new widget will be ready to use. Here's the <a href="https://github.com/simonw/django-sql-dashboard/blob/0.13/django_sql_dashboard/templates/django_sql_dashboard/widgets/wordcloud_count-wordcloud_word.html">full implementation</a> of the word cloud widget.</p>
+ Named parameter support 
+<p>This is a feature I lifted <a href="https://docs.datasette.io/en/stable/sql_queries.html#named-parameters">directly from Datasette</a>. You can construct SQL queries that look like this:</p>
+  select * from blog_entry where id = %(id)s  
+<p>This uses psycopg2 syntax for named parameters. The value will be correctly quoted and escaped, so this is a useful tool for avoiding SQL injection attacks.</p>
+<p>Djang SQL Dashboard spots these parameters and turns them into form fields. Here's what that looks like in the interface:</p>
+<p></p>
+<p>These forms submit using GET, so the result can be bookmarked. Here's a saved dashboard you can use to retrieve the details of any of my blog entries by their numeric ID:</p>
+<p><a href="https://simonwillison.net/dashboard/blog-entry-by-id/?id=7991">https://simonwillison.net/dashboard/blog-entry-by-id/?id=7991</a></p>
+<p>You can include multiple SQL parameters on a single dashboard, and any form parameters will be made available to all of those queries.</p>
+<p>This means you can build dashboards that run multiple queries against the same arguments. Imagine for example you want to build a report about a specific user's activity across multiple tables - you can accept their user ID as a parameter, then display the output of multiple queries (including custom visualizations) that each refer to that parameter.</p>
+ Export through copy and paste 
+<p>I love copy and paste as a mechanism for exporting data from a system. Django SQL Dashboard embraces this in a couple of ways:</p>
+ 
+ Results from SQL queries can be copied out as TSV from an expandable textarea below the table - up to 1,000 rows. I like this format because you can paste it directly into Google Sheets or Excel to get the data correctly split into cells. 
+ Any time JSON is returned as a value from PostgreSQL, a "copy to clipboard" icon is shown next to the JSON. I use this a lot: both for JSON stored in PostgreSQL as well as the output from <a href="https://www.postgresql.org/docs/13/functions-aggregate.html">JSON aggregation functions</a>. 
+ 
+ Export all query results as CSV/TSV 
+<p>This comes up a lot at Vaccinate CA: we do a lot of data analysis where we need to work with other tools or send data to partners, and having a way to export the full set of results for a query (rather than truncating at the first thousand to avoid crashing the user's browser) was a frequent need. - Django SQL Dashboard provides this option using a combination of Django's <a href="https://docs.djangoproject.com/en/3.2/ref/request-response/#django.http.StreamingHttpResponse">streaming HTTP response</a> mechanism and PostgreSQL <a href="https://www.psycopg.org/docs/usage.html#server-side-cursors">server-side cursors</a> to efficiently stream large amounts of data without running out of resources.</p>
+ A complex example: searching code examples across my blog 
+<p>I decided to see how far I could push PostgreSQL.</p>
+<p>I often include code in my blog entries - examples that are wrapped in a <code>&lt;pre&gt;</code> tag. Within that tag I sometimes apply syntax highlighting (a bunch of <code>&lt;span&gt;</code> elements).</p>
+<p>It turns out I've included code snippets in 134 different blog entries:</p>
+  select count(*) from blog_entry where body ~ '&lt;pre&gt;.*&lt;pre&gt;'  
+<p>Can I use regular expressions in PostgreSQL to extract just the code examples, clean them up (removing those spans, reversing HTML entity encoding) and then provide simple search across the text of those examples, all in one query?</p>
+<p>It turns out I can!</p>
+<p>Here's a saved dashboard you can use to execute searches against just the contents of those <code>&lt;pre&gt;</code> tags across every entry on my blog:</p>
+<p><a href="https://simonwillison.net/dashboard/code-examples/?search=select">https://simonwillison.net/dashboard/code-examples/?search=select</a></p>
+  with results_stripped as (
+  select id, title,
+    replace(replace(replace(replace(replace(regexp_replace(
+      (regexp_matches(body, '&lt;pre&gt;(.*?)&lt;/pre&gt;', 'g'))[1],
+        E'&lt;[^&gt;]+&gt;', '', 'gi'
+      ), '&amp;quot' || chr(59), '"'), '&amp;gt' || chr(59), '&gt;'), '&amp;lt' || chr(59), '&lt;'), '&amp;#039' || chr(59), chr(39)), '&amp;amp' || chr(59), '&amp;'
+    ) as code
+  from
+    blog_entry
+  where
+    body ~ '&lt;pre&gt;.*&lt;pre&gt;'
+)
+select id, title, code, 'https://simonwillison.net/e/' || id as link from results_stripped
+where code like '%%' || %(search)s || '%%' limit 10  
+<p>There's a lot going on here. The key component is this bit:</p>
+ <code>regexp_matches(body, '&lt;pre&gt;(.*?)&lt;/pre&gt;', 'g'))[1]
+</code> 
+<p>The <a href="https://www.postgresql.org/docs/13/functions-matching.html#FUNCTIONS-POSIX-REGEXP">regexp_matches() function</a>, with the <code>'g'</code> flag, returns every match for the given regular expression. As part of a larger <code>select</code> query this means that if the expression matches three times you'll get back three rows in the output (in this case with duplicate <code>id</code> and <code>title</code> columns) - which is what I want here.</p>
+<p>It's wrapped in a terrifying nest of extra functions. These serve two purposes: they strip out any nested HTML tags, and the un-escape the <code>&amp;quot;</code>, <code>&amp;lt;</code>, <code>&amp;gt;</code>, <code>&amp;amp;</code> and <code>&amp;#039;</code> HTML entities. I did this as a nested block of <code>replace()</code> functions - there's probably a neater solution here.</p>
+<p>The <code>chr(59)</code> bits are a hack: Django SQL Dashboard disallows the <code>;</code> character to ensure people can't execute multiple SQL queries - which could be used to work around some of the per-transaction protective settings applied by the tool.</p>
+<p>But I need to search-and-replace <code>&amp;quot;</code> - so I use this pattern to include the semicolon:</p>
+ <code>replace(text, '&amp;quot' || chr(59), '"')
+</code> 
+<p>Where <code>||</code> is the PostgreSQL string concatenation operator.</p>
+<p>The search itself is constructed like this:</p>
+ <code>where code like '%%' || %(search)s || '%%'
+</code> 
+<p>This constructs a like query against <code>'%your-search-term%'</code> - the double percentage sign escaping is needed because <code>%</code> has a special meaning here (it's part of the <code>%(search)s</code> named parameter).</p>
+<p>One last trick: the final output of the query is produced by this:</p>
+  select id, title, code, 'https://simonwillison.net/e/' || id as link from results_stripped  
+<p><code>results_stripped</code> is a <a href="https://www.postgresql.org/docs/13/queries-with.html">CTE</a> defined earlier - I usually try to wrap up complex weird stuff like those nested <code>replace()</code> calls in a CTE so I can write a simple final query.</p>
+<p>The <code>'https://simonwillison.net/e/' || id as link</code> bit here concatenates together a URL that links to my entry based on its ID. My blog uses <code>/yyyy/Mon/slug/</code> URLs but generating these from a SQL query against the <code>created</code> column was a little fussy, so I <a href="https://github.com/simonw/simonwillisonblog/commit/771878920bbcf46eee3f34d22b2dc35340da07f9">added /e/ID redirecting URLs</a> to make generating links in dashboard queries easier.</p>
+ Future plans 
+<p>Django SQL Dashboard has already proved itself invaluable for my current project. I imagine I'll be using it for every Django project I build going forward - being able to query the database like this, create ad-hoc visualizations and then link to them is a huge productivity boost.</p>
+<p>The bigger question is how it overlaps with <a href="https://datasette.io/">Datasette</a>.</p>
+<p>Datasette has been SQLite-only since I started the project three and a half years ago - because I know that building a database abstraction layer is a huge additional commitment and, for Datasette's initial purpose of helping publish read-only data, it didn't feel necessary.</p>
+<p>I have a growing suspicion that getting Datasette to work against PostgreSQL (and other database backends) in addition to SQLite is less work than I had originally thought.</p>
+<p>Datasette is also built on top of ASGI. Django 3.0 <a href="https://docs.djangoproject.com/en/3.2/releases/3.0/#asgi-support">introduced ASGI support</a>, so it's now possible to host ASGI applications like Datasette as part of a unified Django application.</p>
+<p>So it's possible that the future of Django SQL Dashboard will be for Datasette to eventually make it obsolete.</p>
+<p>That doesn't stop it from being extremely useful today. If you try it out I'd love to hear from you! I'm also keen to see people start to expand it for their own projects, especially via the <a href="https://django-sql-dashboard.datasette.io/en/latest/widgets.html#custom-widgets">custom widgets</a> mechanism.</p>
+<p>Let me know if you try it out!</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2021/blog_tags_1.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:39 &bull;
+   16 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -1715,7 +1905,7 @@ public class DriverLicenseClaimsDto
 
 <div class='item-footer'>
    05:04 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1788,7 +1978,7 @@ public class DriverLicenseClaimsDto
 
 <div class='item-footer'>
    00:17 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1869,7 +2059,7 @@ public class DriverLicenseClaimsDto
 
 <div class='item-footer'>
    00:15 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1945,7 +2135,7 @@ public class DriverLicenseClaimsDto
 
 <div class='item-footer'>
    00:14 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2018,7 +2208,7 @@ public class DriverLicenseClaimsDto
 
 <div class='item-footer'>
    00:14 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2314,7 +2504,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    02:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2381,7 +2571,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    01:58 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2450,7 +2640,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    01:53 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2515,7 +2705,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    01:53 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2576,7 +2766,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    01:48 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2641,7 +2831,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    01:46 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2953,7 +3143,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    03:03 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4172,7 +4362,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    03:11 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5208,7 +5398,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    01:12 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5513,7 +5703,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    03:13 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5583,7 +5773,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    03:10 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5653,7 +5843,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    02:49 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5722,7 +5912,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    02:28 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7242,7 +7432,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    23:52 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7278,7 +7468,7 @@ public class IssuerCredential
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  Michael HermanHyperonomy Digital Identity LabTrusted Digital Web ProjectParallelspace Corporation NOTE: This article supersedes an older version of this article: The Verifiable Economy: Architecture Reference Model (VE-ARM) 0.1: Original Concepts&nbsp;[OLD] 1. Introduction This article takes the following “All-in” graph view of … Continue reading →
+  Michael HermanHyperonomy Digital Identity LabTrusted Digital Web ProjectParallelspace Corporation NOTE: This article supersedes an older version of this article: The Verifiable Economy: Architecture Reference Model (VE-ARM) 0.1: Original Concepts&nbsp;[OLD] 1. Introduction 1.1 Goals The goals of this article are three-fold: … Continue reading →
    
   
   
@@ -7315,11 +7505,27 @@ public class IssuerCredential
 
 
 
-<p>This article takes the following “All-in” graph view of The Verifiable Economy Architecture Reference Model (VE-ARM) and partitions it into a series of subgraphs that depict the key elements of the overall graph. Each subgraph is documented with a narrative that is mapped to the numbered blue targets in each subgraph.</p>
+ 1.1 Goals 
 
 
 
-<a href="https://hyperonomy.files.wordpress.com/2021/04/ve2-fig.0b-1.png"></a>
+<p>The goals of this article are three-fold:</p>
+
+
+
+  Introduce the concept of a Verifiable Capability Authorizations (VCA) and how they can be use to implement controls over which specific methods a particular party is allowed execute against a particular instance of a Fully Decentralized Object (FDO).  Illustrate how <a>#graphitization techniques</a> can be used for visualizing:  Trusted Decentralized Identifiers (DIDs)  DID Documents  Trusted Digital Agents (and their Service Endpoints (SEPs))  Verifiable Credentials (VCs)  Verifiable Capability Authorizations (VCAs) and,   Most importantly, their myriad of interrelationships.    Use the above 2 goals to further detail and describe how to use the VE-ARM model for implementing trusted, reliable, efficient, frictionless, standards-based, global-scale software systems based on Fully Decentralized Objects (FDOs).  
+
+
+
+ 1.2 Purpose 
+
+
+
+<p>This article takes the following “All-in” graph view of The Verifiable Economy Architecture Reference Model (VE-ARM) and partitions it into a series of subgraphs that depict the key elements of the overall architecture reference model for FDOs. Each subgraph is documented with a narrative that is mapped to the numbered blue targets used to identify each element in each subgraph.</p>
+
+
+
+<a href="https://hyperonomy.files.wordpress.com/2021/05/ve2-f0.png"></a>
 
 
 
@@ -7327,19 +7533,31 @@ public class IssuerCredential
 
 
 
-<p>The above visualization is the result of a several design iterations validating The Verifiable Economy Architecture Reference Model (VE-ARM). </p>
+<p>The above visualization is the result of a several iterations validating The Verifiable Economy Architecture Reference Model (VE-ARM) against the following live scenario:</p>
 
 
 
-<p>The goal and purpose of the VE-ARM is to describe a Fully-Decentralized Object Model (FDOM) that unites the following concepts into a single integrated, functional model:</p>
+<blockquote><p>Erin acquiring a personal DID and DID Document to enable Erin to acquire a Province of Sovronia Driver’s License (SDL) (represented as an FDO) and hold the SDL in Erin’s digital wallet.</p><a href="https://hyperonomy.com/2021/03/29/tdw-glossary-self-sovereign-identity-ssi-user-scenarios-erin-buys-a-car-in-sovronia-3-user-scenarios/">T</a><a href="https://hyperonomy.com/2021/03/29/tdw-glossary-self-sovereign-identity-ssi-user-scenarios-erin-buys-a-car-in-sovronia-3-user-scenarios/">DW Glossary: Self-Sovereign Identity (SSI) User Scenarios: Erin Buys a Car in Sovronia (3 User&nbsp;Scenarios)</a></blockquote>
 
 
 
-  Verifiable Identifiers, Decentralized Identifiers (DIDs), and DID Documents;  Verifiable Claims, Relationships, and Verifiable Credentials (VCs); and  Verifiable Capability Proclamations, Verifiable Capability Invocations, and Verifiable Capability Authorizations (VCAs).  
+<p>An Fully Decentralized Object (FDO) is comprised of the following minimal elements:</p>
 
 
 
- 1.2 Background 
+  DID (and correspond DID Document)  Master Verifiable Capability Authorization (MVCA) for the object’s DID and DID Document  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above MVCA for the object (recursively)  A Property Set for the object  Property Set DID (and corresponding DID Document)  Property Set MVCA for the property set’s DID and DID Document  Property Set Verifiable Credential (VC) to hold the object’s properties and their values  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above property set MVCA (recursively)    A Trusted Digital Agent registered with a Service Endpoint (SEP) in the object’s DID Document that implements the controlled methods for accessing and interacting with the object and/or it’s property set. Control over which methods are invokable by a party is controlled by the respective MVCAs and a Delegated Chains of VCAs (if there are any).  
+
+
+
+<p>The goal and purpose of the VE-ARM is to describe a Fully-Decentralized Object (FDO) model that unites the following concepts into a single integrated, operational model:</p>
+
+
+
+  Verifiable Identifiers, Decentralized Identifiers (DIDs), and DID Documents;  Verifiable Claims, Relationships, and Verifiable Credentials (VCs);   Verifiable Capability Proclamations, Verifiable Capability Invocations, and Verifiable Capability Authorizations (VCAs); and  Trusted Digital Agents (TDAs)  
+
+
+
+ 1.3 Background 
 
 
 
@@ -7351,7 +7569,7 @@ public class IssuerCredential
 
 
 
- 1.3 Creation of the Verifiable Economy Architecture Reference Model (VE-ARM)  
+ 1.4 Creation of the Verifiable Economy Architecture Reference Model (VE-ARM)  
 
 
 
@@ -7367,7 +7585,7 @@ public class IssuerCredential
 
 
 
-<p>Each subgraph is described by a narrative that explains the purpose of each element in the subgraph. Each narrative is organized as a list of numbered bullets that further describe to the corresponding numbered blue targets in each subgraph.</p>
+<p>Each subgraph is described by a narrative that explains the purpose of each element in the subgraph. Each narrative is organized as a list of numbered bullets that further describe to the corresponding  numbered blue targets used to identify each element in each subgraph .</p>
 
 
 
@@ -7383,7 +7601,7 @@ public class IssuerCredential
 
 
 
-<a href="https://hyperonomy.files.wordpress.com/2021/04/ve2-fig.0c.png"></a>Figure 4. Table of Subgraphs
+<a href="https://hyperonomy.files.wordpress.com/2021/05/ve2-f0-subgraphs.png"></a>Figure 4. Table of Subgraphs
 
 
 
@@ -7431,15 +7649,15 @@ public class IssuerCredential
 
 
 
-  DID (and correspond DID Document)  Master Verifiable Capability Authorization (MVCA) for the object’s DID and DID Document  Zero or more Verifiable Capability Authorizations (VCAs) derived from the above MVCA for the object  A Property Set  Property Set DID (and corresponding DID Document)  Property Set MVCA for the property set’s DID and DID Document  Property Set Verifiable Credential (VC) to hold the object’s properties and their values  Zero or more Verifiable Capability Authorizations (VCAs) derived from the above property set MVCA    An Agent registered with a Service Endpoint (SEP) in the object’s DID Document that implements the controlled methods for accessing and interacting with the object and/or it’s property set. Control over which methods are invokable by a party is controlled by the respective MVCAs and a Delegated Chains of VCAs (if there are any).  
+  DID (and correspond DID Document)  Master Verifiable Capability Authorization (MVCA) for the object’s DID and DID Document  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above MVCA for the object (recursively)  A Property Set  Property Set DID (and corresponding DID Document)  Property Set MVCA for the property set’s DID and DID Document  Property Set Verifiable Credential (VC) to hold the object’s properties and their values  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above property set MVCA (recursively)    An Trusted Digital Agent registered with a Service Endpoint (SEP) in the object’s DID Document that implements the controlled methods for accessing and interacting with the object and/or it’s property set. Control over which methods are invokable by a party is controlled by the respective MVCAs and a Delegated Chains of VCAs (if there are any).  
 
 
 
- 3.4 Fully Decentralized Object Model (FDOM) 
+ 3.4 Fully Decentralized Object (FDO) Model 
 
 
 
-<p>An decentralized object system based on the concept of FDOs.</p>
+<p>A complete decentralized object system based on the concept of FDOs.</p>
 
 
 
@@ -7563,11 +7781,11 @@ public class IssuerCredential
 
 
 
-<blockquote><p>A resource server that hosts a protected resource owned by a resource owner, a client wishing to access that resource, and an authorization server responsible for generating access tokens. Access tokens are granted to clients authorized by the resource owner: client authorization is proven using an authorization grant. In our system we are using the ‘client credentials’ grant. As it can be seen from Fig. 1, when this type of grant is used, a resource owner configures the authentication server with the credentials of the authorized clients; a client authenticates to the authorization server and receives an access token, then it uses the access token to access the protected resource.</p>From <a href="https://arxiv.org/pdf/2104.11515.pdf">Capability-based access control for multi-tenant systems using OAuth 2.0 and Verifiable Credentials</a></blockquote>
+<blockquote><p>A resource server that hosts a protected resource owned by a resource owner, a client wishing to access that resource, and an authorization server responsible for generating access tokens. Access tokens are granted to clients authorized by the resource owner: client authorization is proven using an authorization grant. In our system we are using the ‘client credentials’ grant. As it can be seen from Fig. 1, when this type of grant is used, a resource owner configures the authentication server with the credentials of the authorized clients; a client authenticates to the authorization server and receives an access token, then it uses the access token to access the protected resource.</p><a href="https://arxiv.org/pdf/2104.11515.pdf">Capability-based access control for multi-tenant systems using OAuth 2.0 and Verifiable Credentials</a></blockquote>
 
 
 
-<p>Although these terms are not currently used in the VE-ARM, the resource server role is assigned to the FDOM Agent specified in the subject’s DID document. The authorization server role is assigned to the actor who is responsible for creating Verifiable Capability Authorizationns (VCAs). In the current example, SOVORONIA hosts the authorization server on behalf of either the Province of Sovronia or Erin.</p>
+<p>Although these terms are not currently used in the VE-ARM, the resource server role is assigned to the FDO AGENT specified in the subject’s DID document. The authorization server role is assigned to the actor who is responsible for creating Verifiable Capability Authorizationns (VCAs). In the current example, SOVORONIA hosts the authorization server on behalf of either the Province of Sovronia or Erin.</p>
 
 
 
@@ -7575,7 +7793,7 @@ public class IssuerCredential
 
 
 
-<blockquote><p>With delegation, a capability holder can transfer his capability to another entity, whereas with attenuation he can confine a capability before delegating it.</p>From <a href="https://arxiv.org/pdf/2104.11515.pdf">Capability-based access control for multi-tenant systems using OAuth 2.0 and Verifiable Credentials</a></blockquote>
+<blockquote><p>With delegation, a capability holder can transfer his capability to another entity, whereas with attenuation he can confine a capability before delegating it.</p><a href="https://arxiv.org/pdf/2104.11515.pdf">Capability-based access control for multi-tenant systems using OAuth 2.0 and Verifiable Credentials</a></blockquote>
 
 
 
@@ -7807,7 +8025,7 @@ public class IssuerCredential
 
 
 
-<a href="https://hyperonomy.files.wordpress.com/2021/05/ve2-f9.png"></a>Figure 10. SOVRONA DID Provider DID Document (DD), DD Master Verifiable Capability Authorization (MVCA) and Erin “Real-World” Neighborhoods 
+<a href="https://hyperonomy.files.wordpress.com/2021/05/ve2-f9-1.png"></a>Figure 10. SOVRONA DID Provider DID Document (DD), DD Master Verifiable Capability Authorization (MVCA) and Erin “Real-World” Neighborhoods 
 
 
 
@@ -7867,7 +8085,7 @@ public class IssuerCredential
 
 
 
-<a href="https://hyperonomy.files.wordpress.com/2021/05/ve2-f10-1.png"></a>Figure 11. Subgraph F10. The Verifiable Economy “All-In” Graph View
+<a href="https://hyperonomy.files.wordpress.com/2021/05/ve2-f10-2.png"></a>Figure 11. Subgraph F10. The Verifiable Economy “All-In” Graph View
 
 
 
@@ -7903,18 +8121,114 @@ public class IssuerCredential
 
 
 
+<p>8. PoS RW Nation State. The Province of Sovronia is a (fictitious) Province (RW_NATIONSTATE (Real-World Nation State)) in Canada and the legal government jurisdiction for the citizens of the province. The Province of Sovronia is an Organization. The Province of Sovronia issues Real-World Sovronia Driver’s Licenses (SDLs) but relies on SOVRONA to issue digital, verifiable SDLs.</p>
+
+
+
+<p>9. PoS D Wallet. PoS D Wallet is a Digital Wallet (PDR (Private Data Registry)) controlled by the Province of Sovronia, an Organization.</p>
+
+
+
+<p>10. PoS DD. PoS DD is the primary DIDDOC (DID Document) for the Province of Sovronia, an Organization. It is issued by SOVRONA who records it on the SOVRONA VDR and it is held in the PoS D Wallet.</p>
+
+
+
+<p>11. DID:SVRN:ORG:0E51593F-99F7-4722-9139-3E564B7B8D2B#fdom1. DID:SVRN:ORG:0E51593F-99F7-4722-9139-3E564B7B8D2B#fdom1 is the identifier for the primary AGENT for the Province of Sovronia, an Organization.</p>
+
+
+
+<p>12. <a href="http://services.sovrona.com/agent">http://services.sovrona.com/agent</a>. <a href="http://services.sovrona.com/agent">http://services.sovrona.com/agent</a> is the primary SEP (Service Endpoint) for accessing the AGENT(s) associated with the DID(s) and DID Document(s) issued by SOVRONA, an Organization.</p>
+
+
+
+<p>13. PoS DD MVCA. PoS DD MVCA is the Master Verifiable Capability Authorization (MVCA) created for the Province of Sovronia’s DID Document (DD) at the time that the DID and DID Document were first issued by SOVRONA on behalf of itself for the Procince of Sovronia. (A new MVCA is created whenever a new DID and DID Document are issued by a DID Provider. The MVCA grants authorization for any and all methods to the Province of Sovronia.) </p>
+
+
+
+<p>14. Erin SDL DD. Erin SDL DD is the primary DIDDOC (DID Document) for Erin’s digital, verifiable SDL. </p>
+
+
+
+<p>15. Erin SDL MVCA. Erin SDL MVCA is the Master Verifiable Capability Authorization (MVCA) created for Erin’s SDL (DD) at the time that the DID and DID Document were first issued by SOVRONA on behalf of the Province of Sovronia for Erin’s SDL. (A new MVCA is created whenever a new DID and DID Document are issued by a DID Provider. The MVCA grants authorization for any and all methods defined for the subject to the effective issuer. In this case, the effective issuer is the Province of Sovronia.)</p>
+
+
+
+<p>16. Erin SDL Prop Set DD. Erin SDL Prop Set DD is the primary DIDDOC (DID Document) for the Verified Credential (VC) that is used to represent the properties of Erin’s digital, verifiable SDL (and their values). The properties (and their values) are represented in Erin SDL Prop Set, a Verifiable Credential associated with the DID in Erin SDL Prop Set DD.</p>
+
+
+
+<p>17. Erin SDL Prop Set MVCA. Erin SDL Prop Set MVCA is the Master Verifiable Capability Authorization (MVCA) created for Erin’s SDL Prop Set (DD) at the time that the DID and DID Document were first issued by SOVRONA on behalf of the Province of Sovronia for Erin’s SDL. (A new MVCA is created whenever a new DID and DID Document are issued by a DID Provider. The MVCA grants authorization for any and all methods defined for the subject to the effective issuer. In this case, the effective issuer is the Province of Sovronia.)</p>
+
+
+
+<p>18. Erin SDL VCA. Erin SDL VCA is the Verifiable Capability Authorization (VCA) created for Erin’s SDL Prop Set DD. The VCA was issued by the Province of Sovronia authorizing Erin to be able to present the properties (and their values) of Erin’s SDL to a third party using the Present method associated with Erin’s SDL Prop Set and supported (implemented) by Erin’s AGENT. The parent of Erin’s SDL VCA is the Erin SDL MVCA.</p>
+
+
+
+<p>19. Erin SDL VCA MI. Erin SDL VCA MI is an example of a MVCA Method Invocation (VCA MI) that uses the Erin SCL VCA which authorizes the potential execution of the Present method by Erin against Erin’s SDL Prop Set.</p>
+
+
+
+<p>20. Erin SDL Prop Set VC. Erin SDL Prop Set VC is the Verified Credential (VC) that is used to represent the properties of Erin’s digital, verifiable SDL (and their values). The properties (and their values) are represented in Erin SDL Prop Set VC, a Verifiable Credential associated with the DID in Erin SDL Prop Set DD. </p>
+
+
+
+<p>21. DID:SVRN:VC:0B114A04-2559-4C68-AE43-B7004646BD76#fdom1. DID:SVRN:VC:0B114A04-2559-4C68-AE43-B7004646BD76#fdom1 is the identifier for the primary AGENT for Erin SDL Property Set DD. </p>
+
+
+
+<p>22. Erin RW Wallet. Erin RW Wallet is a RW_WALLET (Real-World (Leather) Wallet) and it is used to hold Erin’s Real-World Sovronia Driver’s License (Erin RW SDL). Erin RW Wallet is owned and controlled by Erin.</p>
+
+
+
+<p>23. Erin RW SDL. Erin RW SDL is Erin’s RW_SDL (Real-World Sovronia Driver’s License) and it is held by Erin in Erin’s RW Wallet.</p>
+
+
+
+<p>24. SOVRONA Organization. SOVRONA is an Organization and the primary Real-World DID Provider (RW_DIDPROVIDER) for the citizens and government of Sovronia, a fictitious province in Canada. SOVRONA controls a Digital Wallet (PDR (Personal Data Registry)), SOVRONA D Wallet, as well as the SOVRONA Verifiable Data Registry (VDR).</p>
+
+
+
+<p>25. SOVRONA D Wallet. SOVRONA D Wallet is a Digital Wallet (PDR (Private Data Registry)) that is controlled by SOVRONA, an Organization.</p>
+
+
+
+<p>26. SOVRONA DD. SOVRONA DD is the primary DIDDOC (DID Document) for SOVRONA, an Organization.</p>
+
+
+
+<p>27. DID:SVRN:ORG:01E9CFEA-E36D-4111-AB68-D99AE9D86D51#fdom1. DID:SVRN:ORG:01E9CFEA-E36D-4111-AB68-D99AE9D86D51#fdom1 is the identifier for the primary AGENT for SOVRONA, an Organization.</p>
+
+
+
+<p>28. SOVRONA DD MVCA. SOVRONA DD MVCA is the Master Verifiable Capability Authorization (MVCA) created for SOVRONA’s DID Document (DD) at the time that the DID and DID Document were first issued by SOVRONA on behalf of itself for SOVRONA’s DD. (A new MVCA is created whenever a new DID and DID Document are issued by a DID Provider. The MVCA grants authorization for any and all methods defined for the subject to the effective issuer. In this case, the effective issuer is SOVRONA, the Organization.)</p>
+
+
+
+<p>29. DID:SVRN:LICENSE:999902-638#fdom1. DID:SVRN:LICENSE:999902-638#fdom1 is the identifier for the primary AGENT for Erin SDL DD. </p>
+
+
+
  12. Conclusions 
 
 
 
-<p> This article described The Verifiable Economy Architecture Reference Model (VE-ARM) using a graph that is partitioned into a series of subgraphs that depict the key elements of the architecture reference model. Each subgraph was documented with a narrative that is mapped to the numbered blue targets in each subgraph. </p>
+<p>The goals of this article are three-fold:</p>
+
+
+
+  Introduce the concept of a Verifiable Capability Authorizations (VCA) and how they can be use to implement controls over which specific methods a particular party is allowed execute against a particular instance of a Fully Decentralized Object (FDO).  Illustrate how <a>#graphitization techniques</a> can be used for visualizing:  Trusted Decentralized Identifiers (DIDs)  DID Documents  Trusted Digital Agents (and their Service Endpoints (SEPs))  Verifiable Credentials (VCs)  Verifiable Capability Authorizations (VCAs) and,   Most importantly, their myriad of interrelationships.    Use the above 2 goals to further detail and describe how to use the VE-ARM model for implementing trusted, reliable, efficient, frictionless, standards-based, global-scale software systems based on Fully Decentralized Objects (FDOs).  
+
+
+
+<p>This article described The Verifiable Economy Architecture Reference Model (VE-ARM) using a #graphiziation approach for visualization.  The resulting overall graph was partitioned into a series of subgraphs that depict the key elements of the architecture reference model. Each subgraph was documented with a narrative that is mapped to the numbered blue targets used to identify each element in each subgraph . </p>
    
   
   
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://hyperonomy.files.wordpress.com/2021/04/ve2-fig.0b-1.png?w=1024'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://hyperonomy.files.wordpress.com/2021/05/ve2-f0.png?w=1024'>
       </div>
     
   
@@ -8500,7 +8814,7 @@ public async Task&lt;List&lt;string&gt;&gt; GetMyData()
 
 <div class='item-footer'>
    01:02 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11181,7 +11495,7 @@ public async Task&lt;IActionResult&gt; GetAsync()
 
 <div class='item-footer'>
    00:15 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12238,7 +12552,7 @@ public async Task&lt;IActionResult&gt; GetAsync()
 
 <div class='item-footer'>
    03:38 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12510,7 +12824,7 @@ public async Task&lt;IActionResult&gt; GetAsync()
 
 <div class='item-footer'>
    23:21 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17038,72 +17352,6 @@ devaluing or dismissing the people who have suffered them.</p>
 
 <div class='item-footer'>
    01:33 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Mar/23/a-complete-guide-to-accessible-front-end-components/#atom-everything'>A Complete Guide To Accessible Front-End Components</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   A Complete Guide To Accessible Front-End Components 
- I'm so excited about this article: it brings together an absolute wealth of resources on accessible front-end components, including many existing component implementations that are accessible out of the box. Date pickers, autocomplete widgets, modals, menus - all sorts of things that I've been dragging my heels on implementing because I didn't 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.smashingmagazine.com/2021/03/complete-guide-accessible-front-end-components/">A Complete Guide To Accessible Front-End Components</a></p>
-<p>I'm so excited about this article: it brings together an absolute wealth of resources on accessible front-end components, including many existing component implementations that are accessible out of the box. Date pickers, autocomplete widgets, modals, menus - all sorts of things that I've been dragging my heels on implementing because I didn't fully understand their accessibility implications.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:06 &bull;
    2 months ago
 </div>
 
