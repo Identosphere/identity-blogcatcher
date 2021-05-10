@@ -716,12 +716,1011 @@
 
 </div>
 </div>
-<sup>Last Update 1:49 AM May 10, 2021 (UTC)</sup>
+<sup>Last Update 5:49 AM May 10, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 10. May 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/'>Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how use verifiable credentials stored on a digital wallet to verify a digital identity and use in an application. For this to work, a trust needs to exist between the verifiable credential issuer and the application which requires the verifiable credentials to verify. A blockchain decentralized database is used and MATTR is […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how use verifiable credentials stored on a digital wallet to verify a digital identity and use in an application. For this to work, a trust needs to exist between the verifiable credential issuer and the application which requires the verifiable credentials to verify. A blockchain decentralized database is used and MATTR is used as a access layer to this ledger and blockchain. The applications are implemented in ASP.NET Core.</p>
+
+
+
+<p>The verifier application Bo Insurance is used to implement the verification process and to create a presentation template. The application sends a HTTP post request to create a presentation request using the DID Id from the OIDC credential Issuer, created in the previous article. This DID is created from the National Driving license application which issues verifiable credentials and so a trust needs to exist between the two applications. Once the credentials have been issued to a holder of the verifiable credentials and stored for example in a digital wallet, the issuer is no longer involved in the process. Verifying the credentials only requires the holder and the verifier and the decentralized database which holds the digital identities and documents. The verifier application gets the DID from the ledger and signs the verify request. The request can then be presented as a QR Code. The holder can scan this using a MATTR digital wallet and grant consent to share the credentials with the application. The digital wallet calls the callback API defined in the request presentation body and sends the data to the API. The verifier application hosting the API would need to verify the data and can update the application UI using SignalR to continue the business process with the verified credentials.</p>
+
+
+
+<p>Code <a href="https://github.com/swiss-ssi-group/MattrGlobalAspNetCore">https://github.com/swiss-ssi-group/MattrGlobalAspNetCore</a></p>
+
+
+
+<p>Blogs in the series</p>
+
+
+
+  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  <a href="https://damienbod.com/2021/05/03/create-an-oidc-credential-issuer-with-mattr-and-asp-net-core/">Create an OIDC credential Issuer with MATTR and ASP.NET Core</a>  Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR  
+
+
+
+<p></p>
+
+
+
+<p>Create the presentation template for the Verifiable Credential</p>
+
+
+
+<p>A presentation template is required to verify the issued verifiable credentials stored on a digital wallet.</p>
+
+
+
+<p>The digital identity (DID) Id of the OIDC credential issuer is all that is required to create a presentation request template.  In the application which issues credentials, ie the NationalDrivingLicense, a Razor page was created to view the DID of the OIDC credential issuer.</p>
+
+
+
+
+
+
+
+<p>The DID can be used to create the presentation template. The MATTR documentation is really good here:</p>
+
+
+
+<p><a href="https://learn.mattr.global/tutorials/verify/presentation-request-template">https://learn.mattr.global/tutorials/verify/presentation-request-template</a></p>
+
+
+
+<p>A Razor page was created to start this task from the UI. This would normally require authentication as this is an administrator task from the application requesting the verified credentials. The code behind the Razor page takes the DID request parameter and calls the MattrPresentationTemplateService to create the presentation template and present this id a database.</p>
+
+
+  public class CreatePresentationTemplateModel : PageModel
+{
+	private readonly MattrPresentationTemplateService _mattrVerifyService;
+	public bool CreatingPresentationTemplate { get; set; } = true;
+	public string TemplateId { get; set; }
+
+	[BindProperty]
+	public PresentationTemplate PresentationTemplate { get; set; }
+	public CreatePresentationTemplateModel(MattrPresentationTemplateService mattrVerifyService)
+	{
+		_mattrVerifyService = mattrVerifyService;
+	}
+	public void OnGet()
+	{
+		PresentationTemplate = new PresentationTemplate();
+	}
+
+	public async Task&lt;IActionResult&gt; OnPostAsync()
+	{
+		if (!ModelState.IsValid)
+		{
+			return Page();
+		}
+
+		TemplateId = await _mattrVerifyService.CreatePresentationTemplateId(PresentationTemplate.DidId);
+		CreatingPresentationTemplate = false;
+		return Page();
+	}
+}
+
+public class PresentationTemplate
+{
+	[Required]
+	public string DidId { get; set; }
+}
+  
+
+
+<p>The Razor page html template creates a form to post the request to the server rendered page and displays the templateId after, if the creation was successful.</p>
+
+
+  @page
+@model BoInsurance.Pages.CreatePresentationTemplateModel
+
+&lt;div class="container-fluid"&gt;
+    &lt;div class="row"&gt;
+        &lt;div class="col-sm"&gt;
+            &lt;form method="post"&gt;
+                &lt;div&gt;
+                    &lt;div class="form-group"&gt;
+                        &lt;label class="control-label"&gt;DID ID&lt;/label&gt;
+                        &lt;input asp-for="PresentationTemplate.DidId" class="form-control" /&gt;
+                        &lt;span asp-validation-for="PresentationTemplate.DidId" class="text-danger"&gt;&lt;/span&gt;
+                    &lt;/div&gt;
+                    &lt;div class="form-group"&gt;
+                        @if (Model.CreatingPresentationTemplate)
+                        {
+                            &lt;input class="form-control"
+                                   type="submit" readonly="@Model.CreatingPresentationTemplate"
+                                   value="Create Presentation Template" /&gt;
+                        }
+
+                    &lt;/div&gt;
+                    &lt;div class="form-group"&gt;
+                        @if (!Model.CreatingPresentationTemplate)
+                        {
+                            &lt;div class="alert alert-success"&gt;
+                                &lt;strong&gt;Mattr Presentation Template created&lt;/strong&gt;
+                            &lt;/div&gt;
+                        }
+
+                        
+                    &lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/form&gt;
+            &lt;hr /&gt;
+            &lt;p&gt;When the templateId is created, you can use the template ID to verify&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div class="col-sm"&gt;
+            &lt;div&gt;
+                &lt;img src="~/ndl_car_01.png" width="200" alt="Driver License"&gt;
+                &lt;div&gt;
+                    &lt;b&gt;Driver Licence templateId from presentation template&lt;/b&gt;
+                    &lt;hr /&gt;
+                    &lt;dl class="row"&gt;
+                        &lt;dt class="col-sm-4"&gt;templateId&lt;/dt&gt;
+                        &lt;dd class="col-sm-8"&gt;
+                            @Model.TemplateId
+                        &lt;/dd&gt;
+                    &lt;/dl&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/div&gt;
+
+
+  
+
+
+<p>The MattrPresentationTemplateService is used to create the MATTR presentation template. This class uses the MATTR API and sends a HTTP post request with the DID Id of the OIDC credential issuer and creates a presentation template. The service saves the returned payload to a database and returns the template ID as the result. The template ID is required to verify the verifiable credentials.</p>
+
+
+
+<p>The MattrTokenApiService is used to request an API token for the MATTR API using the credential of your MATTR account. This service has a simple token cache and only requests new access tokens when no token exists or the token has expired.</p>
+
+
+
+<p>The BoInsuranceDbService service is used to access the SQL database using Entity Framework Core. This provides simple methods to persist or select the data as required. </p>
+
+
+  private readonly IHttpClientFactory _clientFactory;
+private readonly MattrTokenApiService _mattrTokenApiService;
+private readonly BoInsuranceDbService _boInsuranceDbService;
+private readonly MattrConfiguration _mattrConfiguration;
+
+public MattrPresentationTemplateService(IHttpClientFactory clientFactory,
+	IOptions&lt;MattrConfiguration&gt; mattrConfiguration,
+	MattrTokenApiService mattrTokenApiService,
+	BoInsuranceDbService boInsuranceDbService)
+{
+	_clientFactory = clientFactory;
+	_mattrTokenApiService = mattrTokenApiService;
+	_boInsuranceDbService = boInsuranceDbService;
+	_mattrConfiguration = mattrConfiguration.Value;
+}
+
+public async Task&lt;string&gt; CreatePresentationTemplateId(string didId)
+{
+	// create a new one
+	var v1PresentationTemplateResponse = await CreateMattrPresentationTemplate(didId);
+
+	// save to db
+	var drivingLicensePresentationTemplate = new DrivingLicensePresentationTemplate
+	{
+		DidId = didId,
+		TemplateId = v1PresentationTemplateResponse.Id,
+		MattrPresentationTemplateReponse = JsonConvert
+			.SerializeObject(v1PresentationTemplateResponse)
+	};
+	await _boInsuranceDbService
+		.CreateDriverLicensePresentationTemplate(drivingLicensePresentationTemplate);
+
+	return v1PresentationTemplateResponse.Id;
+}
+
+private async Task&lt;V1_PresentationTemplateResponse&gt; CreateMattrPresentationTemplate(string didId)
+{
+	HttpClient client = _clientFactory.CreateClient();
+	var accessToken = await _mattrTokenApiService.GetApiToken(client, "mattrAccessToken");
+
+	client.DefaultRequestHeaders.Authorization =
+		new AuthenticationHeaderValue("Bearer", accessToken);
+	client.DefaultRequestHeaders.TryAddWithoutValidation("Content-Type", "application/json");
+
+	var v1PresentationTemplateResponse = await CreateMattrPresentationTemplate(client, didId);
+	return v1PresentationTemplateResponse;
+}
+  
+
+
+<p>The CreateMattrPresentationTemplate method sends the HTTP Post request like in the MATTR API documentation. Creating the payload for the HTTP post request using the MATTR Open API definitions is a small bit complicated.  This could be improved with a better Open API definition. In our use case, we just want to create the default template for the OIDC credential issuer and so just require the DID Id.  Most of the other properties are fixed values, see the MATTR API docs for more information.</p>
+
+
+  private async Task&lt;V1_PresentationTemplateResponse&gt; CreateMattrPresentationTemplate(
+	HttpClient client, string didId)
+{
+	// create presentation, post to presentations templates api
+	// https://learn.mattr.global/tutorials/verify/presentation-request-template
+
+	var createPresentationsTemplatesUrl = $"https://{_mattrConfiguration.TenantSubdomain}/v1/presentations/templates";
+
+	var additionalProperties = new Dictionary&lt;string, object&gt;();
+	additionalProperties.Add("type", "QueryByExample");
+	additionalProperties.Add("credentialQuery", new List&lt;CredentialQuery&gt; {
+		new CredentialQuery
+		{
+			Reason = "Please provide your driving license",
+			Required = true,
+			Example = new Example
+			{
+				Context = new List&lt;object&gt;{ "https://schema.org" },
+				Type = "VerifiableCredential",
+				TrustedIssuer = new List&lt;TrustedIssuer2&gt;
+				{
+					new TrustedIssuer2
+					{
+						Required = true,
+						Issuer = didId // DID use to create the oidc
+					}
+				}
+			}
+		}
+	});
+
+	var payload = new MattrOpenApiClient.V1_CreatePresentationTemplate
+	{
+		Domain = _mattrConfiguration.TenantSubdomain,
+		Name = "certificate-presentation",
+		Query = new List&lt;Query&gt;
+		{
+			new Query
+			{
+				AdditionalProperties = additionalProperties
+			}
+		}
+	};
+
+	var payloadJson = JsonConvert.SerializeObject(payload);
+
+	var uri = new Uri(createPresentationsTemplatesUrl);
+
+	using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
+	{
+		var presentationTemplateResponse = await client.PostAsync(uri, content);
+
+		if (presentationTemplateResponse.StatusCode == System.Net.HttpStatusCode.Created)
+		{
+
+			var v1PresentationTemplateResponse = JsonConvert
+					.DeserializeObject&lt;MattrOpenApiClient.V1_PresentationTemplateResponse&gt;(
+					await presentationTemplateResponse.Content.ReadAsStringAsync());
+
+			return v1PresentationTemplateResponse;
+		}
+
+		var error = await presentationTemplateResponse.Content.ReadAsStringAsync();
+
+	}
+
+	throw new Exception("whoops something went wrong");
+}
+  
+
+
+<p>The application can be started and the presentation template can be created. The ID is returned back to the UI for the next step.</p>
+
+
+
+
+
+
+
+<p>Verify the verifiable credentials</p>
+
+
+
+<p>Now that a template exists to request the verifiable data from the holder of the data which is normally stored in a digital wallet, the verifier application can create and start a verification process. A post request is sent to the MATTR APIs which creates a presentation request using a DID ID and the required template. The application can request the DID from the OIDC credential issuer. The request is signed using the correct key from the DID and the request is published in the UI as a QR Code. A digital wallet is used to scan the code and the user of the wallet can grant consent to share the personal data. The wallet sends a HTTP post request to the callback API. This API handles the request, would validate the data and updates the UI using SignalR to move to the next step of the business process using the verified data.</p>
+
+
+
+
+
+
+
+<p>Step 1 Invoke a presentation request</p>
+
+
+
+<p>The InvokePresentationRequest method implements the presentation request. This method requires the DID Id of the OIDC credential issuer which will by used to get the data from the holder of the data. The template ID is also required from the template created above. A challenge is also used to track the verification. The challenge is a random value and is used when the digital wallet calls the API with the verified data. The callback URL is where the data is returned to. This could be unique for every request or anything you want. The payload is created like the docs from the MATTR API defines.  The post request is sent to the MATTR API and a V1_CreatePresentationRequestResponse is returned if all is configured correctly.</p>
+
+
+  private async Task&lt;V1_CreatePresentationRequestResponse&gt; InvokePresentationRequest(
+	HttpClient client,
+	string didId,
+	string templateId,
+	string challenge,
+	string callbackUrl)
+{
+	var createDidUrl = $"https://{_mattrConfiguration.TenantSubdomain}/v1/presentations/requests";
+
+	var payload = new MattrOpenApiClient.V1_CreatePresentationRequestRequest
+	{
+		Did = didId,
+		TemplateId = templateId,
+		Challenge = challenge,
+		CallbackUrl = new Uri(callbackUrl),
+		ExpiresTime = MATTR_EPOCH_EXPIRES_TIME_VERIFIY // Epoch time
+	};
+	var payloadJson = JsonConvert.SerializeObject(payload);
+	var uri = new Uri(createDidUrl);
+
+	using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
+	{
+		var response = await client.PostAsync(uri, content);
+
+		if (response.StatusCode == System.Net.HttpStatusCode.Created)
+		{
+			var v1CreatePresentationRequestResponse = JsonConvert
+				.DeserializeObject&lt;V1_CreatePresentationRequestResponse&gt;(
+					await response.Content.ReadAsStringAsync());
+
+			return v1CreatePresentationRequestResponse;
+		}
+
+		var error = await response.Content.ReadAsStringAsync();
+	}
+
+	return null;
+}
+  
+
+
+<p>Step 2 Get the OIDC Issuer DID</p>
+
+
+
+<p>The RequestDID method uses the MATTR API to get the DID data from the blochchain for the OIDC credential issuer. Only the DID Id is required.</p>
+
+
+  private async Task&lt;V1_GetDidResponse&gt; RequestDID(string didId, HttpClient client)
+{
+	var requestUrl = $"https://{_mattrConfiguration.TenantSubdomain}/core/v1/dids/{didId}";
+	var uri = new Uri(requestUrl);
+
+	var didResponse = await client.GetAsync(uri);
+
+	if (didResponse.StatusCode == System.Net.HttpStatusCode.OK)
+	{
+		var v1CreateDidResponse = JsonConvert.DeserializeObject&lt;V1_GetDidResponse&gt;(
+				await didResponse.Content.ReadAsStringAsync());
+
+		return v1CreateDidResponse;
+	}
+
+	var error = await didResponse.Content.ReadAsStringAsync();
+	return null;
+}
+  
+
+
+<p>Step 3 Sign the request using correct key and display QR Code</p>
+
+
+
+<p>To verify data using a digital wallet, the payload must be signed using the correct key. The SignAndEncodePresentationRequestBody uses the DID payload and the request from the presentation request to create the payload to sign. Creating the payload is a big messy due to the OpenAPI definitions created for the MATTR API. A HTTP post request with the payload returns the signed JWT in a payload in a strange data format so we parse this as a string and manually get the JWT payload.</p>
+
+
+  private async Task&lt;string&gt; SignAndEncodePresentationRequestBody(
+	HttpClient client,
+	V1_GetDidResponse did,
+	V1_CreatePresentationRequestResponse v1CreatePresentationRequestResponse)
+{
+	var createDidUrl = $"https://{_mattrConfiguration.TenantSubdomain}/v1/messaging/sign";
+
+	object didUrlArray;
+	did.DidDocument.AdditionalProperties.TryGetValue("authentication", out didUrlArray);
+	var didUrl = didUrlArray.ToString().Split("\"")[1];
+	var payload = new MattrOpenApiClient.SignMessageRequest
+	{
+		DidUrl = didUrl,
+		Payload = v1CreatePresentationRequestResponse.Request
+	};
+	var payloadJson = JsonConvert.SerializeObject(payload);
+	var uri = new Uri(createDidUrl);
+
+	using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
+	{
+		var response = await client.PostAsync(uri, content);
+
+		if (response.StatusCode == System.Net.HttpStatusCode.OK)
+		{
+			var result = await response.Content.ReadAsStringAsync();
+			return result;
+		}
+
+		var error = await response.Content.ReadAsStringAsync();
+	}
+
+	return null;
+}
+  
+
+
+<p>The CreateVerifyCallback method uses the presentation request, the get DID and the sign HTTP post requests to create a URL which can be displayed in a UI. The challenge is created using the RNGCryptoServiceProvider class which creates a random string. The access token to access the API is returned from the client credentials OAuth requests or from the in memory cache. The DrivingLicensePresentationVerify class is persisted to a database and the verify URL is returned so that this could be displayed as a QR Code in the UI.</p>
+
+
+  /// &lt;summary&gt;
+/// https://learn.mattr.global/tutorials/verify/using-callback/callback-e-to-e
+/// &lt;/summary&gt;
+/// &lt;param name="callbackBaseUrl"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+public async Task&lt;(string QrCodeUrl, string ChallengeId)&gt; CreateVerifyCallback(string callbackBaseUrl)
+{
+	callbackBaseUrl = callbackBaseUrl.Trim();
+	if (!callbackBaseUrl.EndsWith('/'))
+	{
+		callbackBaseUrl = $"{callbackBaseUrl}/";
+	}
+
+	var callbackUrlFull = $"{callbackBaseUrl}{MATTR_CALLBACK_VERIFY_PATH}";
+	var challenge = GetEncodedRandomString();
+
+	HttpClient client = _clientFactory.CreateClient();
+	var accessToken = await _mattrTokenApiService.GetApiToken(client, "mattrAccessToken");
+
+	client.DefaultRequestHeaders.Authorization =
+		new AuthenticationHeaderValue("Bearer", accessToken);
+	client.DefaultRequestHeaders.TryAddWithoutValidation("Content-Type", "application/json");
+
+	var template = await _boInsuranceDbService.GetLastDriverLicensePrsentationTemplate();
+
+	// Invoke the Presentation Request
+	var invokePresentationResponse = await InvokePresentationRequest(
+		client,
+		template.DidId,
+		template.TemplateId,
+		challenge,
+		callbackUrlFull);
+
+	// Request DID 
+	V1_GetDidResponse did = await RequestDID(template.DidId, client);
+
+	// Sign and Encode the Presentation Request body
+	var signAndEncodePresentationRequestBodyResponse = await SignAndEncodePresentationRequestBody(
+		client, did, invokePresentationResponse);
+
+	// fix strange DTO
+	var jws = signAndEncodePresentationRequestBodyResponse.Replace("\"", "");
+
+	// save to db // TODO add this back once working
+	var drivingLicensePresentationVerify = new DrivingLicensePresentationVerify
+	{
+		DidId = template.DidId,
+		TemplateId = template.TemplateId,
+		CallbackUrl = callbackUrlFull,
+		Challenge = challenge,
+		InvokePresentationResponse = JsonConvert.SerializeObject(invokePresentationResponse),
+		Did = JsonConvert.SerializeObject(did),
+		SignAndEncodePresentationRequestBody = jws
+	};
+	await _boInsuranceDbService.CreateDrivingLicensePresentationVerify(drivingLicensePresentationVerify);
+
+	var qrCodeUrl = $"didcomm://https://{_mattrConfiguration.TenantSubdomain}/?request={jws}";
+
+	return (qrCodeUrl, challenge);
+}
+
+private string GetEncodedRandomString()
+{
+	var base64 = Convert.ToBase64String(GenerateRandomBytes(30));
+	return HtmlEncoder.Default.Encode(base64);
+}
+
+private byte[] GenerateRandomBytes(int length)
+{
+	using var randonNumberGen = new RNGCryptoServiceProvider();
+	var byteArray = new byte[length];
+	randonNumberGen.GetBytes(byteArray);
+	return byteArray;
+}
+  
+
+
+<p>The CreateVerifierDisplayQrCodeModel is the code behind for the Razor page to request a verification and also display the verify QR Code for the digital wallet to scan. The CallbackUrl can be set from the UI so that this is easier for testing. This callback can be any webhook you want or API. To test the application in local development, I used ngrok. The return URL has to match the proxy which tunnels to you PC, once you start. If the API has no public address when debugging, you will not be able to test locally.</p>
+
+
+  public class CreateVerifierDisplayQrCodeModel : PageModel
+{
+	private readonly MattrCredentialVerifyCallbackService _mattrCredentialVerifyCallbackService;
+	public bool CreatingVerifier { get; set; } = true;
+	public string QrCodeUrl { get; set; }
+
+	[BindProperty]
+	public string ChallengeId { get; set; }
+
+	[BindProperty]
+	public CreateVerifierDisplayQrCodeCallbackUrl CallbackUrlDto { get; set; }
+	public CreateVerifierDisplayQrCodeModel(MattrCredentialVerifyCallbackService 
+		mattrCredentialVerifyCallbackService)
+	{
+		_mattrCredentialVerifyCallbackService = mattrCredentialVerifyCallbackService;
+	}
+	public void OnGet()
+	{
+		CallbackUrlDto = new CreateVerifierDisplayQrCodeCallbackUrl();
+		CallbackUrlDto.CallbackUrl = $"https://{HttpContext.Request.Host.Value}";
+	}
+
+	public async Task&lt;IActionResult&gt; OnPostAsync()
+	{
+		if (!ModelState.IsValid)
+		{
+			return Page();
+		}
+
+		var result = await _mattrCredentialVerifyCallbackService
+			.CreateVerifyCallback(CallbackUrlDto.CallbackUrl);
+
+		CreatingVerifier = false;
+
+		QrCodeUrl = result.QrCodeUrl;
+		ChallengeId = result.ChallengeId;
+		return Page();
+	}
+}
+
+public class CreateVerifierDisplayQrCodeCallbackUrl
+{
+	[Required]
+	public string CallbackUrl { get; set; }
+}
+  
+
+
+<p>The html or template part of the Razor page displays the QR Code from a successful post request. You can set any URL for the callback in the form request. This is really just for testing.</p>
+
+
+  @page
+@model BoInsurance.Pages.CreateVerifierDisplayQrCodeModel
+
+&lt;div class="container-fluid"&gt;
+    &lt;div class="row"&gt;
+        &lt;div class="col-sm"&gt;
+            &lt;form method="post"&gt;
+                &lt;div&gt;
+                    &lt;div class="form-group"&gt;
+                        &lt;label class="control-label"&gt;Callback base URL (ngrok in debug...)&lt;/label&gt;
+                        &lt;input asp-for="CallbackUrlDto.CallbackUrl" class="form-control" /&gt;
+                        &lt;span asp-validation-for="CallbackUrlDto.CallbackUrl" class="text-danger"&gt;&lt;/span&gt;
+                    &lt;/div&gt;
+                    &lt;div class="form-group"&gt;
+                        @if (Model.CreatingVerifier)
+                        {
+                            &lt;input class="form-control"
+                                   type="submit" readonly="@Model.CreatingVerifier"
+                                   value="Create Verification" /&gt;
+                        }
+
+                    &lt;/div&gt;
+                    &lt;div class="form-group"&gt;
+                        @if (!Model.CreatingVerifier)
+                        {
+                            &lt;div class="alert alert-success"&gt;
+                                &lt;strong&gt;Ready to verify&lt;/strong&gt;
+                            &lt;/div&gt;
+                        }
+                    &lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/form&gt;
+            &lt;hr /&gt;
+            &lt;p&gt;When the verification is created, you can scan the QR Code to verify&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div class="col-sm"&gt;
+            &lt;div&gt;
+                &lt;img src="~/ndl_car_01.png" width="200" alt="Driver License"&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class="row"&gt;
+        &lt;div class="col-sm"&gt;
+            &lt;div class="qr" id="qrCode"&gt;&lt;/div&gt;
+            &lt;input asp-for="ChallengeId" hidden/&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/div&gt;
+
+@section scripts {
+&lt;script src="~/js/qrcode.min.js"&gt;&lt;/script&gt;
+&lt;script type="text/javascript"&gt;
+    new QRCode(document.getElementById("qrCode"),
+    {
+        text: "@Html.Raw(Model.QrCodeUrl)",
+        width: 400,
+        height: 400,
+        correctLevel: QRCode.CorrectLevel.M
+    });
+
+    $(document).ready(() =&gt; {
+ 
+    });
+
+    var connection = new signalR.HubConnectionBuilder().withUrl("/mattrVerifiedSuccessHub").build();
+
+    connection.on("MattrCallbackSuccess", function (challengeId) {
+        console.log("received verification:" + challengeId);
+        window.location.href = "/VerifiedUser?challengeid=" + challengeId;
+    });
+
+    connection.start().then(function () {
+        //console.log(connection.connectionId);
+        const challengeId = $("#ChallengeId").val();
+        
+        if (challengeId) {
+            console.log(challengeId);
+            // join message
+            connection.invoke("AddChallenge", challengeId, connection.connectionId).catch(function (err) {
+                return console.error(err.toString());
+            });
+        }
+    }).catch(function (err) {
+        return console.error(err.toString());
+    });
+&lt;/script&gt;
+}
+
+  
+
+
+<p>Step 4 Implement the Callback and update the UI using SignalR</p>
+
+
+
+<p>After a successful verification in the digital wallet, the wallet sends the verified credentials to the API defined in the presentation request. The API handling this needs to update the correct client UI and continue the business process using the verified data. We use SignalR for this with a single client to client connection. The Signal connections for each connection is associated with a challenge ID, the same Id we used to create the presentation request. Using this, only the correct client will be notified and not all clients broadcasted. The DrivingLicenseCallback takes the body with is specific for the credentials you issued. This is always depending on what you request. The data is saved to a database and the client is informed to continue. We send a message directly to the correct client using the connectionId of the SignalR session created for this challenge.</p>
+
+
+  [ApiController]
+[Route("api/[controller]")]
+public class VerificationController : Controller
+{
+	private readonly BoInsuranceDbService _boInsuranceDbService;
+
+	private readonly IHubContext&lt;MattrVerifiedSuccessHub&gt; _hubContext;
+
+	public VerificationController(BoInsuranceDbService boInsuranceDbService,
+		IHubContext&lt;MattrVerifiedSuccessHub&gt; hubContext)
+	{
+		_hubContext = hubContext;
+		_boInsuranceDbService = boInsuranceDbService;
+	}
+
+	/// &lt;summary&gt;
+	/// {
+	///  "presentationType": "QueryByExample",
+	///  "challengeId": "GW8FGpP6jhFrl37yQZIM6w",
+	///  "claims": {
+	///      "id": "did:key:z6MkfxQU7dy8eKxyHpG267FV23agZQu9zmokd8BprepfHALi",
+	///      "name": "Chris",
+	///      "firstName": "Shin",
+	///      "licenseType": "Certificate Name",
+	///      "dateOfBirth": "some data",
+	///      "licenseIssuedAt": "dda"
+	///  },
+	///  "verified": true,
+	///  "holder": "did:key:z6MkgmEkNM32vyFeMXcQA7AfQDznu47qHCZpy2AYH2Dtdu1d"
+	/// }
+	/// &lt;/summary&gt;
+	/// &lt;param name="body"&gt;&lt;/param&gt;
+	/// &lt;returns&gt;&lt;/returns&gt;
+	[HttpPost]
+	[Route("[action]")]
+	public async Task&lt;IActionResult&gt; DrivingLicenseCallback([FromBody] VerifiedDriverLicense body)
+	{
+		string connectionId;
+		var found = MattrVerifiedSuccessHub.Challenges
+			.TryGetValue(body.ChallengeId, out connectionId);
+
+		// test Signalr
+		//await _hubContext.Clients.Client(connectionId).SendAsync("MattrCallbackSuccess", $"{body.ChallengeId}");
+		//return Ok();
+
+		var exists = await _boInsuranceDbService.ChallengeExists(body.ChallengeId);
+
+		if (exists)
+		{
+			await _boInsuranceDbService.PersistVerification(body);
+
+			if (found)
+			{
+				//$"/VerifiedUser?challengeid={body.ChallengeId}"
+				await _hubContext.Clients
+					.Client(connectionId)
+					.SendAsync("MattrCallbackSuccess", $"{body.ChallengeId}");
+			}
+
+			return Ok();
+		}
+
+		return BadRequest("unknown verify request");
+	}
+}
+  
+
+
+<p>The SignalR server is configured in the Startup class of the ASP.NET Core application. The path for the hub is defined in the MapHub method.</p>
+
+
+  public void ConfigureServices(IServiceCollection services)
+{
+	// ...
+	
+	services.AddRazorPages();
+	services.AddSignalR();
+	services.AddControllers();
+}
+
+public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+{
+	// ...
+
+	app.UseEndpoints(endpoints =&gt;
+	{
+		endpoints.MapRazorPages();
+		endpoints.MapHub&lt;MattrVerifiedSuccessHub&gt;("/mattrVerifiedSuccessHub");
+		endpoints.MapControllers();
+	});
+}
+  
+
+
+<p>The Hub implementation requires only one fixed method. The AddChallenge method takes the challenge Id and adds this the an in-memory cache. The controller implemented for the callbacks uses this ConcurrentDictionary to find the correct connectionId which is mapped to the challenges form the verification.</p>
+
+
+  public class MattrVerifiedSuccessHub : Hub
+{
+	/// &lt;summary&gt;
+	/// This should be replaced with a cache which expires or something
+	/// &lt;/summary&gt;
+	public static readonly ConcurrentDictionary&lt;string, string&gt; Challenges 
+		= new ConcurrentDictionary&lt;string, string&gt;();
+
+	public void AddChallenge(string challengeId, string connnectionId)
+	{
+		Challenges.TryAdd(challengeId, connnectionId);
+	}
+
+}
+  
+
+
+<p>The Javascript SignalR client in the browser connects to the SignalR server and registers the connectionId with the challenge ID used for the verification of the verifiable credentials from the holder of the digital wallet. If a client gets a message from that a verify has completed successfully and the callback has been called, it will redirect to the verified page. The client listens to the MattrCallbackSuccess for messages. These messages are sent from the callback controller directly.</p>
+
+
+  &lt;script type="text/javascript"&gt;
+    
+    var connection = new signalR.HubConnectionBuilder()
+		.withUrl("/mattrVerifiedSuccessHub").build();
+
+    connection.on("MattrCallbackSuccess", function (challengeId) {
+        console.log("received verification:" + challengeId);
+        window.location.href = "/VerifiedUser?challengeid=" + challengeId;
+    });
+
+    connection.start().then(function () {
+        //console.log(connection.connectionId);
+        const challengeId = $("#ChallengeId").val();
+        
+        if (challengeId) {
+            console.log(challengeId);
+            // join message
+            connection.invoke("AddChallenge", challengeId, 
+				connection.connectionId).catch(function (err) {
+                return console.error(err.toString());
+            });
+        }
+    }).catch(function (err) {
+        return console.error(err.toString());
+    });
+&lt;/script&gt;
+  
+
+
+<p>The VerifiedUserModel Razor page displays the data and the business process can continue using the verified data. </p>
+
+
+  public class VerifiedUserModel : PageModel
+{
+	private readonly BoInsuranceDbService _boInsuranceDbService;
+
+	public VerifiedUserModel(BoInsuranceDbService boInsuranceDbService)
+	{
+		_boInsuranceDbService = boInsuranceDbService;
+	}
+
+	public string ChallengeId { get; set; }
+	public DriverLicenseClaimsDto VerifiedDriverLicenseClaims { get; private set; }
+
+	public async Task OnGetAsync(string challengeId)
+	{
+		// user query param to get challenge id and display data
+		if (challengeId != null)
+		{
+			var verifiedDriverLicenseUser = await _boInsuranceDbService.GetVerifiedUser(challengeId);
+			VerifiedDriverLicenseClaims = new DriverLicenseClaimsDto
+			{
+				DateOfBirth = verifiedDriverLicenseUser.DateOfBirth,
+				Name = verifiedDriverLicenseUser.Name,
+				LicenseType = verifiedDriverLicenseUser.LicenseType,
+				FirstName = verifiedDriverLicenseUser.FirstName,
+				LicenseIssuedAt = verifiedDriverLicenseUser.LicenseIssuedAt
+			};
+		}
+	}
+}
+
+public class DriverLicenseClaimsDto
+{
+	public string Name { get; set; }
+	public string FirstName { get; set; }
+	public string LicenseType { get; set; }
+	public string DateOfBirth { get; set; }
+	public string LicenseIssuedAt { get; set; }
+}
+  
+
+
+<p>Running the  verifier</p>
+
+
+
+<p>To test the BoInsurance application locally, which is the verifier application, ngrok is used so that we have a public address for the callback. I install ngrok using npm. Without a license, you can only run your application in http.</p>
+
+
+  npm install -g ngrok
+  
+
+
+<p>Run the ngrok from the command line using the the URL of the application. I start the ASP.NET Core application at localhost port 5000. </p>
+
+
+  ngrok http localhost:5000
+  
+
+
+<p>You should be able to copied the ngrok URL and use this in the browser to test the verification.</p>
+
+
+
+
+
+
+
+<p>Once running, a verification can be created and you can scan the QR Code with your digital wallet. Once you grant access to your data, the data is sent to the callback API and the UI will be redirected to the success page.</p>
+
+
+
+
+
+
+
+<p>Notes</p>
+
+
+
+<p>MATTR APIs work really well and support some of the flows for digital identities. I plan to try out the zero proof flow next. It is only possible to create verifiable credentials from data from your identity provider using the id_token. To issue credentials, you have to implement your own identity provider and cannot use business data from your application. If you have full control like with Openiddict, IdenityServer4 or Auth0, this is no problem, just more complicated to implement. If you do not control the data in your identity provider, you would need to create a second identity provider to issue credentials. This is part of your business logic then and not just an identity provider. This will always be a problem is using Azure AD or IDPs from large, medium size companies. The quality of the verifiable credentials also depend on how good the OIDC credential issuers are implemented as these are still central databases for these credentials and are still open to all the problems we have today. Decentralized identities have to potential to solve many problems but still have many unsolved problems.  </p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://mattr.global/">https://mattr.global/</a></p>
+
+
+
+<p><a href="https://learn.mattr.global/tutorials/verify/using-callback/callback-e-to-e">https://learn.mattr.global/tutorials/verify/using-callback/callback-e-to-e</a></p>
+
+
+
+<p><a href="https://mattr.global/get-started/">https://mattr.global/get-started/</a></p>
+
+
+
+<p><a href="https://learn.mattr.global/">https://learn.mattr.global/</a></p>
+
+
+
+<p><a href="https://keybase.io/">https://keybase.io/</a></p>
+
+
+
+ 
+  
+ 
+
+
+
+<p><a href="https://learn.mattr.global/tutorials/dids/did-key">https://learn.mattr.global/tutorials/dids/did-key</a></p>
+
+
+
+<p><a href="https://gunnarpeipman.com/httpclient-remove-charset/">https://gunnarpeipman.com/httpclient-remove-charset/</a></p>
+
+
+
+<p><a href="https://auth0.com/">https://auth0.com/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/04/mattr_verify_vc_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:04 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -2451,7 +3450,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    16:53 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2517,7 +3516,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    16:32 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2581,7 +3580,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    16:28 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3506,7 +4505,7 @@ jobs:
 
 
 
-  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  Create an OIDC credential Issuer with MATTR and ASP.NET Core  
+  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  Create an OIDC credential Issuer with MATTR and ASP.NET Core  <a href="https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/">Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>  
 
 
 
@@ -4449,7 +5448,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    15:06 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4791,7 +5790,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    16:24 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5003,7 +6002,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    16:34 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5079,7 +6078,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    15:29 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6036,7 +7035,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    17:41 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6177,7 +7176,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    16:16 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6991,7 +7990,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    15:57 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8473,7 +9472,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    17:01 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8983,7 +9982,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    17:49 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9058,7 +10057,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    17:32 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11443,7 +12442,7 @@ public async Task&lt;IActionResult&gt; GetAsync()
 
 <div class='item-footer'>
    16:53 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19467,181 +20466,6 @@ public IActionResult Logout()
 
 <div class='item-footer'>
    23:01 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/03/01/using-azure-ad-groups-authorization-in-asp-net-core-for-an-azure-blob-storage/'>Using Azure AD groups authorization in ASP.NET Core for an Azure Blob Storage</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post show how Azure AD groups could be used to implement authorization for an Azure Blob storage and used in an ASP.NET Core Razor page application to authorize the identities. The groups are assigned the roles in the Azure Storage. Azure AD users are added to the Azure AD groups and inherit the group […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post show how Azure AD groups could be used to implement authorization for an Azure Blob storage and used in an ASP.NET Core Razor page application to authorize the identities. The groups are assigned the roles in the Azure Storage. Azure AD users are added to the Azure AD groups and inherit the group roles. The group ID is added to the claims of the tokens which can be used for authorization in the client application.</p>
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreAzureAdAzureStorage">https://github.com/damienbod/AspNetCoreAzureAdAzureStorage</a></p>
-<p>Blogs in this series</p>
- 
- <a href="https://damienbod.com/2021/02/08/secure-azure-ad-user-account-file-upload-with-azure-ad-storage-and-asp-net-core/">Secure Azure AD User File Upload with Azure AD Storage and ASP.NET Core</a> 
- <a href="https://damienbod.com/2021/02/16/adding-asp-net-core-authorization-for-an-azure-blob-storage-and-azure-ad-users-using-role-assignments/">Adding ASP.NET Core authorization for an Azure Blob Storage and Azure AD users using role assignments</a> 
- Using Azure AD groups authorization in ASP.NET Core for an Azure Blob Storage 
- 
-<p>Setup the groups in Azure AD</p>
-<p>To implement this, two new user groups are created inside the Azure AD directory. </p>
-<p></p>
-<p>The required Azure AD users are added to the groups. </p>
-<p></p>
-<p>Add the role assignment for the groups to Azure Storage</p>
-<p>The Azure Storage which was created in the previous post is opened and the new Azure AD groups can be assigned roles. The Storage Blob Contributor group and the Storage Blob reader group are add to the  Azure Storage Role assignments.</p>
-<p></p>
-<p>You can see that the Storage Contributors Azure AD group is assigned the Storage Blob Data Contributor role and the Storage Reader Azure AD group is assigned the Storage Blob Data Reader role.</p>
-<p></p>
-<p>Add the group IDs to the tokens in Azure App registrations</p>
-<p>Now the groups can be added to the id_token and the access token in the Azure App registrations. If you use a lot of groups in your organisation, you might not want to do this due to token size, but instead use Microsoft Graph in the applications to get the groups for the authenticated Identity. In the Token Configuration blade of the Azure App registration, the groups can be added as an optional claim.  </p>
-<p></p>
-<p>To use the groups in the ASP.NET Core web application, only the security groups are required.  </p>
-<p></p>
-<p>Implement the ASP.NET Core authorization handlers</p>
-<p>The StorageBlobDataContributorRoleHandler implements the ASP.NET Core handler to authorize the identities. The handler implements the AuthorizationHandler with the required requirement. The handler retrieves the group claim from the claims with the group value of the group we set in the role assignments in the Azure Storage. The claims are extracted from the id_token or the user info endpoint. Only the group is validated in the ASP.NET Core application, not the actual role which is required for the Azure Storage access. There is no direct authorization with the Azure Storage Blob container. The authorization is done through the Azure AD groups. </p>
-<p>By using the group claims, no extra API call is required to authorize the identity using the application. This is great, as long as the tokens don’t get to large in size.</p>
- public class StorageBlobDataContributorRoleHandler 
-	: AuthorizationHandler&lt;StorageBlobDataContributorRoleRequirement&gt;
-{
-	protected override Task HandleRequirementAsync(
-		AuthorizationHandlerContext context,
-		StorageBlobDataContributorRoleRequirement requirement
-	)
-	{
-		if (context == null)
-			throw new ArgumentNullException(nameof(context));
-		if (requirement == null)
-			throw new ArgumentNullException(nameof(requirement));
-
-		// StorageContributorsAzureADfiles
-		var groupId = "6705345e-c37e-4f7a-b2d9-e2f43e029524";
-
-		var spIdUserGroup = context.User.Claims
-			.FirstOrDefault(t =&gt; t.Type == "groups" &amp;&amp; 
-				t.Value == groupId);
-
-		if(spIdUserGroup != null)
-		{
-			context.Succeed(requirement);
-		}
-
-		return Task.CompletedTask;
-	}
-}
- 
-<p>The handlers with the requirements are registered in the application in the Startup class. Policies are created for the requirement which can be then used in the application. Microsoft.Identity.Web is used to authenticate the user and the application.</p>
- services.AddMicrosoftIdentityWebAppAuthentication(Configuration)
-	.EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
-	.AddInMemoryTokenCaches();
-
-services.AddAuthorization(options =&gt;
-{
-	options.AddPolicy("StorageBlobDataContributorPolicy", 
-		policyIsAdminRequirement =&gt;
-	{
-		policyIsAdminRequirement
-			.Requirements
-			.Add(new StorageBlobDataContributorRoleRequirement());
-	});
-	options.AddPolicy("StorageBlobDataReaderPolicy", 
-		policyIsAdminRequirement =&gt;
-	{
-		policyIsAdminRequirement
-			.Requirements
-			.Add(new StorageBlobDataReaderRoleRequirement());
-	});
-});
-
-services.AddRazorPages().AddMvcOptions(options =&gt;
-{
-	var policy = new AuthorizationPolicyBuilder()
-		.RequireAuthenticatedUser()
-		.Build();
-	options.Filters.Add(new AuthorizeFilter(policy));
-}).AddMicrosoftIdentityUI();
- 
-<p>The authorization policies can be applied as attributes on the class of ASP.NET Core Razor pages.</p>
- [Authorize(Policy = "StorageBlobDataContributorPolicy")]
-[AuthorizeForScopes(Scopes = new string[] { 
-   "https://storage.azure.com/user_impersonation" })]
-public class AzStorageFilesModel : PageModel
-{
-    // code ...
- 
-<p>When the application is started from Visual Studio, the group claims can be viewed and the handler will succeed if the Azure groups, users and role assignments are configured correctly.</p>
-<p></p>
-<p>Azure AD Groups can be used in this way to manage access to Azure AD storage in an ASP.NET Core. This works great but is a very dependent on Azure adminstration. For this to work good, you need access and control over the Azure AD tenant which is not always the case in companys. If the Azure Storage was extended with Tables or Queues, the roles can be applied to new groups or the existing ones. A lot depends on how the users, groups and applications are managed.</p>
-<p>Links</p>
-<p><a href="https://docs.microsoft.com/en-us/azure/role-based-access-control/built-in-roles">https://docs.microsoft.com/en-us/azure/role-based-access-control/built-in-roles</a></p>
-<blockquote><p><a href="https://blogs.aaddevsup.xyz/2020/05/using-azure-management-libraries-for-net-to-manage-azure-ad-users-groups-and-rbac-role-assignments/">Using Azure Management Libraries for .NET to manage Azure AD users, groups, and RBAC Role Assignments</a></p></blockquote>
-<p></p>
-<p><a href="https://management.azure.com/subscriptions/subscriptionId/providers/Microsoft.Authorization/roleAssignments?api-version=2015-07-01">https://management.azure.com/subscriptions/subscriptionId/providers/Microsoft.Authorization/roleAssignments?api-version=2015-07-01</a></p>
-<p><a href="https://docs.microsoft.com/en-us/rest/api/apimanagement/apimanagementrest/azure-api-management-rest-api-authentication">https://docs.microsoft.com/en-us/rest/api/apimanagement/apimanagementrest/azure-api-management-rest-api-authentication</a></p>
-<p><a href="https://docs.microsoft.com/en-us/rest/api/authorization/role-assignment-rest-sample">https://docs.microsoft.com/en-us/rest/api/authorization/role-assignment-rest-sample</a></p>
-<p><a href="https://github.com/mderriey/azure-identity-livestream">https://github.com/mderriey/azure-identity-livestream</a></p>
-<p><a href="https://blog.soft-cor.com/empowering-developer-teams-to-manage-their-own-azure-rbac-permissions-in-highly-regulated-industries/">https://blog.soft-cor.com/empowering-developer-teams-to-manage-their-own-azure-rbac-permissions-in-highly-regulated-industries/</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/02/azureadgroupsstorage_01.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:46 &bull;
    2 months ago
 </div>
 
