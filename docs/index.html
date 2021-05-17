@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:58 AM May 17, 2021 (UTC)</sup>
+<sup>Last Update 5:53 AM May 17, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -729,6 +729,269 @@
  <h2 class='new-date'>
   Monday, 17. May 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/05/17/securing-multiple-identity-provider-oauth-bearer-tokens-in-an-asp-net-core-api/'>Securing OAuth Bearer tokens from multiple Identity Providers in an ASP.NET Core API</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to secure and use different APIs in an ASP.NET Core API which support OAuth access tokens from multiple identity providers. Access tokens from Azure AD and from Auth0 can be be used to access data from the service. Each API only supports a specific token from the specific identity provider. Microsoft.Identity.Web […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to secure and use different APIs in an ASP.NET Core API which support OAuth access tokens from multiple identity providers. Access tokens from Azure AD and from Auth0 can be be used to access data from the service. Each API only supports a specific token from the specific identity provider. Microsoft.Identity.Web is used to implement the access token authorization for the Azure AD tokens and the default authorization is used to support the Auth0 access tokens.</p>
+
+
+
+<p>Code:&nbsp;<a href="https://github.com/damienbod/SeparatingApisPerSecurityLevel">https://github.com/damienbod/SeparatingApisPerSecurityLevel</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/04/19/securing-multiple-auth0-apis-in-asp-net-core-using-oauth-bearer-tokens/">Securing multiple Auth0 APIs in ASP.NET Core using OAuth Bearer&nbsp;tokens</a>  Securing OAuth Bearer tokens from multiple Identity Providers in an ASP.NET Core API  
+
+
+
+<p>Setup</p>
+
+
+
+<p>An API ASP.NET Core application is created to implement the multiple APIs and accept access tokens created by Auth0 and Azure AD. The access tokens need to be validated and should only work for the intended purpose for which the access token was created. The Azure AD API is used by an ASP.NET Core Razor page application which requests an user access token with the correct scope to access the API. Two Azure AD App registrations are used to define the Azure AD setup. The Auth0 application is implemented using a Blazor server hosted application and accesses the two Auth0 APIs, See the pervious post for details.</p>
+
+
+
+
+
+
+
+<p>To support the multiple identity providers, multiple schemes are used. The Auth0 APIs use the default scheme definition for JWT Bearer tokens and the Azure AD uses a custom named scheme. It does not matter which scheme is used for which as long as the correct scheme is defined on the controller securing the API. The AddMicrosoftIdentityWebApiAuthentication method takes the scheme and the configuration name as a optional parameter. The Azure AD configuration is defined like any standard Azure AD API in ASP.NET Core.</p>
+
+
+  public void ConfigureServices(IServiceCollection services)
+{
+	// Adds Microsoft Identity platform (AAD v2.0) 
+	// support to protect this Api
+	services.AddMicrosoftIdentityWebApiAuthentication(
+		Configuration, "AzureAd", "myADscheme");
+
+	// Auth0 API configuration=&gt; default scheme
+	services.AddAuthentication(options =&gt;
+	{
+		options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+		options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+	}).AddJwtBearer(options =&gt;
+	{
+		options.Authority = "https://dev-damienbod.eu.auth0.com/";
+		options.Audience = "https://auth0-api1";
+	});
+
+	services.AddSingleton&lt;IAuthorizationHandler, UserApiScopeHandler&gt;();
+
+	// authorization definitions for the multiple Auth0 tokens
+	services.AddAuthorization(policies =&gt;
+	{
+		policies.AddPolicy("p-user-api-auth0", p =&gt;
+		{
+			p.Requirements.Add(new UserApiScopeHandlerRequirement());
+			// Validate id of application for which the token was created
+			p.RequireClaim("azp", "AScjLo16UadTQRIt2Zm1xLHVaEaE1feA");
+		});
+
+		policies.AddPolicy("p-service-api-auth0", p =&gt;
+		{
+			// Validate id of application for which the token was created
+			p.RequireClaim("azp", "naWWz6gdxtbQ68Hd2oAehABmmGM9m1zJ");
+			p.RequireClaim("gty", "client-credentials");
+		});
+	});
+
+	services.AddControllers(options =&gt;
+	{
+		var policy = new AuthorizationPolicyBuilder()
+			.RequireAuthenticatedUser()
+			.Build();
+		options.Filters.Add(new AuthorizeFilter(policy));
+	});
+}
+  
+
+
+<p>The Configure method uses the UseAuthentication method to add the middleware for the APIs.</p>
+
+
+  public void Configure(IApplicationBuilder app, 
+	IWebHostEnvironment env)
+{
+	// ...
+
+	app.UseRouting();
+
+	app.UseAuthentication();
+	app.UseAuthorization();
+
+	app.UseEndpoints(endpoints =&gt;
+	{
+		endpoints.MapControllers();
+	});
+}
+  
+
+
+<p>The AzureADUserOneController class is used to implement the API for the Azure AD access tokens. The AuthorizeForScopes attribute from Microsoft.Identity.Web is used to validate the Azure AD App registration access token and define the scheme required for the validation. The scope name must match the Azure App registration definition.</p>
+
+
+  using System.Collections.Generic;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Microsoft.Identity.Web;
+
+namespace MyApi.Controllers
+{
+    [AuthorizeForScopes(Scopes = new string[] { "api://72286b8d-5010-4632-9cea-e69e565a5517/user_impersonation" }, 
+        AuthenticationScheme = "myADscheme")]
+    [ApiController]
+    [Route("api/[controller]")]
+    public class AzureADUserOneController : ControllerBase
+    {
+        private readonly ILogger&lt;UserOneController&gt; _logger;
+
+        public AzureADUserOneController(ILogger&lt;UserOneController&gt; logger)
+        {
+            _logger = logger;
+        }
+
+        [HttpGet]
+        public IEnumerable&lt;string&gt; Get()
+        {
+            return new List&lt;string&gt; { "AzureADUser one data" };
+        }
+    }
+}
+
+  
+
+
+<p>The UserOneController implements the Auth0 user access token API. Since the default scheme is used, no scheme definition is required. The authorization policy is used to secure the API which validates the scope and the claims for this API.</p>
+
+
+  using System.Collections.Generic;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+
+namespace MyApi.Controllers
+{
+    [Authorize(Policy = "p-user-api-auth0")]
+    [ApiController]
+    [Route("api/[controller]")]
+    public class UserOneController : ControllerBase
+    {
+        private readonly ILogger&lt;UserOneController&gt; _logger;
+
+        public UserOneController(ILogger&lt;UserOneController&gt; logger)
+        {
+            _logger = logger;
+        }
+
+        [HttpGet]
+        public IEnumerable&lt;string&gt; Get()
+        {
+            return new List&lt;string&gt; { "user one data" };
+        }
+    }
+}
+
+  
+
+
+<p>When the API application is started the APIs can be used and a swagger UI implemented using Swashbuckle was created to display the different APIs. Each API will only work with the correct access token. The different UIs can use the APIs and data is returned.</p>
+
+
+
+
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://auth0.com/docs/quickstart/webapp/aspnet-core">https://auth0.com/docs/quickstart/webapp/aspnet-core</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authorization/introduction">https://docs.microsoft.com/en-us/aspnet/core/security/authorization/introduction</a></p>
+
+
+
+<p><a href="https://openid.net/connect/">Open ID Connect</a></p>
+
+
+
+<p><a href="https://damienbod.com/2021/04/12/securing-blazor-web-assembly-using-cookies-and-auth0/">Securing Blazor Web assembly using Cookies and&nbsp;Auth0</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/05/apis_idps_02.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:13 &bull;
+   42 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -784,7 +1047,7 @@
 
 <div class='item-footer'>
    01:15 &bull;
-   an hour ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -858,7 +1121,7 @@
 
 <div class='item-footer'>
    14:19 &bull;
-   12 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1701,7 +1964,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    16:09 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2112,7 +2375,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    15:01 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2765,7 +3028,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    17:37 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2829,7 +3092,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    15:24 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3784,7 +4047,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    16:40 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3860,7 +4123,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    15:02 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4558,7 +4821,7 @@ where code like '%%' || %(search)s || '%%' limit 10
 
 <div class='item-footer'>
    15:39 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6330,7 +6593,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    16:53 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6396,7 +6659,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    16:32 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6460,7 +6723,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    16:28 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8259,7 +8522,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    15:06 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8397,7 +8660,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    16:24 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8538,7 +8801,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    16:34 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8614,7 +8877,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    15:29 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8993,7 +9256,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    17:41 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9061,7 +9324,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    16:16 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9208,7 +9471,7 @@ public class IssuerCredential
 
 
 
-  Introduce the concept of a Verifiable Capability Authorizations (VCA) and how they can be use to implement controls over which specific methods a particular party is allowed execute against a particular instance of a Fully Decentralized Object (FDO).  Illustrate how <a>#graphitization techniques</a> can be used for modeling and visualizing:  Trusted Decentralized Identifiers (DIDs)  DID Documents  Trusted Digital Agents (and their Service Endpoints (SEPs))  Verifiable Credentials (VCs)  Verifiable Capability Authorizations (VCAs) and,   Most importantly, their myriad of interrelationships.    Use the above 2 goals to further detail and describe how to use the VE-ARM model for implementing trusted, reliable, efficient, frictionless, standards-based, global-scale software systems based on Fully Decentralized Objects (FDOs).  
+  Introduce the concept of a Verifiable Capability Authorizations (VCA) and how they can be used to implement controls over which specific methods a particular party is allowed to execute against a particular instance of a Fully Decentralized Object (FDO). VCAs are both delegatable and attenuatable.  Illustrate how <a>#graphitization techniques</a> can be used for modeling and visualizing:  Trusted Decentralized Identifiers (DIDs)  DID Documents  Trusted Digital Agents (and their Service Endpoints (SEPs))  Verifiable Credentials (VCs)  Verifiable Capability Authorizations (VCAs) and,   Most importantly, their myriad of interrelationships.    Use the above 2 goals to further detail and describe how to use the VE-ARM model for implementing trusted, reliable, efficient, frictionless, standards-based, global-scale software systems based on Fully Decentralized Objects (FDOs).  
 
 
 
@@ -9236,11 +9499,11 @@ public class IssuerCredential
 
 
 
-<p>An Fully Decentralized Object (FDO) is comprised of the following minimal elements:</p>
+<p>A Fully Decentralized Object (FDO) is comprised of the following minimal elements:</p>
 
 
 
-  DID (and correspond DID Document)  Master Verifiable Capability Authorization (MVCA) for the object’s DID and DID Document  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above MVCA for the object (recursively)  A Property Set for the object  Property Set DID (and corresponding DID Document)  Property Set MVCA for the property set’s DID and DID Document  Property Set Verifiable Credential (VC) to hold the object’s properties and their values  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above property set MVCA (recursively)    A Trusted Digital Agent registered with a Service Endpoint (SEP) in the object’s DID Document that implements the VCA controlled methods for accessing and interacting with the object and/or it’s property set. Control over which methods are invokable by a party is controlled by the respective MVCAs and a Delegated Directed Graphs of VCAs (if there are any).  
+  DID (and correspond DID Document)  Master Verifiable Capability Authorization (MVCA) for the object’s DID and DID Document  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above MVCA for the object (recursively)  A Property Set for the FDO  Property Set DID (and corresponding DID Document)    Property Set MVCA that is issued when the Property Set’s DID and DID Document is issued.  Property Set Verifiable Credential (VC) is issued to hold the object’s properties and their values  Zero or more Verifiable Capability Authorizations (VCAs) linked to the FDO’s Property Set MVCA (recursively)    A Trusted Digital Agent registered with a Service Endpoint (SEP) in the object’s DID Document that implements the VCA-controlled methods for accessing and interacting with the object and/or it’s property set. Control over which methods are invokable by a party is controlled by the respective MVCAs and a Delegated Directed Graphs of VCAs (if there are any).  
 
 
 
@@ -9248,7 +9511,7 @@ public class IssuerCredential
 
 
 
-  Verifiable Identifiers, Decentralized Identifiers (DIDs), and DID Documents;  Verifiable Claims, Relationships, and Verifiable Credentials (VCs);   Verifiable Capability Proclamations, Verifiable Capability Invocations, and Verifiable Capability Authorizations (VCAs); and  Trusted Digital Agents (TDAs).  
+  Verifiable Identifiers, Decentralized Identifiers (DIDs), and DID Documents;  Verifiable Claims, Relationships, and Verifiable Credentials (VCs);   Master Verifiable Capability Authorizations (MVCA) (Master Proclamations), Verifiable Capability Authorizations (VCAs) (Proclamations), Verifiable Capability Authorization Method Invocations (MIs); and  Trusted Digital Agents (TDAs).  
 
 
 
@@ -9260,7 +9523,7 @@ public class IssuerCredential
 
 
 
-<a href="https://hyperonomy.files.wordpress.com/2021/04/drivers-license-erin-amanda-lee-anderson-larged.png"></a> Figure 2. Erin’s Real-World Sovronia Driver’s License (Erin RW SDL) 
+<a href="https://hyperonomy.files.wordpress.com/2021/04/drivers-license-erin-amanda-lee-anderson-larged.png"></a> Figure 2. Erin’s “Real World” Sovronia Driver’s License (Erin RW SDL) 
 
 
 
@@ -9268,7 +9531,7 @@ public class IssuerCredential
 
 
 
-<p>The underlying model was built automatically using a series of <a href="https://neo4j.com/developer/?from=Parallelspace">Neo4j </a>Cypher queries running against a collection of actual DID Document, Verifiable Credential, and Verifiable Capability Authorization JSON files. The visualization was laid out using the <a href="https://neo4j.com/developer/?from=Parallelspace">Neo4j </a>Browser. The resulting layout was manually optimized to produce the final version of the visualization that appears below. The numbered targets used to identify each element in each subgraph were added using Microsoft PowerPoint.</p>
+<p>The underlying model was built automatically using a series of <a href="https://neo4j.com/developer/?from=Parallelspace">Neo4j </a>Cypher queries running against a collection of actual DID Document, Verifiable Credential, and Verifiable Capability Authorization JSON files. The visualization was laid out using the <a href="https://neo4j.com/developer/?from=Parallelspace">Neo4j </a>Browser. The resulting layout was manually optimized to produce the final version of the graphitization used in this article. The numbered targets used to identify each element in each subgraph were added using Microsoft PowerPoint.</p>
 
 
 
@@ -9276,7 +9539,7 @@ public class IssuerCredential
 
 
 
-<p>Following a list of Key Definitions, the remainder of this article is organized as a series of increasingly more detailed explanations of the VE-ARM model. </p>
+<p>Following a list of Key Definitions, the remainder of this article is organized as a series of increasingly more detailed explanations of the VE-ARM model. The overall model is partitioned into a collection of (overlapping) subgraphs. </p>
 
 
 
@@ -9292,7 +9555,7 @@ public class IssuerCredential
 
 
 
-  Subgraph F1 – Erin’s DID Document (DD) Neighborhood  Subgraph F2 – Erin’s DD Master Verifiable Capability Authorization (MVCA) Neighborhood  Subgraph F3 – Province of Sovronia DID Document (DD) Neighborhood  Subgraph F4 – Province of Sovronia DD Master Verifiable Capability Authorization (MVCA) Neighborhood  Subgraph F5 – DID Documents (DDs) and Master Verifiable Capability Authorizations (MVCAs) Neighborhood  Subgraph F6 – Erin’s Sovronia Drivers License Property Set Verifiable Credential (VC) Neighborhood  Subgraph F7 – Erin’s SDL Property Set Delegated Directed Graph of Verifiable Capability Authorizations Neighborhood  Subgraph F8 – Erin “Real-World” Neighborhood  Subgraph F9 – SOVRONA Trusted Decentralized Identity Provider (TDIDP) Neighborhood  Subgraph F10 – The Verifiable Economy “All-In” Graph View  
+  Subgraph F1 – Erin’s DID Document (DD) Neighborhood  Subgraph F2 – Erin’s DD Master Verifiable Capability Authorization (MVCA) Neighborhood  Subgraph F3 – Province of Sovronia DID Document (DD) Neighborhood  Subgraph F4 – Province of Sovronia DD Master Verifiable Capability Authorization (MVCA) Neighborhood  Subgraph F5 – DID Documents (DDs) and Master Verifiable Capability Authorizations (MVCAs) Neighborhood  Subgraph F6 – Erin’s Sovronia Drivers License (SDL) Property Set Verifiable Credential (VC) Neighborhood  Subgraph F7 – Erin’s SDL Property Set Delegated Directed Graph of Verifiable Capability Authorizations Neighborhood  Subgraph F8 – Erin “Real World” Neighborhood  Subgraph F9 – SOVRONA Trusted Decentralized Identity Provider (TDIDP) Neighborhood  Subgraph F10 – The Verifiable Economy “All-In” Graph View  
 
 
 
@@ -9304,7 +9567,7 @@ public class IssuerCredential
 
 
 
-<p>Several of the following definitions (those related to verifiable capability authorizations) are inspired by the following RWoT5 article:</p>
+<p>Several of the following definitions (those related to the concept oferifiable capability authorizations) are inspired by the following RWoT5 article:</p>
 
 
 
@@ -9320,7 +9583,7 @@ public class IssuerCredential
 
 
 
-<p>The VE-ARM Verifiable Capability Authorization (VCA) model used to grant the authority to specific parties to invoke specific methods against a instance of a Fully Decentralized Object (FDO). The VE-ARM VCA model is based, in part, on the Object-Capability Model. The VE-ARM VCA model supports Delegation and Attenuation.</p>
+<p>The VE-ARM Verifiable Capability Authorization (VCA) model used to grant the authority to specific parties to invoke specific methods against an instance of a Fully Decentralized Object (FDO). The VE-ARM VCA model is based, in part, on the Object-Capability Model. The VE-ARM VCA model supports Delegation and Attenuation.</p>
 
 
 
@@ -9328,7 +9591,7 @@ public class IssuerCredential
 
 
 
-<blockquote><p>The object-capability model is a computer security model. A capability describes a transferable right to perform one (or more) operations on a given object. It can be obtained by the following combination:</p><p>An unforgeable reference (in the sense of object references or protected pointers) that can be sent in messages.<br>A message that specifies the operation to be performed.</p>Object-Capability Model (<a href="https://en.wikipedia.org/wiki/Object-capability_model">https://en.wikipedia.org/wiki/Object-capability_model</a>)</blockquote>
+<blockquote><p>The object-capability model is a computer security model. A capability describes a transferable right to perform one (or more) operations on a given object. It can be obtained by the following combination:</p><p>– An unforgeable reference (in the sense of object references or protected pointers) that can be sent in messages.<br>– A message that specifies the operation to be performed.</p>Object-Capability Model (<a href="https://en.wikipedia.org/wiki/Object-capability_model">https://en.wikipedia.org/wiki/Object-capability_model</a>)</blockquote>
 
 
 
@@ -9348,7 +9611,7 @@ public class IssuerCredential
 
 
 
-  DID (and correspond DID Document)  Master Verifiable Capability Authorization (MVCA) for the object’s DID and DID Document  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above MVCA for the object (recursively)  A Property Set  Property Set DID (and corresponding DID Document)  Property Set MVCA for the property set’s DID and DID Document  Property Set Verifiable Credential (VC) to hold the object’s properties and their values  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above property set MVCA (recursively)    An Trusted Digital Agent registered with a Service Endpoint (SEP) in the object’s DID Document that implements the VCA controlled methods for accessing and interacting with the object and/or it’s property set. Control over which methods are invokable by a party is controlled by the respective MVCAs and a Delegated Directed Graphs of VCAs (if there are any).  
+  DID (and correspond DID Document)  Master Verifiable Capability Authorization (MVCA) for the object’s DID and DID Document  Zero or more Verifiable Capability Authorizations (VCAs) linked to the above MVCA for the object (recursively)  A Property Set for the FDO  Property Set DID (and corresponding DID Document)    Property Set MVCA that is issued when the Property Set’s DID and DID Document is issued.  Property Set Verifiable Credential (VC) is issued to hold the object’s properties and their values  Zero or more Verifiable Capability Authorizations (VCAs) linked to the FDO’s Property Set MVCA (recursively)    An Trusted Digital Agent registered with a Service Endpoint (SEP) in the object’s DID Document that implements the VCA-controlled methods for accessing and interacting with the object and/or it’s property set. Control over which methods are invokable by a party is controlled by the respective MVCAs and a Delegated Directed Graphs of VCAs (if there are any).  
 
 
 
@@ -9364,15 +9627,23 @@ public class IssuerCredential
 
 
 
-<p>A Verifiable Capability Authorization (VCA) is a JSON-LD structure that grants (or restricts) a specific parts (the controller of a key (grantedKey)) the ability to invoke specific methods against a specific instance of a Fully Decentralized Object (FDO). A VCA typically has a type of Proclamation (unless it is a Method Invocation VCA).</p>
+<p>A Verifiable Capability Authorization (VCA) is a JSON-LD structure that grants (or restricts) a specific party (the controller of a key (grantedKey)) the ability to invoke specific methods against a specific instance of a Fully Decentralized Object (FDO). A VCA typically has a type of Proclamation (unless it is a Method Invocation VCA).</p>
 
 
 
-<p>Each VCA has:</p>
+<p>A VCA has the following properties:</p>
 
 
 
-  id – trusted, verifiable decentralized identifier for the VCA  type – “Proclamation”  parent – trusted, verifiable decentralized identifier for a parent VCA whose control supersedes this current VCA.  The current VCA’s capabilities must be equal to or an attenuation of the parent VCA’s capabilities. The part of the VCA model is recursive.  subject – trusted, verifiable decentralized identifier of the specific instance of the FDO.  An FDO can be an object or a service represented as an object.  grantedKey – trusted, verifiable key of the party to whom the specified capabilities are being granted specifically with respect to the specific instance of the FDO.  caveat – the collection of specific capabilities the party represented by grantedKey is granted (or restricted) from invoking against a specific instance of the FDO identified by the subject identifier.  signature – trusted, verifiable proof that this VCA is legitimate.   
+  id – trusted, verifiable decentralized identifier for the VCA  type – “Proclamation”  parent – trusted, verifiable decentralized identifier for a parent VCA whose control supersedes this current VCA.  subject – trusted, verifiable decentralized identifier of the specific instance of the FDO.    grantedKey – trusted, verifiable key of the party to whom the specified capabilities are being granted specifically with respect to the specific instance of the FDO.  caveat – the collection of specific capabilities the party represented by grantedKey is granted (or restricted) from invoking against a specific instance of the FDO identified by the subject identifier.  signature – trusted, verifiable proof that this VCA is legitimate.   
+
+
+
+<p>NOTE: The current VCA’s capabilities must be equal to or an attenuation of the parent VCA’s capabilities. The part of the VCA model is recursive.</p>
+
+
+
+<p>NOTE: An FDO can be an object or a service represented as an object.</p>
 
 
 
@@ -9396,7 +9667,7 @@ public class IssuerCredential
 
 
 
-<p>Each MVCA has:</p>
+<p>An MVCA has the following properties:</p>
 
 
 
@@ -9424,11 +9695,11 @@ public class IssuerCredential
 
 
 
-<p>Each VCA has:</p>
+<p>An MI has the following properties:</p>
 
 
 
-  id – trusted, verifiable decentralized identifier for the MI  type – “Invocation”  proclamation – trusted, verifiable decentralized identifier for the VCA to be used for this MI against the specific instance of an FDO by a specific party.  method – specific name of the method to be invoked against the specific instance of an FDO by a specific party.  usingKey – trusted, verifiable key of the party to be used to attempt the invocation of the above method against a specific instance of the FDO.  signature – trusted, verifiable proof that this VCA is legitimate.   
+  id – trusted, verifiable decentralized identifier for the MI  type – “Invocation”  proclamation – trusted, verifiable decentralized identifier for the VCA to be used for this MI against the specific instance of an FDO by a specific party (Proclamation VCA).  method – specific name of the method to be invoked against the specific instance of an FDO by a specific party.  usingKey – trusted, verifiable key of the party to be used to attempt the invocation of the above method against a specific instance of the FDO.  signature – trusted, verifiable proof that this VCA is legitimate.   
 
 
 
@@ -9448,11 +9719,11 @@ public class IssuerCredential
 
 
 
-<p>A Delegated Directed Graph of Verifiable Capability Authorizations is a directed list of VCAs that starts with an MVCA as it’s top-level, root VCA. Each VCA in the graph points to the previous VCA in the graph via its parent property. An MI, in turn, refers to a single VCA in the graph via the MI’s proclamation property. The capabilities in effect are those that are specifically listed in the target VCA’s caveat property. While there is no inheritance of capabilities in this model, the capabilities specified by each VCA must be equal or less than (a subset of) the capabilities of the parent VCA (Principles of Delegation and Attenuation).</p>
+<p>A Delegated Directed Graph of Verifiable Capability Authorizations is a directed list of VCAs that starts with an MVCA as it’s top-level, root VCA. Each VCA in the graph points to the previous VCA in the graph via its parent property. An MI, in turn, refers to a single VCA in the graph via the MI’s proclamation property. The capabilities in effect are those that are specifically listed in the target VCA’s caveat property. While there is no inheritance of capabilities in this model, the capabilities specified by each VCA must be equal or less than (a subset of) the capabilities of the parent VCA (see the definition of Principles of Delegation and Attenuation).</p>
 
 
 
-<p>The above examples of a MVCA, VCA and MI, taken together, form an example of a Delegated Directed Graph of Verifiable Capability Authorizations.</p>
+<p>The above examples of an MVCA, a VCA, and an MI, taken together, form an example of a Delegated Directed Graph of Verifiable Capability Authorizations.</p>
 
 
 
@@ -9508,11 +9779,15 @@ public class IssuerCredential
 
 
 
+<p>NOTE: Additional architecture and design principles need to be added to this section.</p>
+
+
+
  5. Erin’s DID Document (DD) and Master Verifiable Capability Authorization (MVCA) Neighborhoods 
 
 
 
-<p>Erin Amanda Lee Anderson is a Person, a Citizen of Sovronia, and a Sovronia Driver’s License Holder). The following is a graphitization of Erin’s DID and DID Document and its corresponding Master Verifiable Capability Authorization (MVCA).</p>
+<p>Erin Amanda Lee Anderson is a Person, a Citizen of Sovronia, and a Sovronia Driver’s License holder. The following is a graphitization of Erin’s DID and DID Document and the corresponding Master Verifiable Capability Authorization (MVCA).</p>
 
 
 
@@ -9524,7 +9799,7 @@ public class IssuerCredential
 
 
 
-<p>1. Erin. Erin is a RW_PERSON (Real-World Person) and a citizen of the Province of Sovronia. Erin also holds a (valid) Sovronia Driver’s License (SDL) and controls a Real-World Wallet (RW_WALLET) as well as a Digital Wallet (PDR).</p>
+<p>1. Erin. Erin is a RW_PERSON (“Real World” Person) and a citizen of the Province of Sovronia. Erin also holds a (valid) Sovronia Driver’s License (SDL) and controls a “Real World” Wallet (RW_WALLET) as well as a Digital Wallet (PDR).</p>
 
 
 
@@ -9560,7 +9835,7 @@ public class IssuerCredential
 
 
 
-<p>Province of Sovronia is an Organization and a Real World Nation State (sovronia.ca).  The following is a graphitization of the Province of Sovronia’s DID and DID Document and its corresponding Master Verifiable Capability Authorization (MVCA). </p>
+<p>Province of Sovronia is an Organization and a “Real World” Nation State (sovronia.ca).  The following is a graphitization of the Province of Sovronia’s DID and DID Document and its corresponding Master Verifiable Capability Authorization (MVCA). </p>
 
 
 
@@ -9576,7 +9851,7 @@ public class IssuerCredential
 
 
 
-<p>8. PoS RW Nation State. The Province of Sovronia is a (fictitious) Province (RW_NATIONSTATE (Real-World Nation State)) in Canada and the legal government jurisdiction for the citizens of the province. The Province of Sovronia is an Organization. The Province of Sovronia issues Real-World Sovronia Driver’s Licenses (SDLs) but relies on SOVRONA to issue digital, verifiable SDLs.</p>
+<p>8. PoS RW Nation State. The Province of Sovronia is a (fictitious) Province (RW_NATIONSTATE (“Real World” Nation State)) in Canada and the legal government jurisdiction for the citizens of the province. The Province of Sovronia is an Organization. The Province of Sovronia issues “Real World” Sovronia Driver’s Licenses (SDLs) but relies on SOVRONA to issue digital, verifiable SDLs.</p>
 
 
 
@@ -9656,11 +9931,11 @@ public class IssuerCredential
 
 
 
-<p>Subgraph F6 illustrates how a property set for an FDO is realized by a Verifiable Credential (VC). The following is a graphitization of Erin’s Sovronia Driver’s License Property Set.</p>
+<p>Subgraph F6 illustrates how a Property Set for an FDO is realized by a Verifiable Credential (VC). The following is a graphitization of Erin’s Sovronia Driver’s License Property Set.</p>
 
 
 
-<blockquote><p>NOTE: All the properties of an FDO (FSO Property Set) are represented by one or more Verifiable Credentials associated with the FDO’s DID. A Property Set is added to an FDO by creating a Verifiable Credential that holds the properties (and their values) that is linked to the FDO’s DID.</p></blockquote>
+<blockquote><p>NOTE: All the properties of an FDO (an FDO Property Set) are represented by one or more Verifiable Credentials associated with the FDO’s DID. A Property Set is associated with an FDO by creating a Verifiable Credential that holds the properties (and their values) that is linked to the FDO’s DID.</p>VE-ARM Principles</blockquote>
 
 
 
@@ -9724,7 +9999,7 @@ public class IssuerCredential
 
 
 
- 10. SOVRONA Trusted Decentralized Identity Provider (TDIDP) DID Document (DD), DD Master Verifiable Capability Authorization (MVCA) and Erin “Real-World” Neighborhoods  
+ 10. SOVRONA Trusted Decentralized Identity Provider (TDIDP) DID Document (DD), DD Master Verifiable Capability Authorization (MVCA) and Erin “Real World” Neighborhoods  
 
 
 
@@ -9732,31 +10007,31 @@ public class IssuerCredential
 
 
 
-  Erin’s “Real-World” objects  Erin’s “Real-World” Wallet (Erin RW (Leather) Wallet)  Erin’s “Real-World” Sovronia Drivers License (Erin RW SDL)    SVORONIA’s DID and DID Document (and corresponding MVCA)  
+  Erin’s “Real World” objects  Erin’s “Real World” Wallet (Erin RW (Leather) Wallet)  Erin’s “Real World” Sovronia Drivers License (Erin RW SDL)    SVORONIA’s DID and DID Document (and corresponding MVCA)  
 
 
 
-<a href="https://hyperonomy.files.wordpress.com/2021/05/ve2-f9-1.png"></a>Figure 10. SOVRONA TDIDP DID Document (DD), DD Master Verifiable Capability Authorization (MVCA) and Erin “Real-World” Neighborhoods 
+<a href="https://hyperonomy.files.wordpress.com/2021/05/ve2-f9-1.png"></a>Figure 10. SOVRONA TDIDP DID Document (DD), DD Master Verifiable Capability Authorization (MVCA) and Erin “Real World” Neighborhoods 
 
 
 
- 10.1 Erin’s “Real-World” Narrative (F9) 
+ 10.1 Erin’s “Real World” Narrative (F9) 
 
 
 
-<p>1.  Erin. Erin is a RW_PERSON (Real-World Person) and a citizen of the Province of Sovronia. Erin also holds a (valid) Sovronia Driver’s License (SDL) and controls a Real-World Wallet (RW_WALLET) as well as a Digital Wallet (PDR). </p>
+<p>1.  Erin. Erin is a RW_PERSON (“Real World” Person) and a citizen of the Province of Sovronia. Erin also holds a (valid) Sovronia Driver’s License (SDL) and controls a “Real World” Wallet (RW_WALLET) as well as a Digital Wallet (PDR). </p>
 
 
 
-<p>8. PoS RW Nation State. The Province of Sovronia is a (fictitious) Province (RW_NATIONSTATE (Real-World Nation State)) in Canada and the legal government jurisdiction for the citizens of the province. The Province of Sovronia is an Organization. The Province of Sovronia issues Real-World Sovronia Driver’s Licenses (SDLs) but relies on SOVRONA to issue digital, verifiable SDLs. </p>
+<p>8. PoS RW Nation State. The Province of Sovronia is a (fictitious) Province (RW_NATIONSTATE (“Real World” Nation State)) in Canada and the legal government jurisdiction for the citizens of the province. The Province of Sovronia is an Organization. The Province of Sovronia issues “Real World” Sovronia Driver’s Licenses (SDLs) but relies on SOVRONA to issue digital, verifiable SDLs. </p>
 
 
 
-<p>22. Erin RW Wallet. Erin RW Wallet is a RW_WALLET (Real-World (Leather) Wallet) and it is used to hold Erin’s Real-World Sovronia Driver’s License (Erin RW SDL). Erin RW Wallet is owned and controlled by Erin.</p>
+<p>22. Erin RW Wallet. Erin RW Wallet is a RW_WALLET (“Real World” (Leather) Wallet) and it is used to hold Erin’s “Real World” Sovronia Driver’s License (Erin RW SDL). Erin RW Wallet is owned and controlled by Erin.</p>
 
 
 
-<p>23. Erin RW SDL. Erin RW SDL is Erin’s RW_SDL (Real-World Sovronia Driver’s License) and it is held by Erin in Erin’s RW Wallet.</p>
+<p>23. Erin RW SDL. Erin RW SDL is Erin’s RW_SDL (“Real World” Sovronia Driver’s License) and it is held by Erin in Erin’s RW Wallet.</p>
 
 
 
@@ -9768,7 +10043,7 @@ public class IssuerCredential
 
 
 
-<p>24. SOVRONA Organization. SOVRONA is an Organization and the primary Real-World TDIDP (RW_DIDPROVIDER) for the citizens and government of Sovronia, a fictitious province in Canada. SOVRONA controls a Digital Wallet (PDR (Personal Data Registry)), SOVRONA D Wallet, as well as the SOVRONA Verifiable Data Registry (VDR).</p>
+<p>24. SOVRONA Organization. SOVRONA is an Organization and the primary “Real World” TDIDP (RW_DIDPROVIDER) for the citizens and government of Sovronia, a fictitious province in Canada. SOVRONA controls a Digital Wallet (PDR (Personal Data Registry)), SOVRONA D Wallet, as well as the SOVRONA Verifiable Data Registry (VDR).</p>
 
 
 
@@ -9804,7 +10079,7 @@ public class IssuerCredential
 
 
 
-<p>1. Erin. Erin is a RW_PERSON (Real-World Person) and a citizen of the Province of Sovronia. Erin also holds a (valid) Sovronia Driver’s License (SDL) and controls a Real-World Wallet (RW_WALLET) as well as a Digital Wallet (PDR).</p>
+<p>1. Erin. Erin is a RW_PERSON (“Real World” Person) and a citizen of the Province of Sovronia. Erin also holds a (valid) Sovronia Driver’s License (SDL) and controls a “Real World” Wallet (RW_WALLET) as well as a Digital Wallet (PDR).</p>
 
 
 
@@ -9832,7 +10107,7 @@ public class IssuerCredential
 
 
 
-<p>8. PoS RW Nation State. The Province of Sovronia is a (fictitious) Province (RW_NATIONSTATE (Real-World Nation State)) in Canada and the legal government jurisdiction for the citizens of the province. The Province of Sovronia is an Organization. The Province of Sovronia issues Real-World Sovronia Driver’s Licenses (SDLs) but relies on SOVRONA to issue digital, verifiable SDLs.</p>
+<p>8. PoS RW Nation State. The Province of Sovronia is a (fictitious) Province (RW_NATIONSTATE (“Real World” Nation State)) in Canada and the legal government jurisdiction for the citizens of the province. The Province of Sovronia is an Organization. The Province of Sovronia issues “Real World” Sovronia Driver’s Licenses (SDLs) but relies on SOVRONA to issue digital, verifiable SDLs.</p>
 
 
 
@@ -9888,15 +10163,15 @@ public class IssuerCredential
 
 
 
-<p>22. Erin RW Wallet. Erin RW Wallet is a RW_WALLET (Real-World (Leather) Wallet) and it is used to hold Erin’s Real-World Sovronia Driver’s License (Erin RW SDL). Erin RW Wallet is owned and controlled by Erin.</p>
+<p>22. Erin RW Wallet. Erin RW Wallet is a RW_WALLET (“Real World” (Leather) Wallet) and it is used to hold Erin’s “Real World” Sovronia Driver’s License (Erin RW SDL). Erin RW Wallet is owned and controlled by Erin.</p>
 
 
 
-<p>23. Erin RW SDL. Erin RW SDL is Erin’s RW_SDL (Real-World Sovronia Driver’s License) and it is held by Erin in Erin’s RW Wallet.</p>
+<p>23. Erin RW SDL. Erin RW SDL is Erin’s RW_SDL (“Real World” Sovronia Driver’s License) and it is held by Erin in Erin’s RW Wallet.</p>
 
 
 
-<p>24. SOVRONA Organization. SOVRONA is an Organization and the primary Real-World TDIDP (RW_DIDPROVIDER) for the citizens and government of Sovronia, a fictitious province in Canada. SOVRONA controls a Digital Wallet (PDR (Personal Data Registry)), SOVRONA D Wallet, as well as the SOVRONA Verifiable Data Registry (VDR).</p>
+<p>24. SOVRONA Organization. SOVRONA is an Organization and the primary “Real World” TDIDP (RW_DIDPROVIDER) for the citizens and government of Sovronia, a fictitious province in Canada. SOVRONA controls a Digital Wallet (PDR (Personal Data Registry)), SOVRONA D Wallet, as well as the SOVRONA Verifiable Data Registry (VDR).</p>
 
 
 
@@ -9928,7 +10203,7 @@ public class IssuerCredential
 
 
 
-  Introduce the concept of a Verifiable Capability Authorizations (VCA) and how they can be use to implement controls over which specific methods a particular party is allowed execute against a particular instance of a Fully Decentralized Object (FDO).  Illustrate how <a>#graphitization techniques</a> can be used for visualizing:  Trusted Decentralized Identifiers (DIDs)  DID Documents  Trusted Digital Agents (and their Service Endpoints (SEPs))  Verifiable Credentials (VCs)  Verifiable Capability Authorizations (VCAs) and,   Most importantly, their myriad of interrelationships.    Use the above 2 goals to further detail and describe how to use the VE-ARM model for implementing trusted, reliable, efficient, frictionless, standards-based, global-scale software systems based on Fully Decentralized Objects (FDOs).  
+  Introduce the concept of a Verifiable Capability Authorizations (VCA) and how they can be used to implement controls over which specific methods a particular party is allowed to execute against a particular instance of a Fully Decentralized Object (FDO). VCAs are both delegatable and attenuatable.  Illustrate how <a>#graphitization techniques</a> can be used for visualizing:  Trusted Decentralized Identifiers (DIDs)  DID Documents  Trusted Digital Agents (and their Service Endpoints (SEPs))  Verifiable Credentials (VCs)  Verifiable Capability Authorizations (VCAs) and,   Most importantly, their myriad of interrelationships.    Use the above 2 goals to further detail and describe how to use the VE-ARM model for implementing trusted, reliable, efficient, frictionless, standards-based, global-scale software systems based on Fully Decentralized Objects (FDOs).  
 
 
 
@@ -10015,7 +10290,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    15:57 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11497,7 +11772,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    17:01 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12007,7 +12282,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    17:49 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12082,7 +12357,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    17:32 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12346,6 +12621,14 @@ But I want to see justice for all victims of the police.</p>
 
 
 <p>Code: <a href="https://github.com/damienbod/SeparatingApisPerSecurityLevel">https://github.com/damienbod/SeparatingApisPerSecurityLevel</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/04/19/securing-multiple-auth0-apis-in-asp-net-core-using-oauth-bearer-tokens/">Securing multiple Auth0 APIs in ASP.NET Core using OAuth Bearer&nbsp;tokens</a>  <a href="https://damienbod.com/2021/05/17/securing-multiple-identity-provider-oauth-bearer-tokens-in-an-asp-net-core-api/">Securing OAuth Bearer tokens from multiple Identity Providers in an ASP.NET Core API</a>  
 
 
 
@@ -19252,715 +19535,6 @@ But when trying to teach or explain a medium that is visual, other tools can be 
 
 <div class='item-footer'>
    17:50 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 08. March 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/03/08/securing-blazor-web-assembly-using-cookies/'>Securing Blazor Web assembly using cookies</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  The article shows how a Blazor web assembly UI hosted in an ASP.NET Core application can be secured using cookies. Azure AD is used as the identity provider and the Microsoft.Identity.Web Nuget package is used to secure the trusted server rendered application. The API calls are protected using the secure cookie and anti-forgery tokens to […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>The article shows how a Blazor web assembly UI hosted in an ASP.NET Core application can be secured using cookies. Azure AD is used as the identity provider and the Microsoft.Identity.Web Nuget package is used to secure the trusted server rendered application. The API calls are protected using the secure cookie and anti-forgery tokens to protected against CSRF. This architecture is also known as the Backends for Frontends (BFF) Pattern.</p>
-<p>Code: <a href="https://github.com/damienbod/AzureADAuthRazorUiServiceApiCertificate/tree/main/BlazorBff">Blazor Cookie security</a></p>
-<p>Why Cookies</p>
-<p>By using cookies, it gives us the possiblity to increase the security of the whole application, UI + API. Blazor web assembly is treated as a UI in the server rendered application. By using cookies, no access tokens, refresh tokens or id tokens are saved or managed in the browser. All security is implemented in the trusted backend. By implementing the security in the trusted backend, the application can be authenticated by the identity provider and all access tokens are removed from the browser, web storage. With the correct security definitions on the cookies, the security risks can be reduced, and the client application can be authenticated. It would be possible to use sender constrained tokens, or Mutual TLS for increased security, if this was required. Anti-forgery tokens are required to secure the API requests because we use cookies. </p>
-<p>The UI and the backend are one application which are coupled together. This is different to the standard Blazor template which uses access tokens. The WASM and the API are secured as two separate applications. Here only a single server rendered application is secured. The WASM client can only use APIs hosted on the same domain.</p>
-<p></p>
-<p>History</p>
-<p>2021-03-09 Updated Anti-forgery policy, feedback Philippe De Ryck</p>
-<p>Credits</p>
-<p>Some of the code in this repo was built using original source code from Bernd Hirschmann. </p>
-<p>Thank you for the <a href="https://github.com/berhir/BlazorWebAssemblyCookieAuth">git repository</a>.</p>
-<p>Creating the Blazor application</p>
-<p>The Blazor application was created using a web assembly template hosted in an ASP.NET Core application. You need to check the checkbox in Visual Studio for this. No authentication was added. This creates three projects. We will add the security first, then the services to use the Identity of the authenticated user in the WASM client, and then add the bits required for CSRF protection.</p>
-<p></p>
-<p>Securing the application using Azure AD</p>
-<p>The application is secured using the Azure AD identity provider. This is implemented using the Microsoft.Identity.Web web application client, not API client. This is just a wrapper for the Open ID connect code flow authentication and if successful authenticated, the auth data is stored in a cookie. Two Azure App Registrations are used to implement this, one for the API and one for the Web authentication. A client secret is required to access the API. A certificate could also be used instead. See the Microsoft.Identity.Web docs for more info.</p>
-<p>The app.settings contains the configuration for both the API and the web client.  The ScopeForAccessToken contains all the scopes required by the application so that after the user authenticates, the user can give consent up front for all required APIs. The rest is standard.</p>
- "AzureAd": {
-	"Instance": "https://login.microsoftonline.com/",
-	"Domain": "damienbodhotmail.onmicrosoft.com",
-	"TenantId": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
-	"ClientId": "46d2f651-813a-4b5c-8a43-63abcb4f692c",
-	"CallbackPath": "/signin-oidc",
-	"SignedOutCallbackPath ": "/signout-callback-oidc"
-	// "ClientSecret": "add secret to the user secrets"
-},
-	"UserApiOne": {
-	"ScopeForAccessToken": "api://b2a09168-54e2-4bc4-af92-a710a64ef1fa/access_as_user User.ReadBasic.All user.read",
-	"ApiBaseAddress": "https://localhost:44395"
-},
- 
-<p>The following nuget packages were added to the server blazor host application.</p>
- 
- Microsoft.AspNetCore.Components.WebAssembly.Server 
- Microsoft.AspNetCore.Authentication.JwtBearer 
- Microsoft.AspNetCore.Authentication.OpenIdConnect 
- Microsoft.Identity.Web 
- Microsoft.Identity.Web.UI 
- Microsoft.Identity.Web.MicrosoftGraphBeta 
- IdentityModel 
- IdentityModel.AspNetCore 
- 
-<p>The startup ConfigureServices method is used to add the Azure AD authentication clients. The AddMicrosoftIdentityWebAppAuthentication method is used to add the web client which uses the services added in the AddMicrosoftIdentityUI method. Graph API is added as a downstream API demo.</p>
- public void ConfigureServices(IServiceCollection services)
-{
-    // + ...
-	
-	services.AddHttpClient();
-	services.AddOptions();
-
-	string[] initialScopes = Configuration.GetValue&lt;string&gt;(
-		"UserApiOne:ScopeForAccessToken")?.Split(' ');
-
-	services.AddMicrosoftIdentityWebAppAuthentication(Configuration)
-		.EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
-		 .AddMicrosoftGraph("https://graph.microsoft.com/beta",
-			"User.ReadBasic.All user.read")
-		.AddInMemoryTokenCaches();
-
-	services.AddRazorPages().AddMvcOptions(options =&gt;
-	{
-		var policy = new AuthorizationPolicyBuilder()
-			.RequireAuthenticatedUser()
-			.Build();
-		options.Filters.Add(new AuthorizeFilter(policy));
-	}).AddMicrosoftIdentityUI();
-}
- 
-<p>The Configure method is used to add the middleware in the correct order. The Blazor application is setup like the template except for the fallback which maps to the razor page _Host instead of the index. This was added to support anti forgery tokens which I’ll explain later in this blog.</p>
- public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
-{
-	if (env.IsDevelopment())
-	{
-		app.UseDeveloperExceptionPage();
-		app.UseWebAssemblyDebugging();
-	}
-	else
-	{
-		app.UseExceptionHandler("/Error");
-		app.UseHsts();
-	}
-
-	app.UseHttpsRedirection();
-	app.UseBlazorFrameworkFiles();
-	app.UseStaticFiles();
-
-	app.UseRouting();
-	app.UseAuthentication();
-	app.UseAuthorization();
-
-	app.UseEndpoints(endpoints =&gt;
-	{
-		endpoints.MapRazorPages();
-		endpoints.MapControllers();
-		endpoints.MapFallbackToPage("/_Host");
-	});
-}
- 
-<p>Now the APIs can be protected using the Authorize attribute with the cookie scheme. The AuthorizeForScopes which come from the Microsoft.Identity.Web Nuget package can be used to validate the scope and handle MSAL consent exceptions.</p>
- [ValidateAntiForgeryToken]
-[Authorize(AuthenticationSchemes = CookieAuthenticationDefaults.AuthenticationScheme)]
-[AuthorizeForScopes(Scopes = new string[] { "api://b2a09168-54e2-4bc4-af92-a710a64ef1fa/access_as_user" })]
-[ApiController]
-[Route("api/[controller]")]
-public class DirectApiController : ControllerBase
-{
-	[HttpGet]
-	public IEnumerable&lt;string&gt; Get()
-	{
-		return new List&lt;string&gt; { "some data", "more data", "loads of data" };
-	}
-}
- 
-<p>Using the claims, identity in the web assembly client application</p>
-<p>The next part of the code was implemented using the source code created by Bernd Hirschmann. Now that the server authentication is implemented and the identity exists for the user and the application, the claims from this identity and the state of the actual user needs to be accessed and used in the client web assembly part of the application. APIs need to be created for this purpose. The account controller is used to initialize the sign in flow and a HTTP Post can be used to sign out.</p>
- using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-
-namespace BlazorAzureADWithApis.Server.Controllers
-{
-    // orig src https://github.com/berhir/BlazorWebAssemblyCookieAuth
-    [Route("api/[controller]")]
-    public class AccountController : ControllerBase
-    {
-        [HttpGet("Login")]
-        public ActionResult Login(string returnUrl)
-        {
-            return Challenge(new AuthenticationProperties
-            {
-                RedirectUri = !string.IsNullOrEmpty(returnUrl) ? returnUrl : "/"
-            });
-        }
-
-        // [ValidateAntiForgeryToken] // not needed explicitly due the the auto global definition.
-        [Authorize]
-        [HttpPost("Logout")]
-        public IActionResult Logout()
-        {
-            return SignOut(
-                new AuthenticationProperties { RedirectUri = "/" },
-                CookieAuthenticationDefaults.AuthenticationScheme,
-                OpenIdConnectDefaults.AuthenticationScheme);
-        }
-    }
-}
- 
-<p>The UserController is used to for the WASM to get access about the current identity and the claims of this identity.</p>
- using System.Collections.Generic;
-using System.Linq;
-using System.Security.Claims;
-using BlazorAzureADWithApis.Shared.Authorization;
-using IdentityModel;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-
-namespace BlazorAzureADWithApis.Server.Controllers
-{
-    // orig src https://github.com/berhir/BlazorWebAssemblyCookieAuth
-    [Route("api/[controller]")]
-    [ApiController]
-    public class UserController : ControllerBase
-    {
-        [HttpGet]
-        [AllowAnonymous]
-        public IActionResult GetCurrentUser()
-        {
-            return Ok(User.Identity.IsAuthenticated ? CreateUserInfo(User) : UserInfo.Anonymous);
-        }
-
-        private UserInfo CreateUserInfo(ClaimsPrincipal claimsPrincipal)
-        {
-            if (!claimsPrincipal.Identity.IsAuthenticated)
-            {
-                return UserInfo.Anonymous;
-            }
-
-            var userInfo = new UserInfo
-            {
-                IsAuthenticated = true
-            };
-
-            if (claimsPrincipal.Identity is ClaimsIdentity claimsIdentity)
-            {
-                userInfo.NameClaimType = claimsIdentity.NameClaimType;
-                userInfo.RoleClaimType = claimsIdentity.RoleClaimType;
-            }
-            else
-            {
-                userInfo.NameClaimType = JwtClaimTypes.Name;
-                userInfo.RoleClaimType = JwtClaimTypes.Role;
-            }
-
-            if (claimsPrincipal.Claims.Any())
-            {
-                var claims = new List&lt;ClaimValue&gt;();
-                var nameClaims = claimsPrincipal.FindAll(userInfo.NameClaimType);
-                foreach (var claim in nameClaims)
-                {
-                    claims.Add(new ClaimValue(userInfo.NameClaimType, claim.Value));
-                }
-
-                // Uncomment this code if you want to send additional claims to the client.
-                //foreach (var claim in claimsPrincipal.Claims.Except(nameClaims))
-                //{
-                //    claims.Add(new ClaimValue(claim.Type, claim.Value));
-                //}
-
-                userInfo.Claims = claims;
-            }
-
-            return userInfo;
-        }
-    }
-}
-
- 
-<p>In the client project, the services are added in the program file. The HttpClients are added as well as the AuthenticationStateProvider which can be used in the client UI.</p>
- using BlazorAzureADWithApis.Client.Services;
-using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using System;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Threading.Tasks;
-
-namespace BlazorAzureADWithApis.Client
-{
-    public class Program
-    {
-        public static async Task Main(string[] args)
-        {
-            var builder = WebAssemblyHostBuilder.CreateDefault(args);
-            builder.Services.AddOptions();
-            builder.Services.AddAuthorizationCore();
-            builder.Services.TryAddSingleton&lt;AuthenticationStateProvider, HostAuthenticationStateProvider&gt;();
-            builder.Services.TryAddSingleton(sp =&gt; (HostAuthenticationStateProvider)sp.GetRequiredService&lt;AuthenticationStateProvider&gt;());
-            builder.Services.AddTransient&lt;AuthorizedHandler&gt;();
-
-            builder.Services.AddHttpClient("default", client =&gt;
-            {
-                client.BaseAddress = new Uri(builder.HostEnvironment.BaseAddress);
-                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            });
-
-            builder.Services.AddHttpClient("authorizedClient", client =&gt;
-            {
-                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            }).AddHttpMessageHandler&lt;AuthorizedHandler&gt;();
-
-            builder.Services.AddTransient(sp =&gt; sp.GetRequiredService&lt;IHttpClientFactory&gt;().CreateClient("default"));
-
-            await builder.Build().RunAsync();
-        }
-    }
-}
-
- 
-<p>The HostAuthenticationStateProvider implements the AuthenticationStateProvider and is used to call the user controller APIs and return the state to the UI.</p>
- using BlazorAzureADWithApis.Shared.Authorization;
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.Extensions.Logging;
-using System;
-using System.Net.Http;
-using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Threading.Tasks;
-
-namespace BlazorAzureADWithApis.Client.Services
-{
-    // orig src https://github.com/berhir/BlazorWebAssemblyCookieAuth
-    public class HostAuthenticationStateProvider : AuthenticationStateProvider
-    {
-        private static readonly TimeSpan _userCacheRefreshInterval = TimeSpan.FromSeconds(60);
-
-        private const string LogInPath = "api/Account/Login";
-        private const string LogOutPath = "api/Account/Logout";
-
-        private readonly NavigationManager _navigation;
-        private readonly HttpClient _client;
-        private readonly ILogger&lt;HostAuthenticationStateProvider&gt; _logger;
-
-        private DateTimeOffset _userLastCheck = DateTimeOffset.FromUnixTimeSeconds(0);
-        private ClaimsPrincipal _cachedUser = new ClaimsPrincipal(new ClaimsIdentity());
-
-        public HostAuthenticationStateProvider(NavigationManager navigation, HttpClient client, ILogger&lt;HostAuthenticationStateProvider&gt; logger)
-        {
-            _navigation = navigation;
-            _client = client;
-            _logger = logger;
-        }
-
-        public override async Task&lt;AuthenticationState&gt; GetAuthenticationStateAsync()
-        {
-            return new AuthenticationState(await GetUser(useCache: true));
-        }
-
-        public void SignIn(string customReturnUrl = null)
-        {
-            var returnUrl = customReturnUrl != null ? _navigation.ToAbsoluteUri(customReturnUrl).ToString() : null;
-            var encodedReturnUrl = Uri.EscapeDataString(returnUrl ?? _navigation.Uri);
-            var logInUrl = _navigation.ToAbsoluteUri($"{LogInPath}?returnUrl={encodedReturnUrl}");
-            _navigation.NavigateTo(logInUrl.ToString(), true);
-        }
-
-        private async ValueTask&lt;ClaimsPrincipal&gt; GetUser(bool useCache = false)
-        {
-            var now = DateTimeOffset.Now;
-            if (useCache &amp;&amp; now &lt; _userLastCheck + _userCacheRefreshInterval)
-            {
-                _logger.LogDebug("Taking user from cache");
-                return _cachedUser;
-            }
-
-            _logger.LogDebug("Fetching user");
-            _cachedUser = await FetchUser();
-            _userLastCheck = now;
-
-            return _cachedUser;
-        }
-
-        private async Task&lt;ClaimsPrincipal&gt; FetchUser()
-        {
-            UserInfo user = null;
-
-            try
-            {
-                _logger.LogInformation(_client.BaseAddress.ToString());
-                user = await _client.GetFromJsonAsync&lt;UserInfo&gt;("api/User");
-            }
-            catch (Exception exc)
-            {
-                _logger.LogWarning(exc, "Fetching user failed.");
-            }
-
-            if (user == null || !user.IsAuthenticated)
-            {
-                return new ClaimsPrincipal(new ClaimsIdentity());
-            }
-
-            var identity = new ClaimsIdentity(
-                nameof(HostAuthenticationStateProvider),
-                user.NameClaimType,
-                user.RoleClaimType);
-
-            if (user.Claims != null)
-            {
-                foreach (var claim in user.Claims)
-                {
-                    identity.AddClaim(new Claim(claim.Type, claim.Value));
-                }
-            }
-
-            return new ClaimsPrincipal(identity);
-        }
-    }
-}
-
- 
-<p>The AuthorizedHandler implements the DelegatingHandler which can be used to add headers or handle HTTP request logic when the user is authenticated.</p>
- using System.Net;
-using System.Net.Http;
-using System.Threading;
-using System.Threading.Tasks;
-
-namespace BlazorAzureADWithApis.Client.Services
-{
-    // orig src https://github.com/berhir/BlazorWebAssemblyCookieAuth
-    public class AuthorizedHandler : DelegatingHandler
-    {
-        private readonly HostAuthenticationStateProvider _authenticationStateProvider;
-
-        public AuthorizedHandler(HostAuthenticationStateProvider authenticationStateProvider)
-        {
-            _authenticationStateProvider = authenticationStateProvider;
-        }
-
-        protected override async Task&lt;HttpResponseMessage&gt; SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            var authState = await _authenticationStateProvider.GetAuthenticationStateAsync();
-            HttpResponseMessage responseMessage;
-            if (!authState.User.Identity.IsAuthenticated)
-            {
-                // if user is not authenticated, immediately set response status to 401 Unauthorized
-                responseMessage = new HttpResponseMessage(HttpStatusCode.Unauthorized);
-            }
-            else
-            {
-                responseMessage = await base.SendAsync(request, cancellationToken);
-            }
-
-            if (responseMessage.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                // if server returned 401 Unauthorized, redirect to login page
-                _authenticationStateProvider.SignIn();
-            }
-
-            return responseMessage;
-        }
-    }
-}
-
- 
-<p>Now the AuthorizeView and the Authorized components can be used to hide or display the UI elements depending on the authentication state of the identity.</p>
- @inherits LayoutComponentBase
-
-&lt;div class="page"&gt;
-    &lt;div class="sidebar"&gt;
-        &lt;NavMenu /&gt;
-    &lt;/div&gt;
-
-    &lt;div class="main"&gt;
-        &lt;div class="top-row px-4 auth"&gt;
-            &lt;AuthorizeView&gt;
-                &lt;Authorized&gt;
-                    &lt;strong&gt;Hello, @context.User.Identity.Name!&lt;/strong&gt;
-                    &lt;form method="post" action="api//Account/Logout"&gt;
-                        &lt;AntiForgeryTokenInput/&gt;
-                        &lt;button class="btn btn-link" type="submit"&gt;Sign out&lt;/button&gt;
-                    &lt;/form&gt;
-                &lt;/Authorized&gt;
-                &lt;NotAuthorized&gt;
-                    &lt;a href="Account/Login"&gt;Log in&lt;/a&gt;
-                &lt;/NotAuthorized&gt;
-            &lt;/AuthorizeView&gt;
-
-        &lt;/div&gt;
-
-        &lt;div class="content px-4"&gt;
-            @Body
-        &lt;/div&gt;
-    &lt;/div&gt;
-&lt;/div&gt;
-
- 
-<p>For more information on this, see the Microsoft <a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security/webassembly/additional-scenarios">docs </a>or this <a href="https://guidnew.com/en/blog/secure-a-blazor-webassembly-application-with-cookie-authentication/">blog</a>.</p>
-<p>Cross-site request forgery CSRF protection</p>
-<p>Cross-site request forgery (also known as XSRF or CSRF) is a possible security problem when using cookies. We can protect against this using anti-forgery tokens and will add this to the Blazor application. To support this, we can use a Razor page _Host.cshtml file instead of a static html file. This host page is added to the server project and uses the default div with the id app just like the index.html file from the dotnet template. The index.html can be deleted form the client project. The render-mode is per default WebAssembly. If you copied a _Host file from a server Blazor template, you would have to change this or remove it.</p>
-<p>The Anti-forgery token is added at the bottom of the file in the body. A antiForgeryToken.js is also added to the razor Page _Host file. Also make sure the headers match the headers from the index.html which you deleted.</p>
- @page "/"
-@namespace BlazorAzureADWithApis.Pages
-@using BlazorAzureADWithApis.Client
-@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
-@{
-    Layout = null;
-}
-
-&lt;!DOCTYPE html&gt;
-&lt;html lang="en"&gt;
-&lt;head&gt;
-    &lt;meta charset="utf-8" /&gt;
-    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /&gt;
-    &lt;title&gt;Blazor AAD Cookie&lt;/title&gt;
-    &lt;base href="~/" /&gt;
-    &lt;link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" /&gt;
-    &lt;link href="css/app.css" rel="stylesheet" /&gt;
-    &lt;link href="BlazorAzureADWithApis.Client.styles.css" rel="stylesheet" /&gt;
-    &lt;link href="manifest.json" rel="manifest" /&gt;
-    &lt;link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" /&gt;
-&lt;/head&gt;
-&lt;body&gt;
-
-    &lt;div id="app"&gt;
-        &lt;!-- Spinner --&gt;
-        &lt;div class="spinner d-flex align-items-center justify-content-center" style="position:absolute; width: 100%; height: 100%; background: #d3d3d39c; left: 0; top: 0; border-radius: 10px;"&gt;
-            &lt;div class="spinner-border text-success" role="status"&gt;
-                &lt;span class="sr-only"&gt;Loading...&lt;/span&gt;
-            &lt;/div&gt;
-        &lt;/div&gt;
-    &lt;/div&gt;
-
-    &lt;div id="blazor-error-ui"&gt;
-        &lt;environment include="Staging,Production"&gt;
-            An error has occurred. This application may no longer respond until reloaded.
-        &lt;/environment&gt;
-        &lt;environment include="Development"&gt;
-            An unhandled exception has occurred. See browser dev tools for details.
-        &lt;/environment&gt;
-        &lt;a href="" class="reload"&gt;Reload&lt;/a&gt;
-        &lt;a class="dismiss"&gt;🗙&lt;/a&gt;
-    &lt;/div&gt;
-
-    &lt;script src="_framework/blazor.webassembly.js"&gt;&lt;/script&gt;
-    &lt;script src="antiForgeryToken.js"&gt;&lt;/script&gt;
-    @Html.AntiForgeryToken()
-&lt;/body&gt;
-&lt;/html&gt;
-
- 
-<p>The MapFallbackToPage needs to be updated to use the _Host file instead of the static html.</p>
- app.UseEndpoints(endpoints =&gt;
-{
-	endpoints.MapRazorPages();
-	endpoints.MapControllers();
-	endpoints.MapFallbackToPage("/_Host");
-});
- 
-<p>The AddAntiforgery is used to add the service for the CSRF protection by using a header named X-XSRF-TOKEN. The AutoValidateAntiforgeryTokenAttribute is added so that all POST, PUT, DELETE Http requests require an anti-forgery token.</p>
- public void ConfigureServices(IServiceCollection services)
-{
-    // + ...
-	
-	services.AddAntiforgery(options =&gt;
-	{
-		options.HeaderName = "X-XSRF-TOKEN";
-		options.Cookie.Name = "__Host-X-XSRF-TOKEN";
-		options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict;
-		options.Cookie.SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.Always;
-	});
-
-	services.AddControllersWithViews(options =&gt;
-		options.Filters.Add(
-			new AutoValidateAntiforgeryTokenAttribute()));
-
-}
- 
-<p>The antiForgeryToken.js Javascript file uses the hidden input created by the _Host Razor Page file and returns this in a function.</p>
- 
-function getAntiForgeryToken() {
-    var elements = document.getElementsByName('__RequestVerificationToken');
-    if (elements.length &gt; 0) {
-        return elements[0].value
-    }
-
-    console.warn('no anti forgery token found!');
-    return null;
-}
- 
-<p>The Javascript function can be used in any Blazor component now by using the JSRuntime. The anti-forgery token can be added to the X-XSRF-TOKEN HTTP request header which is configured in the server Startup class.</p>
- @page "/directapi"
-@inject HttpClient Http
-@inject IJSRuntime JSRuntime
-
-&lt;h1&gt;Data from Direct API&lt;/h1&gt;
-
-@if (apiData == null)
-{
-    &lt;p&gt;&lt;em&gt;Loading...&lt;/em&gt;&lt;/p&gt;
-}
-else
-{
-    &lt;table class="table"&gt;
-        &lt;thead&gt;
-            &lt;tr&gt;
-                &lt;th&gt;Data&lt;/th&gt;
-            &lt;/tr&gt;
-        &lt;/thead&gt;
-        &lt;tbody&gt;
-            @foreach (var data in apiData)
-            {
-                &lt;tr&gt;
-                    &lt;td&gt;@data&lt;/td&gt;
-                &lt;/tr&gt;
-            }
-        &lt;/tbody&gt;
-    &lt;/table&gt;
-}
-
-@code {
-    private string[] apiData;
-
-    protected override async Task OnInitializedAsync()
-    {
-        var token = await JSRuntime.InvokeAsync&lt;string&gt;("getAntiForgeryToken");
-
-        Http.DefaultRequestHeaders.Add("X-XSRF-TOKEN", token);
-
-        apiData = await Http.GetFromJsonAsync&lt;string[]&gt;("api/DirectApi");
-    }
-
-}
-
- 
-<p>If you are using forms directly in the Blazor template, then a custom component which creates a hidden input can be used to add the anti forgery token to the HTTP POST, PUT, DELETE requests. Underneath is a new component called AntiForgeryTokenInput.</p>
- @inject IJSRuntime JSRuntime
-
-&lt;input type="hidden" id="__RequestVerificationToken"
-       name="__RequestVerificationToken" value="@GetToken()"&gt;
-
-@code {
-
-    private string token = "";
-
-    protected override async Task OnInitializedAsync()
-    {
-        token = await JSRuntime.InvokeAsync&lt;string&gt;("getAntiForgeryToken");
-    }
-
-    public string GetToken()
-    {
-        return token;
-    }
-
-}
-
- 
-<p>The AntiForgeryTokenInput can be used directly in the HTML code.</p>
- &lt;form method="post" action="api/Account/Logout"&gt;
-	&lt;AntiForgeryTokenInput/&gt;
-	&lt;button class="btn btn-link" type="submit"&gt;Sign out&lt;/button&gt;
-&lt;/form&gt;
- 
-<p>In the server application, the ValidateAntiForgeryToken attribute can be used the force using anti forgery token protection explicitly.</p>
- [ValidateAntiForgeryToken] 
-[Authorize]
-[HttpPost("Logout")]
-public IActionResult Logout()
-{
-	return SignOut(
-		new AuthenticationProperties { RedirectUri = "/" },
-		CookieAuthenticationDefaults.AuthenticationScheme,
-		OpenIdConnectDefaults.AuthenticationScheme);
-}
- 
-<p></p>
-<p>Using cookies with Blazor WASM and ASP.NET Core hosted applications can be used to support the high security flow requirements which are required for certain application deployments. This makes it possible to add extra layers of security just by having a trusted application implement the security parts. The Blazor client application can only use the API deployed on the host in the same domain. Any Open ID Connect provider can be supported in this way, just like a Razor Page application. This makes it easier to support logout requirements by using a OIDC backchannel logout and so on. MTLS and sender constrained tokens can also be supported with this setup. SignalR no longer needs to add the access tokens to the URL of the web sockets as cookies can be used on the same domain.</p>
-<p>Would love feedback on further ways of improving this.</p>
-<p>Links:</p>
-<p><a href="https://github.com/berhir/BlazorWebAssemblyCookieAuth">https://github.com/berhir/BlazorWebAssemblyCookieAuth</a></p>
-<blockquote><p><a href="https://guidnew.com/en/blog/secure-a-blazor-webassembly-application-with-cookie-authentication/">Secure a Blazor WebAssembly application with cookie authentication</a></p></blockquote>
-<p></p>
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/components/prerendering-and-integration?view=aspnetcore-5.0&amp;pivots=webassembly#configuration">https://docs.microsoft.com/en-us/aspnet/core/blazor/components/prerendering-and-integration?view=aspnetcore-5.0&amp;pivots=webassembly#configuration</a></p>
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/anti-request-forgery">https://docs.microsoft.com/en-us/aspnet/core/security/anti-request-forgery</a></p>
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security">https://docs.microsoft.com/en-us/aspnet/core/blazor/security</a></p>
-<blockquote><p><a href="https://arvehansen.net/codecave/2020/10/19/securing-blazor-server-app-using-identityserver4/">Securing Blazor Server App using IdentityServer4</a></p></blockquote>
-<p></p>
-<p><a href="https://github.com/saber-wang/BlazorAppFormTset">https://github.com/saber-wang/BlazorAppFormTset</a></p>
-<p><a href="https://jonhilton.net/blazor-wasm-prerendering-missing-http-client/">https://jonhilton.net/blazor-wasm-prerendering-missing-http-client/</a></p>
-<p><a href="https://andrewlock.net/enabling-prerendering-for-blazor-webassembly-apps/">https://andrewlock.net/enabling-prerendering-for-blazor-webassembly-apps/</a></p>
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security/webassembly/additional-scenarios">https://docs.microsoft.com/en-us/aspnet/core/blazor/security/webassembly/additional-scenarios</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/03/blazorauthncookie_01.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:21 &bull;
    2 months ago
 </div>
 
