@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 3:55 AM May 31, 2021 (UTC)</sup>
+<sup>Last Update 7:06 AM May 31, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -729,6 +729,479 @@
  <h2 class='new-date'>
   Monday, 31. May 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/05/31/verify-vaccination-data-using-zero-knowledge-proofs-with-asp-net-core-and-mattr/'>Verify vaccination data using Zero Knowledge Proofs with ASP.NET Core and MATTR</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how Zero Knowledge Proofs ZKP verifiable credentials can be used to verify a persons vaccination data implemented in ASP.NET Core and MATTR. The ZKP BBS+ verifiable credentials are issued and stored on a digital wallet using a Self-Issued Identity Provider (SIOP) and Open ID Connect. The data can then be used to […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how Zero Knowledge Proofs ZKP verifiable credentials can be used to verify a persons vaccination data implemented in <a href="https://docs.microsoft.com/en-us/aspnet/core/introduction-to-aspnet-core">ASP.NET Core</a> and <a href="https://mattr.global/">MATTR</a>. The ZKP BBS+ verifiable credentials are issued and stored on a digital wallet using a Self-Issued Identity Provider (SIOP) and Open ID Connect. The data can then be used to verify if the holder has the required credentials, but only the required data is used and returned to the verification application. The holder of the data who owns the wallet can consent or not consent to allow the verification application to see and use the vaccination data. <a href="https://auth0.com/">Auth0</a> is used to implement the identity provider.</p>
+
+
+
+<p>Code <a href="https://github.com/swiss-ssi-group/MattrZeroKnowledgeProofsAspNetCore">https://github.com/swiss-ssi-group/MattrZeroKnowledgeProofsAspNetCore</a></p>
+
+
+
+<p>Blogs in the series</p>
+
+
+
+  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  <a href="https://damienbod.com/2021/05/03/create-an-oidc-credential-issuer-with-mattr-and-asp-net-core/">Create an OIDC credential Issuer with MATTR and ASP.NET Core</a>  <a href="https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/">Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>  Verify vaccination data using Zero Knowledge Proofs with ASP.NET Core and MATTR  
+
+
+
+<p>What are Zero Knowledge Proof enabled credentials </p>
+
+
+
+<p>Zero Knowledge Proof enabled credentials allows you to selectively disclose claims from a verifiable credential without disclosing all of the information of the verifiable credential. It also makes it possible to verify data without having to share the sensitive data required to verify something. In this post, we will just selectively request part of the data from a verifiable credential. This would make it possible to implement business flows without having to share or copy the sensitive data.</p>
+
+
+
+<p>Setup ZKP Vaccination Data Issue and Verify</p>
+
+
+
+<p>The demo application implements a covid vaccination data process. A number of components, applications are required to implement these flows. The idea is that when a person is vaccinated, the authority responsible for this could add the vaccination data to the persons identity. In this demo, that would be added to the Auth0 service which can be accessed in the id_token claims. The vaccination data organization can use the credentials issuer application to create a DID credential issuer using ZKP verifiable credentials. The end user can use a digital wallet to add his or his credentials using the SIOP flow which gets the claims from the IDP and adds the data to the digital wallet.  The verification application would have to create a presentation template defining the claims which are required to use to verify. Once created, a new verification request can be created and used to verify the vaccination data from the user. The user would scan the presented QR Code from the verifier application and display a verify in the digital wallet. Once consented, the data is returned to the verifier application using an API. The data can be processed and the UI is updated with a verified result or not. The blockchain ledger is abstracted away and used indirectly through MATTR which has APIs for the Self sovereign identity specifications. </p>
+
+
+
+
+
+
+
+<p>Issuing Zero Knowledge Proof enabled credentials</p>
+
+
+
+<p>The VaccineCredentialsIssuer ASP.NET Core application is used to create the credential issuer and present this as a QR Code for the user to add vaccination Zero Knowledge Proofs verifiable credentials. The flow implemented is very similar to the flow used in the previous blog <a href="https://damienbod.com/2021/05/03/create-an-oidc-credential-issuer-with-mattr-and-asp-net-core/">Create an OIDC credential Issuer with MATTR and ASP.NET Core</a> . A DID is created to use a BLS key type which supports BBS+ signatures for issuing ZKP-enabled credentials. </p>
+
+
+  public class MattrOptions
+{
+	/// &lt;summary&gt;
+	/// The supported key types for the DIDs are ed25519 and bls12381g2. 
+	/// If the keyType is omitted, the default key type that will be used is ed25519.
+	/// 
+	/// If the keyType in options is set to bls12381g2 a DID will be created with 
+	/// a BLS key type which supports BBS+ signatures for issuing ZKP-enabled credentials.
+	/// &lt;/summary&gt;
+	public string keyType { get; set; } = "bls12381g2";
+}
+  
+
+
+<p>The DID is used to create a credential issuer for the ZKP credentials. The CreateMattrCredentialIssuer method takes the DID created with the bls12381g2 key and creates the OIDC credential issuer.</p>
+
+
+  private async Task&lt;V1_CreateOidcIssuerResponse&gt; CreateMattrCredentialIssuer(HttpClient client, V1_CreateDidResponse did)
+{
+	// create vc, post to credentials api
+	// https://learn.mattr.global/tutorials/issue/oidc-bridge/setup-issuer
+
+	var createCredentialsUrl = $"https://{_mattrConfiguration.TenantSubdomain}/ext/oidc/v1/issuers";
+
+	var payload = new MattrOpenApiClient.V1_CreateOidcIssuerRequest
+	{
+		Credential = new Credential
+		{
+			IssuerDid = did.Did,
+			Name = "VaccinationCertificate7",
+			Context = new List&lt;Uri&gt; {
+				new Uri( "https://schema.org"), 
+				new Uri( "https://www.w3.org/2018/credentials/v1")
+			},
+			Type = new List&lt;string&gt; { "VerifiableCredential" }
+		},
+		ClaimMappings = new List&lt;ClaimMappings&gt;
+		{
+			new ClaimMappings{ JsonLdTerm="family_name", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/family_name"},
+			new ClaimMappings{ JsonLdTerm="given_name", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/given_name"},
+			new ClaimMappings{ JsonLdTerm="date_of_birth", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/date_of_birth"},
+			new ClaimMappings{ JsonLdTerm="medicinal_product_code", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/medicinal_product_code"},
+			new ClaimMappings{ JsonLdTerm="number_of_doses", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/number_of_doses"},
+			new ClaimMappings{ JsonLdTerm="total_number_of_doses", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/total_number_of_doses"},
+			new ClaimMappings{ JsonLdTerm="vaccination_date", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/vaccination_date"},
+			new ClaimMappings{ JsonLdTerm="country_of_vaccination", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/country_of_vaccination"}
+		},
+		FederatedProvider = new FederatedProvider
+		{
+			ClientId = _configuration["Auth0Wallet:ClientId"],
+			ClientSecret = _configuration["Auth0Wallet:ClientSecret"],
+			Url = new Uri($"https://{_configuration["Auth0Wallet:Domain"]}"),
+			Scope = new List&lt;string&gt; { "openid", "profile", "email" }
+		}
+	};
+
+	var payloadJson = JsonConvert.SerializeObject(payload);
+
+	var uri = new Uri(createCredentialsUrl);
+
+	using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
+	{
+		var createOidcIssuerResponse = await client.PostAsync(uri, content);
+
+		if (createOidcIssuerResponse.StatusCode == System.Net.HttpStatusCode.Created)
+		{
+			var v1CreateOidcIssuerResponse = JsonConvert.DeserializeObject&lt;V1_CreateOidcIssuerResponse&gt;(
+					await createOidcIssuerResponse.Content.ReadAsStringAsync());
+
+			return v1CreateOidcIssuerResponse;
+		}
+
+		var error = await createOidcIssuerResponse.Content.ReadAsStringAsync();
+	}
+
+	throw new Exception("whoops something went wrong");
+}
+  
+
+
+<p>The data from the MATTR response is used to create the callback for the credentials issuer. This is persisted to a database as this needs to be created only once and can be re-used.</p>
+
+
+   public async Task&lt;string&gt; CreateCredentialsAndCallback(string name)
+        {
+            // create a new one
+            var vaccinationDataCredentials = await CreateMattrDidAndCredentialIssuer();
+            vaccinationDataCredentials.Name = name;
+            await _vaccineCredentialsIssuerCredentialsService.CreateVaccinationData(vaccinationDataCredentials);
+
+            var callback = $"https://{_mattrConfiguration.TenantSubdomain}/ext/oidc/v1/issuers/{vaccinationDataCredentials.OidcIssuerId}/federated/callback";
+            return callback;
+        }
+  
+
+
+<p>The data is displayed as a QR Code in a ASP.NET Core Razor page application. This can be scanned and the credentials will be added to your digital wallet, if the Open ID Connect server has the claims for the identity required by this issuer.</p>
+
+
+
+
+
+
+
+<p>Auth0 is used to add the identity data for the claims. An Auth0 pipeline rule was created and used to add these claims to the id_tokens.</p>
+
+
+  function (user, context, callback) {
+    const namespace = 'https://damianbod-sandbox.vii.mattr.global/';
+
+    context.idToken[namespace + 'date_of_birth'] = user.user_metadata.date_of_birth;
+  
+    context.idToken[namespace + 'family_name'] = user.user_metadata.family_name;
+    context.idToken[namespace + 'given_name'] = user.user_metadata.given_name;
+    context.idToken[namespace + 'medicinal_product_code'] = user.user_metadata.medicinal_product_code;
+    context.idToken[namespace + 'number_of_doses'] = user.user_metadata.number_of_doses;
+    context.idToken[namespace + 'total_number_of_doses'] = user.user_metadata.total_number_of_doses;
+    context.idToken[namespace + 'vaccination_date'] = user.user_metadata.vaccination_date;
+    context.idToken[namespace + 'country_of_vaccination'] = user.user_metadata.country_of_vaccination;
+  
+    callback(null, user, context);
+}
+  
+
+
+<p>The data needs to be added to each user in Auth0. If using this in a real application, a UI could be created and used to add the specific data for each user. The credential issuer is tightly coupled through the data with the IDP. So each credential issuer which creates verifiable credentials would require it’s own identity provider and full access to update the profiles. The IDP contains the business data required to issuer the credentials. Auth0 might not be a good choice for this, maybe something like IdentityServer or Openiddict would be a better choice because you could implement custom UIs with ASP.NET Core Identity and the complete UIs for the credential issuing flows.</p>
+
+
+
+<p>When the credential issuer is scanned by the digital wallet, the user logs into the OIDC server and gets the data for the ZKP verifiable credentials. In a MATTR wallet, this is displayed with the Privacy enhancing credential information.</p>
+
+
+
+
+
+
+
+<p>Verifying the credentials</p>
+
+
+
+<p>Before the ZKP credentials can be verified, a presentation template is created to define the required credentials to verify. The DID ID from the credential issuer is used to find the DID in the ledger. The CreateMattrPresentationTemplate method creates the template using the QueryByFrame so that the exact claims can be defined. The context must use the <a href="https://w3c-ccg.github.io/ldp-bbs2020/context/v1">https://w3c-ccg.github.io/ldp-bbs2020/context/v1</a> namespace to use the ZKP BBS+ credentials in MATTR. The type must be VerifiableCredential.</p>
+
+
+  private async Task&lt;V1_PresentationTemplateResponse&gt; CreateMattrPresentationTemplate(
+	HttpClient client, string didId)
+{
+	// create presentation, post to presentations templates api
+	// https://learn.mattr.global/tutorials/verify/presentation-request-template
+	// https://learn.mattr.global/tutorials/verify/presentation-request-template#create-a-privacy-preserving-presentation-request-template-for-zkp-enabled-credentials
+
+	var createPresentationsTemplatesUrl = $"https://{_mattrConfiguration.TenantSubdomain}/v1/presentations/templates";
+
+	var additionalPropertiesCredentialSubject = new Dictionary&lt;string, object&gt;();
+	additionalPropertiesCredentialSubject.Add("credentialSubject", new VaccanationDataCredentialSubject
+	{ 
+		Explicit = true
+	});
+
+	var additionalPropertiesCredentialQuery = new Dictionary&lt;string, object&gt;();
+	additionalPropertiesCredentialQuery.Add("required", true);
+
+	var additionalPropertiesQuery = new Dictionary&lt;string, object&gt;();
+	additionalPropertiesQuery.Add("type", "QueryByFrame");
+	additionalPropertiesQuery.Add("credentialQuery", new List&lt;CredentialQuery2&gt; {
+		new CredentialQuery2
+		{
+			Reason = "Please provide your vaccination data",
+			TrustedIssuer = new List&lt;TrustedIssuer&gt;{
+				new TrustedIssuer
+				{
+					Required = true,
+					Issuer = didId // DID use to create the oidc
+				}
+			},
+			Frame = new Frame
+			{
+				Context = new List&lt;object&gt;{
+					"https://www.w3.org/2018/credentials/v1",
+					"https://w3c-ccg.github.io/ldp-bbs2020/context/v1",
+					"https://schema.org",
+				},
+				Type = "VerifiableCredential",
+				AdditionalProperties = additionalPropertiesCredentialSubject
+
+			},
+			AdditionalProperties = additionalPropertiesCredentialQuery
+		}
+	});
+
+	var payload = new MattrOpenApiClient.V1_CreatePresentationTemplate
+	{
+		Domain = _mattrConfiguration.TenantSubdomain,
+		Name = "zkp-certificate-presentation-11",
+		Query = new List&lt;Query&gt;
+		{
+			new Query
+			{
+				AdditionalProperties = additionalPropertiesQuery
+			}
+		}
+	};
+
+	var payloadJson = JsonConvert.SerializeObject(payload);
+
+	var uri = new Uri(createPresentationsTemplatesUrl);
+
+	using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
+	{
+		var presentationTemplateResponse = await client.PostAsync(uri, content);
+
+		if (presentationTemplateResponse.StatusCode == System.Net.HttpStatusCode.Created)
+		{
+
+			var v1PresentationTemplateResponse = JsonConvert
+					.DeserializeObject&lt;MattrOpenApiClient.V1_PresentationTemplateResponse&gt;(
+					await presentationTemplateResponse.Content.ReadAsStringAsync());
+
+			return v1PresentationTemplateResponse;
+		}
+
+		var error = await presentationTemplateResponse.Content.ReadAsStringAsync();
+
+	}
+
+	throw new Exception("whoops something went wrong");
+}
+  
+
+
+<p>The VaccanationDataCredentialSubject class defines the specific claims to use for the verification.</p>
+
+
+  public class VaccanationDataCredentialSubject
+{
+	[Newtonsoft.Json.JsonProperty("@explicit", Required = Newtonsoft.Json.Required.Always)]
+	public bool Explicit { get; set; }
+
+	[Newtonsoft.Json.JsonProperty("family_name", Required = Newtonsoft.Json.Required.Always)]
+	[System.ComponentModel.DataAnnotations.Required]
+	public object FamilyName { get; set; } = new object();
+
+	[Newtonsoft.Json.JsonProperty("given_name", Required = Newtonsoft.Json.Required.Always)]
+	[System.ComponentModel.DataAnnotations.Required]
+	public object GivenName { get; set; } = new object();
+
+	[Newtonsoft.Json.JsonProperty("date_of_birth", Required = Newtonsoft.Json.Required.Always)]
+	[System.ComponentModel.DataAnnotations.Required]
+	public object DateOfBirth { get; set; } = new object();
+
+	[Newtonsoft.Json.JsonProperty("medicinal_product_code", Required = Newtonsoft.Json.Required.Always)]
+	[System.ComponentModel.DataAnnotations.Required]
+	public object MedicinalProductCode { get; set; } = new object();
+}
+  
+
+
+<p>Verifying is very similar to the blog <a href="https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/">Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>. A new DID of type ed25519 is used to invoke a verify request and also sign the request. The verifying flow in the application presents a QR Code using the redirectURL technic because the signed request is too long to present as a QR Code. This request returns a 302 with the full jws. </p>
+
+
+
+
+
+
+
+<p>The application needs to be started using a public domain because the digital wallet will request back to the API with the data. I use ngrok to test locally. The verifier application can be started and the verify process is started by clicking the verify button which displays the QR Code to verify. </p>
+
+
+
+<p>Start the application and start ngrok </p>
+
+
+  ngrok http http://localhost:5000
+  
+
+
+<p>The QR Code can be scanned to verify.</p>
+
+
+
+
+
+
+
+<p>In the digital wallet, the verification request for the vaccination data can be viewed and if ok sent. The digital wallet displays the data which is disclosed and the data which is not. When the user clicks send, the data is validated and the API from the verifier application is called.</p>
+
+
+
+
+
+
+
+<p>When the Verify application receives the callback from the digital wallet, the data is validated and the challenge ID is used to notify the user of a successful verification. The data is saved to a database and ASP.NET Core SignalR is used to update the UI. When the message from SignalR is sent, the user is redirected to the success page using the challenge ID and the data is displayed with the success image.</p>
+
+
+
+
+
+
+
+<p>Notes</p>
+
+
+
+<p>Now we have a full create, holder, verify process implemented for Zero Knowledge Proof verifiable credentials using covid vaccination data. OIDC is used to authenticate and create the claims used for the credentials. The OIDC connect server or identity provider is tightly coupled to the credential issuer because business uses the data from the id_token. When using SIOP, I would use ASP.NET Core Identity and either OpenIddict of Identityserver4 to implement this as part of the credential issuer. You need full control of the claims so using Auth0, Azure AD or Azure B2C would probably be a bad choice here. You could federate then to one of these from the credential issuer to use the profiles as required. Each vaccinated user would also require a user account. ZKP verifiable credentials makes it possible to support user privacy better and mix claims easier from different credentials. Another problem with this solution is the vendor lockdown. This is a problem with any self sovereign solution at the moment. Even though, the specifications are all standard, unless you want to implement this completely yourself, you would choose a vendor specific implementation which locks you down to a specific wallet or with specific features only. Interop does not seem to work at the moment. This is a problem with all security solutions at present not just SSI, all software producers, security services use security reasoning as an excuse to try to force you into lockdown into their specific product. You can see this with most of the existing OIDC solutions and services. Typical quotes for this are “You can use any OIDC client, but we recommend our OIDC client…” SSI will open possibilities for new security solutions and it will be very interesting to see how application security develops in the next five years. </p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://mattr.global/">https://mattr.global/</a></p>
+
+
+
+<p><a href="https://learn.mattr.global/tutorials/verify/using-callback/callback-e-to-e">https://learn.mattr.global/tutorials/verify/using-callback/callback-e-to-e</a></p>
+
+
+
+<p><a href="https://mattr.global/get-started/">https://mattr.global/get-started/</a></p>
+
+
+
+<p><a href="https://learn.mattr.global/">https://learn.mattr.global/</a></p>
+
+
+
+<p><a href="https://keybase.io/">https://keybase.io/</a></p>
+
+
+
+<p><a href="https://www.youtube.com/watch?v=2_TDN-81ytM">Generating a ZKP-enabled BBS+ credential using the MATTR Platform</a></p>
+
+
+
+<p><a href="https://learn.mattr.global/tutorials/dids/did-key">https://learn.mattr.global/tutorials/dids/did-key</a></p>
+
+
+
+<p><a href="https://gunnarpeipman.com/httpclient-remove-charset/">https://gunnarpeipman.com/httpclient-remove-charset/</a></p>
+
+
+
+<p><a href="https://auth0.com/">https://auth0.com/</a></p>
+
+
+
+<p><a href="https://medium.com/decentralized-identity/where-to-begin-with-oidc-and-siop-7dd186c89796">Where to begin with OIDC and SIOP</a></p>
+
+
+
+<p><a href="https://anonyome.com/2020/06/decentralized-identity-key-concepts-explained/">https://anonyome.com/2020/06/decentralized-identity-key-concepts-explained/</a></p>
+
+
+
+<p><a href="https://www.lfph.io/wp-content/uploads/2021/02/Verifiable-Credentials-Flavors-Explained.pdf">Verifiable-Credentials-Flavors-Explained</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/05/vc_zkp_03.png?w=880'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:35 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -789,7 +1262,7 @@
 
 <div class='item-footer'>
    00:28 &bull;
-   4 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -854,7 +1327,7 @@
 
 <div class='item-footer'>
    00:14 &bull;
-   4 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -927,7 +1400,7 @@
 
 <div class='item-footer'>
    00:12 &bull;
-   4 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1056,7 +1529,7 @@
 
 <div class='item-footer'>
    23:55 &bull;
-   4 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1121,7 +1594,7 @@
 
 <div class='item-footer'>
    22:06 &bull;
-   6 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1403,7 +1876,7 @@ Why don’t you mind your own business?</p></blockquote>
 
 <div class='item-footer'>
    17:41 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3049,7 +3522,7 @@ Why don’t you mind your own business?</p></blockquote>
 
 <div class='item-footer'>
    18:23 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4297,7 +4770,7 @@ We’re all very preoccupied by this, as you might expect, and other life stuff 
 
 <div class='item-footer'>
    16:11 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5490,7 +5963,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    16:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6319,7 +6792,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    16:09 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6763,7 +7236,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    17:59 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6825,7 +7298,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    17:37 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7504,7 +7977,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    18:07 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7582,7 +8055,7 @@ Some clean up and updating in front of me - meanwhile -  a test post.</p>
 
 <div class='item-footer'>
    16:40 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7929,7 +8402,7 @@ where code like '%%' || %(search)s || '%%' limit 10
 
 
 
-  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  <a href="https://damienbod.com/2021/05/03/create-an-oidc-credential-issuer-with-mattr-and-asp-net-core/">Create an OIDC credential Issuer with MATTR and ASP.NET Core</a>  Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR  
+  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  <a href="https://damienbod.com/2021/05/03/create-an-oidc-credential-issuer-with-mattr-and-asp-net-core/">Create an OIDC credential Issuer with MATTR and ASP.NET Core</a>  Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR  <a href="https://damienbod.com/2021/05/31/verify-vaccination-data-using-zero-knowledge-proofs-with-asp-net-core-and-mattr/">Verify vaccination data using Zero Knowledge Proofs with ASP.NET Core and MATTR</a>  
 
 
 
@@ -9088,7 +9561,7 @@ To accommodate the new product, Apple also released Version 4.0.1 of &nbsp;Addre
 
 <div class='item-footer'>
    19:09 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9420,7 +9893,7 @@ To accommodate the new product, Apple also released Version 4.0.1 of &nbsp;Addre
 
 <div class='item-footer'>
    18:35 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9486,7 +9959,7 @@ To accommodate the new product, Apple also released Version 4.0.1 of &nbsp;Addre
 
 <div class='item-footer'>
    16:53 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9552,7 +10025,7 @@ To accommodate the new product, Apple also released Version 4.0.1 of &nbsp;Addre
 
 <div class='item-footer'>
    16:32 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9616,7 +10089,7 @@ To accommodate the new product, Apple also released Version 4.0.1 of &nbsp;Addre
 
 <div class='item-footer'>
    16:28 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10541,7 +11014,7 @@ jobs:
 
 
 
-  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  Create an OIDC credential Issuer with MATTR and ASP.NET Core  <a href="https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/">Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>  
+  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  Create an OIDC credential Issuer with MATTR and ASP.NET Core  <a href="https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/">Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>  <a href="https://damienbod.com/2021/05/31/verify-vaccination-data-using-zero-knowledge-proofs-with-asp-net-core-and-mattr/">Verify vaccination data using Zero Knowledge Proofs with ASP.NET Core and MATTR</a>  
 
 
 
@@ -11245,7 +11718,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    18:55 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11313,7 +11786,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    18:01 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11553,7 +12026,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    16:24 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19428,190 +19901,6 @@ namespace NationalDrivingLicense.Pages
 
 <div class='item-footer'>
    20:22 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/03/23/setting-dynamic-metadata-for-blazor-web-assembly/'>Setting dynamic Metadata for Blazor Web assembly</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post shows how HTML header meta data can be dynamically updated or changed for a Blazor Web assembly application routes hosted in ASP.NET Core. This can be usually for changing how URL link previews are displayed when sharing links. Code: https://github.com/damienbod/BlazorMetaData Updating the HTTP Header data to match the URL route used in the […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post shows how HTML header meta data can be dynamically updated or changed for a Blazor Web assembly application routes hosted in ASP.NET Core. This can be usually for changing how URL link previews are displayed when sharing links.</p>
-<p>Code: <a href="https://github.com/damienbod/BlazorMetaData">https://github.com/damienbod/BlazorMetaData</a></p>
-<p>Updating the HTTP Header data to match the URL route used in the Blazor WASM can be supported using a Razor Page host file instead of using a static html file. The Razor Page _Host file can use code behind and a model from this class. The Model can the be used to display the different values as required. This is a Hosted WASM application using ASP.NET Core as the server.</p>
- @page "/"
-@model BlazorMeta.Server.Pages._HostModel
-@namespace BlazorMeta.Pages
-@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
-@{
-    Layout = null;
-}
-
-&lt;!DOCTYPE html&gt;
-&lt;html lang="en"&gt;
-&lt;head&gt;
-    &lt;meta charset="utf-8" /&gt;
-    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /&gt;
-    &lt;meta property="og:type" content="website" /&gt;
-    &lt;meta property="og:title" content="Blazor BFF AAD Cookie 2021 @Model.SiteName" /&gt;
-    &lt;meta property="og:url" content="https://damienbod.com" /&gt;
-    &lt;meta property="og:image" content="https://avatars.githubusercontent.com/u/3442158?s=400&amp;v=4"&gt;
-    &lt;meta property="og:image:height" content="384" /&gt;
-    &lt;meta property="og:image:width" content="384" /&gt;
-    &lt;meta property="og:site_name" content="@Model.SiteName" /&gt;
-    &lt;meta property="og:description" content="@Model.PageDescription" /&gt;
-    &lt;meta name="twitter:site" content="damien_bod" /&gt;
-    &lt;meta name="twitter:card" content="summary" /&gt;
-    &lt;meta name="twitter:description" content="@Model.PageDescription" /&gt;
-    &lt;meta name="twitter:title" content="Blazor BFF AAD Cookie 2021 @Model.SiteName" /&gt;
-
-    &lt;title&gt;Blazor AAD Cookie&lt;/title&gt;
-    &lt;base href="~/" /&gt;
-    &lt;link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" /&gt;
-    &lt;link href="css/app.css" rel="stylesheet" /&gt;
-    &lt;link href="BlazorMeta.Client.styles.css" rel="stylesheet" /&gt;
-    &lt;link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" /&gt;
-&lt;/head&gt;
-&lt;body&gt;
-
-    &lt;div id="app"&gt;
-        &lt;!-- Spinner --&gt;
-        &lt;div class="spinner d-flex align-items-center justify-content-center" style="position:absolute; width: 100%; height: 100%; background: #d3d3d39c; left: 0; top: 0; border-radius: 10px;"&gt;
-            &lt;div class="spinner-border text-success" role="status"&gt;
-                &lt;span class="sr-only"&gt;Loading...&lt;/span&gt;
-            &lt;/div&gt;
-        &lt;/div&gt;
-    &lt;/div&gt;
-
-    @*&lt;component type="typeof(App)" render-mode="WebAssembly" /&gt;*@
-
-    &lt;div id="blazor-error-ui"&gt;
-        &lt;environment include="Staging,Production"&gt;
-            An error has occurred. This application may no longer respond until reloaded.
-        &lt;/environment&gt;
-        &lt;environment include="Development"&gt;
-            An unhandled exception has occurred. See browser dev tools for details.
-        &lt;/environment&gt;
-        &lt;a href="" class="reload"&gt;Reload&lt;/a&gt;
-        &lt;a class="dismiss"&gt;🗙&lt;/a&gt;
-    &lt;/div&gt;
-
-    &lt;script src="_framework/blazor.webassembly.js"&gt;&lt;/script&gt;
-&lt;/body&gt;
-&lt;/html&gt;
- 
-<p>The code behind _Host class adds the public properties of the model which are used in the template _cshtml file. The OnGet sets the values of the properties using the path property of the HTTP request.</p>
- using Microsoft.AspNetCore.Mvc.RazorPages;
-
-namespace BlazorMeta.Server.Pages
-{
-    public class _HostModel : PageModel
-    {
-        public string SiteName { get; set; } = "damienbod";
-        public string PageDescription { get; set; } = "damienbod init description";
-        public void OnGet()
-        {
-            (SiteName, PageDescription) = GetMetaData();
-        }
-
-        private (string, string) GetMetaData()
-        {
-            var metadata = Request.Path.Value switch
-            {
-                "/counter" =&gt; ("damienbod/counter", "This is the meta data for the counter"),
-                "/fetchdata" =&gt; ("damienbod/fetchdata", "This is the meta data for the fetchdata"),
-                _ =&gt; ("damienbod", "general description")
-            };
-            return metadata;
-        }
-    }
-}
-
- 
-<p>The MapFallbackToPage must be set to use the _Host Razor Page layout or fallback file.</p>
- app.UseEndpoints(endpoints =&gt;
-{
-	endpoints.MapRazorPages();
-	endpoints.MapControllers();
-	endpoints.MapFallbackToPage("/_Host");
-});
- 
-<p>When the application is deployed to a public server, an URL with the Blazor route can be copied and pasted into the software services or tools which then display the preview data.</p>
-<p>Each service uses different meta data headers and you would need to add the headers with the dynamic content as required. Underneath are some examples of what can be displayed.</p>
-<p>LinkedIn URL preview</p>
-<p></p>
-<p>Slack URL preview</p>
-<p></p>
-<p>Twitter URL preview</p>
-<p></p>
-<p>Microsoft teams URL preview</p>
-<p></p>
-<p>Links:</p>
-<p><a href="https://www.w3schools.com/tags/tag_meta.asp">https://www.w3schools.com/tags/tag_meta.asp</a></p>
-<p><a href="https://cards-dev.twitter.com/validator">https://cards-dev.twitter.com/validator</a></p>
-<p><a href="https://developer.twitter.com/en/docs/twitter-for-websites/cards/overview/markup">https://developer.twitter.com/en/docs/twitter-for-websites/cards/overview/markup</a></p>
-<p><a href="https://swimburger.net/blog/dotnet/pre-render-blazor-webassembly-at-build-time-to-optimize-for-search-engines">https://swimburger.net/blog/dotnet/pre-render-blazor-webassembly-at-build-time-to-optimize-for-search-engines</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/03/blazor_metadara_linkedin.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:42 &bull;
    2 months ago
 </div>
 
