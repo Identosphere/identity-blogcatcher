@@ -806,7 +806,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 4:51 PM June 04, 2021 (UTC)</sup>
+<sup>Last Update 9:35 PM June 04, 2021 (UTC)</sup>
 
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
@@ -819,6 +819,159 @@
  <h2 class='new-date'>
   Friday, 04. June 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://holochain.org/'>Holochain</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.holochain.org/holochain-gets-some-parts-upgrades/'>Holochain Gets Some Parts Upgrades</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Holochain Dev Pulse 97
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>A lot of what I've shared recently has been about Holo hosting -- getting all the bits really robust so they handle both 'happy path' user interactions (everything is working as expected) and 'sad path' ones (HoloPort goes down, login fails, etc). But I haven't spent much time talking about how Holochain itself is improving -- and when I have, it's usually been about bugfixes to support the aforementioned Holo work.</p><p>But behind the scenes, Holochain has been getting some big upgrades to some of its parts. This is mainly to make it faster -- fast enough for the next stages of Elemental Chat testing. (And of course, Elemental Chat testing is really about Holo hosting and Holochain.)</p> LMDB to SQLite: the road to infinite scalability <p>A lot of peer-to-peer networks, from decentralised social networks like <a href="https://scuttlebutt.nz/">Secure Scuttlebutt</a> to blockchains like Bitcoin, are built on something called '<a href="https://en.wikipedia.org/wiki/Gossip_protocol">gossip protocol</a>'. It's a simple protocol, and it works like it sounds like it would work: I know a bunch of people (or rather, computers), and when one of my friends shares something with me I share it with everyone else I know. With this protocol, messages spread rapidly through networks without a central authority.</p><p>And it also creates a lot of network traffic. That might be fine for blockchains, in which every machine is online most of the time and needs to know about everything anyway. But for networks that power everyday applications, you want to be respectful of your users' bandwidth -- and you can't expect their machines to be on all the time either. (Even blockchains tweak gossip to make it more efficient.)</p><p>Holochain is based on the idea of <a href="https://blog.holochain.org/how-rrdht-works-a-tech-deep-dive/">'neighbourhoods' of authority</a> -- each piece of data gets an address, and it's only sent to a group of machines that have taken responsibility for the range of addresses that cover its address. That means traditional gossip is too chatty -- as an authority, you need to constantly make decisions about what to share with your neighbours, given that they aren't responsible for the exact same range that you are.</p><p>It gets more complicated when machines are turning on and off all the time (which happens a lot when they're just users' devices). A machine that's been offline for a while will want to get up to date with the latest gossip, and will ask its peers for a digest of new stuff since they were last online.</p><p>This means you have to be able to ask your own database questions like "which of my neighbours' responsibility ranges start before, and end after, address <code>531993928</code>?" and "what new data have I collected within my neighbour Alice's responsibility range <code>112513216</code> to <code>241661317</code> since yesterday morning at 08:37 UTC?" These sorts of questions, called range queries, are really hard for a <a href="https://en.wikipedia.org/wiki/Key%E2%80%93value_database">key/value database</a> like <a href="http://www.lmdb.tech/doc/">LMDB</a> to answer, but they're really easy for a <a href="https://en.wikipedia.org/wiki/Relational_database">relational database</a> like <a href="https://sqlite.org/index.html">SQLite</a>.</p><p>Because all data in Holochain is just keys (addresses) and values attached to those keys, LMDB initially made sense -- it was much faster than any relational database out there when it came to key/value lookups, as well as being gentle on CPU and RAM. But as the core developers started looking at <a href="https://developer.holochain.org/concepts/4_dht/#finding-peers-and-data-in-a-distributed-database">sharding</a>, it became obvious that the large amount of range queries would hurt performance unacceptably if they stuck with LMDB.</p><p>As a side bonus, SQLite also makes it possible for us to encrypt source chain and DHT data at rest using <a href="https://www.zetetic.net/sqlcipher/">SQLCipher</a>. (Note: this doesn't prevent you from reading your peers' published data -- that's not how Holochain works. But it does prevent an attacker from stealing it if they gain access to your computer.)</p> Other gossip upgrades <p>As mentioned, when machines come back online after being offline for a while, the catching-up process has been pretty network-heavy. Now when it happens, machines <a href="https://github.com/holochain/holochain/pull/752">compare their lists</a> of held data using <a href="https://en.wikipedia.org/wiki/Bloom_filter">Bloom filters</a>. This technique results in more back-and-forth messages between nodes but less data being exchanged overall. This is already speeding up syncing, even though sharding is yet to be introduced.</p> New versions of Wasmer and Rust <p><a href="https://wasmer.io/">Wasmer</a>, the <a href="https://webassembly.org/">WebAssembly</a> engine we're using to run the 'rules' of a Holochain app, is now at version 1.0, so we've <a href="https://github.com/holochain/holochain/pull/801">upgraded it</a>. It comes with better memory management, a faster compiler and runtime, and a bunch of bug fixes. It also lets us compile and run Holochain on ARM CPUs like the HoloPort Nano.</p><p>Wasmer 1.0 will also let us implement compute metering for Holo hosting, as well as runtime budgets to prevent infinite loops from <a href="https://brilliant.org/wiki/halting-problem/">chewing up all of a host's CPU capacity</a>.</p><p>A new version of the Rust programming language has been released as well, so we've upgraded Holochain to use that too.</p><p>As a side effect, macOS developers are now first-class citizens again -- these updates plus some bugfixes have <a href="https://github.com/holochain/holonix/pull/212">resolved</a> the <a href="https://github.com/holochain/holonix/issues/211">macOS build issues</a> for Holonix, our development environment.</p> What's next? <p>Wasmer 1.0 and Rust 1.52 have already been integrated into Holochain, and they'll be rolled out along with the SQLite update. Expect to see faster install times soon too; we're researching automated build servers for Holonix so you don't have to wait an hour for everything to compile!</p><p>The <a href="https://github.com/holochain/holochain/pull/767">work of integrating SQLite is done</a>, and the slower performance of key/value lookups is more than offset by the faster performance of range queries. It's currently being tested on a single HoloPort with an automated Elemental Chat test involving 20 hosted users and one self-hosted instance, which has revealed a bug related to clogged processing queues. If there are no other show-stopper bugs, it'll replace the current LMDB-based Holochain on all HoloPorts soon.</p><p>Now that this work is almost ready, the core devs have been able to work on sharding the DHT. So far it's been 'full-sync', which means everybody stores everything, a lot like a blockchain. This is good for redundancy but bad for performance (although community testers have been consistently talking about how fast Elemental Chat already is). So far they've completed about half of the tasks involved in sharding.</p><p>Sharding has always been part of our promise to make dApps fast and scalable, so I'm excited to see this happening.</p> Reminder: Register for Dev Camp! <p>The next community-led <a href="https://holochain.org/dev-camp">Dev Camp is starting at the end of June</a>. The project you'll be working on, a game called Tragedy of the Holocommons, will help you understand how to design an app that works well without a single source of truth. I think it's a brilliant idea.</p><p>Dev Camps are still free, and they’re run by a fantastic and knowledgeable group of volunteers.</p><p>The Holochain developer community is growing, along with the ecosystem of learning materials and open-source libraries, tools, and apps. If you've been holding back, waiting for the ecosystem to mature, it might be time to check out the forum and GitHub and get involved. These are my favourite resources; please add your own in the comments!</p>  Holochain Gym, a set of exercises for learning how to build hApps <a href="https://holochain-gym.github.io/">https://holochain-gym.github.io/</a>  Holochain Open Dev, a collection of open-source libraries <a href="https://github.com/holochain-open-dev/">https://github.com/holochain-open-dev/</a>  Holochain In Action, a community of hApp devs exploring design patterns <a href="https://github.com/holochain-in-action/">https://github.com/holochain-in-action/</a>  Holo-REA, an economic toolkit <a href="https://github.com/Holo-REA/">https://github.com/Holo-REA/</a>  Sprillow, a software dev shop dedicated to hApps <a href="https://github.com/sprillow">https://github.com/sprillow</a>  Perspect3vism, a unique take on architecting composable hApps https://github.com/perspect3vism  Holochain Forum <a href="https://forum.holochain.org/">https://forum.holochain.org/</a>  Holochain GitHub org <a href="https://github.com/holochain/">https://github.com/holochain/</a>  <p>Cover photo by <a href="https://unsplash.com/@julianhochgesang?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText">Julian Hochgesang</a> on <a href="https://unsplash.com/s/photos/car-engine?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText">Unsplash</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blog.holochain.org/content/images/2021/06/julian-hochgesang-xayPzzDCA4c-unsplash.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:15 &bull;
+   23 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.1kosmos.com/'>1Kosmos BlockID</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.1kosmos.com/blog/authentication/passwordless-authentication'>What Is Passwordless Authentication? How Does It Work?</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    
+    
+     
+ Curious about passwordless authentication? Wondering how it can create a more secure login? We'll walk you through what it is and how it works in an enterprise. 
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://www.1kosmos.com/hubfs/SEO-blog-1.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  
+ <a href="https://www.1kosmos.com/blog/authentication/passwordless-authentication" title="">  </a> 
+     
+<p>Curious about passwordless authentication? Wondering how it can create a more secure login? We'll walk you through what it is and how it works in an enterprise.</p>    
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.1kosmos.com/hubfs/SEO-blog-1.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:17 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -908,7 +1061,7 @@
 
 <div class='item-footer'>
    15:38 &bull;
-   an hour ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -972,7 +1125,7 @@
 
 <div class='item-footer'>
    14:58 &bull;
-   2 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1079,7 +1232,7 @@
 
 <div class='item-footer'>
    14:28 &bull;
-   2 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1173,7 +1326,7 @@
 
 <div class='item-footer'>
    12:36 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1294,7 +1447,7 @@
 
 <div class='item-footer'>
    09:08 &bull;
-   8 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1368,7 +1521,7 @@
 
 <div class='item-footer'>
    04:09 &bull;
-   13 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1500,7 +1653,7 @@
 
 <div class='item-footer'>
    17:14 &bull;
-   24 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -3212,7 +3365,7 @@
 
 <div class='item-footer'>
    08:00 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3276,7 +3429,7 @@
 
 <div class='item-footer'>
    07:24 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3342,7 +3495,7 @@
 
 <div class='item-footer'>
    06:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3544,7 +3697,7 @@
 
 <div class='item-footer'>
    05:00 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4434,7 +4587,7 @@
 
 <div class='item-footer'>
    09:11 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4501,7 +4654,7 @@
 
 <div class='item-footer'>
    07:36 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6049,7 +6202,7 @@ cd java-microservices-examples/jhipster-k8s</code>
 
 <div class='item-footer'>
    05:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6507,23 +6660,14 @@ cd java-microservices-examples/jhipster-k8s</code>
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   I got the idea of breadboards from Ryan Singer in his book Shape Up. 
- Borrowing from the field of electrical engineering, a breadboard is a fully functioning prototype without the industrial design. We can do the same for an interaction idea and choose not to specify any visual design. 
- To do this we specify three things: 
- 
- Places — Things you can navigate to, like screens, modals etc. 
- Affor
+  Borrowing from the field of electrical engineering, a breadboard is a fully 
+functioning prototype without the industrial design. We can do the same for 
+an interaction idea and choose not to specify any visual design.
    
   
   
   
   
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://images.squarespace-cdn.com/content/v1/5eb2942c4ac101328fe42dc2/1622462451905-5P6NHRBH61QRRP5TJAIF/ke17ZwdGBToddI8pDm48kIDUICsnfAUeXBF_Oxpjxr4UqsxRUqqbr1mOJYKfIPR7LoDQ9mXPOjoJoqy81S2I8N_N4V1vUb5AoIIIbLZhVYy7Mythp_T-mtop-vrsUOmeInPi9iDjx9w8K4ZfjXt2duKHsRlOL7sOFLlWUsMGZYK4MTyHg-DkM9ObDyQpE0myCjLISwBs8eEdxAxTptZAUg/ee_breadboard-f576c579fcb3f3865a3004c9e9e53fd0c97fa14e65a7b81af3ec6fbfe7b31832.png?format=1000w'>
-      </div>
-    
   
 
 </div>
@@ -6535,7 +6679,7 @@ cd java-microservices-examples/jhipster-k8s</code>
  -->
 <div class='wrap'>
 
-  <p>I got the idea of breadboards from Ryan Singer in his book <a href="https://basecamp.com/shapeup">Shape Up</a>.</p>
+<p>I got the idea of breadboards from Ryan Singer in his book <a href="https://basecamp.com/shapeup">Shape Up</a>.</p>
 <p>Borrowing from the field of electrical engineering, a breadboard is a fully functioning prototype without the industrial design. We can do the same for an interaction idea and choose not to specify any visual design.</p>
 <p>To do this we specify three things:</p>
  
@@ -7136,7 +7280,7 @@ Thomas von Frankenberg<br>
 
 <div class='item-footer'>
    08:51 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7225,7 +7369,7 @@ Thomas von Frankenberg<br>
 
 <div class='item-footer'>
    08:44 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7299,7 +7443,7 @@ Thomas von Frankenberg<br>
 
 <div class='item-footer'>
    08:33 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7373,7 +7517,7 @@ Thomas von Frankenberg<br>
 
 <div class='item-footer'>
    07:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7447,7 +7591,7 @@ Thomas von Frankenberg<br>
 
 <div class='item-footer'>
    07:45 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7871,7 +8015,7 @@ Which side of the road are you on?
 
 <div class='item-footer'>
    09:15 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7945,7 +8089,7 @@ Which side of the road are you on?
 
 <div class='item-footer'>
    08:46 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8109,7 +8253,7 @@ Which side of the road are you on?
 
 <div class='item-footer'>
    06:44 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8866,7 +9010,7 @@ Which side of the road are you on?
 
 <div class='item-footer'>
    08:53 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8940,7 +9084,7 @@ Which side of the road are you on?
 
 <div class='item-footer'>
    08:53 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9014,7 +9158,7 @@ Which side of the road are you on?
 
 <div class='item-footer'>
    06:03 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9078,7 +9222,7 @@ Which side of the road are you on?
 
 <div class='item-footer'>
    06:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11532,7 +11676,7 @@ Figure 2:&nbsp;We monitor the&nbsp;validator&nbsp;and CLI nodes using&nbsp;<a hr
 
 <div class='item-footer'>
    07:12 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11596,7 +11740,7 @@ Figure 2:&nbsp;We monitor the&nbsp;validator&nbsp;and CLI nodes using&nbsp;<a hr
 
 <div class='item-footer'>
    06:48 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12853,7 +12997,7 @@ If you have issues launching your app on macOS Big Sur, see <a href="https://sta
 
 <div class='item-footer'>
    05:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14416,7 +14560,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    09:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14490,7 +14634,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    08:45 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14554,7 +14698,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    08:22 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14628,7 +14772,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    08:16 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14762,7 +14906,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    07:08 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14845,7 +14989,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    06:30 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14909,7 +15053,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    06:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15146,7 +15290,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    05:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17466,7 +17610,7 @@ In closing, a very special thank you to <a href="https://www.linkedin.com/in/rob
 
 <div class='item-footer'>
    08:07 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18048,7 +18192,7 @@ In closing, a very special thank you to <a href="https://www.linkedin.com/in/rob
 
 <div class='item-footer'>
    06:52 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18155,7 +18299,7 @@ In closing, a very special thank you to <a href="https://www.linkedin.com/in/rob
 
 <div class='item-footer'>
    06:48 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18229,7 +18373,7 @@ In closing, a very special thank you to <a href="https://www.linkedin.com/in/rob
 
 <div class='item-footer'>
    06:30 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18295,7 +18439,7 @@ In closing, a very special thank you to <a href="https://www.linkedin.com/in/rob
 
 <div class='item-footer'>
    05:27 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18361,7 +18505,7 @@ In closing, a very special thank you to <a href="https://www.linkedin.com/in/rob
 
 <div class='item-footer'>
    05:06 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19965,7 +20109,7 @@ In closing, a very special thank you to <a href="https://www.linkedin.com/in/rob
 
 <div class='item-footer'>
    08:00 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -20031,7 +20175,7 @@ In closing, a very special thank you to <a href="https://www.linkedin.com/in/rob
 
 <div class='item-footer'>
    07:22 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -20105,7 +20249,7 @@ In closing, a very special thank you to <a href="https://www.linkedin.com/in/rob
 
 <div class='item-footer'>
    07:03 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21444,7 +21588,7 @@ WWW-Authenticate: Bearer error="invalid_token",
 
 <div class='item-footer'>
    05:00 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -22312,7 +22456,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    07:24 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -22395,7 +22539,7 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    06:21 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -23041,7 +23185,7 @@ Sales Manager, Gambling<br>
 
 <div class='item-footer'>
    08:41 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -23105,7 +23249,7 @@ Sales Manager, Gambling<br>
 
 <div class='item-footer'>
    07:09 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -23169,7 +23313,7 @@ Sales Manager, Gambling<br>
 
 <div class='item-footer'>
    06:00 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -24078,7 +24222,7 @@ Sales Manager, Gambling<br>
 
 <div class='item-footer'>
    09:10 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -24835,7 +24979,7 @@ only place code is accumulating.</p>
 
 <div class='item-footer'>
    06:00 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -25764,7 +25908,7 @@ Estimate: 21 days - a month | Reward: 2 Stars</p>
 
 <div class='item-footer'>
    07:00 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -25857,7 +26001,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    06:30 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -26596,7 +26740,7 @@ public class ApplicationRouter {
 
 <div class='item-footer'>
    05:00 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -27905,139 +28049,6 @@ UNISOT Enterprise Architect</p>
 
 <div class='item-footer'>
    14:42 &bull;
-   24 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.ibm.com/blogs/blockchain/'>IBM Blockchain</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.ibm.com/blogs/blockchain/2021/05/why-digital-health-passes-are-the-smart-and-responsible-way-forward/'>Why Digital Health Passes are the smart and responsible way forward</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Having two daughters as nurses during the early stages and height of the pandemic made for tough weeks and months for myself and my family. The uncertainty of the virus and the inability to secure PPE for my daughters was a time I hope to never relive. The past year of course has brought unforeseen […] 
- The post Why Digital Health Passes are the smart and responsible way forward appeared first on
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>Having two daughters as nurses during the early stages and height of the pandemic made for tough weeks and months for myself and my family. The uncertainty of the virus and the inability to secure PPE for my daughters was a time I hope to never relive. The past year of course has brought unforeseen […]</p>
-<p>The post <a href="https://www.ibm.com/blogs/blockchain/2021/05/why-digital-health-passes-are-the-smart-and-responsible-way-forward/">Why Digital Health Passes are the smart and responsible way forward</a> appeared first on <a href="https://www.ibm.com/blogs/blockchain">Blockchain Pulse: IBM Blockchain Blog</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:06 &bull;
-   24 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://digi.me/'>digi.me</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.digi.me/2021/05/11/monetising-data-becomes-reality-with-new-digi-me-and-yorz-collaboration/'>Getting rewarded for your data becomes reality with new digi.me and Yorz collaboration</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Personal data exchange digi.me has joined forces with the Yorz Me2B marketplace to enable users to receive cash rewards and offers by consenting access to their data whilst protecting their privacy. 
- Yorz has partnerships with leading European payment processors and uses patented technology to automatically capture and make available till receipt data for users to share and monetise. They can als
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>Personal data exchange digi.me has joined forces with the Yorz Me2B marketplace to enable users to receive cash rewards and offers by consenting access to their data whilst protecting their privacy.</p>
-<p>Yorz has partnerships with leading European payment processors and uses patented technology to automatically capture and make available till receipt data for users to share and monetise. They can also gather other valuable data from across their lives, including finance, health and social media, using digi.me’s personal data exchange platform.</p>
-<p><a href="https://blog.digi.me/2021/05/11/monetising-data-becomes-reality-with-new-digi-me-and-yorz-collaboration/">Continue reading Getting rewarded for your data becomes reality with new digi.me and Yorz collaboration at Digi.me.</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:00 &bull;
    24 days ago
 </div>
 
