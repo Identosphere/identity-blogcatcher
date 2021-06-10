@@ -716,12 +716,753 @@
 
 </div>
 </div>
-<sup>Last Update 2:00 AM June 10, 2021 (UTC)</sup>
+<sup>Last Update 6:01 AM June 10, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Thursday, 10. June 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/06/10/integration-testing-for-asp-net-core-using-ef-core-cosmos-with-xunit-and-azure-devops/'>Integration Testing for ASP.NET Core using EF Core Cosmos with XUnit and Azure DevOps</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how integration tests could be implemented for an ASP.NET Core application which uses EF Core and Azure Cosmos. The database tests can be run locally or in an Azure DevOps build using the Azure Cosmos emulator. XUnit is used to implement the tests. Code: https://github.com/damienbod/AspNetCoreEfCoreCosmosTesting EF Core is used to the access […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how integration tests could be implemented for an ASP.NET Core application which uses <a href="https://docs.microsoft.com/en-us/ef/core/providers/cosmos/">EF Core</a> and Azure <a href="https://docs.microsoft.com/en-us/azure/cosmos-db/">Cosmos</a>. The database tests can be run locally or in an Azure DevOps build using the Azure Cosmos emulator. <a href="https://xunit.net/">XUnit </a>is used to implement the tests.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreEfCoreCosmosTesting">https://github.com/damienbod/AspNetCoreEfCoreCosmosTesting</a></p>
+
+
+
+<p>EF Core is used to the access Azure Cosmos database. An EF Core DbContext was created to access Cosmos. This is like any EF Core context, with the DBSet definitions as required. Some Cosmos specific definitions are added using the OnModelCreating method. See the <a href="https://docs.microsoft.com/en-us/ef/core/providers/cosmos/#cosmos-specific-model-customization">Cosmos-specific model customization</a> for more details.</p>
+
+
+   public class CosmosContext : DbContext
+    {
+        public CosmosContext(DbContextOptions&lt;CosmosContext&gt; options) 
+          : base(options) { }
+
+        public DbSet&lt;MyData&gt; MyData { get; set; }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.HasDefaultContainer("MyDataStore");
+
+            modelBuilder.Entity&lt;MyData&gt;()
+                .ToContainer("MyDataItems");
+
+            modelBuilder.Entity&lt;MyData&gt;()
+                .HasPartitionKey(o =&gt; o.PartitionKey);
+
+            modelBuilder.Entity&lt;MyData&gt;()
+                .Property(d =&gt; d.ETag)
+                .IsETagConcurrency();
+        }
+    }
+  
+
+
+<p>The MyData class is is used to model the Cosmos documents. This has a PartitionKey and also an ETag which can be used for the Optimistic concurrency validation.</p>
+
+
+  public class MyData
+{
+	public string Id { get; set; }
+	public string PartitionKey { get; set; }
+	public string Name { get; set; }
+	public string Description { get; set; }
+	public string ETag { get; set; }
+}
+  
+
+
+<p>The MyDataService service class is used to access the context and implement some query logic as required. I like to keep this simple and not separate the specification of the queries from the the business or the Linq statements. This reduces the amount of code and keeps the data access, business simple and makes it easy to adapt.</p>
+
+
+  public class MyDataService
+{
+	private CosmosContext _cosmosContext;
+
+	public MyDataService(CosmosContext cosmosContext)
+	{
+		_cosmosContext = cosmosContext;
+	}
+
+	public void EnsureCreated()
+	{
+		_cosmosContext.Database.EnsureCreated();
+	}
+
+	public async Task CreateAsync(MyData myData)
+	{
+		await _cosmosContext.MyData.AddAsync(myData);
+		await _cosmosContext.SaveChangesAsync(false);
+	}
+
+	public async Task&lt;MyData&gt; Get(string id)
+	{
+		return await _cosmosContext.MyData.FirstAsync(d =&gt; d.Id == id);
+	}
+
+	public async Task&lt;IList&lt;MyData&gt;&gt; NameContains(string name)
+	{
+		return await _cosmosContext.MyData
+			.Where(d =&gt; d.Name.Contains(name)).ToListAsync();
+	}
+}
+  
+
+
+<p>The ConfigureServices method adds the services required to use EF Core and Cosmos DB. The services are used in a Razor page application, but this could be any web application, ASP.NET Core API or ASP.NET Core Blazor.</p>
+
+
+  public void ConfigureServices(IServiceCollection services)
+        {
+            services.AddDbContext&lt;CosmosContext&gt;(options =&gt;
+            {
+                options.UseCosmos(
+                   "AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+                    databaseName: "MyDataDb"
+               );
+            });
+
+            services.AddScoped&lt;MyDataService&gt;();
+            services.AddRazorPages();
+        }
+  
+
+
+<p>The service needs to be tested. Instead of mocking away the database or using separate specifications classes as parameters, the service can be tested as one using <a href="https://docs.microsoft.com/en-us/azure/cosmos-db/local-emulator">Azure Cosmos emulator</a> and EF Core. We used the framework tools to test our code. An EF Core in-memory database could also be used instead of the Azure Cosmos emulator. We use the emulator for these tests. </p>
+
+
+
+<p></p>
+
+
+
+<p>The tests are setup to add the services to the IoC and build these. The code can be run and asserted as required. To start locally in dev, the Azure Cosmos emulator needs to be started first.</p>
+
+
+  using AspNetCoreCosmos.DataAccess;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Threading.Tasks;
+using Xunit;
+
+namespace AspNetCoreCosmos.DbTests
+{
+    public class MyDataTests : IAsyncLifetime
+    {
+        private ServiceProvider _serviceProvider;
+
+        public ServiceProvider ServiceProvider { get; set; }
+
+        [Fact]
+        public async Task MyDataCreateAsync()
+        {
+            using (var scope = _serviceProvider.CreateScope())
+            {
+                // Arrange
+                var myData = new MyData
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    PartitionKey = "Test",
+                    Name = "testData",
+                    Description = "test description"
+                };
+
+                var myDataService = scope.ServiceProvider.GetService&lt;MyDataService&gt;();
+                myDataService.EnsureCreated();
+
+                // Act
+                await myDataService.CreateAsync(myData);
+                var first = await myDataService.Get(myData.Id);
+
+                // Arrange
+                Assert.Equal(myData.Id, first.Id);
+            }
+        }
+
+        public Task InitializeAsync()
+        {
+            var serviceCollection = new ServiceCollection();
+            serviceCollection.AddDbContext&lt;CosmosContext&gt;(options =&gt;
+            {
+                options.UseCosmos(
+                   "AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+                    databaseName: "MyDataDb"
+               );
+            });
+
+            serviceCollection.AddScoped&lt;MyDataService&gt;();
+
+            _serviceProvider = serviceCollection.BuildServiceProvider();
+
+            return Task.CompletedTask;
+        }
+
+        public Task DisposeAsync()
+        {
+            return Task.CompletedTask;
+        }
+    }
+}
+
+  
+
+
+<p>The integration tests can be run in the Azure DevOps CI. I used a yaml file to test this and added this to my Azure DevOps build. This was a little bit tricky to setup because I did not easily find any working docs. The Microsoft.Azure.CosmosDB.Emulator is installed and started using Powershell. Then the tests can be run. </p>
+
+
+  trigger:
+- main
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+  vmImage: 'windows-latest'
+
+stages:
+- stage: Build
+  displayName: Build .NET sln
+  pool:
+      vmImage: $(vmImage)
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImage)
+    steps:
+    - task: NuGetToolInstaller@1
+
+    - task: NuGetCommand@2
+      inputs:
+        restoreSolution: '$(solution)'
+
+    - task: VSBuild@1
+      inputs:
+        solution: '$(solution)'
+        msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:DesktopBuildPackageLocation="$(build.artifactStagingDirectory)\WebApp.zip" /p:DeployIisAppPath="Default Web Site"'
+        platform: '$(buildPlatform)'
+        configuration: '$(buildConfiguration)'
+
+    - task: VSTest@2
+      inputs:
+        platform: '$(buildPlatform)'
+        configuration: '$(buildConfiguration)'
+
+- stage: IntegrationTests
+  displayName: Integration Tests
+  dependsOn: Build
+  pool:
+      vmImage: $(vmImage)
+  jobs:
+  - job: intgrationtests
+    displayName: Run integration tests
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: Restore
+      inputs:
+        command: 'restore'
+
+    - task: PowerShell@2
+      displayName: 'Starting Cosmos Emulator'
+      inputs:
+        targetType: 'inline'
+        workingDirectory: $(Pipeline.Workspace)
+        script: |
+           Write-Host "Starting CosmosDB Emulator"
+           Import-Module "C:/Program Files/Azure Cosmos DB Emulator/PSModules/Microsoft.Azure.CosmosDB.Emulator"
+           Start-CosmosDbEmulator
+
+    - task: DotNetCoreCLI@2
+      displayName: "Cosmos Database Tests"
+      inputs:
+        command: test
+        projects: "**/*.DbTests.csproj"
+  
+
+
+<p>You can add the yaml pipeline to your Azure DevOps build and it will run like the triggers are defined or the Azure DevOps policies.</p>
+
+
+
+
+
+
+
+<p>This works good, but you have to be careful in preparing the tests and running in parallel. Implementing the tests like this means you have less code in your application and you can still fully test all your code. A disadvantage with this approach is that the tests take longer to run compared to unit tests without the emulator.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/ef/core/providers/cosmos/">https://docs.microsoft.com/en-us/ef/core/providers/cosmos/</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/test/integration-tests">https://docs.microsoft.com/en-us/aspnet/core/test/integration-tests</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/cosmos-db/">https://docs.microsoft.com/en-us/azure/cosmos-db/</a></p>
+
+
+
+<p><a href="https://dev.azure.com/">https://dev.azure.com/</a></p>
+
+
+
+<p><a href="https://xunit.net/">https://xunit.net/</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/cosmos-db/local-emulator">https://docs.microsoft.com/en-us/azure/cosmos-db/local-emulator</a></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/06/cosmos_testing_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:56 &bull;
+   9 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/06/10/dateline-chicago-this.html'> Dateline Chicago: This Story Will Come as No Surprise… 
+
+ 
+ </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Dateline Chicago: This Story Will Come as No Surprise… 
+
+ 
+ ”With 62 years to go on a 75-year lease, the private company has already recouped its entire $1.16 billion investment and $500 million more.” 
+ 
+
+ I’m in the wrong business. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://driftglass.blogspot.com/2021/06/dateline-chicago-this-story-will-come.html">Dateline Chicago: This Story Will Come as No Surprise…</a></p>
+
+<blockquote>
+<p>”With 62 years to go on a 75-year lease, the private company has already recouped its entire $1.16 billion investment and $500 million more.”</p>
+</blockquote>
+
+<p>I’m in the wrong business.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:38 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/06/10/mike-myers-to.html'> Mike Myers to play seven characters in Netflix series ‘The P</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Mike Myers to play seven characters in Netflix series ‘The Pentaverate’ 
+
+ Seven characters? Surely ‘The Septaverate’ would be more appropriate? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://www.nme.com/news/tv/mike-myers-to-play-seven-characters-in-new-netflix-series-the-pentaverate-2964946">Mike Myers to play seven characters in Netflix series ‘The Pentaverate’</a></p>
+
+<p>Seven characters? Surely ‘The Septaverate’ would be more appropriate?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:37 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/06/10/ive-owned-many.html'> I’ve owned many macs over the years, but this is the first t</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I’ve owned many macs over the years, but this is the first time that a software update can’t be applied to the current workhorse. 
+
+ Are Macs lasting longer or made obsolete faster? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I’ve owned many macs over the years, but this is the first time that a software update can’t be applied to the current workhorse.</p>
+
+<p>Are Macs lasting longer or made obsolete faster?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:48 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -780,7 +1521,7 @@
 
 <div class='item-footer'>
    23:53 &bull;
-   2 hours ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -854,7 +1595,7 @@
 
 <div class='item-footer'>
    17:13 &bull;
-   9 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -932,7 +1673,7 @@
 
 <div class='item-footer'>
    17:13 &bull;
-   9 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -998,7 +1739,7 @@
 
 <div class='item-footer'>
    15:40 &bull;
-   10 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1214,7 +1955,7 @@
 
 <div class='item-footer'>
    10:52 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1685,7 +2426,7 @@
 
 <div class='item-footer'>
    16:03 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2862,7 +3603,7 @@ uname_result(
 
 <div class='item-footer'>
    14:35 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3376,7 +4117,7 @@ uname_result(
 
 <div class='item-footer'>
    17:34 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4462,7 +5203,7 @@ Why don’t you mind your own business?</p></blockquote>
 
 <div class='item-footer'>
    17:38 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4534,7 +5275,7 @@ Why don’t you mind your own business?</p></blockquote>
 
 <div class='item-footer'>
    17:41 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4905,7 +5646,7 @@ Why don’t you mind your own business?</p></blockquote>
 
 <div class='item-footer'>
    15:25 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6767,77 +7508,6 @@ public class UserOneController : ControllerBase
 
 
  <h2 class='new-date'>
-  Sunday, 23. May 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/05/23/cnn-ends-contract.html'> CNN ends contract with Rick Santorum after dismissive commen</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   CNN ends contract with Rick Santorum after dismissive comments about Native Americans 
-
- Bigger question: “Why was he there to begin with”? 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.businessinsider.com.au/rick-santorum-native-american-history-colonists-political-commentary-cnn-2021-5">CNN ends contract with Rick Santorum after dismissive comments about Native Americans</a></p>
-
-<p>Bigger question: “Why was he there to begin with”?</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:10 &bull;
-   18 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Friday, 21. May 2021
  </h2>
 
@@ -6923,83 +7593,6 @@ public class UserOneController : ControllerBase
 
 <div class='item-footer'>
    12:36 &bull;
-   20 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/05/21/in-a-statement.html'> In a statement to The Beast, the Logan Circle Group said the</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   In a statement to The Beast, the Logan Circle Group said the congressman; 
-
- 
- “won’t be commenting on whether he dated or didn’t date specific women. The privacy of women living private lives should be protected.” 
- 
-
- OFFS 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>In a statement to The Beast, the Logan Circle Group said the congressman;</p>
-
-<blockquote>
-<p>“won’t be commenting on whether he dated or didn’t date specific women. The privacy of women living private lives should be protected.”</p>
-</blockquote>
-
-<p>OFFS</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:13 &bull;
    20 days ago
 </div>
 
@@ -7288,84 +7881,6 @@ FE G OSS Full-Frame E-Mount</a>, which appears to outperform the Canon equivalen
 
 
 <h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/05/20/after-prosecutorial-efforts.html'> 
- ”After prosecutorial efforts the likes of which nobody has</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- ”After prosecutorial efforts the likes of which nobody has ever seen before, they failed to stop me in Washington …” 
- 
-
- you know who … 
-
- Ummm … yes.we.did. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<blockquote>
-<p>”After prosecutorial efforts the likes of which nobody has ever seen before, they failed to stop me in Washington …”</p>
-</blockquote>
-
-<p>you know who …</p>
-
-<p>Ummm … yes.we.did.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:25 &bull;
-   21 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://werd.io'>Ben Werdmüller</a>
 </h4>
 
@@ -7428,7 +7943,7 @@ We’re all very preoccupied by this, as you might expect, and other life stuff 
 
 <div class='item-footer'>
    16:11 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8333,7 +8848,7 @@ Photo Credit: <a href="https://www.flickr.com/photos/91261194@N06/51021144963">C
 
 <div class='item-footer'>
    16:30 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8736,7 +9251,7 @@ namespace MyApi.Controllers
 
 <div class='item-footer'>
    14:19 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8935,7 +9450,7 @@ namespace MyApi.Controllers
 
 <div class='item-footer'>
    16:09 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9139,7 +9654,7 @@ namespace MyApi.Controllers
 
 <div class='item-footer'>
    15:01 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9379,7 +9894,7 @@ namespace MyApi.Controllers
 
 <div class='item-footer'>
    17:59 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9441,7 +9956,7 @@ namespace MyApi.Controllers
 
 <div class='item-footer'>
    17:37 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9505,7 +10020,7 @@ namespace MyApi.Controllers
 
 <div class='item-footer'>
    15:24 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10198,7 +10713,7 @@ namespace MyApi.Controllers
 
 <div class='item-footer'>
    16:40 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10274,7 +10789,7 @@ namespace MyApi.Controllers
 
 <div class='item-footer'>
    15:02 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15856,7 +16371,7 @@ public async Task&lt;List&lt;string&gt;&gt; GetMyData()
 
 <div class='item-footer'>
    04:59 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20103,328 +20618,6 @@ namespace NationalDrivingLicense.Pages
 
 <div class='item-footer'>
    09:09 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 29. March 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/'>Getting started with Self Sovereign Identity SSI</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  The blog is my getting started with Self Sovereign identity. I plan to explore developing solutions using Self Sovereign Identities, the different services and evaluate some of the user cases in the next couple of blogs. Some of the definitions are explained, but mainly it is a list of resources, links for getting started. I’m […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>The blog is my getting started with Self Sovereign identity. I plan to explore developing solutions using Self Sovereign Identities, the different services and evaluate some of the user cases in the next couple of blogs. Some of the definitions are explained, but mainly it is a list of resources, links for getting started. I’m developing this blog series together with <a href="https://ml-software.ch/">Matteo</a> and will create several <a href="https://github.com/swiss-ssi-group">repos</a>, blogs together.</p>
-
-
-
-  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  <a href="https://damienbod.com/2021/04/05/creating-verifiable-credentials-in-asp-net-core-for-decentralized-identities-using-trinsic/">Creating Verifiable credentials in ASP.NET Core for decentralized identities using Trinsic</a>  <a href="https://ml-software.ch/posts/verifiying-verifiable-credentials-using-trinsic">Verifying Verifiable Credentials in ASP.NET Core for Decentralized Identities using Trinsic</a>  <a href="https://damienbod.com/2021/05/03/create-an-oidc-credential-issuer-with-mattr-and-asp-net-core/">Create an OIDC credential Issuer with MATTR and ASP.NET Core</a>  <a href="https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/">Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>  <a href="https://damienbod.com/2021/05/31/verify-vaccination-data-using-zero-knowledge-proofs-with-asp-net-core-and-mattr/">Verify vaccination data using Zero Knowledge Proofs with ASP.NET Core and MATTR</a>  
-
-
-
-<p></p>
-
-
-
-<p>What is Self Sovereign Identity SSI?</p>
-
-
-
-<p>Self-sovereign identity is an emerging solution built on blockchain technology for solving digital identities which gives the management of identities to the users and not organisations. It makes it possible the solve consent and data privacy of your data and makes it possible to authenticate your identity data across organisations or revoke it. It does not solve the process of authenticating users in applications. You can authenticate into your application using credentials from any trusted issuer, but this is vulnerable to phishing attacks. FIDO2 would be a better solution for this together with an OIDC flow for the application type. Or if you could use your credentials together with a registered FIDO2 key for the application, this would work. The user data is stored in a digital wallet, which is usually stored on your mobile phone. Recovery of this wallet does not seem so clear but a lot of work is going on here which should result in good solutions for this. The credentials DIDs are stored to a blockchain and to verify the credentials you need to search in the same blockchain network.</p>
-
-
-
-<p>What are the players?</p>
-
-
-
-<p>Digital Identity, Decentralized identifiers (DIDs)</p>
-
-
-
-<p>A digital identity can be expressed as a universal identifier which can be owned and can be publicly shared. A digital identity provides a way of showing a subject (user, organisation, thing), a way of exchanging credentials to other identities and a way to verify the identity without storing data on a shared server. This can be all done across organisational boundaries. A digital identity can be found using decentralized identifiers (DID) and this has working group standards in the process of specifying this. The DIDs are saved to a blockchain network which can be resolved.</p>
-
-
-
-<p><a href="https://w3c.github.io/did-core/">https://w3c.github.io/did-core/</a></p>
-
-
-
-<p>The DIDs representing identities are published to a blockchain network.</p>
-
-
-
-<p>Digital wallet</p>
-
-
-
-<p>A digital wallet is a database which stores all your verified credentials which you added to your data. This wallet is usually stored on your mobile phone and needs encryption. You want to prevent all third party access to this wallet. Some type of recovery process is required, if you use a digital wallet. A user can add or revoke credentials in the wallet. When you own a wallet, you would publish a public key to a blockchain network. A DID is returned representing the digital identity for this wallet and a public DID was saved to the network which can be used to authenticate anything interacting with the wallet. Digital wallets seem to be vendor locked at the moment which will be problematic for mainstream adoption.&nbsp;</p>
-
-
-
-<p>Credentials, Verifiable credentials</p>
-
-
-
-<p><a href="https://www.w3.org/TR/vc-data-model/">https://www.w3.org/TR/vc-data-model/</a></p>
-
-
-
-<p>A verifiable credential is an immutable set of claims created by an issuer which can be verified. A verifiable credential has claims, metadata and proof to validate the credential. A credential can be saved to a digital wallet, so no data is persisted anywhere apart from the issuer and the digital wallet.</p>
-
-
-
-<p>This credential can then be used anywhere.</p>
-
-
-
-<p>The credential is created by the issuer for the holder of the credential. This credential is presented to the verifier by the holder from a digital wallet and the verifier can validate the credential using the issuer DID which can be resolved from the blockchain network.</p>
-
-
-
-<p>Networks</p>
-
-
-
-<p>The networks are different distributed blockchains with verifiable data registries using DIDs. You need to know how to resolve each DID, issuer DID to verify or use a credential and so you need to know where to find the network on which the DID is persisted. The networks are really just persisted distributed databases. <a href="https://sovrin.org/">Sovrin </a>or other blockchains can be used as a network. The blockchain holds public key DIDs, DID documents, ie credentials and schemas.</p>
-
-
-
-<p>Energy consumption</p>
-
-
-
-<p>This is something I would like to evaluate, and if this technology was to become widespread, how much energy would this cost. I have no answers to this at the moment.</p>
-
-
-
-<p>Youtube videos, channels</p>
-
-
-
-<p><a href="https://www.youtube.com/watch?v=r28GeXkxn0w">An introduction to decentralized identities | Azure Friday</a></p>
-
-
-
- 
-  
- 
-
-
-
-<p><a href="https://www.youtube.com/channel/UCSqSTlKdbbCM1muGOhDa3Og">SSI Meetup</a></p>
-
-
-
-<p><a href="https://www.youtube.com/watch?v=djhYZZ3CkuM">An introduction to Self-Sovereign Identity</a></p>
-
-
-
-<p><a href="https://www.youtube.com/watch?v=d0nVbyTwuSw">Intro to SSI for Developers: Architecting Software Using Verifiable Credentials</a></p>
-
-
-
-<p><a href="https://www.youtube.com/channel/UC_CymrxptTtzqvQHkkIEO3A">SSI Ambassador</a></p>
-
-
-
-<p><a href="https://www.youtube.com/watch?v=Ew-_F-OtDFI">Decentralized identity explained</a></p>
-
-
-
-<p><a href="https://www.youtube.com/channel/UCNE6A9nz6j4irYmnHiM4E3w">Evernym channel</a></p>
-
-
-
-<p>Books, Blogs, articles, info</p>
-
-
-
-<p><a href="https://tykn.tech/self-sovereign-identity/">Self-Sovereign Identity: The Ultimate Beginners Guide!</a></p>
-
-
-
-<p><a href="https://medium.com/decentralized-identity/dif-oidf-9753b9bd0093">Decentralized Identity Foundation</a></p>
-
-
-
-<p><a href="https://publications.iadb.org/publications/english/document/Self-Sovereign-Identity-The-Future-of-Identity-Self-Sovereignity-Digital-Wallets-and-Blockchain.pdf">SELF-SOVEREIGN IDENTITY PDF by Marcos Allende Lopez</a></p>
-
-
-
-<p><a href="https://en.wikipedia.org/wiki/Self-sovereign_identity">https://en.wikipedia.org/wiki/Self-sovereign_identity</a></p>
-
-
-
-<p><a href="https://decentralized-id.com/">https://decentralized-id.com/</a></p>
-
-
-
-<p><a href="https://github.com/animo/awesome-self-sovereign-identity">https://github.com/animo/awesome-self-sovereign-identity</a></p>
-
-
-
-<p>Organisations</p>
-
-
-
-<p><a href="https://identity.foundation/">https://identity.foundation/</a></p>
-
-
-
-<p><a href="https://github.com/decentralized-identity">https://github.com/decentralized-identity</a></p>
-
-
-
-<p><a href="https://sovrin.org/">sovrin</a></p>
-
-
-
-<p>People</p>
-
-
-
-<p>Drummond Reed <a href="https://twitter.com/drummondreed">@drummondreed</a><br>Rieks Joosten<br>Oskar van Deventer<br>Alex Preukschat <a href="https://twitter.com/AlexPreukschat">@AlexPreukschat</a><br>Danny Strockis <a href="https://twitter.com/dStrockis">@dStrockis</a><br>Tomislav Markovski <a href="https://twitter.com/tmarkovski">@tmarkovski</a><br>Riley Hughes <a href="https://twitter.com/rileyphughes">@rileyphughes</a><br>Michael Boyd <a href="https://twitter.com/michael_boyd_">@michael_boyd_</a><br>Marcos Allende Lope <a href="https://twitter.com/MarcosAllendeL">@MarcosAllendeL</a><br>Adrian Doerk <a href="https://twitter.com/doerkadrian">@doerkadrian</a><br>Mathieu Glaude <a href="https://twitter.com/mathieu_glaude">@mathieu_glaude</a><br>Markus Sabadello <a href="https://twitter.com/peacekeeper">@peacekeeper</a><br>Ankur Patel <a href="https://twitter.com/_AnkurPatel">@_AnkurPatel</a><br>Daniel Ƀrrr <a href="https://twitter.com/csuwildcat/">@csuwildcat</a><br>Matthijs Hoekstra <a href="https://twitter.com/mahoekst">@mahoekst</a><br>Kaliya-Identity Woman <a href="https://twitter.com/IdentityWoman">@IdentityWoman</a></p>
-
-
-
-<p>Products</p>
-
-
-
-<p><a href="https://docs.trinsic.id/docs">https://docs.trinsic.id/docs</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/verifiable-credentials/">https://docs.microsoft.com/en-us/azure/active-directory/verifiable-credentials/</a></p>
-
-
-
-<p>Companies</p>
-
-
-
-<p><a href="https://tykn.tech/">https://tykn.tech/</a></p>
-
-
-
-<p><a href="https://trinsic.id/">https://trinsic.id/</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/verifiable-credentials/">Microsoft Azure AD</a></p>
-
-
-
-<p><a href="https://www.evernym.com/">evernym</a></p>
-
-
-
-<p><a href="https://northernblock.io/">northernblock.io</a></p>
-
-
-
-<p>Specs</p>
-
-
-
-<p><a href="https://w3c.github.io/did-core/">https://w3c.github.io/did-core/</a></p>
-
-
-
-<p><a href="https://w3c.github.io/vc-data-model/">https://w3c.github.io/vc-data-model/</a></p>
-
-
-
-<p><a href="https://www.w3.org/TR/vc-data-model/">https://www.w3.org/TR/vc-data-model/</a></p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://github.com/swiss-ssi-group">https://github.com/swiss-ssi-group</a></p>
-
-
-
-<p><a href="https://www.hyperledger.org/use/aries">https://www.hyperledger.org/use/aries</a></p>
-
-
-
-<p><a href="https://sovrin.org/">sovrin</a></p>
-
-
-
-<p><a href="https://github.com/evernym">https://github.com/evernym</a></p>
-
-
-
-<p> <a href="https://sovrin.org/faq/what-is-self-sovereign-identity/">what-is-self-sovereign-identity</a></p>
-
-
-
-<p><a href="https://techcommunity.microsoft.com/t5/identity-standards-blog/ion-we-have-liftoff/ba-p/1441555">https://techcommunity.microsoft.com/t5/identity-standards-blog/ion-we-have-liftoff/ba-p/1441555</a></p>
-
-
-
-
-
-<p></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:08 &bull;
    2 months ago
 </div>
 
