@@ -721,12 +721,351 @@
 
 </div>
 </div>
-<sup>Last Update 1:43 AM June 28, 2021 (UTC)</sup>
+<sup>Last Update 5:40 AM June 28, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 28. June 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/06/28/sign-in-using-multiple-clients-or-tenants-in-asp-net-core-and-azure-ad/'>Sign-in using multiple clients or tenants in ASP.NET Core and Azure AD</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The article shows how an ASP.NET Core application could implement a sign in and a sign out with two different Azure App registrations which could also be implemented using separate identity providers (tenants). The user of the application can decide to authenticate against either one of the Azure AD clients. The clients can also be […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The article shows how an ASP.NET Core application could implement a sign in and a sign out with two different Azure App registrations which could also be implemented using separate identity providers (tenants). The user of the application can decide to authenticate against either one of the Azure AD clients. The clients can also be deployed on separate Azure Active directories.  Separate authentication schemes are used for both of the clients. Each client requires a scheme for the Open ID Connect sign in and the cookie session. The Azure AD client authentication is implemented using <a href="https://github.com/AzureAD/microsoft-identity-web">Microsoft.Identity.Web</a>.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCore6Experiments">https://github.com/damienbod/AspNetCore6Experiments</a></p>
+
+
+
+<p>The clients are setup to use a non default Open ID Connect scheme and also a non default cookie scheme. After a successful authentication, the OnTokenValidated event is used to sign into the default cookie scheme using the claims principal returned from the Azure AD client. “t1” is used for the Open ID Connect scheme and “cookiet1” is used for the second scheme. No default schemes are defined. The second Azure App Registration client configuration is setup in the same way. </p>
+
+
+  services.AddAuthentication()
+   .AddMicrosoftIdentityWebApp(
+	Configuration.GetSection("AzureAdT1"), "t1", "cookiet1");
+
+services.Configure&lt;OpenIdConnectOptions&gt;("t1", options =&gt;
+{
+	var existingOnTokenValidatedHandler 
+		= options.Events.OnTokenValidated;
+		
+	options.Events.OnTokenValidated = async context =&gt;
+	{
+		await existingOnTokenValidatedHandler(context);
+
+		await context.HttpContext.SignInAsync(
+			CookieAuthenticationDefaults
+				.AuthenticationScheme, context.Principal);
+
+	};
+});
+
+services.AddAuthentication()
+	.AddMicrosoftIdentityWebApp(
+		Configuration.GetSection("AzureAdT2"), "t2", "cookiet2");
+
+services.Configure&lt;OpenIdConnectOptions&gt;("t2", options =&gt;
+{
+	var existingOnTokenValidatedHandler = options.Events.OnTokenValidated;
+	options.Events.OnTokenValidated = async context =&gt;
+	{
+		await existingOnTokenValidatedHandler(context);
+
+		await context.HttpContext.SignInAsync(
+		   CookieAuthenticationDefaults
+				.AuthenticationScheme, context.Principal);
+	};
+});
+  
+
+
+<p>The AddAuthorization is used in a standard way and no default policy is defined. We would like the user to have the possibility to choose against what tenant and client to authenticate.</p>
+
+
+  services.AddAuthorization();
+
+services.AddRazorPages()
+	.AddMvcOptions(options =&gt; { })
+	.AddMicrosoftIdentityUI();
+  
+
+
+<p>A third default scheme is added to keep the session after a successful authentication using the client schemes which authenticated. The identity is signed into this scheme after a successfully Azure AD authentication. The SignInAsync method is used for this in the OnTokenValidated event.</p>
+
+
+   services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie();
+  
+
+
+<p>The Configure method is setup in a standard way.</p>
+
+
+  public void Configure(IApplicationBuilder app)
+{
+	app.UseHttpsRedirection();
+	app.UseStaticFiles();
+
+	app.UseRouting();
+
+	app.UseAuthentication();
+	app.UseAuthorization();
+
+	app.UseEndpoints(endpoints =&gt;
+	{
+		endpoints.MapRazorPages();
+		endpoints.MapControllers();
+	});
+}
+  
+
+
+<p>The sign in and  the sign out needs custom implementations. The SignInT1 method is used to authenticate using the first client and the SignInT2 is used for the second. This can be called from the Razor page view. The CustomSignOut is used to sign out the correct schemes and redirect to the Azure AD endsession endpoint. The CustomSignOut method uses the clientId of the Azure AD configuration to sign out the correct session. This value can be read using the aud claim.</p>
+
+
+  using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+
+namespace AspNetCoreRazorMultiClients
+{
+    [AllowAnonymous]
+    [Route("[controller]")]
+    public class CustomAccountController : Controller
+    {
+        private readonly IConfiguration _configuration;
+
+        public CustomAccountController(IConfiguration configuration)
+        {
+            _configuration = configuration;
+        }
+
+        [HttpGet("SignInT1")]
+        public IActionResult SignInT1([FromQuery] string redirectUri)
+        {
+            var scheme = "t1";
+            string redirect;
+            if (!string.IsNullOrEmpty(redirectUri) &amp;&amp; Url.IsLocalUrl(redirectUri))
+            {
+                redirect = redirectUri;
+            }
+            else
+            {
+                redirect = Url.Content("~/")!;
+            }
+
+            return Challenge(new AuthenticationProperties { RedirectUri = redirect }, scheme);
+        }
+
+        [HttpGet("SignInT2")]
+        public IActionResult SignInT2([FromQuery] string redirectUri)
+        {
+            var scheme = "t2";
+            string redirect;
+            if (!string.IsNullOrEmpty(redirectUri) &amp;&amp; Url.IsLocalUrl(redirectUri))
+            {
+                redirect = redirectUri;
+            }
+            else
+            {
+                redirect = Url.Content("~/")!;
+            }
+
+            return Challenge(new AuthenticationProperties { RedirectUri = redirect }, scheme);
+        }
+
+        [HttpGet("CustomSignOut")]
+        public async Task&lt;IActionResult&gt; CustomSignOut()
+        {
+            var aud = HttpContext.User.FindFirst("aud");
+            if (aud.Value == _configuration["AzureAdT1:ClientId"])
+            {
+
+                await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                await HttpContext.SignOutAsync("cookiet1");
+                var authSignOut = new AuthenticationProperties
+                {
+                    RedirectUri = "https://localhost:44348/SignoutCallbackOidc"
+                };
+                return SignOut(authSignOut, "t1");
+            }
+            else
+            {
+                await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                await HttpContext.SignOutAsync("cookiet2");
+                var authSignOut = new AuthenticationProperties
+                {
+                    RedirectUri = "https://localhost:44348/SignoutCallbackOidc"
+                };
+                return SignOut(authSignOut, "t2");
+            }
+        }
+    }
+}
+  
+
+
+<p>The _LoginPartial.cshtml Razor view can use the CustomAccount controller method to sign in or sign out. The available clients can be selected in a drop down control. </p>
+
+
+  &lt;ul class="navbar-nav"&gt;
+@if (User.Identity.IsAuthenticated)
+{
+        &lt;li class="nav-item"&gt;
+            &lt;span class="navbar-text text-dark"&gt;Hello @User.Identity.Name!&lt;/span&gt;
+        &lt;/li&gt;
+        &lt;li class="nav-item"&gt;
+            &lt;a class="nav-link text-dark" asp-controller="CustomAccount" asp-action="CustomSignOut"&gt;Sign out&lt;/a&gt;
+        &lt;/li&gt;
+}
+else
+{
+        &lt;li&gt;
+            &lt;div class="main-menu"&gt;
+                &lt;div class="dropdown"&gt;
+                    &lt;button class="btn btn-primary dropdown-toggle" type="button" id="dropdownLangButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"&gt;
+                        sign-in
+                    &lt;/button&gt;
+                    &lt;div class="dropdown-menu" aria-labelledby="dropdownLangButton"&gt;
+                        &lt;a class="dropdown-item" asp-controller="CustomAccount" asp-action="SignInT1" &gt;t1&lt;/a&gt;
+
+                        &lt;a class="dropdown-item"  asp-controller="CustomAccount" asp-action="SignInT2"&gt;t2&lt;/a&gt;
+                    &lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/li&gt;
+}
+&lt;/ul&gt;
+
+  
+
+
+<p>The app.settings have the Azure AD settings for each client as required.</p>
+
+
+  {
+  "AzureAdT1": {
+    "Instance": "https://login.microsoftonline.com/",
+    "Domain": "damienbodhotmail.onmicrosoft.com",
+    "TenantId": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
+    "ClientId": "46d2f651-813a-4b5c-8a43-63abcb4f692c",
+    "CallbackPath": "/signin-oidc/t1",
+    "SignedOutCallbackPath ": "/SignoutCallbackOidc"
+    // "ClientSecret": "add secret to the user secrets"
+  },
+  "AzureAdT2": {
+    "Instance": "https://login.microsoftonline.com/",
+    "Domain": "damienbodhotmail.onmicrosoft.com",
+    "TenantId": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
+    "ClientId": "8e2b45c2-cad0-43c3-8af2-b32b73de30e4",
+    "CallbackPath": "/signin-oidc/t2",
+    "SignedOutCallbackPath ": "/SignoutCallbackOidc"
+    // "ClientSecret": "add secret to the user secrets"
+  },
+  
+
+
+<p>When the application is started, the user can login using any client as required. </p>
+
+
+
+
+
+
+
+<p>This works really good, if you don’t know which tenant is your default scheme. If you always use a default scheme with one tenant default, then you can use the  <a href="https://github.com/AzureAD/microsoft-identity-web/wiki/multiple-authentication-schemes">multiple-authentication-schemes</a> example like defined in the Microsoft.Identity.Web docs.</p>
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web/wiki/multiple-authentication-schemes">https://github.com/AzureAD/microsoft-identity-web/wiki/multiple-authentication-schemes</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web/wiki/customization#openidconnectoptions">https://github.com/AzureAD/microsoft-identity-web/wiki/customization#openidconnectoptions</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authentication">https://docs.microsoft.com/en-us/aspnet/core/security/authentication</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/06/aad_multiple_clients_scheme_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:16 &bull;
+   27 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -797,7 +1136,7 @@ I miss her a lot.</p>
 
 <div class='item-footer'>
    22:29 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -862,7 +1201,7 @@ I miss her a lot.</p>
 
 <div class='item-footer'>
    22:24 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -926,7 +1265,7 @@ I miss her a lot.</p>
 
 <div class='item-footer'>
    18:08 &bull;
-   8 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -986,7 +1325,7 @@ I miss her a lot.</p>
 
 <div class='item-footer'>
    17:58 &bull;
-   8 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1054,7 +1393,7 @@ I miss her a lot.</p>
 
 <div class='item-footer'>
    16:24 &bull;
-   9 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1900,7 +2239,7 @@ Better: Chauvin and the bosses who perpetuated an environment where such acts we
 
 <div class='item-footer'>
    17:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1978,7 +2317,7 @@ Better: Chauvin and the bosses who perpetuated an environment where such acts we
 
 <div class='item-footer'>
    17:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2048,7 +2387,7 @@ Better: Chauvin and the bosses who perpetuated an environment where such acts we
 
 <div class='item-footer'>
    17:19 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2183,7 +2522,7 @@ Better: Chauvin and the bosses who perpetuated an environment where such acts we
 
 <div class='item-footer'>
    16:26 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2836,7 +3175,7 @@ Or worse, it’s useless. An old advertising saying goes, “I know half my adve
 
 <div class='item-footer'>
    14:56 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3479,7 +3818,7 @@ The post Identiverse: 7 Principles of Digital Being first appeared on @_Nat Zone
 
 <div class='item-footer'>
    14:54 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3790,7 +4129,7 @@ The post Identiverse: 7 Principles of Digital Being first appeared on @_Nat Zone
 
 <div class='item-footer'>
    17:09 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3883,7 +4222,7 @@ The post Identiverse: Where are we with SIOP and DID? first appeared on @_Nat Zo
 
 <div class='item-footer'>
    14:40 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5026,7 +5365,7 @@ credential that was delegated to him:</p>
 
 <div class='item-footer'>
    17:12 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5262,7 +5601,7 @@ DIDs and DID-based Communication or DIDComm form the second layer of the SSI sta
 
 <div class='item-footer'>
    17:06 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8270,7 +8609,7 @@ stages:
 
 <div class='item-footer'>
    17:13 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8336,7 +8675,7 @@ stages:
 
 <div class='item-footer'>
    15:40 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8952,7 +9291,7 @@ stages:
 
 <div class='item-footer'>
    16:03 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9837,7 +10176,7 @@ uname_result(
 
 <div class='item-footer'>
    14:35 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9996,7 +10335,7 @@ uname_result(
 
 <div class='item-footer'>
    17:34 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10736,7 +11075,7 @@ Why don’t you mind your own business?</p></blockquote>
 
 <div class='item-footer'>
    17:38 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21153,7 +21492,7 @@ public async Task&lt;IActionResult&gt; GetAsync()
 
 <div class='item-footer'>
    05:01 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21387,7 +21726,7 @@ public async Task&lt;IActionResult&gt; GetAsync()
 
 <div class='item-footer'>
    04:15 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21977,524 +22316,6 @@ For the 22nd Vienna Digital Identity Meetup* we hosted three of the lead
 
 <div class='item-footer'>
    19:48 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 05. April 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/04/05/creating-verifiable-credentials-in-asp-net-core-for-decentralized-identities-using-trinsic/'>Creating Verifiable credentials in ASP.NET Core for decentralized identities using Trinsic</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how verifiable credentials can be created in ASP.NET Core for decentralized identities using the Trinsic platform which is a Self-sovereign identity implementation with APIs to integrate. The verifiable credentials can be downloaded to your digital wallet if you have access and can be used in separate application which understands the Trinsic APIs. […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how verifiable credentials can be created in ASP.NET Core for decentralized identities using the <a href="https://trinsic.id/">Trinsic</a> platform which is a <a href="https://sovrin.org/faq/what-is-self-sovereign-identity/">Self-sovereign identity</a> implementation with APIs to integrate. The verifiable credentials can be downloaded to your digital wallet if you have access and can be used in separate application which understands the Trinsic APIs.</p>
-
-
-
-<p>Code: <a href="https://github.com/swiss-ssi-group/TrinsicAspNetCore">https://github.com/swiss-ssi-group/TrinsicAspNetCore</a></p>
-
-
-
-<p>Blogs in this series</p>
-
-
-
-  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  <a href="https://damienbod.com/2021/04/05/creating-verifiable-credentials-in-asp-net-core-for-decentralized-identities-using-trinsic/">Creating Verifiable credentials in ASP.NET Core for decentralized identities using Trinsic</a>  <a href="https://ml-software.ch/posts/verifiying-verifiable-credentials-using-trinsic">Verifying Verifiable Credentials in ASP.NET Core for Decentralized Identities using Trinsic</a>  
-
-
-
-<p>Setup</p>
-
-
-
-<p>We want implement the flow shown in the following figure. The National Driving license application is responsible for issuing driver licenses and administrating licenses for users which have authenticated correctly. The user can see his or her driver license and a verifiable credential displayed as a QR code which can be used to add the credential to a digital wallet. When the application generates the credential, it adds the credential DID to the blockchain ledger with the cryptographic proof of the issuer and the document. When you scan the QR Code, the DID will get validated and will be added to the wallet along with the request claims. The digital wallet must be able to find the DID on the correct network and the schema and needs to search for the ledger in the correct blockchain. A good wallet should take care of this for you. The schema is required so that the data in the DID document can be understood.</p>
-
-
-
-
-
-
-
-<p>Trinsic Setup</p>
-
-
-
-<p>Trinsic is used to connect to the blockchain and create the DIDs, credentials in this example. Trinsic provides good getting started <a href="https://docs.trinsic.id/docs">docs</a>.</p>
-
-
-
-<p>In Trinsic, you need to create an organisation for the Issuer application.</p>
-
-
-
-
-
-
-
-<p>Click on the details of the organisation to get the API key. This is required for the application. This API Key cannot be replaced or updated, so if you make a mistake and lose this, commit it in code, you would have to create a new organisation. It is almost important to note the network. This is where you can find the DID to get the credentials produced by this issuer. </p>
-
-
-
-
-
-
-
-<p>To issuer credentials, you need to create a template or schema with the claims which are issued in the credential using the template. The issuer application provides values for the claims.</p>
-
-
-
-
-
-
-
-<p>Implementing the ASP.NET Core Issuer </p>
-
-
-
-<p>The verifiable credentials issuer is implemented in an ASP.NET Core application using Razor pages and Identity. This application needs to authenticate the users before issuing a verifiable credential for the user. FIDO2 with the correct authenticate flow would be a good choice as this would protect against phishing. You could use credentials as well, if the users of the applications had a trusted ID. You would still have to protect against phishing. The quality of the credentials issued depends on the security of the issuing application. If the application has weak user authentication, then the credentials cannot be trusted. For a bank, gov IDs, drivings license, a high level of security is required. Open ID Connect FAPI with FIDO2 would make a good solution to authenticate the user. Or a user with a trusted gov issued credential together with FIDO2 would also be good. </p>
-
-
-
-<p>The ASP.NET Core application initializes the services and adds the Trinsic client using the API Key from the organisation which issues the credentials. The Trinsic.ServiceClients Nuget package is used for the Trinsic integration. ASP.NET Core Identity is used to add, remove users and add driving licenses for the users in the administration part of the application. MFA should be setup but as this is a demo, I have not forced this.</p>
-
-
-  public void ConfigureServices(IServiceCollection services)
-{
-	services.AddScoped&lt;TrinsicCredentialsService&gt;();
-	services.AddScoped&lt;DriverLicenseService&gt;();
-
-	services.AddTrinsicClient(options =&gt;
-	{
-		// For CredentialsClient and WalletClient
-		// API key of National Driving License (Organisation which does the verification)
-		options.AccessToken = Configuration["Trinsic:ApiKey"];
-		// For ProviderClient
-		// options.ProviderKey = providerKey;
-	});
-
-	services.AddDbContext&lt;ApplicationDbContext&gt;(options =&gt;
-		options.UseSqlServer(
-			Configuration.GetConnectionString("DefaultConnection")));
-	services.AddDatabaseDeveloperPageExceptionFilter();
-
-	services.AddIdentity&lt;IdentityUser, IdentityRole&gt;(
-		options =&gt; options.SignIn.RequireConfirmedAccount = false)
-	 .AddEntityFrameworkStores&lt;ApplicationDbContext&gt;()
-	 .AddDefaultTokenProviders();
-
-	services.AddSingleton&lt;IEmailSender, EmailSender&gt;();
-	services.AddScoped&lt;IUserClaimsPrincipalFactory&lt;IdentityUser&gt;,
-		AdditionalUserClaimsPrincipalFactory&gt;();
-
-	services.AddAuthorization(options =&gt;
-	{
-		options.AddPolicy("TwoFactorEnabled",
-			x =&gt; x.RequireClaim("amr", "mfa")
-		);
-	});
-
-	services.AddRazorPages();
-}
-  
-
-
-<p>User secrets are used to add the secrets required for the application in development. The secrets can be added to the  Json secrets file and not to the code source. If deploying this to Azure, the secrets would be read from Azure Key vault. The application requires the Trinsic API Key and the credential template definition ID created in Trinsic studio.</p>
-
-
-  {
-  "ConnectionStrings": {
-    "DefaultConnection": "--db-connection-string--"
-  },
-  "Trinsic": {
-    "ApiKey":  "--your-api-key-organisation--",
-    "CredentialTemplateDefinitionId": "--Template-credential-definition-id--"
-  }
-}
-  
-
-
-<p>The driving license service is responsible for creating driver license for each user. This is just an example of logic and is not related to SSI.</p>
-
-
-  using Microsoft.EntityFrameworkCore;
-using NationalDrivingLicense.Data;
-using System.Threading.Tasks;
-
-namespace NationalDrivingLicense
-{
-    public class DriverLicenseService
-    {
-        private readonly ApplicationDbContext _applicationDbContext;
-
-        public DriverLicenseService(ApplicationDbContext applicationDbContext)
-        {
-            _applicationDbContext = applicationDbContext;
-        }
-
-        public async Taskbool&gt; HasIdentityDriverLicense(string username)
-        {
-            if (!string.IsNullOrEmpty(username))
-            {
-                var driverLicense = await _applicationDbContext.DriverLicenses.FirstOrDefaultAsync(
-                    dl =&gt; dl.UserName == username &amp;&amp; dl.Valid == true
-                );
-
-                if (driverLicense != null)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        public async Task&lt;DriverLicense&gt; GetDriverLicense(string username)
-        {
-            var driverLicense = await _applicationDbContext.DriverLicenses.FirstOrDefaultAsync(
-                    dl =&gt; dl.UserName == username &amp;&amp; dl.Valid == true
-                );
-
-            return driverLicense;
-        }
-
-        public async Task UpdateDriverLicense(DriverLicense driverLicense)
-        {
-            _applicationDbContext.DriverLicenses.Update(driverLicense);
-            await _applicationDbContext.SaveChangesAsync();
-        }
-    }
-}
-  
-
-
-<p>The Trinsic credentials service is responsible for creating the verifiable credentials. It uses the users drivers license and creates a new credential using the Trinsic client API using the CreateCredentialAsync method. The claims must match the template created in the studio. A Trinsic specific URL is returned. This can be used to create a QR Code which can be scanned from a Trinsic digital wallet.</p>
-
-
-  public class TrinsicCredentialsService
-{
-        private readonly ICredentialsServiceClient _credentialServiceClient;
-        private readonly IConfiguration _configuration;
-        private readonly DriverLicenseService _driverLicenseService;
-
-        public TrinsicCredentialsService(ICredentialsServiceClient credentialServiceClient,
-            IConfiguration configuration,
-            DriverLicenseService driverLicenseService)
-        {
-            _credentialServiceClient = credentialServiceClient;
-            _configuration = configuration;
-            _driverLicenseService = driverLicenseService;
-        }
-
-        public async Task&lt;string&gt; GetDriverLicenseCredential(string username)
-        {
-            if (!await _driverLicenseService.HasIdentityDriverLicense(username))
-            {
-                throw new ArgumentException("user has no valid driver license");
-            }
-
-            var driverLicense = await _driverLicenseService.GetDriverLicense(username);
-
-            if (!string.IsNullOrEmpty(driverLicense.DriverLicenseCredentials))
-            {
-                return driverLicense.DriverLicenseCredentials;
-            }
-
-            string connectionId = null; // Can be null | &lt;connection identifier&gt;
-            bool automaticIssuance = false;
-            IDictionary&lt;string, string&gt; credentialValues = new Dictionary&lt;String, String&gt;() {
-                {"Issued At", driverLicense.IssuedAt.ToString()},
-                {"Name", driverLicense.Name},
-                {"First Name", driverLicense.FirstName},
-                {"Date of Birth", driverLicense.DateOfBirth.Date.ToString()},
-                {"License Type", driverLicense.LicenseType}
-            };
-
-            CredentialContract credential = await _credentialServiceClient
-                .CreateCredentialAsync(new CredentialOfferParameters
-                {
-                    DefinitionId = _configuration["Trinsic:CredentialTemplateDefinitionId"],
-                    ConnectionId = connectionId,
-                    AutomaticIssuance = automaticIssuance,
-                    CredentialValues = credentialValues
-                });
-
-            driverLicense.DriverLicenseCredentials = credential.OfferUrl;
-            await _driverLicenseService.UpdateDriverLicense(driverLicense);
-
-            return credential.OfferUrl;
-        }
-}
-  
-
-
-<p>The DriverLicenseCredentials Razor page uses the Trinsic service and returns the credentials URL if the user has a valid drivers license. </p>
-
-
-  using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc.RazorPages;
-using NationalDrivingLicense.Data;
-
-namespace NationalDrivingLicense.Pages
-{
-    public class DriverLicenseCredentialsModel : PageModel
-    {
-        private readonly TrinsicCredentialsService _trinsicCredentialsService;
-        private readonly DriverLicenseService _driverLicenseService;
-
-        public string DriverLicenseMessage { get; set; } = "Loading credentials";
-        public bool HasDriverLicense { get; set; } = false;
-        public DriverLicense DriverLicense { get; set; }
-
-        public string CredentialOfferUrl { get; set; }
-        public DriverLicenseCredentialsModel(TrinsicCredentialsService trinsicCredentialsService,
-           DriverLicenseService driverLicenseService)
-        {
-            _trinsicCredentialsService = trinsicCredentialsService;
-            _driverLicenseService = driverLicenseService;
-        }
-        public async Task OnGetAsync()
-        {
-            DriverLicense = await _driverLicenseService.GetDriverLicense(HttpContext.User.Identity.Name);
-
-            if (DriverLicense != null)
-            {
-                var offerUrl = await _trinsicCredentialsService
-                    .GetDriverLicenseCredential(HttpContext.User.Identity.Name);
-                DriverLicenseMessage = "Add your driver license credentials to your wallet";
-                CredentialOfferUrl = offerUrl;
-                HasDriverLicense = true;
-            }
-            else
-            {
-                DriverLicenseMessage = "You have no valid driver license";
-            }
-        }
-    }
-}
-  
-
-
-<p>The Razor page template displays the QR code and information about the driver license issued to the logged in user.</p>
-
-
-  @page
-@model NationalDrivingLicense.Pages.DriverLicenseCredentialsModel
-@{
-}
-
-&lt;h3&gt;@Model.DriverLicenseMessage&lt;/h3&gt;
-&lt;br /&gt;
-&lt;br /&gt;
-
-@if (Model.HasDriverLicense)
-{
-    &lt;div class="container-fluid"&gt;
-        &lt;div class="row"&gt;
-            &lt;div class="col-sm"&gt;
-                &lt;div class="qr" id="qrCode"&gt;&lt;/div&gt;
-            &lt;/div&gt;
-            &lt;div class="col-sm"&gt;
-                &lt;div&gt;
-                    &lt;img src="~/ndl_car_01.png" width="200" alt="Driver License"&gt;
-                    &lt;div&gt;
-                        &lt;b&gt;Driver Licence: @Html.DisplayFor(model =&gt; model.DriverLicense.UserName)&lt;/b&gt;
-                        &lt;hr /&gt;
-                        &lt;dl class="row"&gt;
-                            &lt;dt class="col-sm-4"&gt;Issued&lt;/dt&gt;
-                            &lt;dd class="col-sm-8"&gt;
-                                @Model.DriverLicense.IssuedAt.ToString("MM/dd/yyyy")
-                            &lt;/dd&gt;
-                            &lt;dt class="col-sm-4"&gt;
-                                @Html.DisplayNameFor(model =&gt; model.DriverLicense.Name)
-                            &lt;/dt&gt;
-                            &lt;dd class="col-sm-8"&gt;
-                                @Html.DisplayFor(model =&gt; model.DriverLicense.Name)
-                            &lt;/dd&gt;
-                            &lt;dt class="col-sm-4"&gt;First Name&lt;/dt&gt;
-                            &lt;dd class="col-sm-8"&gt;
-                                @Html.DisplayFor(model =&gt; model.DriverLicense.FirstName)
-                            &lt;/dd&gt;
-                            &lt;dt class="col-sm-4"&gt;License Type&lt;/dt&gt;
-                            &lt;dd class="col-sm-8"&gt;
-                                @Html.DisplayFor(model =&gt; model.DriverLicense.LicenseType)
-                            &lt;/dd&gt;
-                            &lt;dt class="col-sm-4"&gt;Date of Birth&lt;/dt&gt;
-                            &lt;dd class="col-sm-8"&gt;
-                                @Model.DriverLicense.DateOfBirth.ToString("MM/dd/yyyy")
-                            &lt;/dd&gt;
-                            &lt;dt class="col-sm-4"&gt;Issued by&lt;/dt&gt;
-                            &lt;dd class="col-sm-8"&gt;
-                                @Html.DisplayFor(model =&gt; model.DriverLicense.Issuedby)
-                            &lt;/dd&gt;
-                            &lt;dt class="col-sm-4"&gt;
-                                @Html.DisplayNameFor(model =&gt; model.DriverLicense.Valid)
-                            &lt;/dt&gt;
-                            &lt;dd class="col-sm-8"&gt;
-                                @Html.DisplayFor(model =&gt; model.DriverLicense.Valid)
-                            &lt;/dd&gt;
-                        &lt;/dl&gt;
-                    &lt;/div&gt;
-                &lt;/div&gt;
-            &lt;/div&gt;
-        &lt;/div&gt;
-    &lt;/div&gt;
-}
-
-@section scripts {
-    &lt;script src="~/js/qrcode.min.js"&gt;&lt;/script&gt;
-    &lt;script type="text/javascript"&gt;
-        new QRCode(document.getElementById("qrCode"),
-            {
-                text: "@Html.Raw(Model.CredentialOfferUrl)",
-                width: 300,
-                height: 300
-            });
-    $(document).ready(() =&gt; {
-        document.getElementById('begin_token_check').click();
-    });
-    &lt;/script&gt;
-}
-  
-
-
-<p>When the application is started, you can register and create a new license in the license administration. </p>
-
-
-
-
-
-
-
-<p>Add licences as required. The credentials will not be created here, only when you try to get a driver license as a user.</p>
-
-
-
-
-
-
-
-<p>The QR code of the license is displayed which can be scanned and added to your Trinsic digital wallet.</p>
-
-
-
-
-
-
-
-<p>Notes</p>
-
-
-
-<p>This works fairly good but has a number of problems. The digital wallets are vendor specific and the QR Code, credential links are dependent on the product used to create this. The wallet implementations and the URL created for the credentials are all specific and rely on good will of the different implementations of the different vendors. This requires an RFC specification or something like this, if SSI should become easy to use and mainstream. Without this, users would require n-wallets for all the different applications and would also have problems using credentials between different systems.</p>
-
-
-
-<p>Another problem is the organisations API keys use the represent the issuer or the verifier applications. If this API keys get leaked which they will, the keys are hard to replace.</p>
-
-
-
-<p>Using the wallet, the user also needs to know which network to use to load the credentials, or to login to your product.  A default user will not know where to find the required DID. </p>
-
-
-
-<p>If signing in using the wallet credentials, the application does not protect against phishing. This is not good enough for high security authentication. FIDO2 and WebAuthn should be used if handling such sensitive data as this is designed for.</p>
-
-
-
-<p>Self sovereign identities is in the very early stages but holds lots of potential. A lot will depend on how easy it is to use and how easy it is to implement and share credentials between systems. The quality of the credential will depend on the quality of the application issuing it.</p>
-
-
-
-<p>In a follow up blog to this one, <a href="https://github.com/Franklin89">Matteo </a>will use the verifiable credentials added to the digital wallet and verify them in  a second application.</p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://studio.trinsic.id/">https://studio.trinsic.id/</a></p>
-
-
-
-<p><a href="https://www.youtube.com/watch?v=mvF5gfMG9ps">https://www.youtube.com/watch?v=mvF5gfMG9ps</a></p>
-
-
-
-<p><a href="https://github.com/trinsic-id/verifier-reference-app">https://github.com/trinsic-id/verifier-reference-app</a></p>
-
-
-
-<p><a href="https://docs.trinsic.id/docs/tutorial">https://docs.trinsic.id/docs/tutorial</a></p>
-
-
-
-<p><a href="https://sovrin.org/faq/what-is-self-sovereign-identity/">Self sovereign identity</a></p>
-
-
-
-<p><a href="https://techcommunity.microsoft.com/t5/identity-standards-blog/ion-we-have-liftoff/ba-p/1441555">https://techcommunity.microsoft.com/t5/identity-standards-blog/ion-we-have-liftoff/ba-p/1441555</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/03/ssi_credentials_trinsic_01.png?w=722'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   10:35 &bull;
    3 months ago
 </div>
 
@@ -24354,7 +24175,7 @@ The post Fin/Sum 2021 Day 2に出演します〜ポストコロナで金融サ�
 
 <div class='item-footer'>
    02:14 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
