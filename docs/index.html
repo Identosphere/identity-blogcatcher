@@ -721,7 +721,7 @@
 
 </div>
 </div>
-<sup>Last Update 3:51 PM July 13, 2021 (UTC)</sup>
+<sup>Last Update 8:41 PM July 13, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -741,8 +741,426 @@
 
 
 <h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2021/Jul/13/unix-domain-sockets/#atom-everything'>Weeknotes: Fun with Unix domain sockets</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   A small enhancement to Datasette this week: I've added support for proxying via Unix domain sockets. 
+ This started out as a feature request from Aslak Raanes: #1388: Serve using UNIX domain socket. 
+ I've not worked with these much before so it was a good opportunity to learn something new. Unix domain sockets provide a mechanism whereby different processes on a machine can communicate with each 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>A small enhancement to Datasette this week: I've added support for proxying via Unix domain sockets.</p>
+<p>This started out as a feature request from Aslak Raanes: <a href="https://github.com/simonw/datasette/issues/1388">#1388: Serve using UNIX domain socket</a>.</p>
+<p>I've not worked with these much before so it was a good opportunity to learn something new. Unix domain sockets provide a mechanism whereby different processes on a machine can communicate with each over over a mechanism similar to TCP, but via a file path instead.</p>
+<p>I've encountered these before with the Docker daemon, which listens on path <code>/var/run/docker.sock</code> and can be communicated with using <code>curl</code> like so:</p>
+ <code>curl --unix-socket /var/run/docker.sock \
+  http://localhost/v1.41/containers/json
+</code> 
+<p>Plenty more examples <a href="https://docs.docker.com/engine/api/sdk/examples/">in the Docker documentation</a> if you click the 'HTTP' tab.</p>
+<p>It turns out both nginx and Apache have the ability to proxy traffic to a Unix domain socket rather than to an HTTP port, which makes this a useful mechanism for running backend servers without attaching them to TCP ports.</p>
+ Implementing this in Datasette 
+<p>Datasette uses the excellent <a href="https://www.uvicorn.org/">Uvicorn</a> Python web server to serve traffic out of the box, and Uvicorn already <a href="https://www.uvicorn.org/settings/#socket-binding">includes support for UDS</a> - so adding support to Datasette was pretty easy - here's <a href="https://github.com/simonw/datasette/commit/180c7a5328457aefdf847ada366e296fef4744f1">the full implementation</a>. I've added a new <code>--uds</code> option, so now you can run Datasette like this:</p>
+ <code>datasette --uds /tmp/datasette.sock fixtures.db
+</code> 
+<p>Datasette will "listen" on <code>/tmp/datasette.sock</code> - which means you can run requests via <code>curl</code> like so:</p>
+ <code>curl --unix-socket /tmp/datasette.sock \
+  http://localhost/fixtures.json | jq
+</code> 
+<p>More importantly, it means you can configure nginx or Apache to proxy to the Datasette server like this (nginx):</p>
+  daemon off;
+events {
+  worker_connections  1024;
+}
+http {
+  server {
+    listen 80;
+    location / {
+      proxy_pass http://datasette;
+      proxy_set_header Host $host;
+    }
+  }
+  upstream datasette {
+    server unix:/tmp/datasette.sock;
+  }
+}  
+<p>Or like this (Apache):</p>
+ <code>ProxyPass / unix:/tmp/datasette.sock|http://localhost/
+</code> 
+ Writing tests 
+<p>The implementation was only a few lines of code (to pass the <code>uds</code> option to Uvicorn) but adding a test proved a little more challenging. I used this pytest fixture to spin up a server process:</p>
+ @pytest.fixture(scope="session")
+def ds_unix_domain_socket_server(tmp_path_factory):
+    socket_folder = tmp_path_factory.mktemp("uds")
+    uds = str(socket_folder / "datasette.sock")
+    ds_proc = subprocess.Popen(
+        ["datasette", "--memory", "--uds", uds],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        cwd=tempfile.gettempdir(),
+    )
+    # Give the server time to start
+    time.sleep(1.5)
+    # Check it started successfully
+    assert not ds_proc.poll(), ds_proc.stdout.read().decode("utf-8")
+    yield ds_proc, uds
+    # Shut it down at the end of the pytest session
+    ds_proc.terminate() 
+<p>I use a similar pattern <a href="https://github.com/simonw/datasette/blob/7f4c854db1ed8c15338e9cf42d2a3f0c92e3b7b2/tests/conftest.py#L104-L155">for some other tests</a>, to exercise the <code>--ssl-keyfile</code> and <code>--ssl-certfile</code> options added in <a href="https://github.com/simonw/datasette/issues/1221">#1221</a>.</p>
+<p>The test itself looks like this, taking advantage of HTTPX's ability to make calls against Unix domain sockets:</p>
+ @pytest.mark.serial
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="Requires socket.AF_UNIX support")
+def test_serve_unix_domain_socket(ds_unix_domain_socket_server):
+    _, uds = ds_unix_domain_socket_server
+    transport = httpx.HTTPTransport(uds=uds)
+    client = httpx.Client(transport=transport)
+    response = client.get("http://localhost/_memory.json")
+    assert {
+        "database": "_memory",
+        "path": "/_memory",
+        "tables": [],
+    }.items() &lt;= response.json().items() 
+<p>The <code>skipif</code> decorator avoids running this test on platforms which don't support Unix domain sockets (which I think includes Windows, see <a href="https://github.com/simonw/datasette/issues/1388#issuecomment-877716359">this comment</a>).</p>
+<p>The <code>@pytest.mark.serial</code> decorator applies a "mark" that can be used to selectively run the test. I do this because Datasette's tests run in CI using <a href="https://pypi.org/project/pytest-xdist/">pytest-xdist</a>, but that's not compatible with this way of spinning up a temporary server. Datasette actually runs the tests in GitHub Actions <a href="https://github.com/simonw/datasette/blob/7f4c854db1ed8c15338e9cf42d2a3f0c92e3b7b2/.github/workflows/test.yml#L27-L30">like so</a>:</p>
+  - name: Run tests
+  run: |
+    pytest -n auto -m "not serial"
+    pytest -m "serial"  
+<p>The <code>pytest -n auto -m "not serial"</code> line runs almost all of the tests using <code>pytest-xdist</code> across an automatically selected number of processes, but skips the ones marked with <code>@pytest.mark.serial</code>. Then the second line runs the remaining serial tests without any additional concurrency.</p>
+<p>Documenation and example configuration for this feature can be found in the <a href="https://docs.datasette.io/en/latest/deploying.html#running-datasette-behind-a-proxy">Running Datasette behind a proxy</a> documentation. Thanks to Aslak for contributing the notes on Apache configuration.</p>
+ TIL this week 
+ 
+ <a href="https://til.simonwillison.net/javascript/preventing-double-form-submission">Preventing double form submissions with JavaScript</a> 
+ <a href="https://til.simonwillison.net/cloudrun/increase-cloud-scheduler-time-limit">Increasing the time limit for a Google Cloud Scheduler task</a> 
+ <a href="https://til.simonwillison.net/sqlite/pysqlite3-on-macos">Using pysqlite3 on macOS</a> 
+ <a href="https://til.simonwillison.net/nginx/proxy-domain-sockets">Using nginx to proxy to a Unix domain socket</a> 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:57 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://werd.io'>Ben Werdmüller</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.protocol.com/workplace/carbon-footprint-returns-to-office'>Working from home might be worse for the environment than commuting</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ “In a white paper about the shift in energy consumption during the pandemic, Steve Cicala, an associate professor of economics at Tufts University who studies environmental and energy policy, wrote that in 2020, about a third of the U.S. workforce shifted to working from home due to the pandemic. Simultaneously, there was an almost 8% increase in residential consumption of ele
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>“In a white paper about the shift in energy consumption during the pandemic, Steve Cicala, an associate professor of economics at Tufts University who studies environmental and energy policy, wrote that in 2020, about a third of the U.S. workforce shifted to working from home due to the pandemic. Simultaneously, there was an almost 8% increase in residential consumption of electricity and about a 7% and 8% reduction in usage among commercial and industrial buildings, he wrote.”</p>
+            <p>[<a href="https://www.protocol.com/workplace/carbon-footprint-returns-to-office">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:48 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.protocol.com/policy/w3c-privacy-war'>The ugly, geeky war for web privacy is playing out in the W3C</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ “The W3C is under siege by an insurgency that's thwarting browsers from developing new and important privacy protections for all web users. "They use cynical terms like: 'We're here to protect user choice' or 'We're here to protect the open web' or, frankly, horseshit like this," said Pete Snyder, director of privacy at Brave, which makes an anti-tracking browser. "They're the
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>“The W3C is under siege by an insurgency that's thwarting browsers from developing new and important privacy protections for all web users. "They use cynical terms like: 'We're here to protect user choice' or 'We're here to protect the open web' or, frankly, horseshit like this," said Pete Snyder, director of privacy at Brave, which makes an anti-tracking browser. "They're there to slow down privacy protections that the browsers are creating."”</p>
+            <p>[<a href="https://www.protocol.com/policy/w3c-privacy-war">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:31 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2021/now-ive-got-a-functional-laptop-again'>Now I’ve got a functional laptop again, ...</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Now I’ve got a functional laptop again, I’m finding myself using my iPad as more like an ereader (and artboard, which is why I originally got it). I always start my day with my feeds, but I’m starting to get into (non-Amazon) ebooks, too. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Now I’ve got a functional laptop again, I’m finding myself using my iPad as more like an ereader (and artboard, which is why I originally got it). I always start my day with my feeds, but I’m starting to get into (non-Amazon) ebooks, too.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:16 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://news.crunchbase.com/news/something-ventured-funding-to-black-startup-founders-quadrupled-in-past-year-but-remains-elusive/'>Funding To Black Startup Founders Quadrupled In Past Year, But Remains Elusive</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ “To be sure, much work remains to be done. Black startup entrepreneurs still received only a tiny fraction — 1.2 percent — of the record $147 billion in venture capital invested in U.S. startups through the first half of this year, Crunchbase numbers show. That compares with the more than 13 percent of the U.S. population that is Black or African American.” 
+             [Link
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>“To be sure, much work remains to be done. Black startup entrepreneurs still received only a tiny fraction — 1.2 percent — of the record $147 billion in venture capital invested in U.S. startups through the first half of this year, Crunchbase numbers show. That compares with the more than 13 percent of the U.S. population that is Black or African American.”</p>
+            <p>[<a href="https://news.crunchbase.com/news/something-ventured-funding-to-black-startup-founders-quadrupled-in-past-year-but-remains-elusive/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:15 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -787,7 +1205,7 @@
 
 <div class='item-footer'>
    15:44 &bull;
-   10 minutes ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -860,7 +1278,7 @@
 
 <div class='item-footer'>
    11:19 &bull;
-   5 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -942,7 +1360,7 @@
 
 <div class='item-footer'>
    05:18 &bull;
-   11 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1009,7 +1427,7 @@
 
 <div class='item-footer'>
    04:18 &bull;
-   12 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1070,7 +1488,7 @@
 
 <div class='item-footer'>
    03:25 &bull;
-   12 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1147,7 +1565,7 @@
 
 <div class='item-footer'>
    01:09 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1228,7 +1646,7 @@
 
 <div class='item-footer'>
    00:46 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1302,7 +1720,7 @@
 
 <div class='item-footer'>
    00:04 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1637,7 +2055,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    01:32 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1709,7 +2127,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    01:04 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1781,7 +2199,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    01:04 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1847,7 +2265,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    23:43 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1926,7 +2344,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    22:48 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1995,7 +2413,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    22:03 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2138,7 +2556,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    06:20 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2621,213 +3039,6 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    19:30 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://ez.substack.com/p/the-world-is-more-obvious-than-we?token=eyJ1c2VyX2lkIjoyNzcwMDksInBvc3RfaWQiOjM4NTQwOTI1LCJfIjoiRE03eE8iLCJpYXQiOjE2MjU5NDEwMDYsImV4cCI6MTYyNTk0NDYwNiwiaXNzIjoicHViLTg5ODIiLCJzdWIiOiJwb3N0LXJlYWN0aW9uIn0._jC4Xxp-e0szsGs9Y4-9OlYTPmRUNrEEMD1bRT-wk1Q'>The World Is More Obvious Than We Want It To Be</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "The adulation for the wealthy and successful is based on wanting what they have, but rarely accepts the common means through which they got it - luck, privilege, chaos and the ability and means to be persistent. Most people don’t have the time or energy to do a side hustle, and it’s an act of cruelty to guilt them into thinking that carving out a separate job on top of their 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"The adulation for the wealthy and successful is based on wanting what they have, but rarely accepts the common means through which they got it - luck, privilege, chaos and the ability and means to be persistent. Most people don’t have the time or energy to do a side hustle, and it’s an act of cruelty to guilt them into thinking that carving out a separate job on top of their other job is something they “have to” do."</p>
-            <p>[<a href="https://ez.substack.com/p/the-world-is-more-obvious-than-we?token=eyJ1c2VyX2lkIjoyNzcwMDksInBvc3RfaWQiOjM4NTQwOTI1LCJfIjoiRE03eE8iLCJpYXQiOjE2MjU5NDEwMDYsImV4cCI6MTYyNTk0NDYwNiwiaXNzIjoicHViLTg5ODIiLCJzdWIiOiJwb3N0LXJlYWN0aW9uIn0._jC4Xxp-e0szsGs9Y4-9OlYTPmRUNrEEMD1bRT-wk1Q">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:18 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href=''>How the son of a homophobic politician in Nigeria became a queer OnlyFans star</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "Bolu said he joined OnlyFans because he wanted to broaden the idea of what it means to be Black and gay, and show people that you can be both queer and masculine at the same time. In the first several weeks after he started using the site, he said he earned around $2,000 (he declined to share more information about his income). “I’m an exhibitionist by nature, so I feel good 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"Bolu said he joined OnlyFans because he wanted to broaden the idea of what it means to be Black and gay, and show people that you can be both queer and masculine at the same time. In the first several weeks after he started using the site, he said he earned around $2,000 (he declined to share more information about his income). “I’m an exhibitionist by nature, so I feel good doing this. When I post pictures and videos of my Black, gay, muscular body, it does numbers. So, I’m going forward with that,” Bolu said."</p>
-            <p>[<a href="https://restofworld.org/2021/bolu-okupe-nigeria-onlyfans/?utm_source=rss&amp;utm_medium=rss&amp;utm_campaign=feeds">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:18 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://ez.substack.com/p/the-church-of-american-startups-and?token=eyJ1c2VyX2lkIjoyNzcwMDksInBvc3RfaWQiOjM4NTc1OTQ1LCJfIjoiRE03eE8iLCJpYXQiOjE2MjU5NDAyMTEsImV4cCI6MTYyNTk0MzgxMSwiaXNzIjoicHViLTg5ODIiLCJzdWIiOiJwb3N0LXJlYWN0aW9uIn0.IwdqfJ8jjXMovesXeA071SNE9yHvwRypZC5hRN8aFQE'>The Church of American Startups and Capitalism</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "Where startups claim to be so unique in their thinking and in what they do, they are absolutely a product of the protestant work ethic that frames America’s belief in what capitalism is. The church of business - modern American business - has become so absorbed by the cult of personality because it is easier to pray to the saints of startups than to recognize that a culture g
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"Where startups claim to be so unique in their thinking and in what they do, they are absolutely a product of the protestant work ethic that frames America’s belief in what capitalism is. The church of business - modern American business - has become so absorbed by the cult of personality because it is easier to pray to the saints of startups than to recognize that a culture geared toward a conveyer belt of endless labor is beyond depressing."</p>
-            <p>[<a href="https://ez.substack.com/p/the-church-of-american-startups-and?token=eyJ1c2VyX2lkIjoyNzcwMDksInBvc3RfaWQiOjM4NTc1OTQ1LCJfIjoiRE03eE8iLCJpYXQiOjE2MjU5NDAyMTEsImV4cCI6MTYyNTk0MzgxMSwiaXNzIjoicHViLTg5ODIiLCJzdWIiOiJwb3N0LXJlYWN0aW9uIn0.IwdqfJ8jjXMovesXeA071SNE9yHvwRypZC5hRN8aFQE">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:04 &bull;
    3 days ago
 </div>
 
@@ -3672,70 +3883,6 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2021/i-wish-i-could-set-my-non-important'>I wish I could set my non-important ...</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I wish I could set my non-important mail to auto-archive after, say, two weeks or a month. Almost feel like doing this as a programming side project.  
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>I wish I could set my non-important mail to auto-archive after, say, two weeks or a month. Almost feel like doing this as a programming side project. </p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:15 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Wednesday, 07. July 2021
  </h2>
@@ -3935,7 +4082,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    08:40 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4007,7 +4154,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    08:38 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5956,7 +6103,7 @@ else
 
 <div class='item-footer'>
    05:16 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7706,7 +7853,7 @@ The post 19th International Conference on Applied Cryptography and Network Secur
 
 <div class='item-footer'>
    04:13 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11552,68 +11699,6 @@ stages:
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Jun/6/app-store-scams/#atom-everything'>Apple’s tightly controlled App Store is teeming with scams</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Apple’s tightly controlled App Store is teeming with scams 
- I'm quoted in an article in the Washington Post today (linked at the top of the homepage!) explaining how I got scammed on the App Store and spent $19 on a TV remote app with a similar name to the official Samsung app. I mistakenly assumed that the App Store review process wouldn't allow an app called "Smart Things" to show up in search 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.washingtonpost.com/technology/2021/06/06/apple-app-store-scams-fraud/">Apple’s tightly controlled App Store is teeming with scams</a></p>
-<p>I'm quoted in an article in the Washington Post today (linked at the top of the homepage!) explaining how I got scammed on the App Store and spent $19 on a TV remote app with a similar name to the official Samsung app. I mistakenly assumed that the App Store review process wouldn't allow an app called "Smart Things" to show up in search when I was looking for SmartThings, the official name - and assumed that Samsung were nickel-and-diming their customers rather than expecting the App Store review process to have failed so obviously.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:13 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Friday, 04. June 2021
  </h2>
@@ -13044,7 +13129,7 @@ Why don’t you mind your own business?</p></blockquote>
 
 <div class='item-footer'>
    17:38 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -18726,7 +18811,7 @@ public class IssuerCredential
 
 <div class='item-footer'>
    16:34 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
