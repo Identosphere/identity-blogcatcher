@@ -721,12 +721,142 @@
 
 </div>
 </div>
-<sup>Last Update 1:44 AM July 16, 2021 (UTC)</sup>
+<sup>Last Update 5:41 AM July 16, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Friday, 16. July 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2021/Jul/16/datasette-058/#atom-everything'>Datasette 0.58: The annotated release notes</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I released Datasette 0.58 last night, with new plugin hooks, Unix domain socket support, a major faceting performance fix and a few other improvements. Here are the annotated release notes. 
+ Faceting performance improvement 
+ Facets remains my favourite feature in Datasette: it turns out a simple group by / count against a column is one of the most productive ways I know of to start understanding
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I released <a href="https://docs.datasette.io/en/stable/changelog.html#v0-58">Datasette 0.58</a> last night, with new plugin hooks, Unix domain socket support, a major faceting performance fix and a few other improvements. Here are the <a href="https://simonwillison.net/tags/annotatedreleasenotes/">annotated release notes</a>.</p>
+ Faceting performance improvement 
+<p><a href="https://docs.datasette.io/en/stable/facets.html">Facets</a> remains my favourite feature in Datasette: it turns out a simple group by / count against a column is one of the most productive ways I know of to start understanding new data.</p>
+<p>Yesterday I stumbled across <a href="https://github.com/simonw/datasette/commit/a6c8e7fa4cffdeff84e9e755dcff4788fd6154b8">a tiny tweak</a> (details in <a href="https://github.com/simonw/datasette/issues/1394">this issue</a>) that gave me a 10x performance boost on facet queries! Short version: given the following example query:</p>
+  select
+  country_long,
+  count(*)
+from (
+  select * from [global-power-plants]
+  order by rowid
+)
+where
+  country_long is not null
+group by
+  country_long
+order by
+  count(*) desc  
+<p>Removing the unnecessary <code>order by rowid</code> from that inner query knocked the time down from 53ms to 7.2ms (and makes even more of a difference on larger tables).</p>
+<p>I was surprised SQLite didn't perform that optimization automatically - so I <a href="https://sqlite.org/forum/forumpost/2d76f2bcf65d256a">started a thread</a> on the SQLite forum and SQLite author D. Richard Hipp <a href="https://sqlite.org/src/timeline?r=omit-subquery-order-by">figured out a patch</a>! It's not yet certain that it will land in a SQLite release but I'm excited to have found an issue interesting enough to be worth looking into.</p>
+ The get_metadata() plugin hook 
+<blockquote>
+<p>New plugin hook: <a href="https://docs.datasette.io/en/stable/plugin_hooks.html#plugin-hook-get-metadata">get_metadata(datasette, key, database, table)</a>, for returning custom metadata for an instance, database or table. Thanks, Brandon Roberts! (<a href="https://github.com/simonw/datasette/issues/1384">#1384</a>)</p>
+</blockquote>
+<p>Brandon Roberts contributed this hook as part of work he's been doing with <a href="https://next.newsday.com/">Newsday nextLI</a> - always exciting to see Datasette used by another news organization. Brandon has <a href="https://datasette-live.bxroberts.org/">a live demo</a> of the plugins he has been building: <a href="https://github.com/next-LI/datasette-live-config">datasette-live-config</a>, <a href="https://github.com/next-LI/datasette-live-permissions">datasette-live-permissions</a>, <a href="https://github.com/next-LI/datasette-csv-importer">datasette-csv-importer</a> and <a href="https://github.com/next-LI/datasette-surveys">datasette-surveys</a>. He also has a <a href="https://drive.google.com/file/d/1SShy_C6-CSUlSaqyQSIlUDIa4WA9YzTr/view">6 minute demo video</a> explaining the project so far.</p>
+<p>The new hook allows plugins to customize the <a href="https://docs.datasette.io/en/stable/metadata.html#metadata">metadata</a> displayed for different databases and tables within the Datasette interface.</p>
+<p>There is one catch at the moment: the plugin doesn't yet allow for async calls (including <code>await db.execute(sql)</code>) because Datasette's own internals currently treat access to metadata as a sync rather than async feature.</p>
+<p>There are workarounds for this. Brandon's <code>datasette-live-config</code> plugin <a href="https://github.com/next-LI/datasette-live-config/blob/d7e39db50f33b78ec0ef3f404ba421c4a47a5844/datasette_live_config/__init__.py">opens an additional, synchronous connection</a> to the DB which is completely fine for fast queries. Another option would be to keep metadata in an in-memory Python dictionary which is updated by SQL queries that run in an async background task.</p>
+<p>In the longer run though I'd like to redesign Datasette's internals to support asynchronous metadata access - ideally before Datasette 1.0.</p>
+ The skip_csrf() plugin hook 
+<blockquote>
+<p>New plugin hook: <a href="https://docs.datasette.io/en/stable/plugin_hooks.html#plugin-hook-skip-csrf">skip_csrf(datasette, scope)</a>, for opting out of CSRF protection based on the incoming request. (<a href="https://github.com/simonw/datasette/issues/1377">#1377</a>)</p>
+</blockquote>
+<p>I wanted to write a plugin that supported an HTTP POST to a Datasette form that wasn't protected by Datasette's <a href="https://docs.datasette.io/en/stable/internals.html?highlight=csrf#csrf-protection">CSRF protection</a>. This proved surprisingly difficult! I ended up shipping <a href="https://github.com/simonw/asgi-csrf/releases/tag/0.9">asgi-csrf 0.9</a> with a new mechanism for custom opting-out of CSRF protection based on the ASGI scope, then exposing that mechanism in a new plugin hook in Datasette.</p>
+<p>CSRF is such a frustrating security issue to write code against, because in modern browsers the SameSite cookie attribute more-or-less solves the problem for you... but that attribute only has <a href="https://caniuse.com/same-site-cookie-attribute">90% global usage according to caniuse.com</a> - not quite enough for me to forget about it entirely.</p>
+<p>There also remains <a href="https://twitter.com/simonw/status/1413484080226717708">one obscure edge-case</a> in which SameSite won't help you: the definition of "same site" includes other subdomains of your domain (provided it's not on the <a href="https://github.com/publicsuffix/list">Public Suffix List</a>). This means that for SameSite CSRF protection to work you need to be confident that no subdomains of your domain will suffer an XSS - and in my experience its common for subdomains to be pointed at third-party applications that may not have the same stringent XSS protection as your main code.</p>
+<p>So I continue to care about CSRF protection in Datasette.</p>
+ Unix domain socket support 
+<blockquote>
+<p>New <code>datasette --uds /tmp/datasette.sock</code> option for binding Datasette to a Unix domain socket, see <a href="https://docs.datasette.io/en/stable/deploying.html#deploying-proxy">proxy documentation</a>. (<a href="https://github.com/simonw/datasette/issues/1388">#1388</a>)</p>
+</blockquote>
+<p>I wrote about this <a href="https://simonwillison.net/2021/Jul/13/unix-domain-sockets/">in my weeknotes</a> - this is a great way to run Datasette if you have it behind a proxy such as Apache or nginx and don't want to have the Datasette server listening on a high port.</p>
+ "searchmode": "raw" in table metadata 
+<blockquote>
+<p><code>"searchmode": "raw"</code> table metadata option for defaulting a table to executing SQLite full-text search syntax without first escaping it, see <a href="https://docs.datasette.io/en/stable/full_text_search.html#full-text-search-advanced-queries">Advanced SQLite search queries</a>. (<a href="https://github.com/simonw/datasette/issues/1389">#1389</a>)</p>
+</blockquote>
+<p>SQLite's built in full-text search feature includes support <a href="https://www.sqlite.org/fts5.html#full_text_query_syntax">for advanced operators</a>: you can use operators like AND, OR and NEAR and you can add column specifiers like <code>name:Simon</code> to restrict searches to individual columns.</p>
+<p>This is something of a two-edged sword: I've found innocent looking queries that raise errors due to unexpected interactions with the query language.</p>
+<p>In <a href="https://github.com/simonw/datasette/issues/651">issue 651</a> I switched to escaping all queries by default to prevent these errors from happening, with a <code>?_searchmode=raw</code> query string option for opting back into the default functionality.</p>
+<p>I've since had a few requests for a mechanism to enable this by default - hence the new <code>"searchmode": "raw"</code> option in table metadata.</p>
+ Link plugin hooks now take a request 
+<blockquote>
+<p>The <a href="https://docs.datasette.io/en/stable/plugin_hooks.html#plugin-hook-menu-links">menu_links()</a>, <a href="https://docs.datasette.io/en/stable/plugin_hooks.html#plugin-hook-table-actions">table_actions()</a> and <a href="https://docs.datasette.io/en/stable/plugin_hooks.html#plugin-hook-database-actions">database_actions()</a> plugin hooks all gained a new optional <code>request</code> argument providing access to the current request. (<a href="https://github.com/simonw/datasette/issues/1371">#1371</a>)</p>
+</blockquote>
+<p>I have a plugin which needs to add links to different places depending on the subdomain that the Datasette instance is running on. Adding <code>request</code> to these plugin hooks proved to be the easiest way to achieve this.</p>
+<p>This is a really nice thing about how <a href="https://pluggy.readthedocs.io/">Pluggy</a> (the plugin library used by Datasette) works: adding new named parameters to hooks can be done without breaking backwards compatibility with existing plugins.</p>
+ And the rest 
+ 
+ Improved documentation for <a href="https://docs.datasette.io/en/stable/deploying.html#deploying-proxy">Running Datasette behind a proxy</a> to recommend using <code>ProxyPreservehost On</code> with Apache. (<a href="https://github.com/simonw/datasette/issues/1387">#1387</a>) 
+ 
+<code>POST</code> requests to endpoints that do not support that HTTP verb now return a 405 error. 
+ 
+<code>db.path</code> can now be provided as a <code>pathlib.Path</code> object, useful when writing unit tests for plugins. Thanks, Chris Amico. (<a href="https://github.com/simonw/datasette/issues/1365">#1365</a>) 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:21 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -805,7 +935,7 @@
 
 <div class='item-footer'>
    09:03 &bull;
-   17 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1439,7 +1569,7 @@ def test_serve_unix_domain_socket(ds_unix_domain_socket_server):
 
 <div class='item-footer'>
    16:48 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1508,7 +1638,7 @@ def test_serve_unix_domain_socket(ds_unix_domain_socket_server):
 
 <div class='item-footer'>
    16:31 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1568,7 +1698,7 @@ def test_serve_unix_domain_socket(ds_unix_domain_socket_server):
 
 <div class='item-footer'>
    16:16 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1638,7 +1768,7 @@ def test_serve_unix_domain_socket(ds_unix_domain_socket_server):
 
 <div class='item-footer'>
    16:15 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1698,7 +1828,7 @@ def test_serve_unix_domain_socket(ds_unix_domain_socket_server):
 
 <div class='item-footer'>
    15:44 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4826,7 +4956,7 @@ group by "title" order by n desc
 
 <div class='item-footer'>
    15:02 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5688,7 +5818,7 @@ Thank you to everyone who has been there for me so far.</p>
 
 <div class='item-footer'>
    17:32 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5813,7 +5943,7 @@ for row in db.query("select * from dogs"):
 
 <div class='item-footer'>
    17:23 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5889,7 +6019,7 @@ for row in db.query("select * from dogs"):
 
 <div class='item-footer'>
    16:04 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6410,7 +6540,7 @@ else
 
 <div class='item-footer'>
    16:24 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6830,7 +6960,7 @@ else
 
 <div class='item-footer'>
    17:39 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6900,7 +7030,7 @@ else
 
 <div class='item-footer'>
    17:19 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7035,7 +7165,7 @@ else
 
 <div class='item-footer'>
    16:26 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7474,7 +7604,7 @@ Or worse, it’s useless. An old advertising saying goes, “I know half my adve
 
 <div class='item-footer'>
    14:56 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7621,7 +7751,7 @@ The post Identiverse: 7 Principles of Digital Being first appeared on @_Nat Zone
 
 <div class='item-footer'>
    14:54 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7932,7 +8062,7 @@ The post Identiverse: 7 Principles of Digital Being first appeared on @_Nat Zone
 
 <div class='item-footer'>
    17:09 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8025,7 +8155,7 @@ The post Identiverse: Where are we with SIOP and DID? first appeared on @_Nat Zo
 
 <div class='item-footer'>
    14:40 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9168,7 +9298,7 @@ credential that was delegated to him:</p>
 
 <div class='item-footer'>
    17:12 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9404,7 +9534,7 @@ DIDs and DID-based Communication or DIDComm form the second layer of the SSI sta
 
 <div class='item-footer'>
    17:06 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10443,110 +10573,6 @@ of the Colorado bill.</p>
 
 <div class='item-footer'>
    02:36 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Jun/12/weeknotes/#atom-everything'>Weeknotes: New releases across nine different projects</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   A new release and security patch for Datasette, plus releases of sqlite-utils, datasette-auth-passwords, django-sql-dashboard, datasette-upload-csvs, xml-analyser, datasette-placekey, datasette-mask-columns and db-to-sqlite. 
- Datasette 0.57 with a security fix 
- I started the week by wrapping up work on Datasette 0.57, which I previewed here last week. 
- While upgrading the ?_trace=1 debug mechan
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>A new release and security patch for Datasette, plus releases of sqlite-utils, datasette-auth-passwords, django-sql-dashboard, datasette-upload-csvs, xml-analyser, datasette-placekey, datasette-mask-columns and db-to-sqlite.</p>
- Datasette 0.57 with a security fix 
-<p>I started the week by wrapping up work on <a href="https://docs.datasette.io/en/stable/changelog.html#v0-57">Datasette 0.57</a>, which I previewed here <a href="https://simonwillison.net/2021/Jun/3/weeknotes/">last week</a>.</p>
-<p>While upgrading the <code>?_trace=1</code> debug mechanism to work with streaming CSV files (in order to fix a nasty <a href="https://github.com/simonw/datasette/issues/1349">CSV performance issue</a>) I spotted a severe XSS security hole. I fixed this in 0.57 and also pushed out a <a href="https://docs.datasette.io/en/stable/changelog.html#v0-56-1">0.56.1 release</a> with the same fix, to cover users who weren't ready to test and upgrade the larger changes in the minor point release.</p>
-<p>GitHub have a neat mechanism for <a href="https://github.com/simonw/datasette/security/advisories/GHSA-xw7c-jx9m-xh5g">documenting security vulnerabilities</a> which helps alert other repositories that are relying on a piece of software. They also offer a tool for requesting a CVE - I used this, and a couple of days later GitHub's security team reviewed and issued <a href="https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-32670">CVE-2021-32670</a> (and <a href="https://nvd.nist.gov/vuln/detail/CVE-2021-32670">in NIST</a>) - Datasette's first entry in the CVE database!</p>
-<p>I don't believe anyone found this hole before me, so it's unlikely to have been exploited in the wild in the past, but if you use Datasette with an authentication plugin sach as <a href="https://datasette.io/plugins/datasette-auth-passwords">datasette-auth-passwords</a> or deploy on a domain that also hosts other authenticated web applications you should upgrade urgently.</p>
-<p>Security aside, my favourite features in the 0.57 release are:</p>
- 
- If you try to execute a SQL query containing a syntax error, Datasette will re-display your query rather than expecting you to click the "back" button - <a href="https://latest.datasette.io/fixtures?sql=select%0D%0A++*%0D%0Afrom%0D%0A++%5Bfoo%5D">demo here</a>. This is a huge usability improvement that's been far too long coming. 
- You can now use <code>?_col=</code> and <code>?_nocol=</code> parameters to select which columns are displayed for a table, either by URL hacking or using new "Hide this column" / "Show all columns" cog menu options. These selections also affect JSON and CSV output. 
- Facet results now have a <code>...</code> more link which links to the <code>?_facet_size=max</code> version of the page, showing up to 1,000 results - so you can finally facet across al U.S states or all world countries without being truncated at 30. <a href="https://global-power-plants.datasettes.com/global-power-plants/global-power-plants?_facet_size=max">Here's a demo</a>. 
- 
-<p>I also released a <a href="https://docs.datasette.io/en/stable/changelog.html#v0-57-1">0.57.1</a> bug fix and a <a href="https://github.com/simonw/datasette/releases/tag/0.58a0">0.58a0 alpha</a> previewing a <a href="https://github.com/simonw/datasette/issues/1371">small improvement</a> to the <a href="https://docs.datasette.io/en/latest/plugin_hooks.html#plugin-hook-menu-links">menu_links()</a>, <a href="https://docs.datasette.io/en/latest/plugin_hooks.html#plugin-hook-table-actions">table_actions()</a> and <a href="https://docs.datasette.io/en/latest/plugin_hooks.html#plugin-hook-database-actions">database_actions()</a> plugin hooks. I've decided to start releasing plugin hook changes as alphas as early as possible, since it makes it easier for people (including myself) to try them out in plugins.</p>
- sqlite-utils 3.8 and 3.9 
-<p>Two minor releases each with two new features.</p>
-<p><a href="https://sqlite-utils.datasette.io/en/stable/changelog.html#v3-8">sqlite-utils 3.8</a> introduces a <code>sqlite-utils indexes my.db</code> command-line tool for viewing the indexes in a database, and a new Python library <a href="https://sqlite-utils.datasette.io/en/stable/python-api.html#python-api-introspection-xindexes">table.xindexes</a> introspection property which returns more details than the existing <code>table.indexes</code> - I decided to implement a new property rather than break backwards compatibility for existing code using <code>table.indexes</code>.</p>
-<p>Similarly, <a href="https://sqlite-utils.datasette.io/en/stable/changelog.html#v3-9">sqlite-utils 3.9</a> introduces a <code>sqlite-utils schema my.db</code> command and accompanying <code>db.schema</code> property that exposes the SQL schema of the entire database - as opposed to <code>table.schema</code> which just returns the schema for one specific table.</p>
- django-sql-dashboard 0.16 
-<p>The first new feature contributed to this package by another developer: Atul Varma upgraded the description on saved dashboards <a href="https://github.com/simonw/django-sql-dashboard/releases/tag/0.16">to render as Markdown</a>, which makes sense since Markdown is packaged with Django SQL Dashboard already - as seen in this <a href="https://til.simonwillison.net/sql/django-group-permissions-markdown">delightfully gnarly query</a> which dynamically constructs a Markdown summary of all of the groups and permissions configured for a Django application.</p>
- db-to-sqlite 1.4 
-<p><a href="https://datasette.io/tools/db-to-sqlite">db-to-sqlite</a> is my command-line tool for importing data from any SQLAlchemy-supported relational database into a SQLite database. It's a quick and easy way to load data into a format that can be handled by Datasette.</p>
-<p>The last release was <a href="https://github.com/simonw/db-to-sqlite/releases/tag/1.3">nearly a year ago</a>. I dropped into the project to wrap up a pull request from <a href="https://github.com/simonw/db-to-sqlite/pull/29">six months ago</a> and ended up migrating CI from Travis to GitHub Actions and fixing <a href="https://github.com/simonw/db-to-sqlite/releases/tag/1.4">a few other long-standing bugs and feature requests</a> too.</p>
-<p>Thanks to Jeremy Dormitzer for implementing the new <code>--postgres-schema</code> feature, and sorry it took so long to land in a release!</p>
- And the others 
- 
- 
-<a href="https://github.com/simonw/datasette-auth-passwords/releases/tag/0.4.1">datasette-auth-passwords</a> simply bumps the Datasette dependency to 0.56.1 or later, to ensure it isn't run against an older insecure Datasette version. 
- 
-<a href="https://github.com/simonw/datasette-upload-csvs/releases/tag/0.6.1">datasette-upload-csvs</a> fixes <a href="https://github.com/simonw/datasette-upload-csvs/issues/19">a bug</a> where this plugin broke against Datasette versions newer than 0.54. 
- 
-<a href="https://github.com/simonw/xml-analyser/releases/tag/1.1">xml-analyser 1.1</a> added support for reading from standard input, e.g. <code>cat x.xml | xml-analyzer -</code> - I wanted this for some XML exploration I was doing, then I added <a href="https://github.com/simonw/xml-analyser/issues/4">some sorting improvements</a> in this and in a <a href="https://github.com/simonw/xml-analyser/releases/tag/1.2">1.2</a> follow-up release. 
- 
-<a href="https://datasette.io/plugins/datasette-placekey">datasette-placekey</a> is a tiny new plugin which adds SQL functions for working with <a href="https://www.placekey.io/">placekeys</a> - a way of encoding addresses which looks like this: <code>222-222@63s-spp-nbk</code>. The plugin provides SQL functions including <code>geo_to_placekey(latitude, longitude)</code> and <code>placekey_to_geo()</code> and <code>placekey_to_h3()</code>. 
- 
-<a href="https://github.com/simonw/datasette-mask-columns/releases/tag/0.2.1">datasette-mask-columns 0.2.1</a> simply removes a stale pinned version of Datasette. 
- 
- TIL this week 
- 
- <a href="https://til.simonwillison.net/sql/django-group-permissions-markdown">Building a Markdown summary of Django group permissions</a> 
- <a href="https://til.simonwillison.net/amplitude/export-events-to-datasette">Exporting Amplitude events to SQLite</a> 
- <a href="https://til.simonwillison.net/homebrew/mysql-homebrew">Running a MySQL server using Homebrew</a> 
- 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:31 &bull;
    1 months ago
 </div>
 
