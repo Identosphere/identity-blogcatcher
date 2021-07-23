@@ -816,7 +816,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 3:55 PM July 23, 2021 (UTC)</sup>
+<sup>Last Update 8:51 PM July 23, 2021 (UTC)</sup>
 
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
@@ -827,8 +827,947 @@
 
 
  <h2 class='new-date'>
+  Monday, 26. July 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.okta.com/'>Okta</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://developer.okta.com/blog/2021/07/26/spring-cloud-sleuth'>Easy Distributed Tracing with Spring Cloud Sleuth</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Spring Cloud Sleuth allows you to aggregate and track log entries as requests move through a distributed software system. In a monolithic system, it’s relatively easy to track requests as they move through the codebase because all requests can easily be logged to the same log file. You can generally just filter the log by the thread ID. But in a distributed system, a single client request may spra
+   
+  
+  
+  
+  
+    
+      
+      
+      <div class="preview">
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://developer.okta.com/assets-jekyll/blog/spring-cloud-sleuth/sleuth-example-diagram-25abaef7257ecf249e89bd3452cd8d59a6062efd9d0dbf9db0293ccebcf6f915.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Spring Cloud Sleuth allows you to aggregate and track log entries as requests move through a distributed software system. In a monolithic system, it’s relatively easy to track requests as they move through the codebase because all requests can easily be logged to the same log file. You can generally just filter the log by the thread ID. But in a distributed system, a single client request may sprawl across any number of discrete cloud services. Any given service may have multiple instances handling different parts of the request. There is no single log file, with a request spread across multiple server instances. How do you use logs in this situation? How do you trace a request flow across a service mesh?</p>
+
+<p>In this tutorial, you will see how Spring Cloud Sleuth can be integrated into a Spring Boot application. The Spring Boot application will be secured using Okta as an OAuth 2.0 &amp; OIDC provider. You’ll use the Okta CLI to configure Okta and Spring Boot. You’ll also download and run a Zipkin server to collect the Spring Cloud Sleuth entires and visualize them.</p>
+
+<p>Table of Contents</p>
+ 
+   <a>What is Spring Cloud Sleuth?</a> 
+   <a>Bootstrap a Spring Boot App Using the Spring Initializr</a> 
+   <a>Configure Spring Boot for OIDC Authentication</a> 
+   <a>Create a Security Configuration Class</a> 
+   <a>Make an Example Spring Cloud Sleuth App</a> 
+   <a>Launch a Zipkin Server</a> 
+   <a>Launch Two App Instances</a> 
+   <a>Create a Valid JWT with OIDC Debugger</a> 
+   <a>Confirm Spring Cloud Sleuth Works</a> 
+   <a>Learn More About Spring and Spring Boot</a> 
+ 
+
+ What is Spring Cloud Sleuth? 
+
+<p>Spring Cloud Sleuth’s solution is to inject span and trace IDs into log entries. A trace ID is the unique identifier that an entire request flow will share. It’s like the glue that sticks all of the log entries together. A span is more local and is defined for each request received for each request sent event. They define particular interaction points.</p>
+
+<p>The initial span, or root span, is generated when a client request is received from outside the distributed system. This request lacks trace and span information. The root span becomes the trace ID for the rest of the request flow through the system.</p>
+
+<p>The diagram below shows how Sleuth span and trace generation would work through a hypothetical service network.</p>
+
+<p></p>
+
+<p>In practice, the span and trace IDs look like the following in log entries (the bracketed section after the <code>INFO</code>). Notice how the span ID and trace ID are the same? That’s because this is the root span, the beginning of the request tree identified by that particular trace ID.</p>
+
+   <code>service1.log:2016-02-26 11:15:47.561  INFO [service1,2485ec27856c56f4,2485ec27856c56f4] 68058 --- [nio-8081-exec-1] i.s.c.sleuth.docs.service1.Application   : Hello from service1. Calling service2
+</code>   
+
+<p>These are the Sleuth span and trace IDs associated with the service name.</p>
+
+   <code>[service1,2485ec27856c56f4,2485ec27856c56f4]
+[SERVICE NAME,TRACE,SPAN]
+</code>   
+
+<p>Once you have all these nifty log entries with IDs in them, you need a log aggregation and analytics tool to make sense of them. You can use any of the freely available tools: Kibana, Splunk, Logstash, etc. if you want. In this tutorial, you’ll use Zipkin. Zipkin is a Java-based distributed tracing system designed for this use case and seamlessly works with Spring Cloud Sleuth.</p>
+
+<p>In this tutorial, you will create a simple, example Spring Boot service with two endpoints. You’re going to run two different instances of this service and use HTTPie to make a request to one instance of the service. This service will make a request to the second instance of the service, which will return a reply to the first service, which will return a reply to your original request. This request process will be logged, and the Sleuth log entries automatically pushed to a local Zipkin server, and you will be able to visualize the request flow using the Zipkin server.</p>
+
+<p>The point of the example is to demonstrate how to integrate Spring Cloud Sleuth and how Spring Cloud Sleuth allows you to track request flow across different services, also, how the whole process can be secured using Okta and JSON Web Tokens.</p>
+
+<p>Before you get started, you need to have a few things installed.</p>
+
+ 
+   Java 11: This project uses Java 11. OpenJDK 11 will work just as well. Instructions are found on the <a href="https://openjdk.java.net/install/">OpenJDK website</a>. OpenJDK can also be installed using <a href="https://brew.sh/">Homebrew</a>. Alternatively, <a href="https://sdkman.io/">SDKMAN</a> is another excellent option for installing and managing Java versions. 
+   Okta CLI: You’ll be using Okta as an OAuth/OIDC provider to add JWT authentication and authorization to the application. You can go to <a href="https://developer.okta.com">our developer site</a> to learn more about Okta. You need a free developer account for this tutorial. The Okta CLI is an easy way to register for a free Okta developer account or log in to an existing one and configure a Spring Boot app to use Okta as an auth provider. The <a href="https://github.com/okta/okta-cli">project GitHub page</a> has installation instructions. 
+   HTTPie: This is a powerful command-line HTTP request utility that you’ll use to test the Spring Boot server. Install it according to <a href="https://httpie.org/doc#installation">the docs on their site</a>. 
+ 
+
+ Bootstrap a Spring Boot App Using the Spring Initializr 
+
+<p>Spring has a great project called Spring Initializr. Why no “e”? Because it’s cool, that’s why. Joking aside, it’s pretty great. You can go to <a href="https://start.spring.io/">start.spring.io</a> and quickly configure a starter project. You can browse the project online before you download it. You can get a link you can share and save for the configured project. And you can even use a REST API, which is what you’ll do below.</p>
+
+<p>Open a bash shell and run the command below. This will download the project as a compressed tarball, untar it, and navigate you into the project directory.</p>
+
+   <code>curl https://start.spring.io/starter.tgz \
+ -d dependencies=web,cloud-starter-sleuth,okta,cloud-starter-zipkin \
+ -d baseDir=spring-cloud-sleuth-demo | tar -xzvf -
+cd spring-cloud-sleuth-demo
+</code>   
+
+<p>The command uses a lot of the default settings. It uses Maven as the dependency manager. It uses Java as the programming language. It uses Spring Boot 2.4.5 (the current release at the time of writing this tutorial). It creates a JAR as the build target. Finally, it specifies Java 11 (again, at the time of this tutorial).</p>
+
+<p></p>
+
+<p>The most important thing it configures is four dependencies.</p>
+
+ 
+   Spring Web - adds Spring MVC for building RESTful web applications using Tomcat as the default server 
+   Spring Cloud Sleuth - adds the basic dependencies to write Sleuth-compatible log entries 
+   Zipkin Client - adds the ability to write Sleuth entries to a Zipkin client 
+   Okta Spring Boot Starter - adds <a href="https://github.com/okta/okta-spring-boot">Okta’s Spring Boot Starter</a>, which helps configure Spring Boot for use with Okta as an OIDC and OAuth 2.0 provider 
+ 
+
+<p>The demo application can be run with <code>./mvnw spring-boot:run</code>. However, it has no endpoints defined and doesn’t do anything except start. So, before you make it do something more exciting, first you need to configure Okta and JWT auth.</p>
+
+ Configure Spring Boot for OIDC Authentication 
+
+<p>OIDC is an authentication protocol that, along with OAuth 2.0, provides a spec for a complete authentication and authorization protocol. This is the protocol that Okta and Spring implement to provide the secure, standards-compliant JSON web token (JWT) authentication solution that you’ll use in this tutorial. Creating an OIDC application on Okta configures Okta as an authentication provider for your Spring Boot application.</p>
+
+<p>Open a bash shell and navigate to the demo project root directory.</p>
+
+<p>Before you begin, you’ll need a free Okta developer account. Install the <a href="https://cli.okta.com">Okta CLI</a> and run <code>okta register</code> to sign up for a new account. If you already have an account, run <code>okta login</code>.
+Then, run <code>okta apps create</code>. Select the default app name, or change it as you see fit.
+Choose Web and press Enter.</p>
+
+<p>Select Okta Spring Boot Starter. 
+    Accept the default Redirect URI values provided for you. That is, a Login Redirect of <code>http://localhost:8080/login/oauth2/code/okta</code> and a Logout Redirect of <code>http://localhost:8080</code>.</p>
+
+
+  What does the Okta CLI do?
+<p>The Okta CLI will create an OIDC Web App in your Okta Org. It will add the redirect URIs you specified and grant access to the Everyone group. You will see output like the following when it’s finished:</p>
+
+   <code>Okta application configuration has been written to: 
+  /path/to/app/src/main/resources/application.properties
+</code>   
+
+<p>Open <code>src/main/resources/application.properties</code> to see the issuer and credentials for your app.</p>
+   <code>okta.oauth2.issuer=https://dev-133337.okta.com/oauth2/default
+okta.oauth2.client-id=0oab8eb55Kb9jdMIr5d6
+okta.oauth2.client-secret=NEVER-SHOW-SECRETS
+</code>   
+
+<p>NOTE: You can also use the Okta Admin Console to create your app. See <a href="https://developer.okta.com/docs/guides/sign-into-web-app/springboot/create-okta-application/">Create a Spring Boot App</a> for more information.</p>
+
+
+
+<p>Open your <code>src/main/resources/application.properties</code> file. You should see something like the following.</p>
+
+   <code>okta.oauth2.issuer=https\://dev-123456.okta.com/oauth2/default
+okta.oauth2.client-secret={yourClientSecret}
+okta.oauth2.client-id={yourClientId}
+</code>   
+
+<p>While you’ve got the properties file open, add a couple of new properties.</p>
+
+   <code>spring.application.name=${APP_NAME}
+server.port=${APP_PORT}
+</code>   
+
+<p>These two properties will allow you to specify the application name and port from the command line when your boot the app. You need to be able to do this because you’ll need to run two distinct application instances with different names on different local ports.</p>
+
+ Create a Security Configuration Class 
+
+<p>To configure the Spring Boot application as a resource server, create a <code>SecurityConfiguration</code> class. The following class tells Spring Boot to authenticate all requests and use JWT-based auth for the resource server.</p>
+
+<p><code>src/main/java/com/example/demo/SecurityConfiguration.java</code></p>
+   <code>@EnableWebSecurity
+public class SecurityConfiguration extends WebSecurityConfigurerAdapter {
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http
+            .authorizeRequests(authorizeRequests -&gt;
+                authorizeRequests.anyRequest().authenticated())
+            .oauth2ResourceServer().jwt();
+    }
+
+}
+</code>   
+
+ Make an Example Spring Cloud Sleuth App 
+
+<p>Replace the <code>DemoApplication</code> class with the code listed below. I’ll explain the code below.</p>
+
+<p><code>src/main/java/com/example/demo/DemoApplication.java</code></p>
+   <code>package com.example.demo;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+
+@SpringBootApplication
+public class DemoApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+
+    @Bean
+    RestTemplate myRestTemplate() {
+        return new RestTemplate();
+    }
+
+    @RestController
+    static class SimpleRestController {
+
+        private static Logger log = LoggerFactory.getLogger(SimpleRestController.class);
+        private final RestTemplate restTemplate;
+
+        SimpleRestController(RestTemplateBuilder restTemplateBuilder) {
+            this.restTemplate = restTemplateBuilder.build();
+        }
+
+        @Value("${APP_NAME}")
+        private String appName;
+
+        @GetMapping("/a")
+        String a(@RequestHeader(name = "Authorization") String authToken) {
+
+            log.info("Handling a - " + appName);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.add("Authorization", authToken);
+            HttpEntity request = new HttpEntity(headers);
+
+            ResponseEntity&lt;String&gt; response = restTemplate.exchange(
+                "http://localhost:8082/b",
+                HttpMethod.GET,
+                request,
+                String.class
+            );
+
+            String result = response.getBody();
+            log.info("Reply = " + result);
+
+            return "Hello from /a - " + appName + ", " + result;
+        }
+
+        @GetMapping("/b")
+        String b(@RequestHeader(name = "Authorization") String authToken) {
+            log.info("Handling b - " + appName);
+            return "Hello from /b - " + appName;
+        }
+    }
+}
+</code>   
+
+<p>The demo app creates two endpoints, cunningly named <code>a</code> and <code>b</code>. To demonstrate how Sleuth works across services in a network of microservices, you will run two instances of this application. Using HTTPie, you’ll call endpoint <code>a</code>, which will call endpoint <code>b</code>. Endpoint <code>b</code> will return a result to endpoint <code>a</code>, which will return a combined result to your shell.</p>
+
+<p>The logging statements are important. This is where the Sleuth span and trace markers are going to get injected into your logs and sent to the Zipkin server (which you’ll set up in a moment).</p>
+
+<p>In endpoint <code>a</code>, notice that the code grabs the JWT token from the header as a request param and uses Spring’s RestTemplate to make a request to endpoint <code>b</code> including the token in the request. Both endpoints will require this token for authentication, so this is important. It’s also important that you use Spring’s <code>RestTemplate</code> and that you inject it as a bean because this allows Spring Cloud Sleuth to automatically include the Sleuth trace ID in the request, which is the main point here, tracking request flow across different services.</p>
+
+<p>If you don’t inject the <code>RestTemplate</code> as a bean but instead instantiate it directly in the method or use a different HTTP client, you will need to manually add the Sleuth trace ID.</p>
+
+ Launch a Zipkin Server 
+
+<p>Before you start the two instances of the Spring Boot app, you need to launch your Zipkin server. Because the project includes the Zipkin Client dependency (along with the Spring Cloud Sleuth dependency), Spring Boot is configured to send logging information to a Zipkin server at the default port <code>:9441</code>. This includes a graphical interface that allows you to search and view log traces.</p>
+
+<p>For more information on the Zipkin server, take a look at <a href="https://github.com/openzipkin/zipkin#quick-start">their quick start page</a>. The Zipkin server you’re launching uses a default, in-memory store that does not persist data. When you restart the service, all data will be lost. This is great for testing. For production, you might want to use a persisting store. Zipkin supports Cassandra, Elasticsearch, and MySQL. See <a href="https://github.com/openzipkin/zipkin/tree/master/zipkin-server">the GitHub page</a> for more information.</p>
+
+<p>There is a Spring Boot annotation, <code>@EnableZipkinServer</code>, that launches a Zipkin server for you. However, this annotation is deprecated. Instead, they suggest downloading the server as a JAR file and launching that.</p>
+
+<p>Open a new bash shell. Use the following command to download the latest Zipkin server as a JAR file.</p>
+
+   <code>curl -sSL https://zipkin.io/quickstart.sh | bash -s io.zipkin:zipkin-server:LATEST:slim zipkin.jar
+</code>   
+
+<p>Run the server and leave it running while you’re working on the tutorial.</p>
+
+   <code>java -jar zipkin.jar
+</code>   
+
+<p>You’ll see some output on the console ending with the following.</p>
+
+   <code>2021-06-21 10:19:20:587 [armeria-boss-http-*:9411] INFO Server - Serving HTTP at /0:0:0:0:0:0:0:0%0:9411 - http://127.0.0.1:9411/
+</code>   
+
+<p>There’s nothing to see yet, but you can open the Zipkin dashboard in a browser: <code>http://localhost:9411</code>.</p>
+
+<p></p>
+
+ Launch Two App Instances 
+
+<p>Now you’re ready to launch the instances of your app. First, you need to run the following commands in two separate shells. Notice that you’re using the environment variables to pass the application name and port to the Spring Boot app.</p>
+
+<p>Service A:</p>
+   <code>APP_NAME="Service A" APP_PORT=8081 ./mvnw spring-boot:run
+</code>   
+
+<p>Service B:</p>
+   <code>APP_NAME="Service B" APP_PORT=8082 ./mvnw spring-boot:run
+</code>   
+
+<p>You should see console output like the following for both apps.</p>
+
+   <code>...
+2021-06-21 10:26:41.539  INFO [Service A,,] 126840 --- [           main] o.s.s.concurrent.ThreadPoolTaskExecutor  : Initializing ExecutorService 'applicationTaskExecutor'
+2021-06-21 10:26:41.769  INFO [Service A,,] 126840 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port(s): 8081 (http) with context path ''
+2021-06-21 10:26:41.792  INFO [Service A,,] 126840 --- [           main] com.example.demo.DemoApplication         : Started DemoApplication in 2.781 seconds (JVM running for 2.975)
+</code>   
+
+<p>Try a test request. Open a new bash shell (the fourth, for those counting). Use HTTPie to make a GET request at the <code>/a</code> endpoint.</p>
+
+   <code>http :8081/a
+</code>   
+
+<p>You’ll get denied.</p>
+
+   <code>HTTP/1.1 401 
+</code>   
+
+<p>This is expected. You need to include a valid JWT.</p>
+
+ Create a Valid JWT with OIDC Debugger 
+
+<p>An easy way to get an access token is to generate one using <a href="https://oidcdebugger.com/">OpenID Connect Debugger</a>. First, you must configure your application on Okta to use OpenID Connect’s implicit flow.</p>
+
+<p>Run <code>okta login</code> and open the resulting URL in your browser. Go to the Applications section and select the application you just created. Edit its General Settings and add Implicit (Hybrid) as an allowed grant type, with access token enabled. Then, make sure it has <code>https://oidcdebugger.com/debug</code> in its Login redirect URIs. Click Save and copy the client ID for the next step.</p>
+
+<p>Now, navigate to the <a href="https://oidcdebugger.com/">OpenID Connect Debugger</a> website. Fill in your client ID, and use <code>/oauth2/default/v1/authorize</code> for the Authorize URI. The <code>state</code> field must be filled but can contain any characters. Select token for the response type.</p>
+
+<p>Scroll down and click SEND REQUEST.</p>
+
+<p>You should get a success page with an access token. Then, if you’re curious, you can inspect the decoded token.</p>
+
+<p></p>
+
+<p>Copy the token value to the clipboard.</p>
+
+<p>In the bash shell that you will make the HTTP requests from, save the token value as a shell variable.</p>
+
+   <code>TOKEN=eyJraWQiOiJJdXVaRG00RTg5WUg5U1JoeC1tbWl...
+</code>   
+
+ Confirm Spring Cloud Sleuth Works 
+
+<p>Great. At this point, you should have four bash terminals going.</p>
+
+ 
+   Spring Boot service A 
+   Spring Boot service B 
+   Zipkin server 
+   Bash terminal for making requests with HTTPie (where you just stored your JWT) 
+ 
+
+<p>You’re going to make a simple GET request to service A on endpoint <code>/a</code>. Service A will log the request and make a call to service B on endpoint <code>/b</code>. Service B will log that request and return a reply back to service A. Service A will log that it received a reply and will return the reply to your bash terminal.</p>
+
+<p></p>
+
+<p>This example is a little contrived, but the point is to show you how each log even will have a unique Sleuth span value while the entire request flow will share the same trace value.</p>
+
+<p>Make a request to service A endpoint <code>/a</code> using the JWT you just created.</p>
+
+   <code>http :8081/a "Authorization: Bearer $TOKEN"
+</code>   
+
+<p>If all went well, you should see this.</p>
+
+   <code>HTTP/1.1 200 
+...
+
+Hello from /a - Service A, Hello from /b - Service B
+
+</code>   
+
+<p>Take a look at the console output from the two services.</p>
+
+<p>Service A</p>
+   <code>2021-06-21 15:28:38.800  INFO [Service A,ef0fe81ff18325ff,ef0fe81ff18325ff] 14429 --- [nio-8081-exec-1] e.d.DemoApplication$SimpleRestController : Handling a - Service A
+2021-06-21 15:28:39.577  INFO [Service A,ef0fe81ff18325ff,ef0fe81ff18325ff] 14429 --- [nio-8081-exec-1] e.d.DemoApplication$SimpleRestController : Reply = Hello from /b - Service B
+</code>   
+
+<p>Service B</p>
+   <code>2021-06-21 15:28:39.556  INFO [Service B,ef0fe81ff18325ff,76b95441dd8d0300] 14466 --- [nio-8082-exec-1] e.d.DemoApplication$SimpleRestController : Handling b - Service B
+</code>   
+
+<p>All of these log entries have the Sleuth span and trace IDs injected into them, along with the service names.</p>
+
+   <code>[Service A,ef0fe81ff18325ff,ef0fe81ff18325ff]
+[SERVICE NAME, TRACE, SPAN]
+</code>   
+
+<p>Notice how the first ID is the same for all three entries. That’s the Sleuth trace ID that ties the entire request sequence together. Also, notice that for the entries for service A, the span and trace IDs are actually the same. That’s because this is the initial Sleuth logging event that kicks off the request tree, so that ID is the ID of the root span, which becomes the trace ID for the rest of the tree.</p>
+
+<p>Take a look at the Zipkin dashboard at <code>http://localhost:9411</code>.</p>
+
+<p>Click Run Query. You’ll have one result.</p>
+
+<p></p>
+
+<p>Click on Show, and you’ll see a detailed summary of the request tracing and logging.</p>
+
+<p></p>
+
+<p>If you look at the detailed graph, you’ll see three spans. The original GET request from the bash shell is the first one. Within that, a span encompasses the GET request to service B from service A and a third span encompasses service B receiving the GET request.</p>
+
+ Learn More About Spring and Spring Boot 
+
+<p>In this tutorial, you learned a little about Spring Cloud Sleuth and how it can trace requests through service meshes built with Spring Boot. You created an example application that you started two instances of and used Spring Cloud Sleuth to track an example request through the service network. Next, you secured the services using Okta JWT OAuth 2.0 and OIDC. Finally, you ran a local Zipkin server that allowed you to visualize the Sleuth span and trace entries in your logs.</p>
+
+<p>You can find the source code for this example on GitHub in the <a href="https://github.com/oktadev/okta-spring-cloud-sleuth-example">okta-spring-cloud-sleuth-example</a> repository.</p>
+
+<p>We have a slew of other posts on Spring Boot you might like:</p>
+
+ 
+   <a>Build Native Java Apps with Micronaut, Quarkus, and Spring Boot</a> 
+   <a>R2DBC and Spring for Non-Blocking Database Access</a> 
+   <a>How to Use Client Credentials Flow with Spring Security</a> 
+   <a>Kubernetes to the Cloud with Spring Boot and JHipster</a> 
+ 
+
+<p>If you have any questions about this post, please add a comment below. For more awesome content, follow <a href="https://twitter.com/oktadev">@oktadev</a> on Twitter, like us <a href="https://www.facebook.com/oktadevelopers/">on Facebook</a>, or subscribe to <a href="https://www.youtube.com/oktadev">our YouTube channel</a>.</p>
+   
+  
+  
+    
+      
+      
+      <div class="photo">
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://developer.okta.com/assets-jekyll/blog/spring-cloud-sleuth/sleuth-example-diagram-25abaef7257ecf249e89bd3452cd8d59a6062efd9d0dbf9db0293ccebcf6f915.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:00 &bull;
+   over a year ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Friday, 23. July 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://findbiometrics.com/'>FindBiometrics</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://findbiometrics.com/access-softek-chatbot-biometric-authentication-great-lakes-credit-union-707235/'>Access Softek Provides Chatbot and Biometric Authentication for Great Lakes Credit Union</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Access Softek will be helping the Great Lakes Credit Union (GLCU) further its digital transformation. The company has previously outfitted the GLCU with its mobile banking solution, and will now […] 
+ The post Access Softek Provides Chatbot and Biometric Authentication for Great Lakes Credit Union appeared first on FindBiometrics. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  
+
+
+
+<p><a href="https://www.accesssoftek.com/">Access Softek</a> will be helping the <a href="https://www.glcu.org/">Great Lakes Credit Union</a> (GLCU) further its digital transformation. The company has previously outfitted the GLCU with its mobile banking solution, and will now be supplementing that with its Orpheus Online Banking, Conversational Banking, and Biometric Authentication Manager (BAM) offerings.</p>
+
+
+
+<p>The new features will allow the GLCU to provide more secure and convenient services to its 80,000 members, with the Conversational Banking and Biometric Authentication Manager solutions being particularly noteworthy in that regard. The Conversational Banking platform comes with a slew of chatbot, live chat, and video chat functions, all of which will give customers more ways to engage with the Credit Union.</p>
+
+
+
+<p>The Authentication Manager, meanwhile, allows customers to take advantage of the biometric authentication features in their smartphone. BAM offers support for face and fingerprint recognition, both of which allow end users to replace passwords and knowledge-based security questions with secure device biometrics.</p>
+
+
+
+<p>“It is important that our members have a unified experience which enables them to transact in the channel they prefer,” said GLCU President and CEO Steven Bugg. “Adding online banking will provide that consistent experience, and the authentication manager and conversational banking provide us new tools that will make it even easier for us to serve our members.”</p>
+
+
+
+<p>“Great Lakes is very in tune with what its members need, and we are proud to be able to provide the features that make both the credit union and the member successful,” added Access Softek founder and CEO Chris Doner.</p>
+
+
+
+<p>The GLCU has been an Access Softek client for more than ten years. The <a href="https://findbiometrics.com/access-softek-provides-biometric-authentication-first-service-credit-union-113002/">First Service Credit Union</a> and the <a href="https://mobileidworld.com/wings-credit-union-adopts-access-softeks-easyvest-solution-010602/">Wings Financial Credit Union</a> are some of the company’s newer clients, with the former deploying the Biometric Authentication Manager and the latter opting for Access Softek’s new <a href="https://mobileidworld.com/access-softek-automates-investment-process-new-easyvest-tool-051405/">EasyVest investment tool</a>. Access Softek has also <a href="https://findbiometrics.com/access-softek-encourages-banks-adopt-biometric-authentication-with-new-api-030903/">released a new API</a> that makes it easier to add biometric authentication to an existing financial platform.</p>
+
+
+
+<p>–</p>
+
+
+
+<p>July 23, 2021 – by Eric Weiss</p>
+<p>The post <a href="https://findbiometrics.com/access-softek-chatbot-biometric-authentication-great-lakes-credit-union-707235/">Access Softek Provides Chatbot and Biometric Authentication for Great Lakes Credit Union</a> appeared first on <a href="https://findbiometrics.com">FindBiometrics</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://findbiometrics.com/wp-content/uploads/47280552_thumbnail1-e1441294667310-300x206.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:46 &bull;
+   9 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://findbiometrics.com/neurotechnology-releases-sentisight-ai-app-to-enable-image-recognition-on-mobile-devices/'>Neurotechnology Releases SentiSight.ai App to Enable Image Recognition on Mobile Devices</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Neurotechnology has released an app version of its SentiSight.ai image recognition platform. The app is available for both Android and iOS devices, and is intended to complement to the broader […] 
+ The post Neurotechnology Releases SentiSight.ai App to Enable Image Recognition on Mobile Devices appeared first on FindBiometrics. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  
+
+
+
+<p><a href="https://www.neurotechnology.com/">Neurotechnology</a> has released an app version of its SentiSight.ai image recognition platform. The app is available for both Android and iOS devices, and is intended to complement to the broader SentiSight.ai online platform.</p>
+
+
+
+<p>The original SentiSight.ai provides customers with image recognition capabilities, and gives them the ability to train and deploy their own custom models to recognize specific objects. The platform was designed to be as user-friendly as possible, so customers can build and benefit from those models even if they do not have a strong understanding of AI technology.</p>
+
+
+
+<p>The SentiSight.ai mobile app, on the other hand, allows customers to access some of those features on a smartphone. Customers will still need to use the online platform to train their own models. However, the app will allow them to apply those models directly to images captured with a standard smartphone camera. Users will also be able to take advantage of Neurotechnology’s pre-built image recognition models in addition to custom creations.</p>
+
+
+
+<p>The SentiSight.ai app will let users cross-reference a photo with a broader database to search for similar images. Other functions include a prediction feature and an AI-powered labeling feature that lets users assign images to new categories based on those predictions.</p>
+
+
+
+<p>The app is being rolled out in conjunction with a more general SentiSight.ai update. The online platform now offers a pay-as-you-go option, which means customers only need to pay for the features that they actually use. Meanwhile, the free version of the platform now includes models and training tools that were previously reserved for premium subscribers. The new SentiSight also has new video tutorials and C# REST API code samples to make the platform more accessible and help businesses integrate the platform with their own technologies.</p>
+
+
+
+<p><a href="https://findbiometrics.com/neurotechnology-announces-image-recognition-platform-911222/">SentiSight.ai originally debuted</a> in November of 2018. It was then updated in August of 2020 to enable <a href="https://findbiometrics.com/update-brings-offline-utility-sentisight-ai-computer-vision-platform-081708/">offline image recognition</a>. MarketsandMarkets has predicted that the <a href="https://findbiometrics.com/marketsandmarkets-forecasts-53-billion-image-recognition-market-011205/">image recognition market</a> will reach $53 billion by 2025.</p>
+
+
+
+<p>–</p>
+
+
+
+<p>July 23, 2021 – by Eric Weiss</p>
+<p>The post <a href="https://findbiometrics.com/neurotechnology-releases-sentisight-ai-app-to-enable-image-recognition-on-mobile-devices/">Neurotechnology Releases SentiSight.ai App to Enable Image Recognition on Mobile Devices</a> appeared first on <a href="https://findbiometrics.com">FindBiometrics</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://findbiometrics.com/wp-content/uploads/computervision-300x194.jpeg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:35 &bull;
+   20 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://findbiometrics.com/suprema-provides-fingerprint-modules-for-new-biorugged-handhelds/'>Suprema Provides Fingerprint Modules for New BioRugged Handhelds</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   BioRugged continues to rely on Suprema for its fingerprint authentication needs. The company has announced that it will once again feature Suprema’s fingerprint modules in its next generation of rugged […] 
+ The post Suprema Provides Fingerprint Modules for New BioRugged Handhelds appeared first on FindBiometrics. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  
+
+
+
+<p><a href="http://www.biorugged.com/">BioRugged</a> continues to rely on <a href="https://www.suprema-id.com/en/contents/index.php">Suprema</a> for its fingerprint authentication needs. The company has announced that it will once again feature Suprema’s fingerprint modules in its next generation of rugged handled devices, building on a partnership that goes back a full ten years.</p>
+
+
+
+<p>The new line of BioRugged handhelds includes the RUGGBO 21 Lite, the RUGGBO 31 Lite, the RUGGBO 20R, the RUGGBO 30 RS, the BioWolf 8R, and the BioWolf 10R. Those devices will feature either a BM-Slim2, BM-Slim2S, or BM-Slim3 fingerprint recognition module, all three of which boast FBI and PIV certification. In that regard, the BM-Slim2 is a FAP 20 sensor, while the <a href="https://findbiometrics.com/suprema-id-launches-slimmest-fingerprint-sensor/">BM-Slim3 is a FAP 30 counterpart</a> that debuted in 2019.</p>
+
+
+
+<p>The BioRugged devices will enable fingerprint capture and subsequent identity verification while in the field. Suprema believes that they will have utility in a number of different sectors, including healthcare, border control, and law enforcement. They can also be used in national ID and voter registration programs, where they can help confirm the identities of individual citizens when they arrive at a polling station. Other applications include more general Know Your Customer (KYC) scans. and SIM registrations.</p>
+
+
+
+<p>Suprema has actively collaborated with BioRugged to develop and test new biometric products in the past. The company’s SFU-S20 fingerprint module previously appeared in the <a href="https://findbiometrics.com/biorugged-lcc-tablet-suprema-408241/">BioRugged LCC</a> and <a href="https://findbiometrics.com/biowolf-le-suprema-biometrics-403021/">BioWolf LE</a> devices back in 2017.</p>
+
+
+
+<p>The BM-Slim 3 was integrated into <a href="https://findbiometrics.com/suprema-ids-fap-30-biometric-module-integrated-into-new-coppernic-handheld-910021/">Copperinc’s ID Platform handheld</a> in late 2020. The BM-Slim2, meanwhile, was placed in <a href="https://findbiometrics.com/suprema-fingerprint-sensor-appears-two-new-amrel-tablets/">AMREL’s rugged BIOPTIX and BioSense tablets</a> in 2019, and in a <a href="https://findbiometrics.com/suprema-sensor-taztag-devices-511083/">collection of three TazTag devices</a> the year prior.</p>
+
+
+
+<p>In other news, BioRugged recently <a href="https://findbiometrics.com/biorugged-targets-southeast-asian-market-with-vezion-partnership-031708/">partnered with Vezion</a> in an effort to raise its profile in the Southeast Asian market. Vezion is headquartered in Malaysia, but will act as a BioRugged reseller for the entire region.</p>
+
+
+
+<p>–</p>
+
+
+
+<p>July 23, 2021 – by Eric Weiss</p>
+<p>The post <a href="https://findbiometrics.com/suprema-provides-fingerprint-modules-for-new-biorugged-handhelds/">Suprema Provides Fingerprint Modules for New BioRugged Handhelds</a> appeared first on <a href="https://findbiometrics.com">FindBiometrics</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://findbiometrics.com/wp-content/uploads/HiRes12-e1434398495358-295x300.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:27 &bull;
+   28 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://findbiometrics.com/emergen-forecasts-284-73-billion-affective-computing-market-707232/'>Emergen Forecasts $284.73 Billion Affective Computing Market</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Emergen Research believes the automotive industry will fuel major growth in the Affective Computing Market in the next few years. The report specifically predicts that the demand for affective computing […] 
+ The post Emergen Forecasts $284.73 Billion Affective Computing Market appeared first on FindBiometrics. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  
+
+
+
+<p><a href="https://www.emergenresearch.com/">Emergen Research</a> believes the automotive industry will fuel major growth in the <a href="https://www.emergenresearch.com/industry-report/affective-computing-market">Affective Computing Market</a> in the next few years. The report specifically predicts that the demand for affective computing technology (a category that includes emotion detection systems) will climb at a CAGR of 32.5 percent to reach $284.73 billion by 2028.</p>
+
+
+
+<p>The technology will appeal to smart car manufacturers looking to make driving safer. In that regard, a car outfitted with an emotion detection system can <a href="https://mobileidworld.com/biometric-tech-subaru-forester-acclaim-804043/">determine whether the driver is tired, distracted, or confused</a>, and can then issue an alert or take some other pre-emptive action to prevent a potential collision.</p>
+
+
+
+<p>Emotion detection has additional applications in the realms of education and analytics. On the former front, teachers can deploy it in the classroom to gauge how a child is responding to an assignment, and can try a new approach if that child seems frustrated or disengaged. Start-ups, meanwhile, are using it to evaluate the level of interest of the people that come in for interviews, and whether they are sincere, nervous, or confident when responding to questions.</p>
+
+
+
+<p>That last feature may raise some concerns with civil rights advocates, insofar as it seems like there would be an <a href="https://findbiometrics.com/jumio-warns-about-bias-credential-stuffing-2021-identity-predictions-010403/">extremely high risk of bias</a>. The same is true in the financial sector, where emotion detection could be used to approve or deny a loan, thereby exacerbating the impact of any inaccuracies that may be present in an emotion recognition system. &nbsp;</p>
+
+
+
+<p>Emergen nevertheless identified interviews and financial services as some of the most noteworthy applications of emotion detection technology. The firm expects the Asia Pacific region to display the highest CAGR, due to the use of the technology in retail, gaming, an telecommunications. It also <a href="https://findbiometrics.com/nec-realeyes-unveil-biometric-emotion-analytics-service-102303/">called particular attention to Realeyes</a>’ PreView attention measurement system, before listing Microsoft, Google, Cognitec, and Qualcomm as some of the other key players in the affective computing space.</p>
+
+
+
+<p>Allied Market Research has predicted that the emotion recognition market will reach <a href="https://findbiometrics.com/biometrics-news-amr-forecasts-33-9-billion-emotion-recognition-market-021806/">$33.9 billion by 2023</a>. MarketsandMarkets, on the other hand, <a href="https://findbiometrics.com/biometrics-news-marketsandmarkets-projects-emotion-recognition-market-double-next-four-years-020508/">places it at $56 billion in 2024</a>.</p>
+
+
+
+<p>–</p>
+
+
+
+<p>July 23, 2021 – by Eric Weiss</p>
+<p>The post <a href="https://findbiometrics.com/emergen-forecasts-284-73-billion-affective-computing-market-707232/">Emergen Forecasts $284.73 Billion Affective Computing Market</a> appeared first on <a href="https://findbiometrics.com">FindBiometrics</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://findbiometrics.com/wp-content/uploads/chart-300x221.jpeg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:33 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://cognitohq.com/'>Cognito</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://cognitohq.com/is-manual-verification-outdated/'>Why Manual Review for Authentication Is Outdated</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Last year, many companies had to quickly adjust their customer authentication strategies to digital. Those with a system already in place were in a good spot. Those who didn’t had to catch up quickly — or fail. Manual authentication review is now outdated. Although manual verification was once completely necessary, we now have the tools […] 
+ The post Why Manual Review for Authentication Is Outdat
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Last year, many companies had to quickly adjust their customer authentication strategies to digital. Those with a system already in place were in a good spot. Those who didn’t had to catch up quickly — or fail. Manual authentication review is now outdated. Although manual verification was once completely necessary, we now have the tools and customer verification solutions to do it remotely and...</p>
+<p><a href="https://cognitohq.com/is-manual-verification-outdated/">Source</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:12 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -925,7 +1864,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    14:08 &bull;
-   2 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1033,7 +1972,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    13:00 &bull;
-   3 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1120,7 +2059,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    09:36 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1208,7 +2147,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    09:32 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1310,7 +2249,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    09:17 &bull;
-   7 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1412,7 +2351,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    21:26 &bull;
-   19 hours ago
+   23 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1512,7 +2451,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    21:17 &bull;
-   19 hours ago
+   24 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1612,7 +2551,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    19:37 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1720,7 +2659,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    19:33 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1828,7 +2767,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    19:30 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1898,7 +2837,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    18:46 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2781,7 +3720,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    02:37 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2851,7 +3790,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    00:23 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3675,7 +4614,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    23:38 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3741,7 +4680,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    22:11 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3820,7 +4759,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    22:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3894,7 +4833,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    22:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3966,7 +4905,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    22:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4038,7 +4977,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    22:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4110,7 +5049,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    22:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4182,7 +5121,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    22:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4254,7 +5193,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    22:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4321,398 +5260,6 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 <div class='item-footer'>
    15:35 &bull;
    25 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://findbiometrics.com/'>FindBiometrics</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://findbiometrics.com/idemia-white-paper-webinar-offer-mobile-id-insights-707211/'>Mobile ID is About to Change the World – Here’s How</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   IDEMIA is blazing a trail in mobile ID – one of the most exciting new frontiers in identity technology. The company has been garnering a great deal of attention with […] 
- The post Mobile ID is About to Change the World – Here’s How appeared first on FindBiometrics. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.idemia.com/">IDEMIA</a> is blazing a trail in mobile ID – one of the most exciting new frontiers in identity technology.</p>
-
-
-
-<p>The company has been garnering a great deal of attention with its Mobile ID solution, which uses sophisticated technologies including face biometrics to put a bona fide, government-approved identity credential into the end user’s personal smartphone. By anchoring the digital identity to an official piece of government ID, such as a driver’s license, the solution offers a legitimate form of ID in a virtual format, accessible to the end user at any time.</p>
-
-
-
-<p>It’s much more than just a virtual driver’s license, however. As detailed in IDEMIA’s White Paper, “<a href="https://16sp2o45qs973i2kpolavg37-wpengine.netdna-ssl.com/wp-content/uploads/IDEMIA-WP-Identity-on-the-Edge.pdf">Identity on the Edge</a>“, the Mobile ID solution offers a range of groundbreaking applications, from banking to curbside pickup – all while protecting end user privacy through a truly innovative, decentralized approach to user data.</p>
-
-
-
-<p>Further insights are available via the recent webinar “<a href="https://findbiometrics.com/on-demand-trust-and-interoperability-on-the-road-to-mobile-id/">Trust and Interoperability on the Road to Mobile ID</a>“, in which senior IDEMIA executives delve into Mobile ID in conversation with FindBiometrics Editor in Chief Peter Counter. Matt Thompson (SVP, Identity Solutions, Identity &amp; Security, North America) and his expert collogues each bring their insights to the table, offering an in-depth look at how ID has evolved, the importance of standards, and the implications of mobile ID for the future.</p>
-
-
-
- <a href="https://findbiometrics.com/on-demand-trust-and-interoperability-on-the-road-to-mobile-id/"></a><a href="https://findbiometrics.com/on-demand-trust-and-interoperability-on-the-road-to-mobile-id/">Learn all about Mobile ID in this expert video presentation.</a> 
-
-
-
-<p>The webinar is <a href="https://findbiometrics.com/on-demand-trust-and-interoperability-on-the-road-to-mobile-id/">available on-demand</a> and is entirely free, as is IDEMIA’s thorough <a href="https://16sp2o45qs973i2kpolavg37-wpengine.netdna-ssl.com/wp-content/uploads/IDEMIA-WP-Identity-on-the-Edge.pdf">White Paper</a>. Both offer an excellent means of coming to grips with one a groundbreaking innovation in ID that is emerging in real time.</p>
-
-
-
-<p>–</p>
-
-
-
-<p>July 21, 2021 – by Alex Perala</p>
-<p>The post <a href="https://findbiometrics.com/idemia-white-paper-webinar-offer-mobile-id-insights-707211/">Mobile ID is About to Change the World – Here’s How</a> appeared first on <a href="https://findbiometrics.com">FindBiometrics</a>.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://findbiometrics.com/wp-content/uploads/IDEMIA-Slide-1-300x169.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:45 &bull;
-   2 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://findbiometrics.com/teamviewer-uses-mobile-biometrics-enhance-security-remote-access-platform-072107/'>TeamViewer Uses Mobile Biometrics to Enhance Security of Remote Access Platform</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   TeamViewer has added biometric authentication to its Remote Control app. As the name would suggest, the Remote Control app is a remote access tool that allows people to use a […] 
- The post TeamViewer Uses Mobile Biometrics to Enhance Security of Remote Access Platform appeared first on FindBiometrics. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.teamviewer.com/en-us/">TeamViewer</a> has added biometric authentication to its Remote Control app. As the name would suggest, the Remote Control app is a remote access tool that allows people to use a smartphone to access and control another device like a computer or tablet. The new biometric authentication feature will add an extra layer of security to those connections, and allow people to leverage the face and fingerprint recognition scanners that now come standard on many mobile phones.</p>
-
-
-
-  
-
-
-
-<p>The upgraded Remote Control app is compatible with Android devices, and with the iPhone’s Touch ID and Face ID technology. The TeamViewer platform can be set up to require step-up biometric and two-factor authentication for each remote access request, ensuring that the target device remains safe even if a hacker has access to an unlocked mobile phone. In that regard, users can register their mobile devices to the TeamViewer system, and will then be given the opportunity to approve or deny any connection from one of those devices.</p>
-
-
-
-<p>Biometric authentication is being introduced as part of a broader update that also includes a handful of other security and performance improvements. Most notably, the update introduces an augmented black screen utility that prevents the host screen from lighting up during a remote access event. In doing so, it ensures that the information on that machine remains hidden from anyone who might be wandering past it at the office. Other upgrades include a remote reboot feature, mouse support for iPad, and a new user interface that makes it easier to use keyboard shortcuts when filling in text fields.</p>
-
-
-
-<p>“Smartphone ownership and usage has exploded over the last 10 years and so have the security capabilities within the devices,” said TeamViewer CTO Mike Eissele.&nbsp;“The latest version of TeamViewer Remote Control takes advantage of these newer native features and pairing biometric authentication with the many other security features already within our platform makes TeamViewer one of the most trusted remote access tools on the market.”</p>
-
-
-
-<p>BioCatch has previously noted that <a href="https://findbiometrics.com/behavioral-biometrics-spike-remote-access-activity-032504/">remote access activity increased</a> during the COVID-19 pandemic. Both BioCatch and ThreatMark have advocated for the <a href="https://findbiometrics.com/interview-threatmark-ceo-michal-tresner-on-behavioral-fraud-prevention/">use of behavioral biometrics</a> to <a href="https://findbiometrics.com/biocatch-explains-how-behavioral-biometrics-can-thwart-remote-access-attacks-112609/">guard against remote access fraud</a> that involves an element of social engineering.</p>
-
-
-
-<p>–</p>
-
-
-
-<p>July 21, 2021 – by Eric Weiss</p>
-<p>The post <a href="https://findbiometrics.com/teamviewer-uses-mobile-biometrics-enhance-security-remote-access-platform-072107/">TeamViewer Uses Mobile Biometrics to Enhance Security of Remote Access Platform</a> appeared first on <a href="https://findbiometrics.com">FindBiometrics</a>.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://findbiometrics.com/wp-content/uploads/62157982_thumbnail8-e1449870132699-275x300.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:24 &bull;
-   2 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://findbiometrics.com/suprema-brings-contactless-access-terminals-isc-west-072105/'>Suprema Brings Contactless Access Terminals to ISC West</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Suprema is showcasing its portfolio of access control solutions at this week’s ISC West show in Las Vegas. ISC West is taking place in person after last year’s virtual show, […] 
- The post Suprema Brings Contactless Access Terminals to ISC West appeared first on FindBiometrics. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.supremainc.com/en/main.asp">Suprema</a> is showcasing its portfolio of access control solutions at this week’s <a href="https://www.iscwest.com/">ISC West</a> show in Las Vegas. ISC West is taking place in person after <a href="https://findbiometrics.com/isc-west-2020-now-virtual-event-062606/">last year’s virtual show</a>, and Suprema has marked the occasion by taking over a standalone ISC West booth for the first time.</p>
-
-
-
-  
-
-
-
-<p>Those that visit the booth will be able to view the company’s <a href="https://findbiometrics.com/supremas-biostar-2-receives-iso-data-security-certifications-121605/">BioStar 2 solution</a>, in addition to its <a href="https://mobileidworld.com/suprema-launches-new-x-station-2-access-control-terminal-051806/">X-Station 2</a> and <a href="https://findbiometrics.com/suprema-announces-facestation-f2-fusion-multimodal-biometric-terminal-908261/">FaceStation F2 terminals</a>. BioStar is geared towards corporate access control, and exists as a broader security platform that organizations can use to set different levels of security for different parts of their facilities. For example, a conference room can be fitted with a simple RFID card reader, while private offices can be protected with biometric scanners.</p>
-
-
-
-<p>The X-Station 2 and the FaceStation F2 are some of the scanning options that are available to Suprema customers. The X-Station 2 is an RFID reader, though it offers support for mobile credentials and QR codes. Those credentials can be issued remotely, and are stored on the user’s own personal mobile device to give it a utility comparable to that of an RFID card. They can just as easily be revoked remotely should an individual lose their access privileges.</p>
-
-
-
-<p>The FaceStation F2, meanwhile, authenticates registered users with facial recognition. The terminal <a href="https://findbiometrics.com/suprema-details-benefits-infrared-facial-recognition-systems-072002/">leverages infrared technology</a> to minimize the false acceptance rate, and supports remote registration through a feature that allows users to upload a photo from a separate device. It also boasts mask detection capabilities, and can be combined with a thermal camera to further protect workers during the pandemic. In that regard, the FaceStation F2, X-Station 2, and BioStar 2 can all be used to enable contactless access control.</p>
-
-
-
-<p>“ISC West 2021 is the first international conference Suprema is participating since the outbreak of COVID-19,” said Suprema America Sales Director Bob Carrino. “Our&nbsp;solutions have much to offer especially in the post-pandemic&nbsp;era and we are always eager to hear customer feedback.”</p>
-
-
-
-<p>–</p>
-
-
-
-<p>July 21, 2021 – by Eric Weiss</p>
-<p>The post <a href="https://findbiometrics.com/suprema-brings-contactless-access-terminals-isc-west-072105/">Suprema Brings Contactless Access Terminals to ISC West</a> appeared first on <a href="https://findbiometrics.com">FindBiometrics</a>.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://findbiometrics.com/wp-content/uploads/iStock_Face-Feature-300x225.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:15 &bull;
-   2 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://findbiometrics.com/polish-fintech-turns-idenfy-biometric-onboarding-072103/'>Polish FinTech Turns to iDenfy for Biometric Onboarding</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Paymento Financial SA is partnering with Lithuania’s iDenfy to offer face-based onboarding technology to its customers. iDenfy’s solution utilizes uses face and document recognition technology to match a selfie to […] 
- The post Polish FinTech Turns to iDenfy for Biometric Onboarding appeared first on FindBiometrics. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://paymento.eu/en">Paymento Financial SA</a> is partnering with Lithuania’s <a href="https://www.idenfy.com/">iDenfy</a> to offer face-based onboarding technology to its customers. iDenfy’s solution utilizes uses face and document recognition technology to match a selfie to the image on a photo ID, which in turn allows a company to confirm the identity of a customer when they open a new account.</p>
-
-
-
-  
-
-
-
-<p>Paymento, meanwhile, is based in Poland, and provides FinTech and IT services for the financial sector. The company’s technology can be integrated into an existing system to enable secure online payments, and the partnership with iDenfy will allow Paymento to list biometric onboarding as one of the services that it offers to its own customers.</p>
-
-
-
-<p>According to the two parties, iDenfy’s technology will streamline the onboarding experience for end users, and support a faster and more convenient identity verification process. In doing so, it will allow customers to make payments more quickly, while still guarding against phishing attacks and other forms of identity fraud.</p>
-
-
-
-<p>“We strive to provide banks and financial institutions with a product to help them enter the payment business,” said Paymento CEO Andrzej Poniński. “This requires a smooth and automated verification process. Thanks to this innovative software, we will be able to enhance our customer experience and streamline the process of onboarding the customer.”</p>
-
-
-
-<p>“Their FinTech solutions are designed for the modern world of e-commerce, which makes identity verification a crucial aspect in keeping fraudulent activity to a minimum,” added iDenfy CEO Domantas Ciulde. “Our software will help them to check in real-time, improving both security and overall customer experience.”&nbsp;</p>
-
-
-
-<p>iDenfy has provided biometric onboarding services for several financial institutions in the past few months. <a href="https://findbiometrics.com/idenfy-provides-biometric-onboarding-kogopay-032301/">KogoPAY</a> and <a href="https://findbiometrics.com/idenfy-provides-biometric-onboarding-clearshift-money-transfer-service-062905/">Clearshift</a> both signed on with the company earlier in 2021, and join a new client roster that also includes the <a href="https://findbiometrics.com/crypto-exchange-turns-idenfy-biometric-onboarding-74202104/">Emirex</a> and <a href="https://findbiometrics.com/idenfy-provides-biometric-onboarding-impily-cryptocurrency-exchange-051406/">Impily</a> cryptocurrency exchanges.&nbsp;</p>
-
-
-
-<p>–</p>
-
-
-
-<p>July 20, 2021 – by Eric Weiss</p>
-<p>The post <a href="https://findbiometrics.com/polish-fintech-turns-idenfy-biometric-onboarding-072103/">Polish FinTech Turns to iDenfy for Biometric Onboarding</a> appeared first on <a href="https://findbiometrics.com">FindBiometrics</a>.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://findbiometrics.com/wp-content/uploads/iStock_selfie-600x450-1-300x225.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:49 &bull;
-   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5490,7 +6037,7 @@ InfoCertPress Relations Advisor BMP Comunicazione per InfoCert <a href="mailto:t
 
 <div class='item-footer'>
    08:18 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6074,7 +6621,7 @@ public class LogoutCallbackInterceptorActivity : OktaLogoutCallbackInterceptorAc
 
 <div class='item-footer'>
    05:00 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6988,7 +7535,7 @@ CX &amp; UX Consultant for fintech and digital banking<br>
 
 <div class='item-footer'>
    08:03 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7386,7 +7933,7 @@ end
 
 <div class='item-footer'>
    05:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7450,7 +7997,7 @@ end
 
 <div class='item-footer'>
    04:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8271,7 +8818,7 @@ defaults write "com.apple.dock" "orientation" 'bottom'
 
 <div class='item-footer'>
    05:00 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8789,11 +9336,19 @@ We look forward to seeing you and exploring how we can secure and manage the ris
 	 
    
 	 
-				 <a href="https://tokeny.com/tokenys-talent-nidas-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 15 Jan at 10:42  <a href="https://tokeny.com/tokenys-talent-nidas-story/">Tokeny’s Talent｜Nida’s Story</a>  	 
+				 <a href="https://tokeny.com/tokenys-talent-barboras-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 28 May at 8:44  <a href="https://tokeny.com/tokenys-talent-barboras-story/">Tokeny’s Talent｜Barbora’s Story</a>  	 
  
  
 	 
-				 <a href="https://tokeny.com/tokenys-talent-shurongs-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 20 Nov 2020  <a href="https://tokeny.com/tokenys-talent-shurongs-story/">Tokeny’s Talent｜Shurong’s Story</a>  	 
+				 <a href="https://tokeny.com/tokenys-talent-xavi-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Mar at 10:28  <a href="https://tokeny.com/tokenys-talent-xavi-story/">Tokeny’s Talent｜Xavi’s Story</a>  	 
+ 
+ 
+	 
+				 <a href="https://tokeny.com/tokenys-talent-marios-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 25 Jun at 8:25  <a href="https://tokeny.com/tokenys-talent-marios-story/">Tokeny’s Talent｜Mario’s Story</a>  	 
+ 
+ 
+	 
+				 <a href="https://tokeny.com/tokenys-talent-joachims-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 23 Apr at 10:10  <a href="https://tokeny.com/tokenys-talent-joachims-story/">Tokeny’s Talent｜Joachim’s Story</a>  	 
  
  
 	 
@@ -8805,19 +9360,11 @@ We look forward to seeing you and exploring how we can secure and manage the ris
  
  
 	 
-				 <a href="https://tokeny.com/tokenys-talent-joachims-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 23 Apr at 10:10  <a href="https://tokeny.com/tokenys-talent-joachims-story/">Tokeny’s Talent｜Joachim’s Story</a>  	 
+				 <a href="https://tokeny.com/tokenys-talent-nidas-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 15 Jan at 10:42  <a href="https://tokeny.com/tokenys-talent-nidas-story/">Tokeny’s Talent｜Nida’s Story</a>  	 
  
  
 	 
-				 <a href="https://tokeny.com/tokenys-talent-marios-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 25 Jun at 8:25  <a href="https://tokeny.com/tokenys-talent-marios-story/">Tokeny’s Talent｜Mario’s Story</a>  	 
- 
- 
-	 
-				 <a href="https://tokeny.com/tokenys-talent-xavi-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Mar at 10:28  <a href="https://tokeny.com/tokenys-talent-xavi-story/">Tokeny’s Talent｜Xavi’s Story</a>  	 
- 
- 
-	 
-				 <a href="https://tokeny.com/tokenys-talent-barboras-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 28 May at 8:44  <a href="https://tokeny.com/tokenys-talent-barboras-story/">Tokeny’s Talent｜Barbora’s Story</a>  	 
+				 <a href="https://tokeny.com/tokenys-talent-shurongs-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 20 Nov 2020  <a href="https://tokeny.com/tokenys-talent-shurongs-story/">Tokeny’s Talent｜Shurong’s Story</a>  	 
  
  	 
 		 
@@ -9049,7 +9596,7 @@ We look forward to seeing you and exploring how we can secure and manage the ris
 
 <div class='item-footer'>
    08:26 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9426,7 +9973,7 @@ namespace okta_aspnetcore_mvc_example.Models
 
 <div class='item-footer'>
    05:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10239,7 +10786,7 @@ Credit: CIVIC SQUARE — construction of a neighbourhood grow&nbsp;room Fina
 
 <div class='item-footer'>
    07:25 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10303,7 +10850,7 @@ Credit: CIVIC SQUARE — construction of a neighbourhood grow&nbsp;room Fina
 
 <div class='item-footer'>
    07:14 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10394,7 +10941,7 @@ We've been talking about what the future of AI is, and of course what's impactin
 
 <div class='item-footer'>
    07:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11447,7 +11994,7 @@ We've been talking about what the future of AI is, and of course what's impactin
 
 <div class='item-footer'>
    06:48 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12139,7 +12686,7 @@ const [user, token] = useAuth();
 
 <div class='item-footer'>
    05:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13019,7 +13566,7 @@ Absolutely. We [IOTA Foundation] are working on this project called ENSURESEC. I
 
 <div class='item-footer'>
    08:22 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13102,7 +13649,7 @@ Absolutely. We [IOTA Foundation] are working on this project called ENSURESEC. I
 
 <div class='item-footer'>
    07:08 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13166,7 +13713,7 @@ Absolutely. We [IOTA Foundation] are working on this project called ENSURESEC. I
 
 <div class='item-footer'>
    04:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14060,7 +14607,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    05:32 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14698,7 +15245,7 @@ internal class ViewersServiceIntegrationTest {
 
 <div class='item-footer'>
    05:00 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14762,7 +15309,7 @@ internal class ViewersServiceIntegrationTest {
 
 <div class='item-footer'>
    04:00 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15195,7 +15742,7 @@ internal class ViewersServiceIntegrationTest {
 
 <div class='item-footer'>
    07:49 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15269,7 +15816,7 @@ internal class ViewersServiceIntegrationTest {
 
 <div class='item-footer'>
    05:00 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16414,7 +16961,7 @@ So the rise of the platforms, as far as ServiceNow extending into identity and a
 
 <div class='item-footer'>
    07:00 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16488,7 +17035,7 @@ So the rise of the platforms, as far as ServiceNow extending into identity and a
 
 <div class='item-footer'>
    06:23 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16559,7 +17106,7 @@ So the rise of the platforms, as far as ServiceNow extending into identity and a
 
 <div class='item-footer'>
    06:20 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16657,7 +17204,7 @@ So the rise of the platforms, as far as ServiceNow extending into identity and a
 
 <div class='item-footer'>
    06:00 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17122,7 +17669,7 @@ dotnet Okta_Jenkins.dll
 
 <div class='item-footer'>
    05:00 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17196,7 +17743,7 @@ dotnet Okta_Jenkins.dll
 
 <div class='item-footer'>
    04:03 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17260,7 +17807,7 @@ dotnet Okta_Jenkins.dll
 
 <div class='item-footer'>
    04:00 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18093,1129 +18640,6 @@ dotnet Okta_Jenkins.dll
 
 <div class='item-footer'>
    11:02 &bull;
-   16 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.okta.com/'>Okta</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://developer.okta.com/blog/2021/07/07/developers-guide-to-gpg'>Developers Guide to GPG and YubiKey</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- Setting up a new YubiKey as a second factor is easy—your browser walks you through the entire process. However, setting up a YubiKey to sign your Git commits and Secure Shell (SSH) authentication is a very different experience. In this post, I’ll walk through configuring a YubiKey and highlight some of the things I’ve learned along the way. 
- 
- 
-
-
-
-
-
-
-I’ve used GPG for years, but it didn’t reall
-   
-  
-  
-  
-  
-    
-      
-      
-      <div class="preview">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://developer.okta.com/assets-jekyll/blog/developers-guide-to-gpg/yubikeys-4e8edf8aa75a3921e748b73b76cc54b73320e10bdf6f3fb14280bec7d3507d4c.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p>Setting up a new YubiKey as a second factor is easy—your browser walks you through the entire process. However, setting up a YubiKey to sign your Git commits and Secure Shell (SSH) authentication is a very different experience. In this post, I’ll walk through configuring a YubiKey and highlight some of the things I’ve learned along the way.</p>
- 
- 
-
-
-
-
-
-
-I’ve used GPG for years, but it didn’t really "click" for me until I sat down and wrote this post.
-
-
-
- 
- 
-<p>Prerequisites</p>
- 
- 
- 
- 
-<p>GnuPG - Install the <code>gnupg</code> package with Yum, Apt, Brew, etc.</p>
- 
- 
-<p><a href="https://www.yubico.com/support/download/yubikey-manager/">YubiKey Manager</a></p>
- 
- 
-<p>A <a href="https://www.yubico.com/">YubiKey from Yubico</a></p>
- 
- 
- 
- 
- Table of Contents 
- 
- <a>Why Use a YubiKey?</a> 
- <a>What Is OpenPGP?</a> 
- <a>Set Up and Configure a GPG Key</a> 
- <a>Back Up Your GPG Keys</a> 
- <a>Enable Your GPG Key for SSH</a> 
- <a>Test Your GPG Keys with GitHub</a> 
- <a>Use a Graphical Pin Entry Program</a> 
- <a>Sign Git Commits</a> 
- <a>Setting Up a YubiKey</a> 
- <a>Move Your GPG Keys to a YubiKey</a> 
- <a>Use Your GPG Key on Multiple Computers</a> 
- <a>Learn More About Secure Coding Practices</a> 
- 
- 
- 
- Why Use a YubiKey? 
- 
- 
-<p>A YubiKey is a hardware-based authentication device that can securely store secret keys. Once a private key is written to your YubiKey, it cannot be recovered. Keeping secrets off your computer is more secure than storing them on your computer’s hard drive—another application could read your SSH keys from the <code>~/.ssh</code> folder.</p>
- 
- 
- 
-
- 
- 
- 
-<p>Each type of YubiKey supports a variety of different "interfaces," each with different use cases.  Many people associate a YubiKey with generating long one-time passwords (OTP) that look like this:</p>
- 
- 
- 
- <code>cccjgjgkhcbbirdrfdnlnghhfgrtnnlgedjlftrbdeut</code> 
- 
- 
- 
-<p>However, generating one-time passwords is just a small slice of what you can do with a YubiKey. In this post, I’ll be talking about the OpenPGP interface and how you can use it for authentication.</p>
- 
- 
-
-
-
-
-
-
-If you don’t own a YubiKey, you can still follow along and skip the YubiKey parts.
-
-
-
- 
- 
- 
- 
- What Is OpenPGP? 
- 
- 
-<p>OpenPGP is a specification (<a href="https://datatracker.ietf.org/doc/html/rfc4880">RFC-4880</a>), which describes a protocol for using public-key cryptography for encryption, signing, and key exchange, based on the original <a href="https://www.philzimmermann.com/">Phil Zimmermann</a> work of Pretty Good Privacy (PGP).</p>
- 
- 
-<p>There is often confusion between PGP and Gnu Privacy Guard (GnuPG or GPG), probably because of the inverted acronym. Sometimes these terms are used interchangeably, but GPG is an implementation of the OpenPGP specification (and arguably the most popular one).</p>
- 
- 
-<p>You may have seen "Verified" badges on GitHub commits that use OpenPGP to confirm an author’s identity.</p>
- 
- 
- 
-
- 
- 
- 
- 
- 
- Set Up and Configure a GPG Key 
- 
- 
-<p>First, you need to generate a GPG key. You could do this directly on a YubiKey. However, you can NOT back up the keys once they are on the device. So instead, I’ll generate a GPG key on my computer, and once I have everything working, I’ll permanently move it to my YubiKey.</p>
- 
- 
-<p>Start by generating a new key using <code>gpg</code>. If you already have a key, you can skip this first step:</p>
- 
- 
- 
- 
- 
- <code>gpg --full-generate-key</code> 
- 
- 
- 
- 
- <code>Please select what kind of key you want:
-   (1) RSA and RSA
-   (2) DSA and Elgamal
-   (3) DSA (sign only)
-   (4) RSA (sign only)
-   (9) ECC (sign and encrypt) *default*
-  (10) ECC (sign only)
-  (14) Existing key from card
-Your selection? 1 (1)
-RSA keys may be between 1024 and 4096 bits long.
-What keysize do you want? (3072) 4096 (2)
-Requested keysize is 4096 bits
-Please specify how long the key should be valid.
-         0 = key does not expire
-      &lt;n&gt;  = key expires in n days
-      &lt;n&gt;w = key expires in n weeks
-      &lt;n&gt;m = key expires in n months
-      &lt;n&gt;y = key expires in n years
-Key is valid for? (0) 2y (3)
-Key expires at Sat Jun  3 15:08:09 2023 EDT
-Is this correct? (y/N) y (4)
-
-GnuPG needs to construct a user ID to identify your key.
-
-Real name: Brian Demers (5)
-Email address: Brian.Demers@okta.com (6)
-Comment: bdemers test key (7)
-You selected this USER-ID:
-    "Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;"
-
-Change (N)ame, (C)omment, (E)mail or (O)kay/(Q)uit? o (8)</code> 
- 
- 
- 
-
-
-1
-Create an RSA key.
-
-
-2
-Set the key size to 4096.
-
-
-3
-Expire in 2 years, you can extend the expiration later.
-
-
-4
-Enter your name.
-
-
-5
-Enter your email address.
-
-
-6
-Enter an optional comment.
-
-
-7
-You will be prompted for a secret passphrase.
-
-
-8
-Press `o' to save and exit.
-
-
- 
- 
- 
- 
-<p>Now you have a key! You can view your secret keys at any time by running:</p>
- 
- 
- 
- 
- 
- <code>gpg --list-secret-keys</code> 
- 
- 
- 
- 
- <code>---------------------------------
-sec   rsa4096 2021-06-03 [SC] [expires: 2023-06-03]
-      4C40E4AD3A157D172ECB27C9B2EAA49E11DE8CBD (1)
-uid           [ultimate] Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;
-ssb   rsa4096 2021-06-03 [E] [expires: 2023-06-03]</code> 
- 
- 
- 
-
-
-1
-make a note of the Key ID; you will need this for a few different steps below.
-
-
- 
- 
- 
- 
-<p>Add an authentication sub-key for use with SSH for authentication—more on that below.</p>
- 
- 
- 
- <code>gpg --quick-add-key {your-key-id} rsa4096 auth 2y</code> 
- 
- 
- 
-<p>If you list the secret keys again, you can see the new key and capability:</p>
- 
- 
- 
- 
- 
- <code>gpg --list-secret-keys</code> 
- 
- 
- 
- 
- <code>---------------------------------
-sec   rsa4096 2021-06-03 [SC] [expires: 2023-06-03] (1)
-      4C40E4AD3A157D172ECB27C9B2EAA49E11DE8CBD
-uid           [ultimate] Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;
-ssb   rsa4096 2021-06-03 [E] [expires: 2023-06-03] (2)
-ssb   rsa4096 2021-06-03 [A] [expires: 2023-06-03] (3)</code> 
- 
- 
- 
-
-
-1
-The primary key, has the capabilities of signing <code>[S]</code> and certification <code>[C]</code>.
-
-
-2
-The encryption <code>[E]</code> subkey.
-
-
-3
-The new authentication <code>[A]</code> subkey.
-
-
- 
- 
- 
- 
-<p>Now that you have your newly minted key, back them up!</p>
- 
- 
- 
- 
- Back Up Your GPG Keys 
- 
- 
-<p>Backups of your GPG keys should be stored offline. You are going through the process of securely storing your keys on a YubiKey, don’t leave your backup hanging around on disk.</p>
- 
- 
-
-
-
-
-
-
-Pick a backup strategy that works for you, anything from storing the keys on a USB stick in a lock box, to a <a href="https://wiki.archlinux.org/title/Paperkey">printed paper key</a>, or you could <a href="https://www.cloudflare.com/dns/dnssec/root-signing-ceremony/">go all out</a>.
-
-
-
- 
- 
-<p>Run the following commands to export the keys and trust store.</p>
- 
- 
- 
- 
- 
- <code>gpg --armor --export &gt; public-keys.asc (1)
-gpg --armor --export-secret-keys &gt; private-keys.asc (2)
-gpg --export-ownertrust &gt; ownertrust.asc (3)
-
-# Create a revocation certificate, in case you need lose your key
-gpg --armor --gen-revoke {your-key-id} &gt; revocation.asc (4)
-# Select 1 for "Key has been compromised"</code> 
- 
- 
- 
-
-
-1
-Export all public keys.
-
-
-2
-Export all private keys.
-
-
-3
-Export the trust store.
-
-
-4
-Create a revocation certificate as well. Take a look at the <a href="https://www.gnupg.org/faq/gnupg-faq.html#define_rev_cert">GnuPG docs</a> to learn more about key revocation.
-
-
- 
- 
- 
- 
-
-
-
-
-
-
-The <code>--armor</code> argument outputs the key in a PEM format.
-
-
-
- 
- 
-<p>If you ever need to restore your keys from this backup, you can run:</p>
- 
- 
- 
- <code># restore public keys
-gpg --import public-keys.asc
-# restore private keys
-gpg --import private-keys.asc
-# restore trust store
-gpg --import-ownertrust ownertrust.asc</code> 
- 
- 
- 
- 
- 
- Enable Your GPG Key for SSH 
- 
- 
-<p>There are a few moving parts needed to expose your new GPG key in a way that your SSH client will use them. Initially, this part confused me the most and left me jumping between blog posts and various Stack Overflow questions (many of which were out of date).</p>
- 
- 
-<p>Working backward from the SSH client:
-- The SSH client reads the <code>SSH_AUTH_SOCK</code> environment variable; it contains the location of a Unix socket managed by an agent.
-- A <code>gpg-agent</code> running in the background controls this socket and allows your GPG key to be used for authentication.</p>
- 
- 
-
-
-
-
-
-
-<code>gpg-agent</code> can replace the need for <code>ssh-agent</code>.
-
-
-
- 
- 
-<p>Enable SSH support using standard sockets by updating the <code>~/.gnupg/gpg-agent.conf</code> file:</p>
- 
- 
- 
- <code>echo "enable-ssh-support" &gt;&gt; ~/.gnupg/gpg-agent.conf
-echo "use-standard-socket" &gt;&gt; ~/.gnupg/gpg-agent.conf</code> 
- 
- 
- 
-<p>Next, you will need to find the "keygrip" for the authentication key; this is different from the key id, run:</p>
- 
- 
- 
- 
- 
- <code>gpg --list-secret-keys --with-keygrip</code> 
- 
- 
- 
- 
- <code>---------------------------------
-sec   rsa4096 2021-06-03 [SC] [expires: 2023-06-03]
-      4C40E4AD3A157D172ECB27C9B2EAA49E11DE8CBD (1)
-      Keygrip = 78BCD171C2DD44E5D6054F0EC98B8C5D2A37D076
-uid           [ultimate] Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;
-ssb   rsa4096 2021-06-03 [E] [expires: 2023-06-03]
-      Keygrip = 48B8049057AE142926CADB23A816DFF57DC85098
-ssb   rsa4096 2021-06-03 [A] [expires: 2023-06-03]
-      Keygrip = 28E05AC1DCFCB0C23EFD89A86C627B0959758813 (2)</code> 
- 
- 
- 
-
-
-1
-Don’t confuse the Key ID with the "keygrip"
-
-
-2
-The "keygrip" for the authentication <code>[A]</code> key.
-
-
- 
- 
- 
- 
-<p>Update <code>~/.gnupg/sshcontrol</code> with the authentication "keygrip"; this allows the gpg-agent to use this key with SSH.</p>
- 
- 
- 
- <code>echo {keygrip} &gt;&gt; ~/.gnupg/sshcontrol</code> 
- 
- 
- 
-<p>Configure your shell environment to use <code>gpg-agent</code>:</p>
- 
- 
- 
- <code># configure SSH to use GPG
-echo 'export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)' &gt;&gt; ~/.zshrc
-
-# start gpg-agent, if it isn't started already
-echo 'gpgconf --launch gpg-agent' &gt;&gt; ~/.zshrc
-echo 'gpg-connect-agent /bye' &gt;&gt; ~/.zshrc
-# the docs say to use: gpg-connect-agent /bye
-
-# Set an environment variable to tell GPG the current terminal.
-echo 'export GPG_TTY=$(tty)' &gt;&gt; ~/.zshrc</code> 
- 
- 
- 
-
-
-
-
-
-
-The <code>gpg-agent</code> is started automatically the first time it is used. However, to make sure it is running and available for SSH, it needs to be run when your shell starts.
-
-
-
- 
- 
-<p>Open a new terminal session and run <code>ssh-add -L</code>; if everything is working correctly, your public key in SSH format will be output to your console:</p>
- 
- 
- 
- <code>ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC66/kO8H70GENVLxdD6ZBaRKzj5iDmhUpjFw1WzQmFe+O/dW8FpIXtuZX7QxtV+fqCaK6zbMPfKcUTfogRPdUtzzy/1Ik5WOAfJRF/woL6rMpId0klLalAJ4etOq2X3izBY8RhdiBGPOBPWl9bVTMcvrxIJqcO61FUC0vfwcXX/0GnQ+CnnA2c3CoeZAJbVFWSjo3imii26DdcfL3S0++6yN1y8EFr6BXh7S50Wog/c3CjgyM9t8Hiew/6XpB4deHWEPKkjn/TquRrg1xoFlCkz8w4NJ+jjkhhn8zZ0pcL9fk6VlkzkGiA1ADaEYj+ji0yKvenjrMiiM2FxHEcnTyXsAJkw/3iSxkQ2CpnWjg+BMZnV0inCH9KGvgQcZ3NF6hLuCi1wWP9TA1pVIcLVsDXJrwAnKYyrngWF1O2eI60x2I6ySQUJd1bExYWt2M50V5SynqKWUiYcRecLrO3/wPKzdUsYSNgCcwRSE4pXabAzTsre/WOp7MPQZ9tqWp1tPjyg+wn5UeQ21j0Fm3pZ4EWhBDQmPjm6y9tLv0kzoR8gmqa1KfSqwWyCl3FrNkT1wixxjQL1DVhVy3Kqoy5HA/z30hhkd5BSaqqouykirS/fmFE+k5pwZ/TVwf7BlC1AFNH0AzlCqoWt8s7wFsMUKsVkhZmYaHU52EIvn5rwPcUQQ== (none)</code> 
- 
- 
- 
-
-
-
-
-
-
-If you don’t see any output, try restarting the agent with the following command: <code>gpg-connect-agent reloadagent /bye</code>
-
-
-
- 
- 
- 
- 
- Test Your GPG Keys with GitHub 
- 
- 
-<p>Now that I have GPG configured on my computer, the next thing is to make sure everything is working correctly.</p>
- 
- 
-<p>Log in to GitHub and go the Settings → <a href="https://github.com/settings/keys">SSH and GPG</a> page. Copy the output from <code>ssh-add -L</code> and add a <a href="https://docs.github.com/en/github/authenticating-to-github/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account">new SSH key</a>.</p>
- 
- 
-<p>On the same page <a href="https://docs.github.com/en/github/authenticating-to-github/managing-commit-signature-verification/adding-a-new-gpg-key-to-your-github-account">add your GPG key</a>, copy the value from <code>gpg --armor --export {your-key-id}</code>.</p>
- 
- 
-
-
-
-
-
-
-On macOS, you can pipe the output directly to your clipboard using <code>pbcopy</code>, for example, <code>ssh-add -L | pbcopy</code>.
-
-
-
- 
- 
-<p>Once you have your key configured, you can open an SSH connection to GitHub:</p>
- 
- 
- 
- <code>ssh git@github.com</code> 
- 
- 
- 
-<p>The session will close immediately but will print a message:</p>
- 
- 
- 
- <code>Hi bdemers! You've successfully authenticated, but GitHub does not provide shell access.
-Connection to github.com closed.</code> 
- 
- 
- 
-<p>Woot! Everything is working!</p>
- 
- 
- 
- 
- Use a Graphical Pin Entry Program 
- 
- 
-<p>If you would rather use a graphical application to enter your passphrase, you can install an alternative "pinentry" program.  For example, on macOS:</p>
- 
- 
- 
- <code># install a GUI pin entry program
-brew install pinentry-mac
-
-# configure gpg-agent to use this pinentry application
-echo "pinentry-program /usr/local/bin/pinentry-mac" &gt;&gt; ~/.gnupg/gpg-agent.conf
-
-# Restart gpg-agent
-gpg-connect-agent reloadagent /bye</code> 
- 
- 
- 
- 
- 
- Sign Git Commits 
- 
- 
-<p>Signing your commits is the only way to prove you are the author. Without a signature, someone could easily impersonate you by setting the name and email on a commit to match your information.</p>
- 
- 
-<p>Configure Git to sign commits and tags automatically takes a few global properties; you want that "Verified" label on GitHub, don’t you 😉:</p>
- 
- 
- 
- <code>git config --global commit.gpgsign true
-git config --global tag.gpgSign true
-git config --global user.signingkey {your-key-id}</code> 
- 
- 
- 
-<p>Your next commit will be signed, and you can double-check this by running <code>git log --show-signature</code>:</p>
- 
- 
- 
- <code>commit 85e0174d961f44666d8ffc7000e81df22eea13c6
-gpg: Signature made Tue Jun  8 12:19:14 2021 EDT
-gpg:                using RSA key 4C40E4AD3A157D172ECB27C9B2EAA49E11DE8CBD
-gpg: Good signature from "Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;" [ultimate]
-Author: Brian Demers &lt;Brian.Demers@okta.com&gt;
-Date:   Tue Jun 8 12:19:13 2021 -0400
-
-    Testing commit signing</code> 
- 
- 
- 
- 
- 
- Setting Up a YubiKey 
- 
- 
-<p>You didn’t need a YubiKey to complete any of the above GPG setup. Without one, though, I don’t think I’d go through setting up GPG + SSH authentication. Using standard SSH keys will offer the same level of security with less complexity. As I mentioned above, the goal was to move keys off my computer, and into the secure storage of the YubiKey.</p>
- 
- 
-<p>One of the first things I do when I get a new YubiKey is to disable the keyboard functions. Unfortunately, I found myself accidentally touching the device, only to have it spew out a long set of characters; this is an excellent feature if you use it, but if you don’t, it can easily be disabled.</p>
- 
- 
-<p>Open up the YubiKey Manager Application, select the Interfaces tab, and disable "OTP," "PIV," and "OATH" interfaces, and press the Save Interfaces button; the result will look something like this:</p>
- 
- 
- 
-
- 
- 
- 
-<p>Open up a terminal and run <code>gpg --card-status</code>, to display information about your device.</p>
- 
- 
-
-
-
-
-
-
-GPG refers to devices as "smartcards", so any time you see the term "card" it refers to your YubiKey.
-
-
-
- 
- 
- 
- <code>Reader ...........: Yubico YubiKey OTP FIDO CCID
-Application ID ...: D2760001240103040006162602010000
-Application type .: OpenPGP
-Version ..........: 3.4
-Manufacturer .....: Yubico
-Serial number ....: 16260201
-Name of cardholder: [not set]
-Language prefs ...: [not set]
-Salutation .......:
-URL of public key : [not set]
-Login data .......: [not set]
-Signature PIN ....: not forced
-Key attributes ...: rsa2048 rsa2048 rsa2048
-Max. PIN lengths .: 127 127 127
-PIN retry counter : 3 0 3
-Signature counter : 0
-KDF setting ......: off
-Signature key ....: [none]
-Encryption key....: [none]
-Authentication key: [none]
-General key info..: [none]</code> 
- 
- 
- 
-<p>If you see an "Operation not supported by device" error message, make sure you have a recent version of GPG installed and try again. I’m using version <code>2.2.27</code> in this post.</p>
- 
- 
-<p>To configure the device with your settings, run:</p>
- 
- 
- 
- <code>gpg --card-edit</code> 
- 
- 
- 
-<p>This command will open an interactive session; type <code>admin</code> to enable setting properties on the devices.</p>
- 
- 
-<p>Run the following commands to update the card.</p>
- 
- 
- 
- 
- 
- <code>gpg/card&gt; admin (1)
-Admin commands are allowed
-
-gpg/card&gt; passwd (2)
-gpg: OpenPGP card no. D2760001240103040006162602010000 detected
-
-1 - change PIN
-2 - unblock PIN
-3 - change Admin PIN
-4 - set the Reset Code
-Q - quit
-
-Your selection? 1 (3)
-PIN changed.
-
-1 - change PIN
-2 - unblock PIN
-3 - change Admin PIN
-4 - set the Reset Code
-Q - quit
-
-Your selection? 3 (4)
-PIN changed.
-
-1 - change PIN
-2 - unblock PIN
-3 - change Admin PIN
-4 - set the Reset Code
-Q - quit
-
-Your selection? q
-
-gpg/card&gt; name (5)
-Cardholder's surname: Demers
-Cardholder's given name: Brian
-
-gpg/card&gt; lang (6)
-Language preferences: en
-
-gpg/card&gt; login (7)
-Login data (account name): bdemers
-
-gpg/card&gt; url (8)
-URL to retrieve public key: https://github.com/bdemers.gpg
-
-gpg/card&gt; quit (9)</code> 
- 
- 
- 
-
-
-1
-The <code>admin</code> command enables additional commands.
-
-
-2
-Enter the <code>passwd</code> to enter the password/pin sub-menu.
-
-
-3
-The default PIN is <code>123456</code>.
-
-
-4
-The default Admin PIN is <code>12345678</code>.
-
-
-5
-Set your name, last name, then first name.
-
-
-6
-The two-letter shortcode for your primary language.
-
-
-7
-Your preferred login name.
-
-
-8
-The URL of where your public key is stored, GitHub serves them at <code>https://github.com/&lt;username&gt;.gpg</code>.
-
-
-9
-Exit the program.
-
-
- 
- 
- 
- 
-<p>If you run <code>gpg --card-status</code> again you will updated information stored on your card:</p>
- 
- 
- 
- <code>Name of cardholder: Brian Demers
-Language prefs ...: en
-URL of public key : https://github.com/bdemers.gpg
-Login data .......: bdemers</code> 
- 
- 
- 
- 
- 
- Move Your GPG Keys to a YubiKey 
- 
- 
-
-
-
-
-
-
-Make sure you back up your keys before moving them; this is your last chance!
-
-
-
- 
- 
-<p>Each key will need to be individual, the signature, encryption, and authentication keys. Edit the key by running:</p>
- 
- 
- 
- 
- 
- <code>gpg --edit-key {your-key-id}</code> 
- 
- 
- 
-<p>Follow along with the prompts:</p>
- 
- 
- 
- <code>gpg&gt; keytocard (1)
-Really move the primary key? (y/N) y
-Please select where to store the key:
-   (1) Signature key
-   (3) Authentication key
-Your selection? 1
-
-...
-
-gpg&gt; key 1 (2)
-
-sec  rsa4096/B2EAA49E11DE8CBD
-     created: 2021-06-03  expires: 2023-06-03  usage: SC
-     trust: ultimate      validity: ultimate
-ssb* rsa4096/E45F9D38B846EC9E (3)
-     created: 2021-06-03  expires: 2023-06-03  usage: E
-ssb  rsa4096/D81BDB63BB563819
-     created: 2021-06-03  expires: 2023-06-03  usage: A
-[ultimate] (1). Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;
-
-gpg&gt; keytocard (4)
-Please select where to store the key:
-   (2) Encryption key
-Your selection? 2
-
-...
-gpg&gt; key 1 (5)
-...
-
-gpg&gt; key 2 (6)
-
-...
-
-gpg&gt; keytocard (7)
-Please select where to store the key:
-   (2) Authentciation key
-Your selection? 3 (8)
-
-...
-
-gpg&gt; q (9)
-Save changes? (y/N) y</code> 
- 
- 
- 
-
-
-1
-Move the primary key to the smartcard.
-
-
-2
-Switch to key 1, the encryption key.
-
-
-3
-The selected key is marked with a <code>*</code>. If you do not see a selected key that means the primary <code>key 0</code> has been selected.
-
-
-4
-Run <code>keytocard</code> again.
-
-
-5
-Deselect <code>key 1</code>.
-
-
-6
-Repeat the process for <code>key 2</code> the authentication key.
-
-
-7
-You know the drill <code>keytocard</code>
-
-
-8
-All done! Exit and save changes.
-
-
- 
- 
- 
- 
-
-
-
-
-
-
-After moving your keys to smartcard like a YubiKey, running the <code>gpg --list-secret-keys</code> command will show a greater-than symbol <code>&gt;</code> next to the <code>sec</code> and <code>ssb</code> listings:
-
-
-
- 
- 
- 
- <code>---------------------------------
-sec&gt;  rsa4096 2021-06-03 [SC] [expires: 2023-06-03]
-      4C40E4AD3A157D172ECB27C9B2EAA49E11DE8CBD
-      Card serial no. = 0006 16260201
-uid           [ultimate] Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;
-ssb&gt;  rsa4096 2021-06-03 [E] [expires: 2023-06-03]
-ssb&gt;  rsa4096 2021-06-03 [A] [expires: 2023-06-03]</code> 
- 
- 
- 
-<p>The smart card does NOT store your public key, run the <code>fetch</code> sub command to make sure GPG can fetch your key from the GitHub URL specified above:</p>
- 
- 
- 
- <code>gpg --edit-card</code> 
- 
- 
- 
- 
- <code>gpg/card&gt; fetch
-gpg: requesting key from 'https://github.com/bdemers.gpg'
-gpg: key B2EAA49E11DE8CBD: duplicated subkeys detected - merged
-gpg: key B2EAA49E11DE8CBD: public key "Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;" imported
-gpg: Total number processed: 1
-gpg:               imported: 1</code> 
- 
- 
- 
- 
- 
- Use Your GPG Key on Multiple Computers 
- 
- 
-<p>One of the great things about storing your GPG keys on a YubiKey is that you can easily bring the keys to a different device. Since the keys are stored on the smartcard, you simply need to "link" the device’s keys:</p>
- 
- 
- 
- <code>gpg --card-edit</code> 
- 
- 
- 
- 
- <code>gpg/card&gt; fetch
-gpg: requesting key from 'https://github.com/bdemers.gpg'
-gpg: key B2EAA49E11DE8CBD: duplicated subkeys detected - merged
-gpg: key B2EAA49E11DE8CBD: public key "Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;" imported
-gpg: Total number processed: 1
-gpg:               imported: 1
-
-gpg/card&gt; quit</code> 
- 
- 
- 
-<p>Finally, you can confirm the keys have been linked by running <code>gpg --list-secret-keys</code> and look to see if the <code>sec</code> entry is marked with a <code>&gt;</code>.</p>
- 
- 
- 
- <code>---------------------------------
-sec&gt;  rsa4096 2021-06-03 [SC] [expires: 2023-06-03]
-      4C40E4AD3A157D172ECB27C9B2EAA49E11DE8CBD
-      Card serial no. = 0006 16260201
-uid           [ultimate] Brian Demers (bdemers test key) &lt;Brian.Demers@okta.com&gt;
-ssb&gt;  rsa4096 2021-06-03 [E] [expires: 2023-06-03]
-ssb&gt;  rsa4096 2021-06-03 [A] [expires: 2023-06-03]</code> 
- 
- 
- 
-<p>The last thing to do is update the trust store on the new computer:</p>
- 
- 
- 
- 
- 
- <code>gpg --edit-key</code> 
- 
- 
- 
- 
- <code>...
-gpg&gt; trust (1)
-...
-Please decide how far you trust this user to correctly verify other users' keys
-(by looking at passports, checking fingerprints from different sources, etc.)
-
-  1 = I don't know or won't say
-  2 = I do NOT trust
-  3 = I trust marginally
-  4 = I trust fully
-  5 = I trust ultimately
-  m = back to the main menu
-
-Your decision? 5 (2)
-Do you really want to set this key to ultimate trust? (y/N) y
-
-gpg&gt; q (3)</code> 
- 
- 
- 
-
-
-1
-Run the <code>trust</code> subcommand.
-
-
-2
-Select <code>5</code> ultimately trust; ONLY do this for your key.
-
-
-3
-Finished! Press <code>q</code> to exit.
-
-
- 
- 
- 
- 
-<p>Your smartcard is now set up on multiple computers!</p>
- 
- 
- 
- 
- Learn More About Secure Coding Practices 
- 
- 
-<p>In this post, I showed you how to set up the OpenPGP interface of a YubiKey and configure it to be used for SSH authentication. There is a lot more you can do with GPG, like <a href="https://www.gnupg.org/gph/en/manual/x110.html">encrypt files</a>, <a href="https://www.gnupg.org/gph/en/manual/r733.html">publish your keys</a>, and <a href="https://www.gnupg.org/gph/en/manual/x547.html">build your web of trust</a>.</p>
- 
- 
-<p>If you want to learn more about secure coding practices, check out these other posts!</p>
- 
- 
- 
- 
-<p><a>Five Tools to Improve Your Java Code</a></p>
- 
- 
-<p><a>OAuth Patterns and Anti-Patterns</a></p>
- 
- 
-<p><a>An Illustrated Guide to OAuth and OpenID Connect</a></p>
- 
- 
- 
- 
-<p>If you have questions, please leave a comment below. If you liked this tutorial, follow <a href="https://twitter.com/oktadev">@oktadev</a> on Twitter, follow us <a href="https://www.linkedin.com/company/oktadev/">on LinkedIn</a>, or subscribe to <a href="https://www.youtube.com/c/oktadev">our YouTube channel</a>.</p>
- 
- 
- 
-   
-  
-  
-    
-      
-      
-      <div class="photo">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://developer.okta.com/assets-jekyll/blog/developers-guide-to-gpg/yubikeys-4e8edf8aa75a3921e748b73b76cc54b73320e10bdf6f3fb14280bec7d3507d4c.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:00 &bull;
    16 days ago
 </div>
 
@@ -20920,7 +20344,7 @@ That's, that's an excellent question. [But] I almost want to flip it around, and
 
 <div class='item-footer'>
    08:50 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21003,7 +20427,7 @@ That's, that's an excellent question. [But] I almost want to flip it around, and
 
 <div class='item-footer'>
    07:00 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21069,7 +20493,7 @@ That's, that's an excellent question. [But] I almost want to flip it around, and
 
 <div class='item-footer'>
    04:49 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -22801,7 +22225,7 @@ The post <a href="https://idramp.com/hyperledger-forum-recap-identity-proofing-a
 
 <div class='item-footer'>
    04:43 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -24077,7 +23501,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    08:34 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -24151,7 +23575,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    08:06 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -24225,7 +23649,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    05:38 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -24672,7 +24096,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    08:48 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -24755,7 +24179,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    06:11 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -24822,7 +24246,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    05:10 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -25789,89 +25213,6 @@ At <a href="https://www.meeco.me">Meeco</a>, we’re proud to support the <a hre
 
 <div class='item-footer'>
    10:08 &bull;
-   24 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.elliptic.co/'>Elliptic</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.elliptic.co/blog/bill-requiring-the-study-of-cryptoassets-is-passed-by-the-us-house-of-representatives'>Crypto Regulatory Affairs: Bill Requiring the Study of Cryptoassets is Passed by the US House of Representatives</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    
-    
-     
- The “Consumer Safety Technology Act (CSTA),” which was passed in the House this week with 325 votes for and 103 against, would require the Consumer Product Safety Commission to launch a pilot program designed to increase consumer safety by identifying trends related to fraud, misrepresentation, and financial crime in the cryptocurrency space. The bill would also mandate that the Fede
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://www.elliptic.co/hubfs/25%20June%202021.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  
- <a href="https://www.elliptic.co/blog/bill-requiring-the-study-of-cryptoassets-is-passed-by-the-us-house-of-representatives" title="">  </a> 
-     
-<p>The “Consumer Safety Technology Act (CSTA),” which was<a href="https://www.congress.gov/bill/117th-congress/house-bill/3723?s=1&amp;r=3"> passed in the House</a> this week with 325 votes for and 103 against, would require the Consumer Product Safety Commission to launch a pilot program designed to increase consumer safety by identifying trends related to fraud, misrepresentation, and financial crime in the cryptocurrency space. The bill would also mandate that the Federal Trade Commission “study and report on the use of blockchain technology and digital tokens.”</p>    
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.elliptic.co/hubfs/25%20June%202021.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:09 &bull;
    24 days ago
 </div>
 
