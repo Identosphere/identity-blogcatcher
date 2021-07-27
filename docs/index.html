@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:48 AM July 27, 2021 (UTC)</sup>
+<sup>Last Update 5:41 AM July 27, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -756,8 +756,429 @@
 
 
 <h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2021/07/27/working-with-postgres-types/'>Working with Postgres types</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  In episode 2 of this series I noted that the languages in which I’m writing Postgres functions share a common type system. It took me a while to understand how types work in the context of Postgres functions that can return sets of records and can interact with tables and materialized views. Here is a … Continue reading Working with Postgres types
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>In <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">episode 2</a> of this series I noted that the languages in which I’m writing Postgres functions share a common type system. It took me a while to understand how types work in the context of Postgres functions that can return sets of records and can interact with tables and materialized views.</p>
+<p>Here is a set-returning function.</p>
+ create function notes_for_user_in_group(
+  _userid text, 
+  _groupid text)
+returns setof annotation as $$
+  begin
+    return query 
+      select * from annotation
+      where userid = concat('acct:', _userid)
+      and groupid = _groupid;
+  end;
+$$ language plpgsql;
+ 
+<p>In this case the type that governs the returned set has already been defined: it’s the schema for the annotation table. </p>
+
+
+
+Column
+Type
+
+
+
+
+id
+uuid
+
+
+created
+timestamp without time zone
+
+
+updated
+timestamp without time zone
+
+
+userid
+text
+
+
+groupid
+text
+
+
+text
+text
+
+
+tags
+text[]
+
+
+shared
+boolean
+
+
+target_uri
+text
+
+
+target_uri_normalized
+text
+
+
+target_selectors
+jsonb
+
+
+references
+uuid[]
+
+
+extra
+jsonb
+
+
+text_rendered
+text
+
+
+document_id
+integer
+
+
+deleted
+boolean
+
+
+
+<p>The function returns records matching a userid and groupid. I can now find the URLs of documents most recently annotated by me.</p>
+ select
+  target_uri
+from notes_for_user_in_group('judell@hypothes.is', '__world__')
+order by created desc
+limit 3;
+ 
+<p>The Postgres response:</p>
+                  target_uri                  
+---------------------------------------------
+ https://news.ycombinator.com/item?id=20020501
+ https://www.infoworld.com/article/2886828/github-for-the-rest-of-us.html
+ https://web.hypothes.is/help/formatting-annotations-with-markdown/
+ http://example.com                          
+(3 rows)
+ 
+<p>You might wonder why the function’s parameters are prefixed with underscores. That’s because variables used in functions can conflict with names of columns in tables. Since none of our column names begin with underscore, it’s a handy differentiator. Suppose the function’s signature were instead:</p>
+ create function notes_for_user_in_group(
+  userid text, 
+  groupid text)
+ 
+<p>Postgres would complain about a confict:</p>
+ ERROR:  column reference "userid" is ambiguous
+LINE 2:       where userid = concat('acct:', _userid)
+                    ^
+DETAIL:  It could refer to either a PL/pgSQL variable or a table column.
+ 
+<p>The table has userid and groupid columns that conflict with their eponymous variables. So for functions that combine variables and database values I prefix variable names with underscore.</p>
+<p>Set-returning functions can be called in any SQL SELECT context. In the example above that context is psql, Postgres’ powerful and multi-talented REPL (read-eval-print loop). For an example of a different context, let’s cache the function’s result set in a materialized view.</p>
+ create materialized view public_notes_for_judell as (
+  select
+    *
+  from notes_for_user_in_group('judell@hypothes.is', '__world__')
+  order by created desc
+) with data;
+ 
+<p>Postgres reports success by showing the new view’s record count.</p>
+ SELECT 3972
+ 
+<p>The view’s type is implicitly annotation; its schema matches the one shown above; selecting target_uri from the view is equivalent to selecting target_uri from the setof annotation returned from the function notes_for_user_in_group.</p>
+ select
+  target_uri
+from public_notes_for_judell
+limit 3;
+ 
+<p>The Postgres response is the same as above. </p>
+                  target_uri                  
+---------------------------------------------
+ https://news.ycombinator.com/item?id=20020501
+ https://www.infoworld.com/article/2886828/github-for-the-rest-of-us.html
+ https://web.hypothes.is/help/formatting-annotations-with-markdown/
+ http://example.com                          
+(3 rows)
+ 
+<p>It shows up a lot faster though! Every time you select the function’s result set, the wrapped query has to run. For this particular example that takes 5 or 10 seconds. It costs the same amount of time to create the view. But once that’s done you can select its contents in 30 milliseconds. </p>
+<p>Now let’s define a function that refines notes_for_user_in_group by reporting the count of notes for each annotated document.</p>
+ create function annotated_docs_for_user_in_group(
+  _userid text, 
+  _groupid text)
+returns table (
+  count bigint,
+  userid text,
+  groupid text,
+  url text
+) as $$
+  begin
+    return query
+      select
+        count(n.*) as anno_count,
+        n.userid,
+        n.groupid,
+        n.target_uri
+      from notes_for_user_in_group(_userid, _groupid) n
+      group by n.userid, n.groupid, n.target_uri                          
+      order by anno_count desc;
+  end;
+$$ language plpgsql;
+ 
+<p>Instead of returning a setof some named type, this function returns an anonymous table. I’ve aliased the set-returning function call notes_for_user_in_group as n and used the alias to qualify the names of selected columns. That avoids another naming conflict. If you write userid instead of n.userid in the body of the function and then call it, Postgres again complains about a conflict.</p>
+ ERROR:  column reference "userid" is ambiguous
+LINE 3:         userid,
+                ^
+DETAIL:  It could refer to either a PL/pgSQL variable or a table column.
+ 
+<p>Here’s a sample call to our new function..</p>
+ select 
+  *
+from annotated_docs_for_user_in_group(
+  'judell',
+  'hypothes.is',
+  '__world__'
+);
+ 
+<p>The result:</p>
+  count | userid             | groupid   | target_uri
+-------+---------------------------------------------
+   516 | judell@hypothes.is | __world__ | http://shakespeare.mit.edu/macbeth/full.html
+    73 | judell@hypothes.is | __world__ | https://www.independent.co.uk/news/world/asia/india-floods-bangladesh-nepal-deaths-millions-homeless-latest-news-updates-a7919006.html
+    51 | judell@hypothes.is | __world__ | https://www.usatoday.com/story/news/nation-now/2017/06/16/coconut-oil-isnt-healthy-its-never-been-healthy/402719001/
+ 
+<p>Now let’s create a view based on that function.</p>
+ create materialized view url_counts_for_public_notes_by_judell as (
+  select 
+    *
+  from annotated_docs_for_user_in_group(
+    'judell@hypothes.is',
+    '__world__'
+  )
+) with data;
+ 
+<p>Postgres says:</p>
+ SELECT 1710
+ 
+<p>When you ask for the definition of that view using the \d command in psql:</p>
+<p>\d url_counts_for_public_notes_by_judell</p>
+<p>It responds with the same table definition used when creating the function.</p>
+  Column  |  Type  
+---------+--------
+ count   | bigint
+ userid  | text
+ groupid | text
+ url     | text   
+ 
+<p>Behind the scenes Postgres has created this definition from the anonymous table returned by the function.</p>
+<p>To revise the function so that it uses a named type, first create the type.</p>
+ create type annotated_docs_for_user_in_group as (
+  count bigint,
+  userid text,
+  groupid text,
+  url text
+);
+ 
+<p>Postgres reports success:</p>
+ CREATE TYPE
+ 
+<p>Now we can use that named type in the function. Since we’re redefining the function, first drop it. </p>
+ drop function annotated_docs_for_user_in_group;
+ 
+<p>Uh oh. Postgres is unhappy about that.</p>
+ ERROR:  cannot drop function annotated_docs_for_user_in_group(text,text) because other objects depend on it
+DETAIL:  materialized view url_counts_for_public_notes_by_judell depends on function annotated_docs_for_user_in_group(text,text)
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+ 
+<p>A view that depends on a function must be recreated when the function’s signature changes. I’ll say more about this in a future episode on set-returning functions that dynamically cache their results in materialized views. For now, since the view we just created is a contrived throwaway, just drop it along with the function by using CASCADE as Postgres recommends.</p>
+ drop function annotated_docs_for_user_in_group cascade;
+ 
+<p>Postgres says:</p>
+ NOTICE:  drop cascades to materialized view url_counts_for_public_notes_by_judell
+DROP FUNCTION
+ 
+<p>Now we can recreate a version of the function that returns setof annotated_docs_for_user_in_group instead of an anonymous table(...)</p>
+ create function annotated_docs_for_user_in_group(
+  _userid text, 
+  _groupid text)
+returns setof annotated_docs_for_user_in_group as $$
+  begin
+    return query
+      select
+        count(n.*) as anno_count,
+        n.userid,
+        n.groupid,
+        n.target_uri
+      from notes_for_user_in_group(_userid, _groupid) n
+      group by n.userid, n.groupid, n.target_uri                          
+      order by anno_count desc;
+  end;
+$$ language plpgsql;
+ 
+<p>The results are the same as above. So why do it this way? In many cases I don’t. It’s extra overhead to declare a type. And just as a view can depend on a function, a function can depend on a type. To see why you might not want such dependencies, suppose we want to also track the most recent note for each URL. </p>
+ create type annotated_docs_for_user_in_group as (
+  count bigint,
+  userid text,
+  groupid text,
+  url text,
+  most_recent_note timestamp
+);
+ 
+<p>That won’t work.</p>
+ ERROR:  type "annotated_docs_for_user_in_group" already exists
+ 
+<p>Dropping the type won’t work either.</p>
+ ERROR:  cannot drop type annotated_docs_for_user_in_group because other objects depend on it                           
+DETAIL:  function annotated_docs_for_user_in_group(text,text,text) depends on type annotated_docs_for_user_in_group    
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+ 
+<p>To redefine the type you have to do a cascading drop and then recreate functions that depend on the type. If any of those views depend on dropped functions, the drop cascades to them as well and they also must be recreated. That’s why I often write functions that return table(...) rather than setof TYPE. In dynamic languages it’s convenient to work with untyped bags of values; I find the same to be true when writing functions in Postgres.</p>
+<p>Sometimes, though, it’s useful to declare and use types. In my experience so far it makes most sense to do that in Postgres when you find yourself writing the same returns table(...) statement in several related functions. Let’s say we want a function that combines the results of annotated_docs_for_user_in_group for some set of users.</p>
+ create function annotated_docs_for_users_in_group(_userids text[], _groupid text)
+  returns setof annotated_docs_for_user_in_group as $$
+    begin
+      return query 
+        with userids as (
+          select unnest(_userids) as userid
+        )
+        select 
+          a.*
+        from userids u
+        join annotated_docs_for_user_in_group(u.userid, _groupid) a
+          on a.userid = concat('acct:', u.userid);
+    end;
+$$ language plpgsql;
+ 
+<p>This new function uses the SQL WITH clause to create a common table expression (CTE) that converts an inbound array of userids into a transient table-like object, named userids, with one userid per row. The new function’s wrapped SQL then joins that CTE to the set returned from annotated_docs_for_user_in_group and returns the joined result. </p>
+<p>(You can alternatively do this in a more procedural way by creating a loop variable and marching through the array to accumulate results. Early on I used that approach but in the context of Postgres functions I’ve come to prefer the more purely SQL-like set-oriented style.)</p>
+<p>Sharing a common type between the two functions makes them simpler to write and easier to read. More importantly it connects them to one another and to all views derived from them. If I do decide to add most_recent_note to the type, Postgres will require me to adjust all depending functions and views so things remain consistent. That can be a crucial guarantee, and as we’ll see in a future episode it’s a key enabler of an advanced caching mechanism.</p>
+<p>1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
+2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
+3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:07 &bull;
+   36 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/07/27/gibson-the-record.html'> ‘Gibson’ … the record label … </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   ‘Gibson’ … the record label … 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>‘Gibson’ … the record label …</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:25 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -815,7 +1236,7 @@
 
 <div class='item-footer'>
    01:14 &bull;
-   36 minutes ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -894,7 +1315,7 @@
 
 <div class='item-footer'>
    01:12 &bull;
-   38 minutes ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -967,7 +1388,7 @@
 
 <div class='item-footer'>
    23:37 &bull;
-   2 hours ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1152,7 +1573,7 @@
 
 <div class='item-footer'>
    19:00 &bull;
-   7 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1270,7 +1691,7 @@
 
 <div class='item-footer'>
    17:15 &bull;
-   9 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1359,7 +1780,7 @@
 
 <div class='item-footer'>
    03:56 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1444,7 +1865,7 @@
 
 <div class='item-footer'>
    03:55 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1540,7 +1961,7 @@
 
 <div class='item-footer'>
    03:54 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2044,7 +2465,7 @@ public class UserAccessController : ControllerBase
 
 <div class='item-footer'>
    03:30 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2482,7 +2903,8 @@ pl/python: 290ms, 255ms, 300ms
 <p>When I began this journey it wasn’t clear when you’d prefer one over the other, or why it might make sense to use both in complementary ways. This installment is what I’d like to have known when I started.</p>
 <p>—<br>
 1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
-2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a></p>
+2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
+3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a></p>
    
   
   
@@ -2660,7 +3082,7 @@ pl/python: 290ms, 255ms, 300ms
 
 <div class='item-footer'>
    16:55 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3360,7 +3782,7 @@ rename column Y to latitude;
 
 <div class='item-footer'>
    16:27 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3451,7 +3873,7 @@ rename column Y to latitude;
     
     <a href='https://john.philpin.com/2021/07/22/who-knew-we.html'> Who knew we had such fame in out midst? 
 
- https://unsplash.</a>
+ @adders at Unspla</a>
   
 
 </h3>
@@ -3464,7 +3886,7 @@ rename column Y to latitude;
 
    Who knew we had such fame in out midst? 
 
- https://unsplash.com/[@adders](https://micro.blog/adders) 
+ @adders at Unsplash 
 
   
 
@@ -3491,11 +3913,11 @@ rename column Y to latitude;
 
 <p>Who knew we had such fame in out midst?</p>
 
-<p><a href="https://unsplash.com/[@adders](https://micro.blog/adders">https://unsplash.com/[@adders](https://micro.blog/adders</a>)</p>
+<p><a href="https://unsplash.com/@adders">@adders at Unsplash</a></p>
 
 <p></p>
 
-<p>// @<a href="https://micro.blog/adders">adders</a></p>
+<p>// <a href="https://micro.blog/adders">@adders</a></p>
    
   
   
@@ -3754,7 +4176,8 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 <p>We recognize this software pattern in the way application programmers who push a system to its limits induce systems programmers to respond with APIs that expand those limits. I suppose it’s harder to see when the application environment is Metabase and the systems environment is Postgres. But it’s the same pattern, and it is powerful.</p>
 <p>—<br>
 1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
-2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a></p>
+2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
+3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a></p>
    
   
   
@@ -4024,7 +4447,7 @@ conditional-get --etags $download_dir/etags.json \
 
 <div class='item-footer'>
    16:19 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4096,7 +4519,7 @@ conditional-get --etags $download_dir/etags.json \
 
 <div class='item-footer'>
    15:49 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4168,7 +4591,7 @@ conditional-get --etags $download_dir/etags.json \
 
 <div class='item-footer'>
    14:39 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4787,7 +5210,7 @@ The post あり得たもう一つのオリンピック開会式 first appeared o
 
 <div class='item-footer'>
    14:40 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5564,7 +5987,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    16:11 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5624,7 +6047,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    14:53 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6053,7 +6476,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    17:01 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6446,90 +6869,6 @@ order by
 <div class='item-footer'>
    02:21 &bull;
    11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Thursday, 15. July 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/07/15/fargo-paraphrase-you.html'> Fargo paraphrase … 
-
- 
- “ You mean like a loan shark.” 
-
- “ </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Fargo paraphrase … 
-
- 
- “ You mean like a loan shark.” 
-
- “ well yes, but in that world they don’t call it that. They call it Private Equity.” 
- 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Fargo paraphrase …</p>
-
-<blockquote>
-<p>“ You mean like a loan shark.”</p>
-
-<p>“ well yes, but in that world they don’t call it that. They call it Private Equity.”</p>
-</blockquote>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   09:03 &bull;
-   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8131,7 +8470,7 @@ group by "title" order by n desc
 
 <div class='item-footer'>
    15:02 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8993,7 +9332,7 @@ Thank you to everyone who has been there for me so far.</p>
 
 <div class='item-footer'>
    17:32 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9069,7 +9408,7 @@ Thank you to everyone who has been there for me so far.</p>
 
 <div class='item-footer'>
    16:04 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -27379,7 +27718,7 @@ SSI — Legal compliance and the involvement of governments<p>This article d
 
 <div class='item-footer'>
    03:59 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
@@ -28230,107 +28569,6 @@ SSI — Legal compliance and the involvement of governments<p>This article d
 
 <div class='item-footer'>
    20:46 &bull;
-   6 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.jonudell.net'>Jon Udell</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.jonudell.net/2021/01/24/the-image-of-postgres/'>The Image of Postgres</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  At the 2015 Postgres conference, the great IT philosopher Robert r0ml Lefkowitz delivered a talk entitled The Image of Postgres. Here’s the blurb. How do you think about what a database is? If you think of a database as only a place to store your data, then perhaps it does not really matter what the … Continue reading The Image of Postgres
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  
-<p>At the 2015 Postgres conference, the great IT philosopher Robert <a>r0ml</a> Lefkowitz delivered a talk entitled The Image of Postgres. Here’s the blurb.</p>
-<blockquote><p>How do you think about what a database is? If you think of a database as only a place to store your data, then perhaps it does not really matter what the internals of that database are; all you really need is a home for your data to be managed, nothing more.</p>
-<p>If you think of a database as a place where you develop applications, then your expectations of your database software change. No longer do you only need data management capabilities, but you require processing functions, the ability to load in additional libraries, interface with other databases, and perhaps even additional language support.</p>
-<p>If your database is just for storage, there are plenty of options. If your database is your development framework, you need Postgres.</p>
-<p>Why? Well, let’s get philosophical.</p></blockquote>
-<p>For over a year, I’ve been using Postgres as a development framework. In addition to the core Postgres server that stores all the Hypothesis user, group, and annotation data, there’s now also a separate Postgres server that provides an interpretive layer on top of the raw data. It synthesizes and caches product- and business-relevant views, using a combination of PL/pgSQL and PL/Python. Data and business logic share a common environment. Although I didn’t make the connection until I watched r0ml’s talk, this setup harkens back to the 1980s when Smalltalk (and Lisp, and APL) were programming environments with built-in persistence. The “image” in r0ml’s title refers to the <a href="https://stackoverflow.com/questions/3561145/what-is-a-smalltalk-image">Smalltalk image</a>, i.e. the contents of the Smalltalk virtual machine. It may also connote reputation, in the sense that our image of Postgres isn’t that of a Smalltalk-like environment, though r0ml thinks it should be, and my experience so far leads me to agree.</p>
-<p>I started writing a book to document what I’ve learned and done with this idea. It’s been a struggle to find motivation because, well, being the patron saint of trailing-edge technologies is often lonely and unrewarding. A book on this particular topic is likely to appeal to very few people. Stored procedures? So last century! Yes, Python provides a modern hook, but I can almost guarantee that one of the comments on my first book — “has a vision, but too weird” — would come back around.</p>
-<p>I’m tempted not to bother. Maybe I should just focus on completing and polishing the things the book would describe. </p>
-<p>And yet, it’s hard to let go. This isn’t just a compelling idea, it’s delivering excellent results. I rewatched r0ml’s talk today and got fired up again. Does it resonate for you? Would you like to see the ideas developed? If you watch the talk, please let me know. </p>
-<p>Here are some excerpts to pique your interest.</p>
-<p>On databases vs file systems:</p>
-<blockquote><p>
-I submit that the difference between the database and a file system is that database is a platform for enforcing your business rules.
-</p></blockquote>
-<p>On ontology:</p>
-<blockquote><p>
-client: The business guys are always upset because they want to know how many customers we have and we can’t tell them.</p>
-<p>r0ml: That doesn’t sound like a very hard problem. SELECT * from the customer table, right?</p>
-<p>client: No you don’t understand the problem.</p>
-<p>r0ml: OK, what’s the problem?</p>
-<p>client: It depends what you mean by customer because if you’re selling cell phone insurance, is the customer the person who has the cell phone account? What if they have two handsets and they’re both insured? What if it’s a family account and there are kids on the plan, do they count as customers? What if it’s a business account and you have 1000 people covered but only 700 using?</p>
-<p>r0ml: How my customers you have, that’s a business rule.</p>
-<p>So figuring out what your schema is, and figuring out how you organize the stuff and what do you do in the database, that’s all part of enforcing your business rules.</p>
-<p>You have to decide what these things mean.</p>
-<p>It’s an ontological problem.</p>
-<p>You have to classify your knowledge and then enforce your business rules.
-</p></blockquote>
-<p>On n-tier architecture:</p>
-<blockquote><p>
-Let us think about the typical web application architecture. This architecture is called the three-tier architecture because it has four tiers. You have your browser, your web server, the thing that runs Python or PHP or JavaScript or Ruby or Java code, and then the database. And that’s always how you do it. And why do you do it that way? Well because that’s how everybody does it.
-</p></blockquote>
-<p>On Smalltalk and friends:</p>
-<blockquote><p>
-This is the BYTE magazine cover from August of 1981. In the 70s and the 80s, programming languages had this sort of unique perspective that’s completely lost to history. The way it worked: a programming environment was a virtual machine image, it was a complete copy of your entire virtual machine memory and that was called the image. And then you loaded that up and it had all your functions and your data in it, and then you ran that for a while until you were sort of done and then you saved it out. And this wasn’t just Smalltalk, Lisp worked that way, APL worked that way, it was kind of like Docker only it wasn’t a separate thing because everything worked that way and so you didn’t worry very much about persistence because it was implied. If you had a programming environment it saved everything that you were doing in the programming environment, you didn’t have to separate that part out. A programming environment was a place where you kept all your data and business logic forever.</p>
-<p>So then Postgres is kind of like Smalltalk only different.</p>
-<p>What’s the difference? Well we took the UI out of Smalltalk and put it in the browser. The rest of it is the same, so really Postgres is an application delivery platform, just like we had back in the 80s.
-</p></blockquote>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:02 &bull;
    6 months ago
 </div>
 
