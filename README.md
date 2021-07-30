@@ -53,14 +53,14 @@ cd identity-blogcatcher
 rbenv local 2.6
 ```
 
-## Install Pluto and other ruby packages
+## Install Pluto and other Ruby packages
 
 To install the planet pluto tools and libraries use ruby's built-in standard package manager / installer e.g.
 
     $  gem install pluto && gem install nokogiri && gem install sanitize
 
 
-## Step 2: Build the Starter Planet
+## Build Planet ID
 
 Try:
 
@@ -104,6 +104,10 @@ Now build the sample starter planet. Try:
 ## Open the html files
 
 Now you should have printed html files in the docs directory.. go to your graphical file manager and look for this project in your home directory
+
+## Review GitHub Action
+
+In [.github/workflows/](.github/workflows/) you can find the instructions GitHub uses to run this project.
 
 ## References
 
