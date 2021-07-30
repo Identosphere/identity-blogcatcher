@@ -28,7 +28,7 @@ The template for these pages is in the [planetid](planetid) directory. The html 
   * `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
 * [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) - ([Mac](https://git-scm.com/download/mac))
   * once installed set your user name and email the same as GitHub.
-    * `git config --global user.name "FIRST_NAME LAST_NAME"`
+    * `git config --global user.name "UserName"`
     * `git config --global user.email "MY_NAME@example.com"`
 * [RBEnv](https://github.com/rbenv/rbenv)
   > `brew install rbenv ruby-build`
@@ -97,7 +97,7 @@ COMMANDS
 ```
 
 
-Now build the sample starter planet. Try:
+Now build the planet. Try:
 
     $ pluto b planetid.ini -t planetid -o docs
 
