@@ -31,7 +31,7 @@ The template for these pages is in the [planetid](planetid) directory. The html 
     * `git config --global user.name "UserName"`
     * `git config --global user.email "MY_NAME@example.com"`
 * [RBEnv](https://github.com/rbenv/rbenv)
-  > `brew install rbenv ruby-build`
+  > `brew install rbenv ruby-build`\
   > `curl -fsSL https://github.com/rbenv/rbenv-installer/raw/main/bin/rbenv-doctor | bash` (this script checks to see if properly setup)
 * `rbenv install 2.6` 
 * `brew install sqlite3` 
