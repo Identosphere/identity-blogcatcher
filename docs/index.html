@@ -736,12 +736,290 @@
 
 </div>
 </div>
-<sup>Last Update 5:41 AM August 02, 2021 (UTC)</sup>
+<sup>Last Update 10:45 AM August 02, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 02. August 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/08/02/securing-an-angular-app-which-uses-multiple-identity-providers/'>Securing an Angular app which uses multiple identity providers</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Sometimes Angular applications are required to authenticate against multiple identity providers. This blog post shows how to implement an Angular SPA which authenticates using Auth0 for one identity provider and also IdentityServer4 from Duende software as the second. The SPA can logout from both of the identity providers individually and also revoke the refresh token […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Sometimes Angular applications are required to authenticate against multiple identity providers. This blog post shows how to implement an Angular SPA which authenticates using <a href="https://auth0.com/">Auth0</a> for one identity provider and also IdentityServer4 from <a href="https://duendesoftware.com/">Duende</a> software as the second. The SPA can logout from both of the identity providers individually and also revoke the refresh token used to renew the session using the revocation endpoint. The endsession endpoint is used to logout. IdentityServer4 also supports introspection so that it is possible to revoke reference tokens on a logout as well as the refresh token. The Angular application uses OpenID Connect code flow with PKCE implemented using the npm <a href="https://github.com/damienbod/angular-auth-oidc-client">angular-auth-oidc-client</a> library.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/angular-auth-oidc-client/tree/main/projects/sample-code-flow-multi-Auth0-ID4">https://github.com/damienbod/angular-auth-oidc-client/tree/main/projects/sample-code-flow-multi-Auth0-ID4</a></p>
+
+
+
+<p>The  <a href="https://github.com/damienbod/angular-auth-oidc-client">angular-auth-oidc-client</a> npm package can be added to the application in the App.Module class. We used an AuthConfigModule module to configure the settings and can keep the AppModule small.</p>
+
+
+  import { NgModule } from '@angular/core';
+import { BrowserModule } from '@angular/platform-browser';
+import { RouterModule } from '@angular/router';
+import { AppComponent } from './app.component';
+import { AuthConfigModule } from './auth-config.module';
+import { HomeComponent } from './home/home.component';
+import { UnauthorizedComponent } from './unauthorized/unauthorized.component';
+
+@NgModule({
+  declarations: [AppComponent, HomeComponent, UnauthorizedComponent],
+  imports: [
+    BrowserModule,
+    RouterModule.forRoot([
+      { path: '', redirectTo: 'home', pathMatch: 'full' },
+      { path: 'home', component: HomeComponent },
+      { path: 'forbidden', component: UnauthorizedComponent },
+      { path: 'unauthorized', component: UnauthorizedComponent },
+    ]),
+    AuthConfigModule,
+  ],
+  providers: [],
+  bootstrap: [AppComponent],
+})
+export class AppModule {}
+
+  
+
+
+<p>The  AuthConfigModule  configures the two identity providers. Both clients are step up to use the Open ID Connect code flow with PKCE (proof key for code exchange). Each secure token server (STS) has it’s specifics configurations which are required to use this flow. These configurations must match the corresponding client configuration on the token service of the identity provider. All identity providers have their own flavour of the Open ID Connect specification and also support different features.  Some of these are worse, some are better. When implementing SPA applications, you should validate the required features supported by the identity provider.</p>
+
+
+  import { NgModule } from '@angular/core';
+import { AuthModule, LogLevel } from 'angular-auth-oidc-client';
+
+@NgModule({
+  imports: [
+    AuthModule.forRoot({
+      config: [
+        {
+          authority: 'https://offeringsolutions-sts.azurewebsites.net',
+          redirectUrl: window.location.origin,
+          postLogoutRedirectUri: window.location.origin,
+          clientId: 'angularCodeRefreshTokens',
+          scope: 'openid profile email taler_api offline_access',
+          responseType: 'code',
+          silentRenew: true,
+          useRefreshToken: true,
+          logLevel: LogLevel.Debug,
+        },
+        {
+          authority: 'https://dev-damienbod.eu.auth0.com',
+          redirectUrl: window.location.origin,
+          postLogoutRedirectUri: window.location.origin,
+          clientId: 'Ujh5oSBAFr1BuilgkZPcMWEgnuREgrwU',
+          scope: 'openid profile offline_access auth0-user-api-spa',
+          responseType: 'code',
+          silentRenew: true,
+          useRefreshToken: true,
+          logLevel: LogLevel.Debug,
+          customParamsAuthRequest: {
+            audience: 'https://auth0-api-spa',
+          },
+        },
+      ],
+    }),
+  ],
+  exports: [AuthModule],
+})
+export class AuthConfigModule {}
+  
+
+
+<p>The checkAuthMultiple function is used to initialize the authentication state and begin the flows or whatever. An SPA application requires some route when this logic can run before the guards execute. This is not a server rendered application where the security runs in the trusted backend. The initializing logic setups the state and handles callbacks form the different authentication flows. Great care should be taken when using guards. If a guard is applied to the default route, you need to ensure that the initialization logic runs first. The checkAuthMultiple  function should only be called once in the application.</p>
+
+
+  import { Component, OnInit } from '@angular/core';
+import { OidcSecurityService } from 'angular-auth-oidc-client';
+
+@Component({
+  selector: 'app-root',
+  templateUrl: 'app.component.html',
+})
+export class AppComponent implements OnInit {
+  constructor(public oidcSecurityService: OidcSecurityService) {}
+
+  ngOnInit() {
+    this.oidcSecurityService.checkAuthMultiple().subscribe(([{ isAuthenticated, userData, accessToken }]) =&gt; {
+      console.log('Authenticated', isAuthenticated);
+    });
+  }
+}
+  
+
+
+<p>The sign-in logout, revoke tokens can then be implemented anywhere for the different identity providers. Each client configuration has its own configuration ID which can be used to run or start the required authentication flow, logout or whatever.</p>
+
+
+  import { Component, OnInit } from '@angular/core';
+import {
+  AuthenticatedResult,
+  OidcClientNotification,
+  OidcSecurityService,
+  OpenIdConfiguration,
+  UserDataResult,
+} from 'angular-auth-oidc-client';
+import { Observable } from 'rxjs';
+
+@Component({
+  selector: 'app-home',
+  templateUrl: 'home.component.html',
+})
+export class HomeComponent implements OnInit {
+  configurations: OpenIdConfiguration[];
+  userDataChanged$: Observable&lt;OidcClientNotification&lt;any&gt;&gt;;
+  userData$: Observable&lt;UserDataResult&gt;;
+  isAuthenticated$: Observable&lt;AuthenticatedResult&gt;;
+
+  constructor(public oidcSecurityService: OidcSecurityService) {}
+
+  ngOnInit() {
+    this.configurations = this.oidcSecurityService.getConfigurations();
+    this.userData$ = this.oidcSecurityService.userData$;
+    this.isAuthenticated$ = this.oidcSecurityService.isAuthenticated$;
+  }
+
+  login(configId: string) {
+    this.oidcSecurityService.authorize(configId);
+  }
+
+  forceRefreshSession() {
+    this.oidcSecurityService.forceRefreshSession().subscribe((result) =&gt; console.warn(result));
+  }
+
+  logout(configId: string) {
+    this.oidcSecurityService.logoff(configId);
+  }
+
+  refreshSessionId4(configId: string) {
+    this.oidcSecurityService.forceRefreshSession(null, configId).subscribe((result) =&gt; console.log(result));
+  }
+
+  refreshSessionAuth0(configId: string) {
+    this.oidcSecurityService
+      .forceRefreshSession({ scope: 'openid profile offline_access auth0-user-api-spa' }, configId)
+      .subscribe((result) =&gt; console.log(result));
+  }
+
+  logoffAndRevokeTokens(configId: string) {
+    this.oidcSecurityService.logoffAndRevokeTokens(configId).subscribe((result) =&gt; console.log(result));
+  }
+
+  revokeRefreshToken(configId: string) {
+    this.oidcSecurityService.revokeRefreshToken(null, configId).subscribe((result) =&gt; console.log(result));
+  }
+}
+
+  
+
+
+<p>The application can be run and you can logout or use the required configuration. Underneath the identity has not signed in with IdentityServer and the Auth0 client has be authenticated. Each identity provider is independent from the other. </p>
+
+
+
+
+
+
+
+<p>The multiple identity provider support is implemented using redirects. You could also implement all of this using popups depending on you use cases.</p>
+
+
+
+<p></p>
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://github.com/damienbod/angular-auth-oidc-client">https://github.com/damienbod/angular-auth-oidc-client</a></p>
+
+
+
+<p><a href="https://auth0.com/">https://auth0.com/</a></p>
+
+
+
+<p><a href="https://github.com/IdentityServer/IdentityServer4">https://github.com/IdentityServer/IdentityServer4</a></p>
+
+
+
+<p><a href="https://duendesoftware.com/">https://duendesoftware.com/</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/06/angular_multiple_auth0_id4_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:48 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -809,7 +1087,7 @@
 
 <div class='item-footer'>
    23:45 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -928,7 +1206,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    20:55 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1001,7 +1279,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    14:06 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1063,7 +1341,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    13:38 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1790,7 +2068,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    22:05 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1898,7 +2176,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    19:32 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2383,7 +2661,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    22:18 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2560,7 +2838,7 @@ Integrates well with version control. I like to keep my site content under versi
 
 <div class='item-footer'>
    20:23 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2853,7 +3131,7 @@ Integrates well with version control. I like to keep my site content under versi
 
 <div class='item-footer'>
    22:18 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2914,7 +3192,7 @@ Integrates well with version control. I like to keep my site content under versi
 
 <div class='item-footer'>
    22:16 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3007,7 +3285,7 @@ Leadbelly</p>
 
 <div class='item-footer'>
    21:17 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4063,7 +4341,7 @@ $$ language plpgsql;
 
 <div class='item-footer'>
    19:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5254,7 +5532,7 @@ I wish I had more time to see people!</p>
 
 <div class='item-footer'>
    20:12 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5409,7 +5687,7 @@ pl/python: 290ms, 255ms, 300ms
 
 <div class='item-footer'>
    19:23 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5823,7 +6101,7 @@ rename column Y to latitude;
 
 <div class='item-footer'>
    18:13 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6003,7 +6281,7 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 
 <div class='item-footer'>
    21:44 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6189,7 +6467,7 @@ conditional-get --etags $download_dir/etags.json \
 
 <div class='item-footer'>
    21:29 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7034,7 +7312,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    18:47 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7302,7 +7580,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    22:12 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7368,7 +7646,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    20:12 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7558,7 +7836,7 @@ order by
 
 <div class='item-footer'>
    19:14 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7844,7 +8122,7 @@ order by
 
 <div class='item-footer'>
    19:25 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7994,7 +8272,7 @@ def test_serve_unix_domain_socket(ds_unix_domain_socket_server):
 
 <div class='item-footer'>
    18:57 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8255,7 +8533,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    19:40 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8317,7 +8595,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    19:38 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8385,7 +8663,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    22:08 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8531,7 +8809,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    20:15 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8599,7 +8877,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    18:31 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8667,7 +8945,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    22:29 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9024,7 +9302,7 @@ group by "title" order by n desc
 
 <div class='item-footer'>
    18:14 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17559,7 +17837,7 @@ The post 国際金融協会（IIF）のAPACサミットでバンコク銀行頭�
 
 <div class='item-footer'>
    10:48 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21600,397 +21878,6 @@ public class IssuerCredential
 
 <div class='item-footer'>
    22:25 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 26. April 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/04/26/securing-an-asp-net-core-app-and-web-api-using-windows-authentication/'>Securing an ASP.NET Core app and web API using windows authentication</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post shows how an ASP.NET Core Web API and an ASP.NET Core Razor page application can be implemented to use windows authentication. The Razor page application uses Javascript to display an autocomplete control which gets the data indirectly from the service API which is protected using windows authentication. The Razor Page application uses the […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post shows how an ASP.NET Core Web API and an ASP.NET Core Razor page application can be implemented to use windows authentication. The Razor page application uses Javascript to display an autocomplete control which gets the data indirectly from the service API which is protected using windows authentication. The Razor Page application uses the API to get the auto-complete suggestions data. Both applications are protected using windows authentication.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/PoCWindowsAuth">https://github.com/damienbod/PoCWindowsAuth</a></p>
-
-
-
-<p>Setup the API</p>
-
-
-
-<p>The ASP.NET Core demo API is setup to use windows authentication. The launch settings windowsAuthentication property is set to true and the anonymousAuthentication property to false. The application host file settings on your development PC would also need to be configured to allow windows authentication, which is disabled by default. See the stack overflow link at the bottom for more information.</p>
-
-
-  {
-  "iisSettings": {
-    "windowsAuthentication": true,
-    "anonymousAuthentication": false,
-    "iisExpress": {
-      "applicationUrl": "https://localhost:44364",
-      "sslPort": 44364
-    }
-  },
-  
-
-
-<p>The Startup ConfigureServices method is configured to require authentication using the IISDefaults.AuthenticationScheme scheme. This would need to be changed if you were using a different hosting model.</p>
-
-
-  public void ConfigureServices(IServiceCollection services)
-{
-	services.AddAuthentication(IISDefaults.AuthenticationScheme);
-
-	services.AddControllers().AddJsonOptions(option =&gt;
-		option.JsonSerializerOptions
-              .PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
-}
-
-public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
-{
-	if (env.IsDevelopment())
-	{
-		app.UseDeveloperExceptionPage();
-	}
-
-	app.UseHttpsRedirection();
-
-	app.UseRouting();
-
-	app.UseAuthentication();
-	app.UseAuthorization();
-
-	app.UseEndpoints(endpoints =&gt;
-	{
-		endpoints.MapControllers();
-	});
-}
-  
-
-
-<p>The API is protected using the authorize attribute. This example returns the user name from the windows authentication.</p>
-
-
-  [Authorize]
-[ApiController]
-[Route("api/[controller]")]
-public class MyDataController : ControllerBase
-{
-
-	private readonly ILogger&lt;MyDataController&gt; _logger;
-
-	public MyDataController(ILogger&lt;MyDataController&gt; logger)
-	{
-		_logger = logger;
-	}
-
-	[HttpGet]
-	public IEnumerable&lt;string&gt; Get()
-	{
-		return new List&lt;string&gt; { User.Identity.Name };
-	}
-}
-  
-
-
-<p>Implement the ASP.NET Core Razor pages</p>
-
-
-
-<p>The application calling the API also requires windows authentication and requests the data from the API project. The HttpClient instance requesting the data from the API project must send the default credentials with each API call. A HttpClientHandler is used to implement this. The HttpClientHandler is added to a named AddHttpClient service  which can be used anywhere in the application.</p>
-
-
-  public void ConfigureServices(IServiceCollection services)
-{
-	services.AddAuthentication(IISDefaults.AuthenticationScheme);
-
-	services.AddHttpClient();
-
-	HttpClientHandler handler = new HttpClientHandler()
-	{
-		UseDefaultCredentials = true
-	};
-
-	services.AddHttpClient("windowsAuthClient", c =&gt;{ })
-		.ConfigurePrimaryHttpMessageHandler(() =&gt; handler);
-
-	services.AddScoped&lt;MyDataClientService&gt;();
-	services.AddRazorPages().AddJsonOptions(option =&gt;
-		option.JsonSerializerOptions
-			.PropertyNamingPolicy = JsonNamingPolicy.CamelCase);
-}
-  
-
-
-<p>A client service is implemented to call the API from the second project. This client uses the IHttpClientFactory to create instances of the HttpClient. The CreateClient method is used to create an instance using the named client which was configured in the Startup class. This instance will send credentials to the API.</p>
-
-
-  public MyDataClientService(
-	IConfiguration configurations,
-	IHttpClientFactory clientFactory)
-{
-	_configurations = configurations;
-	_clientFactory = clientFactory;
-	_jsonSerializerOptions = new JsonSerializerOptions
-	{
-		PropertyNameCaseInsensitive = true,
-	};
-}
-
-public async Task&lt;List&lt;string&gt;&gt; GetMyData()
-{
-	try
-	{
-		var client = _clientFactory.CreateClient("windowsAuthClient");
-		client.BaseAddress = new Uri(_configurations["MyApiUrl"]);
-
-		var response = await client.GetAsync("api/MyData");
-		if (response.IsSuccessStatusCode)
-		{
-			var data = await JsonSerializer.DeserializeAsync&lt;List&lt;string&gt;&gt;(
-			await response.Content.ReadAsStreamAsync());
-
-			return data;
-		}
-
-		var error = await response.Content.ReadAsStringAsync();
-		throw new ApplicationException($"Status code: {response.StatusCode}, Error: {response.ReasonPhrase}, Message: {error}");
-
-	}
-	catch (Exception e)
-	{
-		throw new ApplicationException($"Exception {e}");
-	}
-}
-  
-
-
-<p>Javascript UI</p>
-
-
-
-<p>If using Javascript to call the API protected with window authentication, this can become a bit tricky due to CORS when using windows authentication. I prefer to avoid this and use a backend to proxy the calls from my trusted backend to the API. The OnGetAutoCompleteSuggest method is used to call the API. The would also make it easy to map DTOs from my API to my view DTOs as required.</p>
-
-
-   public class IndexModel : PageModel
-    {
-        private readonly ILogger&lt;IndexModel&gt; _logger;
-        private readonly MyDataClientService _myDataClientService;
-        public List&lt;string&gt; DataFromApi;
-        public string SearchText { get; set; }
-        public List&lt;PersonCity&gt; PersonCities;
-
-        public IndexModel(MyDataClientService myDataClientService,
-            ILogger&lt;IndexModel&gt; logger)
-        {
-            _myDataClientService = myDataClientService;
-            _logger = logger;
-        }
-
-        public async Task OnGetAsync()
-        {
-            DataFromApi = await _myDataClientService.GetMyData();
-        }
-
-        public async Task&lt;ActionResult&gt; OnGetAutoCompleteSuggest(string term)
-        {
-            PersonCities = await _myDataClientService.Suggest(term);
-            SearchText = term;
-
-            return new JsonResult(PersonCities);
-        }
-    }
-  
-
-
-<p>The Razor Page underneath uses an autocomplete implemented in Javascript to suggest data requested from the API. Any Javascript framework can be used in this way.</p>
-
-
-  @page "{handler?}"
-@model IndexModel
-@{
-    ViewData["Title"] = "Home page";
-}
-
-&lt;div class="text-center"&gt;
-    &lt;p&gt;Data from API:&lt;/p&gt;
-
-    @foreach (string item in Model.DataFromApi)
-    {
-        &lt;p&gt;@item&lt;/p&gt;&lt;br /&gt;
-    }
-&lt;/div&gt;
-
-&lt;hr /&gt;
-
-&lt;fieldset class="form"&gt;
-    &lt;legend&gt;Search for a person in the search engine&lt;/legend&gt;
-    &lt;table width="500"&gt;
-        &lt;tr&gt;
-            &lt;th&gt;&lt;/th&gt;
-        &lt;/tr&gt;
-        &lt;tr&gt;
-            &lt;td&gt;
-                &lt;input class="form-control" id="autocomplete" type="text" style="width:500px" /&gt;
-            &lt;/td&gt;
-        &lt;/tr&gt;
-    &lt;/table&gt;
-&lt;/fieldset&gt;
-
-&lt;br /&gt;
-
-
-&lt;div class="card" id="results"&gt;
-    &lt;h5 class="card-header"&gt;
-        &lt;span id="docName"&gt;&lt;/span&gt;
-        &lt;span id="docFamilyName"&gt;&lt;/span&gt;
-    &lt;/h5&gt;
-    &lt;div class="card-body"&gt;
-        &lt;p class="card-text"&gt;&lt;span id="docInfo"&gt;&lt;/span&gt;&lt;/p&gt;
-        &lt;p class="card-text"&gt;&lt;span id="docCityCountry"&gt;&lt;/span&gt;&lt;/p&gt;
-        &lt;p class="card-text"&gt;&lt;span id="docWeb"&gt;&lt;/span&gt;&lt;/p&gt;
-    &lt;/div&gt;
-&lt;/div&gt;
-
-@section scripts
-{
-    &lt;script type="text/javascript"&gt;
-        var items;
-        $(document).ready(function () {
-            $("#results").hide();
-            $("input#autocomplete").autocomplete({
-                source: function (request, response) {
-                    $.ajax({
-                        url: "Index/AutoCompleteSuggest",
-                        dataType: "json",
-                        data: {
-                            term: request.term,
-                        },
-                        success: function (data) {
-                            var itemArray = new Array();
-                            for (i = 0; i &lt; data.length; i++) {
-                                itemArray[i] = {
-                                    label: data[i].name + " " + data[i].familyName,
-                                    value: data[i].name + " " + data[i].familyName,
-                                    data: data[i]
-                                }
-                            }
-
-                            console.log(itemArray);
-                            response(itemArray);
-                        },
-                        error: function (data, type) {
-                            console.log(type);
-                        }
-                    });
-                },
-                select: function (event, ui) {
-                    $("#results").show();
-                    $("#docNameId").text(ui.item.data.id);
-                    $("#docName").text(ui.item.data.name);
-                    $("#docFamilyName").text(ui.item.data.familyName);
-                    $("#docInfo").text(ui.item.data.info);
-                    $("#docCityCountry").text(ui.item.data.cityCountry);
-                    $("#docWeb").text(ui.item.data.web);
-                    console.log(ui.item);
-                }
-            });
-        });
-    &lt;/script&gt;
-}
-
-  
-
-
-<p>If all is setup correctly, the ASP.NET Core application displays the API data which is protected using the windows authentication.</p>
-
-
-
-
-
-
-
-<p>CRSF</p>
-
-
-
-<p>If using windows authentication, you need to protect against CSRF forgery like any application using cookies. It is also recommended NOT to use windows authentication in the public domain. Modern security architectures should be used like Open ID Connect whenever possible. This works well on intranets or for making changes to existing applications which use windows authentication in secure networks.</p>
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://stackoverflow.com/questions/36946304/using-windows-authentication-in-asp-net">https://stackoverflow.com/questions/36946304/using-windows-authentication-in-asp-net</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/web-api/overview/security/integrated-windows-authentication">https://docs.microsoft.com/en-us/aspnet/web-api/overview/security/integrated-windows-authentication</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/04/windowsauth_01-1.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:59 &bull;
    3 months ago
 </div>
 
