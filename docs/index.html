@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:41 AM August 09, 2021 (UTC)</sup>
+<sup>Last Update 10:45 AM August 09, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,526 @@
  <h2 class='new-date'>
   Monday, 09. August 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/08/09/send-emails-using-microsoft-graph-api-and-a-desktop-client/'>Send Emails using Microsoft Graph API and a desktop client</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to use Microsoft Graph API to send emails for a .NET Core Desktop WPF application. Microsoft.Identity.Client is used to authenticate using an Azure App registration with the required delegated scopes for the Graph API. The emails can be sent with text or html bodies and also with any file attachments uploaded […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to use Microsoft Graph API to send emails for a .NET Core Desktop WPF application. Microsoft.Identity.Client is used to authenticate using an Azure App registration with the required delegated scopes for the Graph API. The emails can be sent with text or html bodies and also with any file attachments uploaded in the WPF application.</p>
+
+
+
+<p>Code:  <a href="https://github.com/damienbod/EmailCalandarsClient">https://github.com/damienbod/EmailCalandarsClient</a></p>
+
+
+
+<p>To send emails using Microsoft Graph API, you need to have an office license for the Azure Active Directory user which sends the email.</p>
+
+
+
+<p>You can sign-in here to check this:</p>
+
+
+
+<p><a href="https://www.office.com">https://www.office.com</a></p>
+
+
+
+<p>Setup the Azure App Registration</p>
+
+
+
+<p>Before we can send emails using Microsoft Graph API, we need to create an Azure App registration with the correct delegated scopes. In our example, the URI <a href="http://localhost:65419">http://localhost:65419</a> is used for the AAD redirect to the browser opened by the WPF application and this is added to the authentication configuration.  Once created, the client ID of the Azure App registration is used in the app settings in the application as well as the tenant ID and the scopes.</p>
+
+
+
+
+
+
+
+<p>You need to add the required scopes for the Graph API to send emails. These are delegated permissions, which can be accessed using the Add a permission menu.</p>
+
+
+
+
+
+
+
+<p>The Mail.Send and the Mail.ReadWrite delegated scopes from the Microsoft Graph API are added to the Azure App registration.</p>
+
+
+
+
+
+
+
+<p>To add these, scroll down through the items in the App a permission, Microsoft Graph API delegated scopes menu, check the checkboxes for the Mail.Send and the Mail.ReadWrite.</p>
+
+
+
+
+
+
+
+<p>Desktop Application</p>
+
+
+
+<p>The Microsoft.Identity.Client and the Microsoft.Identity.Web.MicrosoftGraphBeta Nuget packages are used to authenticate and use the Graph API. You probably could use the Graph API Nuget packages directly instead of  Microsoft.Identity.Web.MicrosoftGraphBeta, I used this since I normally do web and it has everything required.</p>
+
+
+  &lt;ItemGroup&gt;
+  &lt;PackageReference Include="Microsoft.Identity.Client" Version="4.35.1" /&gt;
+  &lt;PackageReference Include="Microsoft.Identity.Web.MicrosoftGraphBeta" Version="1.15.2" /&gt;
+  &lt;PackageReference Include="Newtonsoft.Json" Version="13.0.1" /&gt;
+&lt;/ItemGroup&gt;
+  
+
+
+<p>The PublicClientApplicationBuilder class is used to define the redirect URL which matches the URL from the Azure App registration. The TokenCacheHelper class is the same as from the Microsoft examples.</p>
+
+
+  public void InitClient()
+{
+  _app = PublicClientApplicationBuilder.Create(ClientId)
+            .WithAuthority(Authority)
+            .WithRedirectUri("http://localhost:65419")
+            .Build();
+
+  TokenCacheHelper.EnableSerialization(_app.UserTokenCache);
+}
+  
+
+
+<p>The identity can authentication using the SignIn method. If a server session exists, a token is acquired silently otherwise an interactive flow is used.</p>
+
+
+  public async Task&lt;IAccount&gt; SignIn()
+{
+	try
+	{
+		var result = await AcquireTokenSilent();
+		return result.Account;
+	}
+	catch (MsalUiRequiredException)
+	{
+		return await AcquireTokenInteractive().ConfigureAwait(false);
+	}
+}
+
+private async Task&lt;IAccount&gt; AcquireTokenInteractive()
+{
+	var accounts = (await _app.GetAccountsAsync()).ToList();
+
+	var builder = _app.AcquireTokenInteractive(Scopes)
+		.WithAccount(accounts.FirstOrDefault())
+		.WithUseEmbeddedWebView(false)
+		.WithPrompt(Microsoft.Identity.Client.Prompt.SelectAccount);
+
+	var result = await builder.ExecuteAsync().ConfigureAwait(false);
+
+	return result.Account;
+}
+
+public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
+{
+	var accounts = await GetAccountsAsync();
+	var result = await _app.AcquireTokenSilent(Scopes, accounts.FirstOrDefault())
+			.ExecuteAsync()
+			.ConfigureAwait(false);
+
+	return result;
+}
+  
+
+
+<p>The SendEmailAsync method uses a message object and Graph API to send the emails. If the identity has the permissions, the licenses and is authenticated, then an email will be sent using the definitions from the Message class.</p>
+
+
+  public async Task SendEmailAsync(Message message)
+{
+	var result = await AcquireTokenSilent();
+
+	_httpClient.DefaultRequestHeaders.Authorization 
+		= new AuthenticationHeaderValue("Bearer", result.AccessToken);
+	_httpClient.DefaultRequestHeaders.Accept.Add(
+		new MediaTypeWithQualityHeaderValue("application/json"));
+
+	GraphServiceClient graphClient = new GraphServiceClient(_httpClient)
+	{
+		AuthenticationProvider = new DelegateAuthenticationProvider(async (requestMessage) =&gt;
+		{
+			requestMessage.Headers.Authorization 
+				= new AuthenticationHeaderValue("Bearer", result.AccessToken);
+		})
+	};
+
+	var saveToSentItems = true;
+
+	await graphClient.Me
+		.SendMail(message, saveToSentItems)
+		.Request()
+		.PostAsync();
+}
+  
+
+
+<p>The EmailService class is used to added the recipient, header (subject) and the body to the message which represents the email. The attachments are added separately using the MessageAttachmentsCollectionPage class. The AddAttachment method is used to add as many attachments to the email as required which are uploaded as a base64 byte array. The service can send html bodies or text bodies.</p>
+
+
+  public class EmailService
+{
+	MessageAttachmentsCollectionPage MessageAttachmentsCollectionPage 
+		= new MessageAttachmentsCollectionPage();
+
+	public Message CreateStandardEmail(string recipient, string header, string body)
+	{
+		var message = new Message
+		{
+			Subject = header,
+			Body = new ItemBody
+			{
+				ContentType = BodyType.Text,
+				Content = body
+			},
+			ToRecipients = new List&lt;Recipient&gt;()
+			{
+				new Recipient
+				{
+					EmailAddress = new EmailAddress
+					{
+						Address = recipient
+					}
+				}
+			},
+			Attachments = MessageAttachmentsCollectionPage
+		};
+
+		return message;
+	}
+
+	public Message CreateHtmlEmail(string recipient, string header, string body)
+	{
+		var message = new Message
+		{
+			Subject = header,
+			Body = new ItemBody
+			{
+				ContentType = BodyType.Html,
+				Content = body
+			},
+			ToRecipients = new List&lt;Recipient&gt;()
+			{
+				new Recipient
+				{
+					EmailAddress = new EmailAddress
+					{
+						Address = recipient
+					}
+				}
+			},
+			Attachments = MessageAttachmentsCollectionPage
+		};
+
+		return message;
+	}
+
+	public void AddAttachment(byte[] rawData, string filePath)
+	{
+		MessageAttachmentsCollectionPage.Add(new FileAttachment
+		{
+			Name = Path.GetFileName(filePath),
+			ContentBytes = EncodeTobase64Bytes(rawData)
+		});
+	}
+
+	public void ClearAttachments()
+	{
+		MessageAttachmentsCollectionPage.Clear();
+	}
+
+	static public byte[] EncodeTobase64Bytes(byte[] rawData)
+	{
+		string base64String = System.Convert.ToBase64String(rawData);
+		var returnValue = Convert.FromBase64String(base64String);
+		return returnValue;
+	}
+}
+  
+
+
+<p>Azure App Registration settings</p>
+
+
+
+<p>The app settings specific to your Azure Active Directory tenant and the Azure App registration values need to be added to the app settings in the .NET Core application. The Scope configuration is set to use the required scopes required to send emails.</p>
+
+
+  &lt;appSettings&gt;
+	&lt;add key="AADInstance" value="https://login.microsoftonline.com/{0}/v2.0"/&gt;
+	&lt;add key="Tenant" value="5698af84-5720-4ff0-bdc3-9d9195314244"/&gt;
+	&lt;add key="ClientId" value="ae1fd165-d152-492d-b4f5-74209f8f724a"/&gt;
+	&lt;add key="Scope" value="User.read Mail.Send Mail.ReadWrite"/&gt;
+&lt;/appSettings&gt;
+  
+
+
+<p>WPF UI</p>
+
+
+
+<p>The WPF application provides an Azure AD login for the identity. The user of the WPF application can sign-in using a browser which redirects to the AAD authentication page. Once authenticated, the user can send a html email or a text email. The AddAttachment method uses the OpenFileDialog to upload a file in the WPF application, get the raw bytes and add these to the attachments which are sent with the next email message. Once the email is sent, the attachments are removed.</p>
+
+
+  public partial class MainWindow : Window
+{
+	AadGraphApiDelegatedClient _aadGraphApiDelegatedClient = new AadGraphApiDelegatedClient();
+	EmailService _emailService = new EmailService();
+
+	const string SignInString = "Sign In";
+	const string ClearCacheString = "Clear Cache";
+
+	public MainWindow()
+	{
+		InitializeComponent();
+		_aadGraphApiDelegatedClient.InitClient();
+	}
+
+	private async void SignIn(object sender = null, RoutedEventArgs args = null)
+	{
+		var accounts = await _aadGraphApiDelegatedClient.GetAccountsAsync();
+
+		if (SignInButton.Content.ToString() == ClearCacheString)
+		{
+			await _aadGraphApiDelegatedClient.RemoveAccountsAsync();
+
+			SignInButton.Content = SignInString;
+			UserName.Content = "Not signed in";
+			return;
+		}
+
+		try
+		{
+			var account = await _aadGraphApiDelegatedClient.SignIn();
+
+			Dispatcher.Invoke(() =&gt;
+			{
+				SignInButton.Content = ClearCacheString;
+				SetUserName(account);
+			});
+		}
+		catch (MsalException ex)
+		{
+			if (ex.ErrorCode == "access_denied")
+			{
+				// The user canceled sign in, take no action.
+			}
+			else
+			{
+				// An unexpected error occurred.
+				string message = ex.Message;
+				if (ex.InnerException != null)
+				{
+					message += "Error Code: " + ex.ErrorCode + "Inner Exception : " + ex.InnerException.Message;
+				}
+
+				MessageBox.Show(message);
+			}
+
+			Dispatcher.Invoke(() =&gt;
+			{
+				UserName.Content = "Not signed in";
+			});
+		}
+	}
+
+	private async void SendEmail(object sender, RoutedEventArgs e)
+	{
+		var message = _emailService.CreateStandardEmail(EmailRecipientText.Text, 
+			EmailHeader.Text, EmailBody.Text);
+
+		await _aadGraphApiDelegatedClient.SendEmailAsync(message);
+		_emailService.ClearAttachments();
+	}
+
+	private async void SendHtmlEmail(object sender, RoutedEventArgs e)
+	{
+		var messageHtml = _emailService.CreateHtmlEmail(EmailRecipientText.Text,
+			EmailHeader.Text, EmailBody.Text);
+
+		await _aadGraphApiDelegatedClient.SendEmailAsync(messageHtml);
+		_emailService.ClearAttachments();
+	}
+
+	private void AddAttachment(object sender, RoutedEventArgs e)
+	{
+		var dlg = new OpenFileDialog();
+		if (dlg.ShowDialog() == true)
+		{
+			byte[] data = File.ReadAllBytes(dlg.FileName);
+			_emailService.AddAttachment(data, dlg.FileName);
+		}
+	}
+
+	private void SetUserName(IAccount userInfo)
+	{
+		string userName = null;
+
+		if (userInfo != null)
+		{
+			userName = userInfo.Username;
+		}
+
+		if (userName == null)
+		{
+			userName = "Not identified";
+		}
+
+		UserName.Content = userName;
+	}
+}
+  
+
+
+<p>Running the application</p>
+
+
+
+<p>When the application is started, the user can sign-in using the Sign in button.</p>
+
+
+
+
+
+
+
+<p>The standard Azure AD login is used in a popup browser. Once the authentication is completed, the browser redirect sends the tokens back to the application.</p>
+
+
+
+
+
+
+
+<p>If a file attachment needs to be sent, the Add Attachment button can be used. This opens up a dialog and any single file can be selected.</p>
+
+
+
+
+
+
+
+<p>When the email is sent successfully, the email and the file can be viewed in the recipients inbox. The emails are also saved to the senders sent emails. This can be disabled if required. </p>
+
+
+
+
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/outlook-send-mail-from-other-user">https://docs.microsoft.com/en-us/graph/outlook-send-mail-from-other-user</a></p>
+
+
+
+<p><a href="https://stackoverflow.com/questions/43795846/graph-api-daemon-app-with-user-consent">https://stackoverflow.com/questions/43795846/graph-api-daemon-app-with-user-consent</a></p>
+
+
+
+<p><a href="https://winsmarts.com/managed-identity-as-a-daemon-accessing-microsoft-graph-8d1bf87582b1">https://winsmarts.com/managed-identity-as-a-daemon-accessing-microsoft-graph-8d1bf87582b1</a></p>
+
+
+
+<p><a href="https://cmatskas.com/create-a-net-core-deamon-app-that-calls-msgraph-with-a-certificate/">https://cmatskas.com/create-a-net-core-deamon-app-that-calls-msgraph-with-a-certificate/</a></p>
+
+
+
+ 
+<a href="https://docs.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0&amp;tabs=http">https://docs.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0&amp;tabs=http</a>
+ 
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/answers/questions/43724/sending-emails-from-daemon-app-using-graph-api-on.html">https://docs.microsoft.com/en-us/answers/questions/43724/sending-emails-from-daemon-app-using-graph-api-on.html</a></p>
+
+
+
+<p><a href="https://stackoverflow.com/questions/56110910/sending-email-with-microsoft-graph-api-work-account">https://stackoverflow.com/questions/56110910/sending-email-with-microsoft-graph-api-work-account</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS#InteractiveProvider">https://docs.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS#InteractiveProvider</a></p>
+
+
+
+<p><a href="https://converter.telerik.com/">https://converter.telerik.com/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/08/emailappregistration_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:46 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -813,7 +1333,7 @@
 
 <div class='item-footer'>
    05:23 &bull;
-   19 minutes ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -878,7 +1398,7 @@
 
 <div class='item-footer'>
    03:06 &bull;
-   3 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -945,7 +1465,7 @@
 
 <div class='item-footer'>
    03:00 &bull;
-   3 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1012,7 +1532,7 @@
 
 <div class='item-footer'>
    21:58 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1076,7 +1596,7 @@
 
 <div class='item-footer'>
    17:13 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1289,7 +1809,7 @@
 
 <div class='item-footer'>
    12:52 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1715,7 +2235,7 @@
 
 <div class='item-footer'>
    18:00 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2925,7 +3445,7 @@ Introduction
 
 <div class='item-footer'>
    21:23 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3120,7 +3640,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:09 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3203,7 +3723,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    20:44 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3274,7 +3794,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    20:31 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3574,7 +4094,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    20:48 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3635,7 +4155,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    20:44 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3702,7 +4222,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    20:34 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3763,7 +4283,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    20:32 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3916,7 +4436,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:58 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3981,7 +4501,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:45 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4168,7 +4688,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:09 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4434,7 +4954,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    22:12 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4520,7 +5040,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    18:34 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5105,7 +5625,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    20:55 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5648,7 +6168,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    19:32 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5790,7 +6310,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    22:18 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5967,7 +6487,7 @@ Integrates well with version control. I like to keep my site content under versi
 
 <div class='item-footer'>
    20:23 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6736,7 +7256,7 @@ $$ language plpgsql;
 
 <div class='item-footer'>
    19:00 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7500,7 +8020,7 @@ public class UserAccessController : ControllerBase
 
 <div class='item-footer'>
    20:12 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7656,7 +8176,7 @@ pl/python: 290ms, 255ms, 300ms
 
 <div class='item-footer'>
    19:23 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7920,7 +8440,7 @@ rename column Y to latitude;
 
 <div class='item-footer'>
    18:13 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8101,7 +8621,7 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 
 <div class='item-footer'>
    21:44 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8287,7 +8807,7 @@ conditional-get --etags $download_dir/etags.json \
 
 <div class='item-footer'>
    21:29 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9132,7 +9652,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    18:47 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9400,7 +9920,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    22:12 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9466,7 +9986,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    20:12 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9656,7 +10176,7 @@ order by
 
 <div class='item-footer'>
    19:14 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9942,7 +10462,7 @@ order by
 
 <div class='item-footer'>
    19:25 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10092,7 +10612,7 @@ def test_serve_unix_domain_socket(ds_unix_domain_socket_server):
 
 <div class='item-footer'>
    18:57 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10353,7 +10873,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    19:40 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10415,7 +10935,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    19:38 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17813,7 +18333,7 @@ Why don’t you mind your own business?</p></blockquote>
 
 <div class='item-footer'>
    08:35 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21854,707 +22374,6 @@ public class DriverLicenseClaimsDto
 
 <div class='item-footer'>
    06:38 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 03. May 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/05/03/create-an-oidc-credential-issuer-with-mattr-and-asp-net-core/'>Create an OIDC credential Issuer with MATTR and ASP.NET Core</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to create and issue verifiable credentials using MATTR and an ASP.NET Core. The ASP.NET Core application allows an admin user to create an OIDC credential issuer using the MATTR service. The credentials are displayed in an ASP.NET Core Razor Page web UI as a QR code for the users of the […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to create and issue verifiable credentials using <a href="https://mattr.global/">MATTR</a> and an <a href="https://docs.microsoft.com/en-us/aspnet/core/introduction-to-aspnet-core">ASP.NET Core</a>. The ASP.NET Core application allows an admin user to create an OIDC credential issuer using the MATTR service. The credentials are displayed in an ASP.NET Core Razor Page web UI as a QR code for the users of the application. The user can use a digital <a href="https://learn.mattr.global/concepts/digital-wallets">wallet</a> form MATTR to scan the QR code, authenticate against an <a href="https://auth0.com/">Auth0</a> identity provider configured for this flow and use the claims from the id token to add the verified credential to the digital wallet. In a follow up post, a second application will then use the verified credentials to allow access to a second business process. </p>
-
-
-
-<p>Code: <a href="https://github.com/swiss-ssi-group/MattrGlobalAspNetCore">https://github.com/swiss-ssi-group/MattrGlobalAspNetCore</a></p>
-
-
-
-<p>Blogs in the series</p>
-
-
-
-  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  Create an OIDC credential Issuer with MATTR and ASP.NET Core  <a href="https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/">Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>  <a href="https://damienbod.com/2021/05/31/verify-vaccination-data-using-zero-knowledge-proofs-with-asp-net-core-and-mattr/">Verify vaccination data using Zero Knowledge Proofs with ASP.NET Core and MATTR</a>  
-
-
-
-<p>Setup</p>
-
-
-
-<p>The solutions involves an MATTR API which handles all the blockchain identity logic.  An ASP.NET Core application is used to create the digital identity and the OIDC credential issuer using the MATTR APIs and also present this as a QR code which can be scanned. An identity provider is required to add the credential properties to the id token. The properties in a verified credential are issued using the claims values from the id token so a specific identity provider is required with every credential issuer using this technic. Part of the business of this solution is adding business claims to the identity provider. A MATTR digital wallet is required to scan the QR code, authenticate against the OIDC provider which in our case is Auth0 and then store the verified credentials to the wallet for later use.</p>
-
-
-
-
-
-
-
-<p>MATTR Setup</p>
-
-
-
-<p>You need to register with MATTR and create a new account. MATTR will issue you access to your sandbox domain and you will get access data from them plus a link to support. </p>
-
-
-
-<p>Once setup, use the OIDC Bridge tutorial to implement the flow used in this demo. The docs are really good but you need to follow the <a href="https://learn.mattr.global/tutorials/issue/oidc-bridge/issue-oidc">docs</a> exactly. </p>
-
-
-
-<p><a href="https://learn.mattr.global/tutorials/issue/oidc-bridge/issue-oidc">https://learn.mattr.global/tutorials/issue/oidc-bridge/issue-oidc</a></p>
-
-
-
-<p>Auth0 Setup</p>
-
-
-
-<p>A standard trusted web application which supports the code flow is required so that the MATTR digital wallet can authenticate using the identity provider and use the id token values from the claims which are required in the credential. It is important to create a new application which is only used for this because the client secret is required when creating the OIDC credential issuer and is shared with the MATTR platform. It would probably be better to use certificates instead of a shared secret which is persisted in different databases. We also use a second Auth0 application configuration to sign into the web application but this is not required to issue credentials. </p>
-
-
-
-<p>In Auth0, rules are used to extend the id token claims. You need to add your claims as required by the MATTR API and your business logic for the credentials you wish to issue.</p>
-
-
-  function (user, context, callback) {
-    const namespace = 'https://--your-tenant--.vii.mattr.global/';
-    context.idToken[namespace + 'license_issued_at'] = user.user_metadata.license_issued_at;
-    context.idToken[namespace + 'license_type'] = user.user_metadata.license_type;
-    context.idToken[namespace + 'name'] = user.user_metadata.name;
-    context.idToken[namespace + 'first_name'] = user.user_metadata.first_name;
-    context.idToken[namespace + 'date_of_birth'] = user.user_metadata.date_of_birth;
-    callback(null, user, context);
-}
-  
-
-
-<p>For every user (holder) who should be able to create verifiable credentials, you must add the credential data to the user profile. This is part of the business process with this flow. If you were to implement this for a real application with lots of users, it would probably be better to integrate the identity provider into the solution issuing the credentials and add a UI for editing the user profile data which is used in the credentials. This would be really easy using ASP.NET Core Identity and for example OpenIddict or IdentityServer4. It is important that the user cannot edit this data. This logic is part of the credential issuer logic and not part of the user profile.</p>
-
-
-
-<p>After creating a new MATTR OIDC credential issuer, the callback URL needs to be added to the Open ID connect code flow client used for the digital wallet sign in.</p>
-
-
-
-
-
-
-
-<p>Add the URL to the Allowed Callback URLs in the settings of your Auth0 application configuration for the digital wallet.</p>
-
-
-
-<p>Implementing the OpenID Connect credentials Issuer application</p>
-
-
-
-<p>The ASP.NET Core application is used to create new OIDC credential issuers and also display the QR code for these so that the verifiable credential can be loaded to the digital wallet. The application requires secrets. The data is stored to a database, so that any credential can be added to a wallet at a later date and also so that you can find the credentials you created. The MattrConfiguration is the data and the secrets you received from MATTR for you account access to the API. The Auth0 configuration is the data required to sign in to the application. The Auth0Wallet configuration is the data required to create the OIDC credential issuer so that the digital wallet can authenticate the identity using the Auth0 application. This data is stored in the user secrets during development.</p>
-
-
-  {
-  // use user secrets
-  "ConnectionStrings": {
-    "DefaultConnection": "--your-connection-string--"
-  },
-  "MattrConfiguration": {
-    "Audience": "https://vii.mattr.global",
-    "ClientId": "--your-client-id--",
-    "ClientSecret": "--your-client-secret--",
-    "TenantId": "--your-tenant--",
-    "TenantSubdomain": "--your-tenant-sub-domain--",
-    "Url": "http://mattr-prod.au.auth0.com/oauth/token"
-  },
-  "Auth0": {
-    "Domain": "--your-auth0-domain",
-    "ClientId": "--your--auth0-client-id--",
-    "ClientSecret": "--your-auth0-client-secret--",
-  }
-  "Auth0Wallet": {
-    "Domain": "--your-auth0-wallet-domain",
-    "ClientId": "--your--auth0-wallet-client-id--",
-    "ClientSecret": "--your-auth0-wallet-client-secret--",
-  }
-}
-  
-
-
-<p>Accessing the MATTR APIs</p>
-
-
-
-<p>The MattrConfiguration DTO is used to fetch the MATTR account data for the API access and to use in the application.</p>
-
-
-  public class MattrConfiguration
-{
-	public string Audience { get; set; }
-	public string ClientId { get; set; }
-	public string ClientSecret { get; set; }
-	public string TenantId { get; set; }
-	public string TenantSubdomain { get; set; }
-	public string Url { get; set; }
-}
-  
-
-
-<p>The MattrTokenApiService is used to acquire an access token and used for the MATTR API access. The token is stored to a cache and only fetched if the old one has expired or is not available.</p>
-
-
-  public class MattrTokenApiService
-{
-	private readonly ILogger&lt;MattrTokenApiService&gt; _logger;
-	private readonly MattrConfiguration _mattrConfiguration;
-
-	private static readonly Object _lock = new Object();
-	private IDistributedCache _cache;
-
-	private const int cacheExpirationInDays = 1;
-
-	private class AccessTokenResult
-	{
-		public string AcessToken { get; set; } = string.Empty;
-		public DateTime ExpiresIn { get; set; }
-	}
-
-	private class AccessTokenItem
-	{
-		public string access_token { get; set; } = string.Empty;
-		public int expires_in { get; set; }
-		public string token_type { get; set; }
-		public string scope { get; set; }
-	}
-
-	private class MattrCrendentials
-	{
-		public string audience { get; set; }
-		public string client_id { get; set; }
-		public string client_secret { get; set; }
-		public string grant_type { get; set; } = "client_credentials";
-	}
-
-	public MattrTokenApiService(
-			IOptions&lt;MattrConfiguration&gt; mattrConfiguration,
-			IHttpClientFactory httpClientFactory,
-			ILoggerFactory loggerFactory,
-			IDistributedCache cache)
-	{
-		_mattrConfiguration = mattrConfiguration.Value;
-		_logger = loggerFactory.CreateLogger&lt;MattrTokenApiService&gt;();
-		_cache = cache;
-	}
-
-	public async Task&lt;string&gt; GetApiToken(HttpClient client, string api_name)
-	{
-		var accessToken = GetFromCache(api_name);
-
-		if (accessToken != null)
-		{
-			if (accessToken.ExpiresIn &gt; DateTime.UtcNow)
-			{
-				return accessToken.AcessToken;
-			}
-			else
-			{
-				// remove  =&gt; NOT Needed for this cache type
-			}
-		}
-
-		_logger.LogDebug($"GetApiToken new from oauth server for {api_name}");
-
-		// add
-		var newAccessToken = await GetApiTokenClient(client);
-		AddToCache(api_name, newAccessToken);
-
-		return newAccessToken.AcessToken;
-	}
-
-	private async Task&lt;AccessTokenResult&gt; GetApiTokenClient(HttpClient client)
-	{
-		try
-		{
-			var payload = new MattrCrendentials
-			{
-				client_id = _mattrConfiguration.ClientId,
-				client_secret = _mattrConfiguration.ClientSecret,
-				audience = _mattrConfiguration.Audience
-			};
-
-			var authUrl = "https://auth.mattr.global/oauth/token";
-			var tokenResponse = await client.PostAsJsonAsync(authUrl, payload);
-
-			if (tokenResponse.StatusCode == System.Net.HttpStatusCode.OK)
-			{
-				var result = await tokenResponse.Content.ReadFromJsonAsync&lt;AccessTokenItem&gt;();
-				DateTime expirationTime = DateTimeOffset.FromUnixTimeSeconds(result.expires_in).DateTime;
-				return new AccessTokenResult
-				{
-					AcessToken = result.access_token,
-					ExpiresIn = expirationTime
-				};
-			}
-
-			_logger.LogError($"tokenResponse.IsError Status code: {tokenResponse.StatusCode}, Error: {tokenResponse.ReasonPhrase}");
-			throw new ApplicationException($"Status code: {tokenResponse.StatusCode}, Error: {tokenResponse.ReasonPhrase}");
-		}
-		catch (Exception e)
-		{
-			_logger.LogError($"Exception {e}");
-			throw new ApplicationException($"Exception {e}");
-		}
-	}
-
-	private void AddToCache(string key, AccessTokenResult accessTokenItem)
-	{
-		var options = new DistributedCacheEntryOptions().SetSlidingExpiration(TimeSpan.FromDays(cacheExpirationInDays));
-
-		lock (_lock)
-		{
-			_cache.SetString(key, JsonConvert.SerializeObject(accessTokenItem), options);
-		}
-	}
-
-	private AccessTokenResult GetFromCache(string key)
-	{
-		var item = _cache.GetString(key);
-		if (item != null)
-		{
-			return JsonConvert.DeserializeObject&lt;AccessTokenResult&gt;(item);
-		}
-
-		return null;
-	}
-}
-  
-
-
-<p>Generating the API DTOs using Nswag</p>
-
-
-
-<p>The MattrOpenApiClientSevice file was generated using <a href="https://docs.microsoft.com/en-us/aspnet/core/tutorials/getting-started-with-nswag">Nswag</a> and the Open API file provided by MATTR <a href="https://learn.mattr.global/api-ref">here</a>. We only generated the DTOs using this and access the client then using a HttpClient instance. The Open API file used in this solution is deployed in the git repo.</p>
-
-
-
-<p>Creating the OIDC credential issuer</p>
-
-
-
-<p>The MattrCredentialsService is used to create an OIDC credentials issuer using the MATTR APIs. This is implemented using the CreateCredentialsAndCallback method. The created callback is returned so that it can be displayed in the UI and copied to the specific Auth0 application configuration. </p>
-
-
-  private readonly IConfiguration _configuration;
-private readonly DriverLicenseCredentialsService _driverLicenseService;
-private readonly IHttpClientFactory _clientFactory;
-private readonly MattrTokenApiService _mattrTokenApiService;
-private readonly MattrConfiguration _mattrConfiguration;
-
-public MattrCredentialsService(IConfiguration configuration,
-	DriverLicenseCredentialsService driverLicenseService,
-	IHttpClientFactory clientFactory,
-	IOptions&lt;MattrConfiguration&gt; mattrConfiguration,
-	MattrTokenApiService mattrTokenApiService)
-{
-	_configuration = configuration;
-	_driverLicenseService = driverLicenseService;
-	_clientFactory = clientFactory;
-	_mattrTokenApiService = mattrTokenApiService;
-	_mattrConfiguration = mattrConfiguration.Value;
-}
-
-public async Task&lt;string&gt; CreateCredentialsAndCallback(string name)
-{
-	// create a new one
-	var driverLicenseCredentials = await CreateMattrDidAndCredentialIssuer();
-	driverLicenseCredentials.Name = name;
-	await _driverLicenseService.CreateDriverLicense(driverLicenseCredentials);
-
-	var callback = $"https://{_mattrConfiguration.TenantSubdomain}/ext/oidc/v1/issuers/{driverLicenseCredentials.OidcIssuerId}/federated/callback";
-	return callback;
-}
-  
-
-
-<p>The CreateMattrDidAndCredentialIssuer method implements the different steps described in the MATTR API documentation for this. An access token for the MATTR API is created or retrieved from the cache and DID is created and the id from the DID post response is used to create the OIDC credential issuer.  The DriverLicenseCredentials is returned which is persisted to a database and the callback is created using this object.</p>
-
-
-  private async Task&lt;DriverLicenseCredentials&gt; CreateMattrDidAndCredentialIssuer()
-{
-	HttpClient client = _clientFactory.CreateClient();
-	var accessToken = await _mattrTokenApiService
-		.GetApiToken(client, "mattrAccessToken");
-	client.DefaultRequestHeaders.Authorization =
-		new AuthenticationHeaderValue("Bearer", accessToken);
-	client.DefaultRequestHeaders
-		.TryAddWithoutValidation("Content-Type", "application/json");
-
-	var did = await CreateMattrDid(client);
-	var oidcIssuer = await CreateMattrCredentialIssuer(client, did);
-
-	return new DriverLicenseCredentials
-	{
-		Name = "not_named",
-		Did = JsonConvert.SerializeObject(did),
-		OidcIssuer = JsonConvert.SerializeObject(oidcIssuer),
-		OidcIssuerId = oidcIssuer.Id
-	};
-}
-  
-
-
-<p>The CreateMattrDid method creates a new DID as specified by the API. The MattrOptions class is used to create the request object. This is serialized using the StringContentWithoutCharset class due to a bug in the MATTR API validation. I created this class using the blog from <a href="https://gunnarpeipman.com/httpclient-remove-charset/">Gunnar Peipman</a>.</p>
-
-
-  private async Task&lt;V1_CreateDidResponse&gt; CreateMattrDid(HttpClient client)
-{
-	// create did , post to dids 
-	// https://learn.mattr.global/api-ref/#operation/createDid
-	// https://learn.mattr.global/tutorials/dids/use-did/
-
-	var createDidUrl = $"https://{_mattrConfiguration.TenantSubdomain}/core/v1/dids";
-
-	var payload = new MattrOpenApiClient.V1_CreateDidDocument
-	{
-		Method = MattrOpenApiClient.V1_CreateDidDocumentMethod.Key,
-		Options = new MattrOptions()
-	};
-	var payloadJson = JsonConvert.SerializeObject(payload);
-	var uri = new Uri(createDidUrl);
-
-	using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
-	{
-		var createDidResponse = await client.PostAsync(uri, content);
-
-		if (createDidResponse.StatusCode == System.Net.HttpStatusCode.Created)
-		{
-			var v1CreateDidResponse = JsonConvert.DeserializeObject&lt;V1_CreateDidResponse&gt;(
-					await createDidResponse.Content.ReadAsStringAsync());
-
-			return v1CreateDidResponse;
-		}
-
-		var error = await createDidResponse.Content.ReadAsStringAsync();
-	}
-
-	return null;
-}
-  
-
-
-<p>The MattrOptions DTO is used to create a default DID using the key type “ed25519”. See the MATTR API docs for further details.</p>
-
-
-  public class MattrOptions
-{
-  /// &lt;summary&gt;
-  /// The supported key types for the DIDs are ed25519 and bls12381g2. 
-  /// If the keyType is omitted, the default key type that will be used is ed25519.
-  /// 
-  /// If the keyType in options is set to bls12381g2 a DID will be created with 
-  /// a BLS key type which supports BBS+ signatures for issuing ZKP-enabled credentials.
-  /// &lt;/summary&gt;
-  public string keyType { get; set; } = "ed25519";
-}
-  
-
-
-<p>The CreateMattrCredentialIssuer implements the OIDC credential issuer to create the post request. The request properties need to be setup for your credential properties and must match claims from the id token of the Auth0 user profile. This is where the OIDC client for the digital wallet is setup and also where the credential claims are specified. If this is setup up incorrectly, loading the data into your wallet will fail. The HTTP request and the response DTOs are implemented using the Nswag generated classes. </p>
-
-
-  private async Task&lt;V1_CreateOidcIssuerResponse&gt; CreateMattrCredentialIssuer(HttpClient client, V1_CreateDidResponse did)
-        {
-            // create vc, post to credentials api
-            // https://learn.mattr.global/tutorials/issue/oidc-bridge/setup-issuer
-
-            var createCredentialsUrl = $"https://{_mattrConfiguration.TenantSubdomain}/ext/oidc/v1/issuers";
-
-            var payload = new MattrOpenApiClient.V1_CreateOidcIssuerRequest
-            {
-                Credential = new Credential
-                {
-                    IssuerDid = did.Did,
-                    Name = "NationalDrivingLicense",
-                    Context = new List&lt;Uri&gt; {
-                         new Uri( "https://schema.org") // Only this is supported
-                    },
-                    Type = new List&lt;string&gt; { "nationaldrivinglicense" }
-                },
-                ClaimMappings = new List&lt;ClaimMappings&gt;
-                {
-                    new ClaimMappings{ JsonLdTerm="name", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/name"},
-                    new ClaimMappings{ JsonLdTerm="firstName", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/first_name"},
-                    new ClaimMappings{ JsonLdTerm="licenseType", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/license_type"},
-                    new ClaimMappings{ JsonLdTerm="dateOfBirth", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/date_of_birth"},
-                    new ClaimMappings{ JsonLdTerm="licenseIssuedAt", OidcClaim=$"https://{_mattrConfiguration.TenantSubdomain}/license_issued_at"}
-                },
-                FederatedProvider = new FederatedProvider
-                {
-                    ClientId = _configuration["Auth0Wallet:ClientId"],
-                    ClientSecret = _configuration["Auth0Wallet:ClientSecret"],
-                    Url = new Uri($"https://{_configuration["Auth0Wallet:Domain"]}"),
-                    Scope = new List&lt;string&gt; { "openid", "profile", "email" }
-                }
-            };
-
-            var payloadJson = JsonConvert.SerializeObject(payload);
-
-            var uri = new Uri(createCredentialsUrl);
-
-            using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
-            {
-                var createOidcIssuerResponse = await client.PostAsync(uri, content);
-
-                if (createOidcIssuerResponse.StatusCode == System.Net.HttpStatusCode.Created)
-                {
-                    var v1CreateOidcIssuerResponse = JsonConvert.DeserializeObject&lt;V1_CreateOidcIssuerResponse&gt;(
-                            await createOidcIssuerResponse.Content.ReadAsStringAsync());
-
-                    return v1CreateOidcIssuerResponse;
-                }
-
-                var error = await createOidcIssuerResponse.Content.ReadAsStringAsync();
-            }
-
-            throw new Exception("whoops something went wrong");
-        }
-  
-
-
-<p>Now the service is completely ready to generate credentials. This can be used in any Blazor UI, Razor page or MVC view in ASP.NET Core. The services are added to the DI in the startup class. The callback method is displayed in the UI if the application successfully creates a new OIDC credential issuer.</p>
-
-
-  private readonly MattrCredentialsService _mattrCredentialsService;
-public bool CreatingDriverLicense { get; set; } = true;
-public string Callback { get; set; }
-
-[BindProperty]
-public IssuerCredential IssuerCredential { get; set; }
-public AdminModel(MattrCredentialsService mattrCredentialsService)
-{
-	_mattrCredentialsService = mattrCredentialsService;
-}
-public void OnGet()
-{
-	IssuerCredential = new IssuerCredential();
-}
-
-public async Task&lt;IActionResult&gt; OnPostAsync()
-{
-	if (!ModelState.IsValid)
-	{
-		return Page();
-	}
-
-	Callback = await _mattrCredentialsService
-		.CreateCredentialsAndCallback(IssuerCredential.CredentialName);
-	CreatingDriverLicense = false;
-	return Page();
-}
-}
-
-public class IssuerCredential
-{
-	[Required]
-	public string CredentialName { get; set; }
-}
-  
-
-
-<p>Adding credentials you wallet</p>
-
-
-
-<p>After the callback method has been added to the Auth0 callback URLs, the credentials can be used to add verifiable credentials to your wallet. This is fairly simple. The Razor Page uses the data from the database and generates an URL using the MATTR specification and the id from the created OIDC credential issuer. The claims from the id token or the profile data is just used to display the data for the user signed into the web application. This is not the same data which is used be the digital wallet. If the same person logs into the digital wallet, then the data is the same. The wallet authenticates the identity separately. </p>
-
-
-  public class DriverLicenseCredentialsModel : PageModel
-{
-	private readonly DriverLicenseCredentialsService _driverLicenseCredentialsService;
-	private readonly MattrConfiguration _mattrConfiguration;
-
-	public string DriverLicenseMessage { get; set; } = "Loading credentials";
-	public bool HasDriverLicense { get; set; } = false;
-	public DriverLicense DriverLicense { get; set; }
-	public string CredentialOfferUrl { get; set; }
-	public DriverLicenseCredentialsModel(DriverLicenseCredentialsService driverLicenseCredentialsService,
-		IOptions&lt;MattrConfiguration&gt; mattrConfiguration)
-	{
-		_driverLicenseCredentialsService = driverLicenseCredentialsService;
-		_mattrConfiguration = mattrConfiguration.Value;
-	}
-	public async Task OnGetAsync()
-	{
-		//"license_issued_at": "2021-03-02",
-		//"license_type": "B1",
-		//"name": "Bob",
-		//"first_name": "Lammy",
-		//"date_of_birth": "1953-07-21"
-
-		var identityHasDriverLicenseClaims = true;
-		var nameClaim = User.Claims.FirstOrDefault(t =&gt; t.Type == $"https://{_mattrConfiguration.TenantSubdomain}/name");
-		var firstNameClaim = User.Claims.FirstOrDefault(t =&gt; t.Type == $"https://{_mattrConfiguration.TenantSubdomain}/first_name");
-		var licenseTypeClaim = User.Claims.FirstOrDefault(t =&gt; t.Type == $"https://{_mattrConfiguration.TenantSubdomain}/license_type");
-		var dateOfBirthClaim = User.Claims.FirstOrDefault(t =&gt; t.Type == $"https://{_mattrConfiguration.TenantSubdomain}/date_of_birth");
-		var licenseIssuedAtClaim = User.Claims.FirstOrDefault(t =&gt; t.Type == $"https://{_mattrConfiguration.TenantSubdomain}/license_issued_at");
-
-		if (nameClaim == null
-			|| firstNameClaim == null
-			|| licenseTypeClaim == null
-			|| dateOfBirthClaim == null
-			|| licenseIssuedAtClaim == null)
-		{
-			identityHasDriverLicenseClaims = false;
-		}
-
-		if (identityHasDriverLicenseClaims)
-		{
-			DriverLicense = new DriverLicense
-			{
-				Name = nameClaim.Value,
-				FirstName = firstNameClaim.Value,
-				LicenseType = licenseTypeClaim.Value,
-				DateOfBirth = dateOfBirthClaim.Value,
-				IssuedAt = licenseIssuedAtClaim.Value,
-				UserName = User.Identity.Name
-
-			};
-			// get per name
-			//var offerUrl = await _driverLicenseCredentialsService.GetDriverLicenseCredentialIssuerUrl("ndlseven");
-
-			// get the last one
-			var offerUrl = await _driverLicenseCredentialsService.GetLastDriverLicenseCredentialIssuerUrl();
-
-			DriverLicenseMessage = "Add your driver license credentials to your wallet";
-			CredentialOfferUrl = offerUrl;
-			HasDriverLicense = true;
-		}
-		else
-		{
-			DriverLicenseMessage = "You have no valid driver license";
-		}
-	}
-}
-  
-
-
-<p>The data is displayed using Bootstrap. If you use a MATTR wallet to scan the QR Code shown underneath, you will be redirected to authenticate against the specified Auth0 application. If you have the claims, you can add verifiable claims to you digital wallet.</p>
-
-
-
-
-
-
-
-<p>Notes</p>
-
-
-
-<p>MATTR API has a some problems with its API and a stricter validation would help a lot. But MATTR support is awesome and the team are really helpful and you will end up with a working solution. It would be also awesome if the Open API file could be used without changes to generate a client and the DTOs. It would makes sense, if you could issue credentials data from the data in the credential issuer application and not from the id token of the user profile. I understand that in some use cases, you would like to protect against any wallet taking credentials for other identities, but I as a credential issuer cannot always add my business data to user profiles from the IDP. The security of this solution all depends on the user profile data. If a non authorized person can change this data (in this case, this could be the same user), then incorrect verifiable credentials can be created. </p>
-
-
-
-<p>Next step is to create an application to verify and use the verifiable credentials created here.</p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://mattr.global/">https://mattr.global/</a></p>
-
-
-
-<p><a href="https://mattr.global/get-started/">https://mattr.global/get-started/</a></p>
-
-
-
-<p><a href="https://learn.mattr.global/">https://learn.mattr.global/</a></p>
-
-
-
-<p><a href="https://keybase.io/">https://keybase.io/</a></p>
-
-
-
- 
-  
- 
-
-
-
-<p><a href="https://learn.mattr.global/tutorials/dids/did-key">https://learn.mattr.global/tutorials/dids/did-key</a></p>
-
-
-
-<p><a href="https://gunnarpeipman.com/httpclient-remove-charset/">https://gunnarpeipman.com/httpclient-remove-charset/</a></p>
-
-
-
-<p><a href="https://auth0.com/">https://auth0.com/</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/04/mattrglobal_ssi_03.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:50 &bull;
    3 months ago
 </div>
 
