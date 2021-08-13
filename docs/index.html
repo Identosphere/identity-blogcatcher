@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:41 AM August 13, 2021 (UTC)</sup>
+<sup>Last Update 10:44 AM August 13, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,287 @@
  <h2 class='new-date'>
   Friday, 13. August 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.theguardian.com/society/2021/aug/12/housing-renter-affordable-data-map?CMP=Share_iOSApp_Other'>Nearly half of American workers don’t earn enough to afford a one-bedroom rental</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ “Rents in the US continued to increase through the pandemic, and a worker now needs to earn about $20.40 an hour to afford a modest one-bedroom rental. The median wage in the US is about $21 an hour.” Some absolutely dire statistics here. 
+             [Link] 
+         
+     
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>“Rents in the US continued to increase through the pandemic, and a worker now needs to earn about $20.40 an hour to afford a modest one-bedroom rental. The median wage in the US is about $21 an hour.” Some absolutely dire statistics here.</p>
+            <p>[<a href="https://www.theguardian.com/society/2021/aug/12/housing-renter-affordable-data-map?CMP=Share_iOSApp_Other">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   08:50 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/'>pl/python metaprogramming</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  In episode 2 I mentioned three aspects of pl/python that are reasons to use it instead of pl/pgsql: access to Python modules, metaprogramming, and introspection. Although this episode focuses on metaprogramming — by which I mean using Python to dynamically compose and run SQL queries — my favorite example combines all three aspects. The context … Continue reading pl/python metaprogramming
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>In <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">episode 2</a> I mentioned three aspects of pl/python that are reasons to use it instead of pl/pgsql: access to Python modules, metaprogramming, and introspection.</p>
+<p>Although this episode focuses on metaprogramming — by which I mean using Python to dynamically compose and run SQL queries — my favorite example combines all three aspects. </p>
+<p>The context for the example is an analytics dashboard with a dozen panels, each driven by a pl/plython function that’s parameterized by the id of a school or a course. So, for example, the Questions and Answers panel on the course dashboard is driven by a function, questions_and_answers_for_group(group_id), which wraps a SQL query that:</p>
+<p>– calls another pl/python function, questions_for_group(group_id), to find notes in the group that contain question marks</p>
+<p>– finds the replies to those notes</p>
+<p>– builds a table that summarizes the question/answer pairs</p>
+<p>Here’s the SQL wrapped by the questions_and_answers_for_group(group_id) function.</p>
+ sql = f"""
+  with questions as ( 
+    select *
+    from questions_for_group('{_group_id}')
+    ),
+  ids_and_refs as (
+    select 
+      id,
+      unnest ("references") as ref
+      from annotation
+      where groupid = '{_group_id}'
+  ),
+  combined as (
+    select
+      q.*,
+      array_agg(ir.id) as reply_ids
+    from ids_and_refs ir
+    inner join questions q on q.id = ir.ref
+    group by q.id, q.url, q.title, q.questioner, q.question, q.quote
+  ),
+  unnested as (
+    select
+      c.url,
+      c.title,
+      c.quote,
+      c.questioner,
+      c.question,
+      unnest(reply_ids) as reply_id
+    from combined c
+  )
+  select distinct
+    course_for_group('{_group_id}') as course,
+    teacher_for_group('{_group_id}') as teacher,
+    clean_url(u.url) as url,
+    u.title,
+    u.quote,
+    u.questioner,
+    (regexp_matches(u.question, '.+\?'))[1] as question,
+    display_name_from_anno(u.reply_id) as answerer,
+    text_from_anno(u.reply_id) as answer,
+    app_host() || '/course/render_questions_and_answers/{_group_id}' as viewer
+  from unnested u
+  order by course, teacher, url, title, questioner, question
+ 
+<p>This isn’t yet what I mean by pl/python metaprogramming. You could as easily wrap this SQL code in a pl/pgsql function. More easily, in fact, because in pl/pgsql you could just write _group_id instead of '{_group_id}'. </p>
+<p>To get where we’re going, let’s zoom out and look at the whole questions_and_and_answer_for_group(group_id) function.</p>
+ questions_and_answers_for_group(_group_id text)
+  returns setof question_and_answer_for_group as $$
+  from plpython_helpers import (
+    exists_group_view,
+    get_caller_name,
+    memoize_view_name
+  )
+  base_view_name = get_caller_name()
+  view_name = f'{base_view_name}_{_group_id}'
+  if exists_group_view(plpy, view_name):
+    sql = f""" select * from {view_name} """
+  else:
+    sql = f"""
+    &lt;SEE ABOVE&gt;
+    """
+    memoize_view_name(sql, view_name)
+  return plpy.execute(sql)
+$$ language plpython3u;
+ 
+<p>This still isn’t what I mean by metaprogramming. It introduces introspection — this is a pl/python function that discovers its own name and works with an eponymous materialized view — but that’s for a later episode. </p>
+<p>It also introduces the use of Python modules by pl/python functions. A key thing to note here is that this is an example of what I call a memoizing function. When called it looks for a materialized view that captures the results of the SQL query shown above. If yes, it only needs to use a simple SELECT to return the cached result. If no, it calls memoize_view_name to run the underlying query and cache it in a materialized view that the next call to questions_and_answers_for_group(group_id) will use in a simple SELECT. Note that memoize_view_name is a special function that isn’t defined in Postgres using CREATE FUNCTION foo() like a normal pl/python function.  Instead it’s defined using def foo() in a Python module called plpython_helpers. The functions there can do things — like create materialized views — that pl/python functions can’t. More about that in another episode.</p>
+<p>The focus in this episode is metaprogramming, which is used in this example to roll up the results of multiple calls to questions_and_answers_for_group(group_id). That happens when the group_id refers to a course that has sections. If you’re teaching the course and you’ve got students in a dozen sections, you don’t want to look at a dozen dashboards; you’d much rather see everything on the primary course dashboard.</p>
+<p>Here’s the function that does that consolidation.</p>
+ create function consolidated_questions_and_answers_for_group(group_id text)
+  returns setof question_and_answer_for_group as $$
+  from plpython_helpers import (
+    get_caller_name,
+    sql_for_consolidated_and_memoized_function_for_group
+  )
+  base_view_name = get_caller_name()
+  sql = sql_for_consolidated_and_memoized_function_for_group(
+    plpy, base_view_name, 'questions_and_answers_for_group', _group_id)
+  sql += ' order by course, url, title, questioner, answerer'
+  return plpy.execute(sql)
+$$ language plpython3u;
+ 
+<p>This pl/python function not only memoizes its results as above, it also consolidates results for all sections of a course. The memoization happens here.</p>
+ def sql_for_consolidated_and_memoized_function_for_group(plpy, 
+    base_view_name, function, group_id):
+  view_name = f'{base_view_name}_{group_id}'
+  sql = f""" select exists_view('{view_name}') as exists """
+  exists = row_zero_value_for_colname(plpy, sql, 'exists')
+  if exists:
+    sql = f""" select * from {view_name} """
+  else:
+    sql = consolidator_for_group_as_sql(plpy, group_id, function)
+    memoize_view_name(sql, view_name)
+    sql = f""" select * from {view_name} """
+  return sql
+ 
+<p>The consolidation happens here, and this is finally what I think of as classical metaprogramming: using Python to compose SQL.</p>
+ def consolidator_for_group_as_sql(plpy, _group_id, _function):
+  sql = f"select type_for_group('{_group_id}') as type"
+  type = row_zero_value_for_colname(plpy, sql, 'type')
+  if type == 'section_group' or type == 'none':
+    sql = f"select * from {_function}('{_group_id}')"
+  if type == 'course_group' or type == 'course':
+    sql = f"select has_sections('{_group_id}')"
+    has_sections = row_zero_value_for_colname(plpy, sql, 'has_sections')
+    if has_sections:
+      sql = f"""
+        select array_agg(group_id) as group_ids 
+        from sections_for_course('{_group_id}')
+      """
+      group_ids = row_zero_value_for_colname(plpy, sql, 'group_ids')
+      selects = [f"select * from {_function}('{_group_id}') "]
+      for group_id in group_ids:
+        selects.append(f"select * from {_function}('{group_id}')")
+      sql = ' union '.join(selects)
+    else:
+      sql = f"select * from {_function}('{_group_id}')"
+  return sql
+
+ 
+<p>If the inbound _groupid is p1mqaeep, the inbound _function is questions_and_answers_for_group, and the group has no sections, the SQL will just be select * from questions_and_answers_for_group('p1mqaeep'). </p>
+<p>If the group does have sections, then the SQL will instead look like this:</p>
+ select * from questions_and_answers_for_group('p1mqaeep')
+union 
+select * from questions_and_answers_for_group('x7fe93ba')
+union
+select * from questions_and_answers_for_group('qz9a4b3d')
+ 
+<p>This is a very long-winded way of saying that pl/python is an effective way to compose and run arbitarily complex SQL code. In theory you could do the same thing using pl/pgsql, in practice it would be insane to try. I’ve entangled the example with other aspects — modules, introspection — because that’s the real situation. pl/python’s maximal power emerges from the interplay of all three aspects. That said, it’s a fantastic way to extend Postgres with user-defined functions that compose and run SQL code. </p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
+2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
+3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:58 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -817,7 +1098,7 @@
 
 <div class='item-footer'>
    01:52 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -887,7 +1168,7 @@
 
 <div class='item-footer'>
    00:46 &bull;
-   5 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -958,7 +1239,7 @@
 
 <div class='item-footer'>
    22:57 &bull;
-   7 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1802,7 +2083,7 @@
 
 <div class='item-footer'>
    20:37 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2133,7 +2414,7 @@
 
 <div class='item-footer'>
    21:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2208,7 +2489,7 @@
 
 <div class='item-footer'>
    20:39 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2280,7 +2561,7 @@
 
 <div class='item-footer'>
    19:07 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3209,7 +3490,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    21:58 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3410,7 +3691,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    21:33 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3912,7 +4193,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    18:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5206,7 +5487,7 @@ Introduction
 
 <div class='item-footer'>
    21:23 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5384,7 +5665,8 @@ $$ language plpython3u;
 1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
 2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
 3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
-4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a></p>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a></p>
    
   
   
@@ -5401,7 +5683,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:09 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5468,84 +5750,6 @@ $$ language plpython3u;
       <div class="photo">
         
         <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*hFbDldU4GsR-qiaP.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   17:28 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2021/the-hot-van-summer'>The hot van summer</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- On June 6, we lost my mother. The last really coherent thing she said to me was, “I love you guys”. The second-to-last thing was, “I need you”. The third-to-last thing was, “how will we get to the Cape?”  My great grandparents built a house in East Falmouth on Cape Cod around a hundred years ago. It was never supposed to last this long; it’s rickety and dusty, definitely falling apart, but it’s 
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://werd.io/file/610c1a8e91238069c847b5c2/thumb.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p>On June 6, <a href="https://werd.io/2021/ma-1">we lost my mother</a>. The last really coherent thing she said to me was, “I love you guys”. The second-to-last thing was, “I need you”. The third-to-last thing was, “how will we get to the Cape?”</p><p>My great grandparents built a house in East Falmouth on Cape Cod around a hundred years ago. It was never supposed to last this long; it’s rickety and dusty, definitely falling apart, but it’s ours. In the meantime, developers have cut down much of the surrounding woods and replaced them with million dollar homes. They’re frustrated by our presence, and have described us as “arrogantly shabby”. Screw you, millionaires: we wear that description as a badge of pride.</p><p>The house was my mother’s favorite place in the world. It’s mine, too. Despite dialysis, feeding tubes, medicines, and a hundred other considerations, we’d spent a lot of time figuring out how to get her there one last time. I bought first class tickets so she could lie down comfortably on the flight; we figured out cars and dialysis logistics.</p><p>And then we lost her before we could get there.</p><p>When the three of us got back to my parents’ house, it was one of the first decisions we made. If Ma hadn’t had her medical issues, she would have loved to drive to Cape Cod from California. So we decided to do just that, with her ashes (and the proper permits) in tow.</p><p>We acquired a hybrid van (a 2021 Toyota Sienna), which runs about 600 miles on a tank of gas. There was talk of postponing the trip, but based on a desire to get to another family memorial, we set off in the evening two Fridays ago. We headed north to Seattle, via Portland, to avoid the worst of the summer heat. And then we headed east.</p><p></p><p>We saw a lot of America: around 4050 miles of cities, towns, countryside, and unadulterated wilderness. We learned never to eat Mexican food in Fargo, North Dakota, and that the Indian food in Philadelphia is spectacular. We were blown away by the beauty of Glacier National Park and the segregated poverty of much of the country. Throughout it all, we learned that beauty, humanity, and the progressive values of equality and shared lived experiences exist everywhere, albeit in pockets. There were Trump signs in deep Democrat country; there were radical coffee shops run by brave, non-binary progressives in the most staunchly conservative townships. As we went, <a href="https://instagram.com/ben.werdmuller">I documented much of it on Instagram</a>.</p><p></p><p></p><p></p><p>Images: Montana; a mural in Bismarck, ND; George Floyd Square in Minneapolis.</p><p>My sister planned much of the trip based around what she thought we’d all be most interested in; we made special efforts to visit Black-owned establishments and diverse neighborhoods. It’s what my mother would have been most interested in, too.</p><p>Our routine every night was the same: bring in our bags, and then bring in Ma. She stayed with us in our hotel rooms. We all spoke to her. In some way, she’s still with us. In another, there’s a hole in our lives, and a sadness that we all feel profoundly.</p><p>More than anything, it was a time for us to be together and heal. I shared a hotel room with my dad almost every night, and we would talk late into the night about what we’d seen and what we were feeling. It was necessary healing that will be long and ongoing.</p><p>We traveled across America once before, as the four of us, when I’d just graduated high school. Back then, we used paper AAA maps and picked up discount booklets for local motels from diners. Where we stayed was always hit and miss.</p><p>In contrast, this road trip was powered by technology in ways that were new for us. Our car is a hybrid, yes, but it also has traffic-aware cruise control that works a lot like a Tesla: the car slows down as the cars around it do, and follows the curves of the freeway. We used Apple CarPlay and Android Auto extensively to navigate, and made plans on a custom Google Map. I used Foursquare to find places to eat; Hannah used Yelp and Google Maps, often using gay-friendly and Black-owned filters. I booked our places to stay through apps, including <a href="https://www.fairhotel.org/">the FairHotel app</a> to look for socially responsible hotels with unionized workforces.</p><p>As I write this, we’re barreling down the freeway on the very last leg of the trip. Soon we’ll come to a stop, and the beginning of a new chapter. I don’t know what the future holds, what it looks like, or even what it’ll feel like. But I’m grateful to be a part of this family, and to have had this time. All of these things - these values, these experiences, these people - are an inexorable part of who I am. We’re an interconnected part of each other. And I’m glad we were all here.</p><p></p><p></p><p></p> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://werd.io/file/610c1a8e91238069c847b5c2/thumb.png'>
       </div>
     
   
@@ -5822,7 +6026,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:09 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6088,7 +6292,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    22:12 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6174,7 +6378,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    18:34 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6685,7 +6889,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    20:55 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6795,7 +6999,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    19:32 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6937,7 +7141,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    22:18 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7114,7 +7318,7 @@ Integrates well with version control. I like to keep my site content under versi
 
 <div class='item-footer'>
    20:23 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7614,7 +7818,8 @@ $$ language plpgsql;
 <p>1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
 2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
 3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
-4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a></p>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a></p>
    
   
   
@@ -7883,7 +8088,7 @@ $$ language plpgsql;
 
 <div class='item-footer'>
    19:00 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8647,7 +8852,7 @@ public class UserAccessController : ControllerBase
 
 <div class='item-footer'>
    20:12 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8792,7 +8997,8 @@ pl/python: 290ms, 255ms, 300ms
 1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
 2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
 3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
-4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a></p>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a></p>
    
   
   
@@ -8803,7 +9009,7 @@ pl/python: 290ms, 255ms, 300ms
 
 <div class='item-footer'>
    19:23 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9067,7 +9273,7 @@ rename column Y to latitude;
 
 <div class='item-footer'>
    18:13 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9237,7 +9443,8 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
 2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
 3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
-4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a></p>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a></p>
    
   
   
@@ -9248,7 +9455,7 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 
 <div class='item-footer'>
    21:44 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9434,7 +9641,7 @@ conditional-get --etags $download_dir/etags.json \
 
 <div class='item-footer'>
    21:29 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10279,7 +10486,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    18:47 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10547,7 +10754,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    22:12 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10613,7 +10820,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    20:12 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -27861,7 +28068,7 @@ But when trying to teach or explain a medium that is visual, other tools can be 
 
 <div class='item-footer'>
    05:46 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
@@ -28230,83 +28437,6 @@ SSI — Legal compliance and the involvement of governments<p>This article d
 
 <div class='item-footer'>
    14:20 &bull;
-   6 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 15. February 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.jonudell.net'>Jon Udell</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.jonudell.net/2021/02/15/my-print-edition-superpower/'>My print edition superpower</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  When I walk around our neighborhood I see very few copies of our local newspaper on sidewalks, porches, and front lawns. We subscribe because it’s a lifelong habit, and because we like to support local journalism, and in my case because it’s a welcome reprieve from a long day of screentime. This archaic habit has … Continue reading My print edition superpower
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>When I walk around our neighborhood I see very few copies of our local newspaper on sidewalks, porches, and front lawns. We subscribe because it’s a lifelong habit, and because we like to support local journalism, and in my case because it’s a welcome reprieve from a long day of screentime.</p>
-<p>This archaic habit has also, weirdly, become a kind of superpower. From time to time I meet people who are surprised when I know facts about them. These facts are public information, so why should it be surprising that I know them? Because they appear in the print edition of the newspaper. Consider the man in this photo.</p>
-<p></p>
-<p>We were out for a Sunday morning walk, carrying the newspaper, when we saw him in a cafe. We had just read an article about <a href="https://www.facebook.com/petalumawhiskerino/photos">Whiskerino</a>, the annual contest of fancy beards and mustaches in Petaluma. And here was the guy whose photo was featured in the article!</p>
-<p>That was a nice coincidence, but the kicker is that he had no idea his picture was in the paper. Not being of newspaper-reading age, and not having friends of newspaper-reading age, he had to depend on elders to alert him. I guess we got to him before his parents did.</p>
-<p>When a similar thing happened this weekend, it occurred to me that this could be a good marketing strategy for newspapers. Do you want to wield an information superpower? Do you want to amaze people by knowing facts that they can’t imagine you could possibly know? Subscribe to the print edition of your local newspaper!</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i2.wp.com/jonudell.info/images/fancy-beard-guy-in-sunday-paper.jpg?w=656&ssl=1'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:35 &bull;
    6 months ago
 </div>
 
