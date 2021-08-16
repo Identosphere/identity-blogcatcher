@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:40 AM August 16, 2021 (UTC)</sup>
+<sup>Last Update 10:44 AM August 16, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,332 @@
  <h2 class='new-date'>
   Monday, 16. August 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/08/16/improving-application-security-in-asp-net-core-razor-pages-using-http-headers-part-1/'>Improving application security in ASP.NET Core Razor Pages using HTTP headers – Part 1</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to improve the security of an ASP.NET Core Razor Page application by adding security headers to all HTTP Razor Page responses. The security headers are added using the NetEscapades.AspNetCore.SecurityHeaders Nuget package from Andrew Lock. The headers are used to protect the session, not for authentication. The application is authenticated using Open […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to improve the security of an ASP.NET Core Razor Page application by adding security headers to all HTTP Razor Page responses. The security headers are added using the <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package from <a href="https://twitter.com/andrewlocknet">Andrew Lock</a>. The headers are used to protect the session, not for authentication. The application is authenticated using Open ID Connect, the security headers are used to protected the session. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCore6Experiments">https://github.com/damienbod/AspNetCore6Experiments</a></p>
+
+
+
+<p>The NetEscapades.AspNetCore.SecurityHeaders and the NetEscapades.AspNetCore.SecurityHeaders.TagHelpers Nuget packages are added to the csproj file of the web application. The tag helpers are added to use the nonce from the CSP in the Razor Pages.</p>
+
+
+  &lt;ItemGroup&gt;
+	&lt;PackageReference 
+		Include="NetEscapades.AspNetCore.SecurityHeaders" 
+		Version="0.16.0" /&gt;
+	&lt;PackageReference 
+		Include="NetEscapades.AspNetCore.SecurityHeaders.TagHelpers" 
+		Version="0.16.0" /&gt;
+&lt;/ItemGroup&gt;
+  
+
+
+<p>What each header protects against is explained really good on the <a href="https://securityheaders.com/">securityheaders.com</a> results view of your test. You can click different links of each validation which takes you to the documentation of each header. The links at the bottom of this post provide some excellent information about what and why of the headers.</p>
+
+
+
+<p>The security header definitions are added using the HeaderPolicyCollection class. I added this to a separate class to keep the Startup class small, where the middleware is added. I passed a boolean parameter into the method which is used to add or remove the HSTS header. We might not want to add this to local development and block all non HTTPS requests to localhost. </p>
+
+
+
+<p>The policy defined in this demo is for Razor Page applications with as much blocked as possible. You should be able to re-use this in your projects.</p>
+
+
+
+<p>The COOP (Cross Origin Opener Policy), COEP (Cross Origin Embedder Policy), CORP (Cross Origin Resource Policy) headers are relatively new. You might need to update you existing application deployments with these. The links at the bottom of the post provide information about these headers in detail and I would recommend reading these.</p>
+
+
+  public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev)
+{
+	var policy = new HeaderPolicyCollection()
+		.AddFrameOptionsDeny()
+		.AddXssProtectionBlock()
+		.AddContentTypeOptionsNoSniff()
+		.AddReferrerPolicyStrictOriginWhenCrossOrigin()
+		.RemoveServerHeader()
+		.AddCrossOriginOpenerPolicy(builder =&gt;
+		{
+			builder.SameOrigin();
+		})
+		.AddCrossOriginEmbedderPolicy(builder =&gt;
+		{
+			builder.RequireCorp();
+		})
+		.AddCrossOriginResourcePolicy(builder =&gt;
+		{
+			builder.SameOrigin();
+		})
+		.AddContentSecurityPolicy(builder =&gt;
+		{
+			builder.AddObjectSrc().None();
+			builder.AddBlockAllMixedContent();
+			builder.AddImgSrc().Self().From("data:");
+			builder.AddFormAction().Self();
+			builder.AddFontSrc().Self();
+			builder.AddStyleSrc().Self(); // .UnsafeInline();
+			builder.AddBaseUri().Self();
+			builder.AddScriptSrc().UnsafeInline().WithNonce();
+			builder.AddFrameAncestors().None();
+		})
+		.RemoveServerHeader()
+		.AddPermissionsPolicy(builder =&gt;
+		{
+			builder.AddAccelerometer().None();
+			builder.AddAutoplay().None();
+			builder.AddCamera().None();
+			builder.AddEncryptedMedia().None();
+			builder.AddFullscreen().All();
+			builder.AddGeolocation().None();
+			builder.AddGyroscope().None();
+			builder.AddMagnetometer().None();
+			builder.AddMicrophone().None();
+			builder.AddMidi().None();
+			builder.AddPayment().None();
+			builder.AddPictureInPicture().None();
+			builder.AddSyncXHR().None();
+			builder.AddUsb().None();
+		});
+
+	if (!isDev)
+	{
+		// maxage = one year in seconds
+		policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
+	}
+
+	return policy;
+}
+  
+
+
+<p>In the Startup class, the UseSecurityHeaders method is used to apply the HTTP headers policy and add the middleware to the application. The env.IsDevelopment() is used to add or not to add the HSTS header. The default HSTS middleware from the ASP.NET Core templates was removed from the Configure method as this is not required. </p>
+
+
+  public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+{
+	if (env.IsDevelopment())
+	{
+		app.UseDeveloperExceptionPage();
+	}
+	else
+	{
+		app.UseExceptionHandler("/Error");
+	}
+
+	app.UseSecurityHeaders(
+		SecurityHeadersDefinitions
+			.GetHeaderPolicyCollection(env.IsDevelopment()));
+  
+
+
+<p>The server header can be removed in the program class if using Kestrel. If using IIS, you probably need to use the web.config to remove this.</p>
+
+
+  public static IHostBuilder CreateHostBuilder(string[] args) =&gt;
+	Host.CreateDefaultBuilder(args)
+		.ConfigureWebHostDefaults(webBuilder =&gt;
+		{
+			webBuilder
+				.ConfigureKestrel(options =&gt; 
+					options.AddServerHeader = false)
+				.UseStartup&lt;Startup&gt;();
+		});
+  
+
+
+<p>We want to apply the CSP nonce to all our scripts in the Razor Pages. We can add the NetEscapades.AspNetCore.SecurityHeaders namespace to the _ViewImports.cshtml file.</p>
+
+
+  @using AspNetCoreRazor
+@using NetEscapades.AspNetCore.SecurityHeaders
+@namespace AspNetCoreRazor.Pages
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+
+  
+
+
+<p>In the Razor Page _Layout, the CSP nonce can be used. I had to get the nonce from the HttpContext and add this to all scripts. This way, the scripts will be loaded. If the nonce does not match or is not applied to the script, it will not be loaded due to the CSP definition. I’ll ping Andrew Lock to see if the tag helper could be used directly.</p>
+
+
+      @{var nonce = Context.GetNonce();}
+    &lt;script src="~/lib/jquery/dist/jquery.min.js" nonce="@nonce"&gt;&lt;/script&gt;
+    &lt;script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js" nonce="@nonce"&gt;&lt;/script&gt;
+    &lt;script src="~/js/site.js" asp-append-version="true" nonce="@nonce"&gt;&lt;/script&gt;
+
+    @await RenderSectionAsync("Scripts", required: false)
+&lt;/body&gt;
+&lt;/html&gt;
+
+  
+
+
+<p>The Http security headers can be tested using <a href="https://securityheaders.com">https://securityheaders.com </a></p>
+
+
+
+<p>I used ngrok to test this before I deployed the application. The Security headers scans the web application and returns a really neat summary to what headers you have and how good it finds them. Each header has a link to a excellent documentation, blog on <a href="https://twitter.com/Scott_Helme">Scott Helme</a>‘s website <a href="https://scotthelme.co.uk">https://scotthelme.co.uk</a></p>
+
+
+
+
+
+
+
+<p>The CSP can be tested using the <a href="https://csp-evaluator.withgoogle.com">https://csp-evaluator.withgoogle.com</a> from google. The CSP evaluator gives an excellent summary and also suggestions how to improve the CSP.</p>
+
+
+
+
+
+
+
+<p>The Razor Page application security can be much improved by added the headers to the application. The  <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package makes it incredibly easy to apply this. I will create a follow up blog with a policy definition for a Blazor application and also a for an Web API application. </p>
+
+
+
+<p>Notes:</p>
+
+
+
+<p>If the application is fully protected without any public views, the follow redirects checkbox on the security headers needs to be disabled as then you only get the results of the identity provider used to authenticate. </p>
+
+
+
+<p>I block all traffic, if possible, which is not from my domain including sub domains. If implementing enterprise applications, I would always do this. If implementing public facing applications with high traffic volumes or need extra fast response times, or need to reduce the costs of hosting, then CDNs would need to be used, allowed and so on. Try to block all first and open up as required and maybe you can avoid some nasty surprises from all the Javascript, CSS frameworks used.</p>
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://securityheaders.com/">https://securityheaders.com/</a></p>
+
+
+
+<p><a href="https://csp-evaluator.withgoogle.com/">https://csp-evaluator.withgoogle.com/</a></p>
+
+
+
+<p><a href="https://www.youtube.com/watch?v=J6BZ9IQELNA">Security by Default Chrome developers</a></p>
+
+
+
+<p><a href="https://www.snigel.com/blog/a-simple-guide-to-coop-coep-corp-and-cors/">A Simple Guide to COOP, COEP, CORP, and CORS</a></p>
+
+
+
+<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
+
+
+
+<p><a href="https://github.com/dotnet/aspnetcore/issues/34428">https://github.com/dotnet/aspnetcore/issues/34428</a></p>
+
+
+
+<p><a href="https://w3c.github.io/webappsec-trusted-types/dist/spec/">https://w3c.github.io/webappsec-trusted-types/dist/spec/</a></p>
+
+
+
+<p><a href="https://web.dev/trusted-types/">https://web.dev/trusted-types/</a></p>
+
+
+
+<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Cross-Origin_Resource_Policy_(CORP)">https://developer.mozilla.org/en-US/docs/Web/HTTP/Cross-Origin_Resource_Policy_(CORP)</a></p>
+
+
+
+<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS">https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS</a></p>
+
+
+
+<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies">https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies</a></p>
+
+
+
+<p><a href="https://docs.google.com/document/d/1zDlfvfTJ_9e8Jdc8ehuV4zMEu9ySMCiTGMS9y0GU92k/edit">https://docs.google.com/document/d/1zDlfvfTJ_9e8Jdc8ehuV4zMEu9ySMCiTGMS9y0GU92k/edit</a></p>
+
+
+
+<p><a href="https://scotthelme.co.uk/coop-and-coep/">https://scotthelme.co.uk/coop-and-coep/</a></p>
+
+
+
+<p><a href="https://github.com/OWASP/ASVS">https://github.com/OWASP/ASVS</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/08/security_headers_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:24 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -813,7 +1139,7 @@
 
 <div class='item-footer'>
    01:58 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -889,7 +1215,7 @@
 
 <div class='item-footer'>
    00:42 &bull;
-   5 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -965,7 +1291,7 @@
 
 <div class='item-footer'>
    00:41 &bull;
-   5 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1033,7 +1359,7 @@
  Why did <a href="https://en.wikipedia.org/wiki/Do_Not_Track">Do Not Track</a>, which was never more than a polite request not to be tracked off a website, get no respect from 99.x% of the world’s websites? And how the hell did Do Not Track turn into the <a href="https://www.w3.org/2011/tracking-protection/drafts/tracking-dnt.html">Tracking Preference Expression</a> at the W2C, where the standard never did get fully baked? 
  Why, after Do Not Track failed, did hundreds of millions—or <a href="https://blogs.harvard.edu/doc/2019/03/23/2billion/">perhaps billions</a>—of people start blocking ads, tracking or both, on the Web, amounting to <a href="https://blogs.harvard.edu/doc/2015/09/28/beyond-ad-blocking-the-biggest-boycott-in-human-history/">the biggest boycott in world history</a>? And then why did the advertising world, including nearly all advertisers, their agents, and their dependents in publishing, treat this as a problem rather than a clear and gigantic message from the marketplace? 
  Why are the choices presented to you by websites called&nbsp;your choices, when all those choices are provided by&nbsp;them? And why don’t you give them choices? 
- Wwhy would <a href="https://blogs.harvard.edu/doc/2021/05/29/apple-vs-or-plus-adtech/">Apple’s way of making you private on your phone</a> be to “Ask App Not to Track,” rather than “Tell App Not to Track,” or “Prevent App From Tracking You”? 
+ Why would <a href="https://blogs.harvard.edu/doc/2021/05/29/apple-vs-or-plus-adtech/">Apple’s way of making you private on your phone</a> be to “Ask App Not to Track,” rather than “Tell App Not to Track,” or “Prevent App From Tracking You”? 
  Why does the <a href="https://en.wikipedia.org/wiki/General_Data_Protection_Regulation">GDPR</a> call people “data subjects” rather than people, or human beings, and then assign the roles “data controller” and “data processor” only to other parties?* 
  Why are nearly all the 200+million results in <a href="https://www.google.com/search?q=gdpr+compliance">a search for GDPR+compliance</a> about how companies can obey the letter of the law while violating its spirit by continuing to track people through the giant loophole you see in every cookie notice? 
  Why does the <a href="https://en.wikipedia.org/wiki/California_Consumer_Privacy_Act">CCPA</a> give you the right to ask to have back personal data others have gathered about you on the Web, rather than forbid its collection in the first place? (Imagine a law that assumes that all farmers’ horses are gone from their barns, but gives those farmers a right to demand horses back from those who took them. It’s kinda like that.) 
@@ -1047,16 +1373,16 @@
 <p><a href="https://www.oreilly.com/library/view/learning-dcom/9781449307011/ch01s01.html"></a></p>
 <p>On the Web, as it was in the old mainframe world, we clients—mere users—are as subordinate to servers as are cattle to ranchers or slaves to masters. In the client-server paradigm, our agency—our ability to act with effect in the world—is restricted to what servers allow or provide for us. Our choices are what they provide. We are independent only to the degree that we can also be clients to other servers. In this paradigm, a free market is “your choice of captor.”</p>
 <p>Want privacy? You have to ask for it. And, if you go to the trouble of doing that—which you have to do separately with every site and service you encounter (each a mainframe of its own)—your client doesn’t keep a record of what you “agreed” to. The server does. Good luck finding whatever it is the server or its third parties remember about that agreement.</p>
-<p>Want to control how your data (or data about you) gets processed by the servers of the world? Good luck with that too. Even Europe’s <a href="https://en.wikipedia.org/wiki/General_Data_Protection_Regulation">GDPR</a> says “natural persons” are just “data subjects,” while “data controllers” and “data processors” are roles reserved for servers.</p>
-<p>Want a shopping cart of your own to take from site to site? My wife asked for that in 1995. It’s still barely thinkable in 2021. Want a dashboard for your life where you can gather all your expenses, investments, property records, health information, calendars, contacts and other personal information? She asked for that too, and we still don’t have it, except to the degree that large server operators (e.g. Google, Apple, Microsoft) give us pieces of it—hosted in their clouds.</p>
-<p>That’s why we don’t have an Internet of Things (IoT), but rather an Apple of Things, a Google of Things, and an Amazon of Things.</p>
+<p>Want to control how your data (or data about you) gets processed by the servers of the world? Good luck with that too. Again, Europe’s <a href="https://en.wikipedia.org/wiki/General_Data_Protection_Regulation">GDPR</a> says “natural persons” are just “data subjects,” while “data controllers” and “data processors” are roles reserved for servers.</p>
+<p>Want a shopping cart of your own to take from site to site? My wife asked for that in 1995. It’s still barely thinkable in 2021. Want a dashboard for your life where you can gather all your expenses, investments, property records, health information, calendars, contacts, and other personal information? She asked for that too, and we still don’t have it, except to the degree that large server operators (e.g. Google, Apple, Microsoft) give us pieces of it, hosted in their clouds, and rigged to keep you captive to their systems.</p>
+<p>That’s why we don’t yet have an Internet of Things (IoT), but rather an Apple of Things, a Google of Things, and an Amazon of Things.</p>
 <p>Is it possible to do stuff on the Web that isn’t client-server? Perhaps some techies among us can provide examples, but practically speaking, here’s what matters:&nbsp;If it’s not thinkable by the owners of the servers we depend on, it doesn’t get made.</p>
 <p>From our position at the bottom of the Web’s haystack, it’s hard to imagine there might be a world where it’s possible for us to have full agency: to not be just users of clients enslaved to as many servers as we deal with every day.</p>
-<p>But that world exists. It’s called the Internet, and it can support a helluva lot more than the Web, and many other ways to interact than those possible in the client-server world alone.</p>
-<p>Digital technology as we know it has only been around for a few decades, and the Internet for maybe half that time. Mobile computers that run apps and presume connectivity nearly everywhere have only been with us for a decade or less. And all of those will be with us for many decades, centuries, or millennia to come. We are not going to stop living digital lives, any more than we’re going to stop speaking, writing, or using mathematics. Digital technology and the Internet are granted wishes that won’t go back into the genie’s bottle.</p>
-<p>The Web is wonderful, but not boundlessly so. It has limits. One of those is the client-server model. Among all the countless graces that model allows, full personal agency is not one of them. We will only ever have such agency as servers allow clients and users.</p>
+<p>But that world exists. It’s called the Internet, and it can support a helluva lot more than the Web, with many ways to interact other than those possible in the client-server world alone.</p>
+<p>Digital technology as we know it has only been around for a few decades, and the Internet for maybe half that time. Mobile computers that run apps and presume connectivity everywhere have only been with us for a decade or less. And all of those will be with us for many decades, centuries, or millennia to come. We are not going to stop living digital lives, any more than we are going to stop speaking, writing, or using mathematics. Digital technology and the Internet are granted wishes that won’t go back into the genie’s bottle.</p>
+<p>So yes, the Web is wonderful, but not boundlessly so. It has limits. Thanks to the client-server architecture that prevails there, full personal agency is not a grace of life on the Web. For the thirty-plus years of the Web’s existence, and for its foreseeable future, we will&nbsp;never have more agency than its servers allow clients and users.</p>
 <p>It’s time to think and build outside the haystack. Models for that do exist, and some have been around a long time.</p>
-<p>Email, for example. While you can look at your email on the Web, or use a Web-based email service (such as Gmail), the whole of email is independent of those. My own&nbsp;<a href="http://searls.com" title="http://searls. ">searls.com</a> email has been at servers in my home, on racks elsewhere, and in a hired cloud. I can move it anywhere I want. You can move yours as well. All the services I hire to host my email are substitutable. That’s just one way we can enjoy full agency on the Internet. (And yes, the Web can be involved, but it doesn’t have to be.)</p>
+<p>Email, for example. While you can look at your email on the Web, or use a Web-based email service (such as Gmail), email itself is independent of those. My own&nbsp;<a href="http://searls.com" title="http://searls. ">searls.com</a> email has been at servers in my home, on racks elsewhere, and in a hired cloud. I can move it anywhere I want. You can move yours as well. All the services I hire to host my email are substitutable. That’s just one way we can enjoy full agency on the Internet.</p>
 <p>My own work outside the Web is currently happening at <a href="http://customercommons.org">Customer Commons</a>, on what we call the <a href="https://customercommons.org/a-new-way/">Byway</a>. Go there and follow along as we work to toward better answers to the questions above than you’ll get from inside the haystack.</p>
 <p>&nbsp;</p>
    
@@ -1075,7 +1401,7 @@
 
 <div class='item-footer'>
    16:13 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1326,7 +1652,7 @@ position_from_anno
 
 <div class='item-footer'>
    14:55 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1401,7 +1727,7 @@ position_from_anno
 
 <div class='item-footer'>
    06:20 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1471,7 +1797,7 @@ position_from_anno
 
 <div class='item-footer'>
    06:19 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1550,7 +1876,7 @@ position_from_anno
 
 <div class='item-footer'>
    06:08 &bull;
-   24 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2954,7 +3280,7 @@ Variable
 
 <div class='item-footer'>
    22:07 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3032,7 +3358,7 @@ Variable
 
 <div class='item-footer'>
    18:58 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4039,7 +4365,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    21:11 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4514,7 +4840,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    20:37 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4845,7 +5171,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    21:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4920,7 +5246,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    20:39 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4992,7 +5318,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    19:07 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5849,7 +6175,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    18:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6740,7 +7066,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:09 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7083,7 +7409,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:09 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7349,7 +7675,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    22:12 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7436,7 +7762,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    18:34 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7947,7 +8273,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    20:55 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8057,7 +8383,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    19:32 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8199,7 +8525,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    22:18 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8376,7 +8702,7 @@ Integrates well with version control. I like to keep my site content under versi
 
 <div class='item-footer'>
    20:23 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9147,7 +9473,7 @@ $$ language plpgsql;
 
 <div class='item-footer'>
    19:00 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9911,7 +10237,7 @@ public class UserAccessController : ControllerBase
 
 <div class='item-footer'>
    20:12 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10069,7 +10395,7 @@ pl/python: 290ms, 255ms, 300ms
 
 <div class='item-footer'>
    19:23 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10333,7 +10659,7 @@ rename column Y to latitude;
 
 <div class='item-footer'>
    18:13 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10516,7 +10842,7 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 
 <div class='item-footer'>
    21:44 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10702,7 +11028,7 @@ conditional-get --etags $download_dir/etags.json \
 
 <div class='item-footer'>
    21:29 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11547,7 +11873,7 @@ namespace ServiceBusMessaging
 
 <div class='item-footer'>
    18:47 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21516,1005 +21842,6 @@ namespace MyApi.Controllers
 
 <div class='item-footer'>
    15:02 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 10. May 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/'>Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how use verifiable credentials stored on a digital wallet to verify a digital identity and use in an application. For this to work, a trust needs to exist between the verifiable credential issuer and the application which requires the verifiable credentials to verify. A blockchain decentralized database is used and MATTR is […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how use verifiable credentials stored on a digital wallet to verify a digital identity and use in an application. For this to work, a trust needs to exist between the verifiable credential issuer and the application which requires the verifiable credentials to verify. A blockchain decentralized database is used and MATTR is used as a access layer to this ledger and blockchain. The applications are implemented in ASP.NET Core.</p>
-
-
-
-<p>The verifier application Bo Insurance is used to implement the verification process and to create a presentation template. The application sends a HTTP post request to create a presentation request using the DID Id from the OIDC credential Issuer, created in the previous article. This DID is created from the National Driving license application which issues verifiable credentials and so a trust needs to exist between the two applications. Once the credentials have been issued to a holder of the verifiable credentials and stored for example in a digital wallet, the issuer is no longer involved in the process. Verifying the credentials only requires the holder and the verifier and the decentralized database which holds the digital identities and documents. The verifier application gets the DID from the ledger and signs the verify request. The request can then be presented as a QR Code. The holder can scan this using a MATTR digital wallet and grant consent to share the credentials with the application. The digital wallet calls the callback API defined in the request presentation body and sends the data to the API. The verifier application hosting the API would need to verify the data and can update the application UI using SignalR to continue the business process with the verified credentials.</p>
-
-
-
-<p>Code <a href="https://github.com/swiss-ssi-group/MattrGlobalAspNetCore">https://github.com/swiss-ssi-group/MattrGlobalAspNetCore</a></p>
-
-
-
-<p>Blogs in the series</p>
-
-
-
-  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  <a href="https://damienbod.com/2021/05/03/create-an-oidc-credential-issuer-with-mattr-and-asp-net-core/">Create an OIDC credential Issuer with MATTR and ASP.NET Core</a>  Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR  <a href="https://damienbod.com/2021/05/31/verify-vaccination-data-using-zero-knowledge-proofs-with-asp-net-core-and-mattr/">Verify vaccination data using Zero Knowledge Proofs with ASP.NET Core and MATTR</a>  
-
-
-
-<p></p>
-
-
-
-<p>Create the presentation template for the Verifiable Credential</p>
-
-
-
-<p>A presentation template is required to verify the issued verifiable credentials stored on a digital wallet.</p>
-
-
-
-<p>The digital identity (DID) Id of the OIDC credential issuer is all that is required to create a presentation request template.  In the application which issues credentials, ie the NationalDrivingLicense, a Razor page was created to view the DID of the OIDC credential issuer.</p>
-
-
-
-
-
-
-
-<p>The DID can be used to create the presentation template. The MATTR documentation is really good here:</p>
-
-
-
-<p><a href="https://learn.mattr.global/tutorials/verify/presentation-request-template">https://learn.mattr.global/tutorials/verify/presentation-request-template</a></p>
-
-
-
-<p>A Razor page was created to start this task from the UI. This would normally require authentication as this is an administrator task from the application requesting the verified credentials. The code behind the Razor page takes the DID request parameter and calls the MattrPresentationTemplateService to create the presentation template and present this id a database.</p>
-
-
-  public class CreatePresentationTemplateModel : PageModel
-{
-	private readonly MattrPresentationTemplateService _mattrVerifyService;
-	public bool CreatingPresentationTemplate { get; set; } = true;
-	public string TemplateId { get; set; }
-
-	[BindProperty]
-	public PresentationTemplate PresentationTemplate { get; set; }
-	public CreatePresentationTemplateModel(MattrPresentationTemplateService mattrVerifyService)
-	{
-		_mattrVerifyService = mattrVerifyService;
-	}
-	public void OnGet()
-	{
-		PresentationTemplate = new PresentationTemplate();
-	}
-
-	public async Task&lt;IActionResult&gt; OnPostAsync()
-	{
-		if (!ModelState.IsValid)
-		{
-			return Page();
-		}
-
-		TemplateId = await _mattrVerifyService.CreatePresentationTemplateId(PresentationTemplate.DidId);
-		CreatingPresentationTemplate = false;
-		return Page();
-	}
-}
-
-public class PresentationTemplate
-{
-	[Required]
-	public string DidId { get; set; }
-}
-  
-
-
-<p>The Razor page html template creates a form to post the request to the server rendered page and displays the templateId after, if the creation was successful.</p>
-
-
-  @page
-@model BoInsurance.Pages.CreatePresentationTemplateModel
-
-&lt;div class="container-fluid"&gt;
-    &lt;div class="row"&gt;
-        &lt;div class="col-sm"&gt;
-            &lt;form method="post"&gt;
-                &lt;div&gt;
-                    &lt;div class="form-group"&gt;
-                        &lt;label class="control-label"&gt;DID ID&lt;/label&gt;
-                        &lt;input asp-for="PresentationTemplate.DidId" class="form-control" /&gt;
-                        &lt;span asp-validation-for="PresentationTemplate.DidId" class="text-danger"&gt;&lt;/span&gt;
-                    &lt;/div&gt;
-                    &lt;div class="form-group"&gt;
-                        @if (Model.CreatingPresentationTemplate)
-                        {
-                            &lt;input class="form-control"
-                                   type="submit" readonly="@Model.CreatingPresentationTemplate"
-                                   value="Create Presentation Template" /&gt;
-                        }
-
-                    &lt;/div&gt;
-                    &lt;div class="form-group"&gt;
-                        @if (!Model.CreatingPresentationTemplate)
-                        {
-                            &lt;div class="alert alert-success"&gt;
-                                &lt;strong&gt;Mattr Presentation Template created&lt;/strong&gt;
-                            &lt;/div&gt;
-                        }
-
-                        
-                    &lt;/div&gt;
-                &lt;/div&gt;
-            &lt;/form&gt;
-            &lt;hr /&gt;
-            &lt;p&gt;When the templateId is created, you can use the template ID to verify&lt;/p&gt;
-        &lt;/div&gt;
-        &lt;div class="col-sm"&gt;
-            &lt;div&gt;
-                &lt;img src="~/ndl_car_01.png" width="200" alt="Driver License"&gt;
-                &lt;div&gt;
-                    &lt;b&gt;Driver Licence templateId from presentation template&lt;/b&gt;
-                    &lt;hr /&gt;
-                    &lt;dl class="row"&gt;
-                        &lt;dt class="col-sm-4"&gt;templateId&lt;/dt&gt;
-                        &lt;dd class="col-sm-8"&gt;
-                            @Model.TemplateId
-                        &lt;/dd&gt;
-                    &lt;/dl&gt;
-                &lt;/div&gt;
-            &lt;/div&gt;
-        &lt;/div&gt;
-    &lt;/div&gt;
-&lt;/div&gt;
-
-
-  
-
-
-<p>The MattrPresentationTemplateService is used to create the MATTR presentation template. This class uses the MATTR API and sends a HTTP post request with the DID Id of the OIDC credential issuer and creates a presentation template. The service saves the returned payload to a database and returns the template ID as the result. The template ID is required to verify the verifiable credentials.</p>
-
-
-
-<p>The MattrTokenApiService is used to request an API token for the MATTR API using the credential of your MATTR account. This service has a simple token cache and only requests new access tokens when no token exists or the token has expired.</p>
-
-
-
-<p>The BoInsuranceDbService service is used to access the SQL database using Entity Framework Core. This provides simple methods to persist or select the data as required. </p>
-
-
-  private readonly IHttpClientFactory _clientFactory;
-private readonly MattrTokenApiService _mattrTokenApiService;
-private readonly BoInsuranceDbService _boInsuranceDbService;
-private readonly MattrConfiguration _mattrConfiguration;
-
-public MattrPresentationTemplateService(IHttpClientFactory clientFactory,
-	IOptions&lt;MattrConfiguration&gt; mattrConfiguration,
-	MattrTokenApiService mattrTokenApiService,
-	BoInsuranceDbService boInsuranceDbService)
-{
-	_clientFactory = clientFactory;
-	_mattrTokenApiService = mattrTokenApiService;
-	_boInsuranceDbService = boInsuranceDbService;
-	_mattrConfiguration = mattrConfiguration.Value;
-}
-
-public async Task&lt;string&gt; CreatePresentationTemplateId(string didId)
-{
-	// create a new one
-	var v1PresentationTemplateResponse = await CreateMattrPresentationTemplate(didId);
-
-	// save to db
-	var drivingLicensePresentationTemplate = new DrivingLicensePresentationTemplate
-	{
-		DidId = didId,
-		TemplateId = v1PresentationTemplateResponse.Id,
-		MattrPresentationTemplateReponse = JsonConvert
-			.SerializeObject(v1PresentationTemplateResponse)
-	};
-	await _boInsuranceDbService
-		.CreateDriverLicensePresentationTemplate(drivingLicensePresentationTemplate);
-
-	return v1PresentationTemplateResponse.Id;
-}
-
-private async Task&lt;V1_PresentationTemplateResponse&gt; CreateMattrPresentationTemplate(string didId)
-{
-	HttpClient client = _clientFactory.CreateClient();
-	var accessToken = await _mattrTokenApiService.GetApiToken(client, "mattrAccessToken");
-
-	client.DefaultRequestHeaders.Authorization =
-		new AuthenticationHeaderValue("Bearer", accessToken);
-	client.DefaultRequestHeaders.TryAddWithoutValidation("Content-Type", "application/json");
-
-	var v1PresentationTemplateResponse = await CreateMattrPresentationTemplate(client, didId);
-	return v1PresentationTemplateResponse;
-}
-  
-
-
-<p>The CreateMattrPresentationTemplate method sends the HTTP Post request like in the MATTR API documentation. Creating the payload for the HTTP post request using the MATTR Open API definitions is a small bit complicated.  This could be improved with a better Open API definition. In our use case, we just want to create the default template for the OIDC credential issuer and so just require the DID Id.  Most of the other properties are fixed values, see the MATTR API docs for more information.</p>
-
-
-  private async Task&lt;V1_PresentationTemplateResponse&gt; CreateMattrPresentationTemplate(
-	HttpClient client, string didId)
-{
-	// create presentation, post to presentations templates api
-	// https://learn.mattr.global/tutorials/verify/presentation-request-template
-
-	var createPresentationsTemplatesUrl = $"https://{_mattrConfiguration.TenantSubdomain}/v1/presentations/templates";
-
-	var additionalProperties = new Dictionary&lt;string, object&gt;();
-	additionalProperties.Add("type", "QueryByExample");
-	additionalProperties.Add("credentialQuery", new List&lt;CredentialQuery&gt; {
-		new CredentialQuery
-		{
-			Reason = "Please provide your driving license",
-			Required = true,
-			Example = new Example
-			{
-				Context = new List&lt;object&gt;{ "https://schema.org" },
-				Type = "VerifiableCredential",
-				TrustedIssuer = new List&lt;TrustedIssuer2&gt;
-				{
-					new TrustedIssuer2
-					{
-						Required = true,
-						Issuer = didId // DID use to create the oidc
-					}
-				}
-			}
-		}
-	});
-
-	var payload = new MattrOpenApiClient.V1_CreatePresentationTemplate
-	{
-		Domain = _mattrConfiguration.TenantSubdomain,
-		Name = "certificate-presentation",
-		Query = new List&lt;Query&gt;
-		{
-			new Query
-			{
-				AdditionalProperties = additionalProperties
-			}
-		}
-	};
-
-	var payloadJson = JsonConvert.SerializeObject(payload);
-
-	var uri = new Uri(createPresentationsTemplatesUrl);
-
-	using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
-	{
-		var presentationTemplateResponse = await client.PostAsync(uri, content);
-
-		if (presentationTemplateResponse.StatusCode == System.Net.HttpStatusCode.Created)
-		{
-
-			var v1PresentationTemplateResponse = JsonConvert
-					.DeserializeObject&lt;MattrOpenApiClient.V1_PresentationTemplateResponse&gt;(
-					await presentationTemplateResponse.Content.ReadAsStringAsync());
-
-			return v1PresentationTemplateResponse;
-		}
-
-		var error = await presentationTemplateResponse.Content.ReadAsStringAsync();
-
-	}
-
-	throw new Exception("whoops something went wrong");
-}
-  
-
-
-<p>The application can be started and the presentation template can be created. The ID is returned back to the UI for the next step.</p>
-
-
-
-
-
-
-
-<p>Verify the verifiable credentials</p>
-
-
-
-<p>Now that a template exists to request the verifiable data from the holder of the data which is normally stored in a digital wallet, the verifier application can create and start a verification process. A post request is sent to the MATTR APIs which creates a presentation request using a DID ID and the required template. The application can request the DID from the OIDC credential issuer. The request is signed using the correct key from the DID and the request is published in the UI as a QR Code. A digital wallet is used to scan the code and the user of the wallet can grant consent to share the personal data. The wallet sends a HTTP post request to the callback API. This API handles the request, would validate the data and updates the UI using SignalR to move to the next step of the business process using the verified data.</p>
-
-
-
-
-
-
-
-<p>Step 1 Invoke a presentation request</p>
-
-
-
-<p>The InvokePresentationRequest method implements the presentation request. This method requires the DID Id of the OIDC credential issuer which will by used to get the data from the holder of the data. The template ID is also required from the template created above. A challenge is also used to track the verification. The challenge is a random value and is used when the digital wallet calls the API with the verified data. The callback URL is where the data is returned to. This could be unique for every request or anything you want. The payload is created like the docs from the MATTR API defines.  The post request is sent to the MATTR API and a V1_CreatePresentationRequestResponse is returned if all is configured correctly.</p>
-
-
-  private async Task&lt;V1_CreatePresentationRequestResponse&gt; InvokePresentationRequest(
-	HttpClient client,
-	string didId,
-	string templateId,
-	string challenge,
-	string callbackUrl)
-{
-	var createDidUrl = $"https://{_mattrConfiguration.TenantSubdomain}/v1/presentations/requests";
-
-	var payload = new MattrOpenApiClient.V1_CreatePresentationRequestRequest
-	{
-		Did = didId,
-		TemplateId = templateId,
-		Challenge = challenge,
-		CallbackUrl = new Uri(callbackUrl),
-		ExpiresTime = MATTR_EPOCH_EXPIRES_TIME_VERIFIY // Epoch time
-	};
-	var payloadJson = JsonConvert.SerializeObject(payload);
-	var uri = new Uri(createDidUrl);
-
-	using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
-	{
-		var response = await client.PostAsync(uri, content);
-
-		if (response.StatusCode == System.Net.HttpStatusCode.Created)
-		{
-			var v1CreatePresentationRequestResponse = JsonConvert
-				.DeserializeObject&lt;V1_CreatePresentationRequestResponse&gt;(
-					await response.Content.ReadAsStringAsync());
-
-			return v1CreatePresentationRequestResponse;
-		}
-
-		var error = await response.Content.ReadAsStringAsync();
-	}
-
-	return null;
-}
-  
-
-
-<p>Step 2 Get the OIDC Issuer DID</p>
-
-
-
-<p>The RequestDID method uses the MATTR API to get the DID data from the blochchain for the OIDC credential issuer. Only the DID Id is required.</p>
-
-
-  private async Task&lt;V1_GetDidResponse&gt; RequestDID(string didId, HttpClient client)
-{
-	var requestUrl = $"https://{_mattrConfiguration.TenantSubdomain}/core/v1/dids/{didId}";
-	var uri = new Uri(requestUrl);
-
-	var didResponse = await client.GetAsync(uri);
-
-	if (didResponse.StatusCode == System.Net.HttpStatusCode.OK)
-	{
-		var v1CreateDidResponse = JsonConvert.DeserializeObject&lt;V1_GetDidResponse&gt;(
-				await didResponse.Content.ReadAsStringAsync());
-
-		return v1CreateDidResponse;
-	}
-
-	var error = await didResponse.Content.ReadAsStringAsync();
-	return null;
-}
-  
-
-
-<p>Step 3 Sign the request using correct key and display QR Code</p>
-
-
-
-<p>To verify data using a digital wallet, the payload must be signed using the correct key. The SignAndEncodePresentationRequestBody uses the DID payload and the request from the presentation request to create the payload to sign. Creating the payload is a big messy due to the OpenAPI definitions created for the MATTR API. A HTTP post request with the payload returns the signed JWT in a payload in a strange data format so we parse this as a string and manually get the JWT payload.</p>
-
-
-  private async Task&lt;string&gt; SignAndEncodePresentationRequestBody(
-	HttpClient client,
-	V1_GetDidResponse did,
-	V1_CreatePresentationRequestResponse v1CreatePresentationRequestResponse)
-{
-	var createDidUrl = $"https://{_mattrConfiguration.TenantSubdomain}/v1/messaging/sign";
-
-	object didUrlArray;
-	did.DidDocument.AdditionalProperties.TryGetValue("authentication", out didUrlArray);
-	var didUrl = didUrlArray.ToString().Split("\"")[1];
-	var payload = new MattrOpenApiClient.SignMessageRequest
-	{
-		DidUrl = didUrl,
-		Payload = v1CreatePresentationRequestResponse.Request
-	};
-	var payloadJson = JsonConvert.SerializeObject(payload);
-	var uri = new Uri(createDidUrl);
-
-	using (var content = new StringContentWithoutCharset(payloadJson, "application/json"))
-	{
-		var response = await client.PostAsync(uri, content);
-
-		if (response.StatusCode == System.Net.HttpStatusCode.OK)
-		{
-			var result = await response.Content.ReadAsStringAsync();
-			return result;
-		}
-
-		var error = await response.Content.ReadAsStringAsync();
-	}
-
-	return null;
-}
-  
-
-
-<p>The CreateVerifyCallback method uses the presentation request, the get DID and the sign HTTP post requests to create a URL which can be displayed in a UI. The challenge is created using the RNGCryptoServiceProvider class which creates a random string. The access token to access the API is returned from the client credentials OAuth requests or from the in memory cache. The DrivingLicensePresentationVerify class is persisted to a database and the verify URL is returned so that this could be displayed as a QR Code in the UI.</p>
-
-
-  /// &lt;summary&gt;
-/// https://learn.mattr.global/tutorials/verify/using-callback/callback-e-to-e
-/// &lt;/summary&gt;
-/// &lt;param name="callbackBaseUrl"&gt;&lt;/param&gt;
-/// &lt;returns&gt;&lt;/returns&gt;
-public async Task&lt;(string QrCodeUrl, string ChallengeId)&gt; CreateVerifyCallback(string callbackBaseUrl)
-{
-	callbackBaseUrl = callbackBaseUrl.Trim();
-	if (!callbackBaseUrl.EndsWith('/'))
-	{
-		callbackBaseUrl = $"{callbackBaseUrl}/";
-	}
-
-	var callbackUrlFull = $"{callbackBaseUrl}{MATTR_CALLBACK_VERIFY_PATH}";
-	var challenge = GetEncodedRandomString();
-
-	HttpClient client = _clientFactory.CreateClient();
-	var accessToken = await _mattrTokenApiService.GetApiToken(client, "mattrAccessToken");
-
-	client.DefaultRequestHeaders.Authorization =
-		new AuthenticationHeaderValue("Bearer", accessToken);
-	client.DefaultRequestHeaders.TryAddWithoutValidation("Content-Type", "application/json");
-
-	var template = await _boInsuranceDbService.GetLastDriverLicensePrsentationTemplate();
-
-	// Invoke the Presentation Request
-	var invokePresentationResponse = await InvokePresentationRequest(
-		client,
-		template.DidId,
-		template.TemplateId,
-		challenge,
-		callbackUrlFull);
-
-	// Request DID 
-	V1_GetDidResponse did = await RequestDID(template.DidId, client);
-
-	// Sign and Encode the Presentation Request body
-	var signAndEncodePresentationRequestBodyResponse = await SignAndEncodePresentationRequestBody(
-		client, did, invokePresentationResponse);
-
-	// fix strange DTO
-	var jws = signAndEncodePresentationRequestBodyResponse.Replace("\"", "");
-
-	// save to db // TODO add this back once working
-	var drivingLicensePresentationVerify = new DrivingLicensePresentationVerify
-	{
-		DidId = template.DidId,
-		TemplateId = template.TemplateId,
-		CallbackUrl = callbackUrlFull,
-		Challenge = challenge,
-		InvokePresentationResponse = JsonConvert.SerializeObject(invokePresentationResponse),
-		Did = JsonConvert.SerializeObject(did),
-		SignAndEncodePresentationRequestBody = jws
-	};
-	await _boInsuranceDbService.CreateDrivingLicensePresentationVerify(drivingLicensePresentationVerify);
-
-	var qrCodeUrl = $"didcomm://https://{_mattrConfiguration.TenantSubdomain}/?request={jws}";
-
-	return (qrCodeUrl, challenge);
-}
-
-private string GetEncodedRandomString()
-{
-	var base64 = Convert.ToBase64String(GenerateRandomBytes(30));
-	return HtmlEncoder.Default.Encode(base64);
-}
-
-private byte[] GenerateRandomBytes(int length)
-{
-	using var randonNumberGen = new RNGCryptoServiceProvider();
-	var byteArray = new byte[length];
-	randonNumberGen.GetBytes(byteArray);
-	return byteArray;
-}
-  
-
-
-<p>The CreateVerifierDisplayQrCodeModel is the code behind for the Razor page to request a verification and also display the verify QR Code for the digital wallet to scan. The CallbackUrl can be set from the UI so that this is easier for testing. This callback can be any webhook you want or API. To test the application in local development, I used ngrok. The return URL has to match the proxy which tunnels to you PC, once you start. If the API has no public address when debugging, you will not be able to test locally.</p>
-
-
-  public class CreateVerifierDisplayQrCodeModel : PageModel
-{
-	private readonly MattrCredentialVerifyCallbackService _mattrCredentialVerifyCallbackService;
-	public bool CreatingVerifier { get; set; } = true;
-	public string QrCodeUrl { get; set; }
-
-	[BindProperty]
-	public string ChallengeId { get; set; }
-
-	[BindProperty]
-	public CreateVerifierDisplayQrCodeCallbackUrl CallbackUrlDto { get; set; }
-	public CreateVerifierDisplayQrCodeModel(MattrCredentialVerifyCallbackService 
-		mattrCredentialVerifyCallbackService)
-	{
-		_mattrCredentialVerifyCallbackService = mattrCredentialVerifyCallbackService;
-	}
-	public void OnGet()
-	{
-		CallbackUrlDto = new CreateVerifierDisplayQrCodeCallbackUrl();
-		CallbackUrlDto.CallbackUrl = $"https://{HttpContext.Request.Host.Value}";
-	}
-
-	public async Task&lt;IActionResult&gt; OnPostAsync()
-	{
-		if (!ModelState.IsValid)
-		{
-			return Page();
-		}
-
-		var result = await _mattrCredentialVerifyCallbackService
-			.CreateVerifyCallback(CallbackUrlDto.CallbackUrl);
-
-		CreatingVerifier = false;
-
-		QrCodeUrl = result.QrCodeUrl;
-		ChallengeId = result.ChallengeId;
-		return Page();
-	}
-}
-
-public class CreateVerifierDisplayQrCodeCallbackUrl
-{
-	[Required]
-	public string CallbackUrl { get; set; }
-}
-  
-
-
-<p>The html or template part of the Razor page displays the QR Code from a successful post request. You can set any URL for the callback in the form request. This is really just for testing.</p>
-
-
-  @page
-@model BoInsurance.Pages.CreateVerifierDisplayQrCodeModel
-
-&lt;div class="container-fluid"&gt;
-    &lt;div class="row"&gt;
-        &lt;div class="col-sm"&gt;
-            &lt;form method="post"&gt;
-                &lt;div&gt;
-                    &lt;div class="form-group"&gt;
-                        &lt;label class="control-label"&gt;Callback base URL (ngrok in debug...)&lt;/label&gt;
-                        &lt;input asp-for="CallbackUrlDto.CallbackUrl" class="form-control" /&gt;
-                        &lt;span asp-validation-for="CallbackUrlDto.CallbackUrl" class="text-danger"&gt;&lt;/span&gt;
-                    &lt;/div&gt;
-                    &lt;div class="form-group"&gt;
-                        @if (Model.CreatingVerifier)
-                        {
-                            &lt;input class="form-control"
-                                   type="submit" readonly="@Model.CreatingVerifier"
-                                   value="Create Verification" /&gt;
-                        }
-
-                    &lt;/div&gt;
-                    &lt;div class="form-group"&gt;
-                        @if (!Model.CreatingVerifier)
-                        {
-                            &lt;div class="alert alert-success"&gt;
-                                &lt;strong&gt;Ready to verify&lt;/strong&gt;
-                            &lt;/div&gt;
-                        }
-                    &lt;/div&gt;
-                &lt;/div&gt;
-            &lt;/form&gt;
-            &lt;hr /&gt;
-            &lt;p&gt;When the verification is created, you can scan the QR Code to verify&lt;/p&gt;
-        &lt;/div&gt;
-        &lt;div class="col-sm"&gt;
-            &lt;div&gt;
-                &lt;img src="~/ndl_car_01.png" width="200" alt="Driver License"&gt;
-            &lt;/div&gt;
-        &lt;/div&gt;
-    &lt;/div&gt;
-    &lt;div class="row"&gt;
-        &lt;div class="col-sm"&gt;
-            &lt;div class="qr" id="qrCode"&gt;&lt;/div&gt;
-            &lt;input asp-for="ChallengeId" hidden/&gt;
-        &lt;/div&gt;
-    &lt;/div&gt;
-&lt;/div&gt;
-
-@section scripts {
-&lt;script src="~/js/qrcode.min.js"&gt;&lt;/script&gt;
-&lt;script type="text/javascript"&gt;
-    new QRCode(document.getElementById("qrCode"),
-    {
-        text: "@Html.Raw(Model.QrCodeUrl)",
-        width: 400,
-        height: 400,
-        correctLevel: QRCode.CorrectLevel.M
-    });
-
-    $(document).ready(() =&gt; {
- 
-    });
-
-    var connection = new signalR.HubConnectionBuilder().withUrl("/mattrVerifiedSuccessHub").build();
-
-    connection.on("MattrCallbackSuccess", function (challengeId) {
-        console.log("received verification:" + challengeId);
-        window.location.href = "/VerifiedUser?challengeid=" + challengeId;
-    });
-
-    connection.start().then(function () {
-        //console.log(connection.connectionId);
-        const challengeId = $("#ChallengeId").val();
-        
-        if (challengeId) {
-            console.log(challengeId);
-            // join message
-            connection.invoke("AddChallenge", challengeId, connection.connectionId).catch(function (err) {
-                return console.error(err.toString());
-            });
-        }
-    }).catch(function (err) {
-        return console.error(err.toString());
-    });
-&lt;/script&gt;
-}
-
-  
-
-
-<p>Step 4 Implement the Callback and update the UI using SignalR</p>
-
-
-
-<p>After a successful verification in the digital wallet, the wallet sends the verified credentials to the API defined in the presentation request. The API handling this needs to update the correct client UI and continue the business process using the verified data. We use SignalR for this with a single client to client connection. The Signal connections for each connection is associated with a challenge ID, the same Id we used to create the presentation request. Using this, only the correct client will be notified and not all clients broadcasted. The DrivingLicenseCallback takes the body with is specific for the credentials you issued. This is always depending on what you request. The data is saved to a database and the client is informed to continue. We send a message directly to the correct client using the connectionId of the SignalR session created for this challenge.</p>
-
-
-  [ApiController]
-[Route("api/[controller]")]
-public class VerificationController : Controller
-{
-	private readonly BoInsuranceDbService _boInsuranceDbService;
-
-	private readonly IHubContext&lt;MattrVerifiedSuccessHub&gt; _hubContext;
-
-	public VerificationController(BoInsuranceDbService boInsuranceDbService,
-		IHubContext&lt;MattrVerifiedSuccessHub&gt; hubContext)
-	{
-		_hubContext = hubContext;
-		_boInsuranceDbService = boInsuranceDbService;
-	}
-
-	/// &lt;summary&gt;
-	/// {
-	///  "presentationType": "QueryByExample",
-	///  "challengeId": "GW8FGpP6jhFrl37yQZIM6w",
-	///  "claims": {
-	///      "id": "did:key:z6MkfxQU7dy8eKxyHpG267FV23agZQu9zmokd8BprepfHALi",
-	///      "name": "Chris",
-	///      "firstName": "Shin",
-	///      "licenseType": "Certificate Name",
-	///      "dateOfBirth": "some data",
-	///      "licenseIssuedAt": "dda"
-	///  },
-	///  "verified": true,
-	///  "holder": "did:key:z6MkgmEkNM32vyFeMXcQA7AfQDznu47qHCZpy2AYH2Dtdu1d"
-	/// }
-	/// &lt;/summary&gt;
-	/// &lt;param name="body"&gt;&lt;/param&gt;
-	/// &lt;returns&gt;&lt;/returns&gt;
-	[HttpPost]
-	[Route("[action]")]
-	public async Task&lt;IActionResult&gt; DrivingLicenseCallback([FromBody] VerifiedDriverLicense body)
-	{
-		string connectionId;
-		var found = MattrVerifiedSuccessHub.Challenges
-			.TryGetValue(body.ChallengeId, out connectionId);
-
-		// test Signalr
-		//await _hubContext.Clients.Client(connectionId).SendAsync("MattrCallbackSuccess", $"{body.ChallengeId}");
-		//return Ok();
-
-		var exists = await _boInsuranceDbService.ChallengeExists(body.ChallengeId);
-
-		if (exists)
-		{
-			await _boInsuranceDbService.PersistVerification(body);
-
-			if (found)
-			{
-				//$"/VerifiedUser?challengeid={body.ChallengeId}"
-				await _hubContext.Clients
-					.Client(connectionId)
-					.SendAsync("MattrCallbackSuccess", $"{body.ChallengeId}");
-			}
-
-			return Ok();
-		}
-
-		return BadRequest("unknown verify request");
-	}
-}
-  
-
-
-<p>The SignalR server is configured in the Startup class of the ASP.NET Core application. The path for the hub is defined in the MapHub method.</p>
-
-
-  public void ConfigureServices(IServiceCollection services)
-{
-	// ...
-	
-	services.AddRazorPages();
-	services.AddSignalR();
-	services.AddControllers();
-}
-
-public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
-{
-	// ...
-
-	app.UseEndpoints(endpoints =&gt;
-	{
-		endpoints.MapRazorPages();
-		endpoints.MapHub&lt;MattrVerifiedSuccessHub&gt;("/mattrVerifiedSuccessHub");
-		endpoints.MapControllers();
-	});
-}
-  
-
-
-<p>The Hub implementation requires only one fixed method. The AddChallenge method takes the challenge Id and adds this the an in-memory cache. The controller implemented for the callbacks uses this ConcurrentDictionary to find the correct connectionId which is mapped to the challenges form the verification.</p>
-
-
-  public class MattrVerifiedSuccessHub : Hub
-{
-	/// &lt;summary&gt;
-	/// This should be replaced with a cache which expires or something
-	/// &lt;/summary&gt;
-	public static readonly ConcurrentDictionary&lt;string, string&gt; Challenges 
-		= new ConcurrentDictionary&lt;string, string&gt;();
-
-	public void AddChallenge(string challengeId, string connnectionId)
-	{
-		Challenges.TryAdd(challengeId, connnectionId);
-	}
-
-}
-  
-
-
-<p>The Javascript SignalR client in the browser connects to the SignalR server and registers the connectionId with the challenge ID used for the verification of the verifiable credentials from the holder of the digital wallet. If a client gets a message from that a verify has completed successfully and the callback has been called, it will redirect to the verified page. The client listens to the MattrCallbackSuccess for messages. These messages are sent from the callback controller directly.</p>
-
-
-  &lt;script type="text/javascript"&gt;
-    
-    var connection = new signalR.HubConnectionBuilder()
-		.withUrl("/mattrVerifiedSuccessHub").build();
-
-    connection.on("MattrCallbackSuccess", function (challengeId) {
-        console.log("received verification:" + challengeId);
-        window.location.href = "/VerifiedUser?challengeid=" + challengeId;
-    });
-
-    connection.start().then(function () {
-        //console.log(connection.connectionId);
-        const challengeId = $("#ChallengeId").val();
-        
-        if (challengeId) {
-            console.log(challengeId);
-            // join message
-            connection.invoke("AddChallenge", challengeId, 
-				connection.connectionId).catch(function (err) {
-                return console.error(err.toString());
-            });
-        }
-    }).catch(function (err) {
-        return console.error(err.toString());
-    });
-&lt;/script&gt;
-  
-
-
-<p>The VerifiedUserModel Razor page displays the data and the business process can continue using the verified data. </p>
-
-
-  public class VerifiedUserModel : PageModel
-{
-	private readonly BoInsuranceDbService _boInsuranceDbService;
-
-	public VerifiedUserModel(BoInsuranceDbService boInsuranceDbService)
-	{
-		_boInsuranceDbService = boInsuranceDbService;
-	}
-
-	public string ChallengeId { get; set; }
-	public DriverLicenseClaimsDto VerifiedDriverLicenseClaims { get; private set; }
-
-	public async Task OnGetAsync(string challengeId)
-	{
-		// user query param to get challenge id and display data
-		if (challengeId != null)
-		{
-			var verifiedDriverLicenseUser = await _boInsuranceDbService.GetVerifiedUser(challengeId);
-			VerifiedDriverLicenseClaims = new DriverLicenseClaimsDto
-			{
-				DateOfBirth = verifiedDriverLicenseUser.DateOfBirth,
-				Name = verifiedDriverLicenseUser.Name,
-				LicenseType = verifiedDriverLicenseUser.LicenseType,
-				FirstName = verifiedDriverLicenseUser.FirstName,
-				LicenseIssuedAt = verifiedDriverLicenseUser.LicenseIssuedAt
-			};
-		}
-	}
-}
-
-public class DriverLicenseClaimsDto
-{
-	public string Name { get; set; }
-	public string FirstName { get; set; }
-	public string LicenseType { get; set; }
-	public string DateOfBirth { get; set; }
-	public string LicenseIssuedAt { get; set; }
-}
-  
-
-
-<p>Running the  verifier</p>
-
-
-
-<p>To test the BoInsurance application locally, which is the verifier application, ngrok is used so that we have a public address for the callback. I install ngrok using npm. Without a license, you can only run your application in http.</p>
-
-
-  npm install -g ngrok
-  
-
-
-<p>Run the ngrok from the command line using the the URL of the application. I start the ASP.NET Core application at localhost port 5000. </p>
-
-
-  ngrok http localhost:5000
-  
-
-
-<p>You should be able to copied the ngrok URL and use this in the browser to test the verification.</p>
-
-
-
-
-
-
-
-<p>Once running, a verification can be created and you can scan the QR Code with your digital wallet. Once you grant access to your data, the data is sent to the callback API and the UI will be redirected to the success page.</p>
-
-
-
-
-
-
-
-<p>Notes</p>
-
-
-
-<p>MATTR APIs work really well and support some of the flows for digital identities. I plan to try out the zero proof flow next. It is only possible to create verifiable credentials from data from your identity provider using the id_token. To issue credentials, you have to implement your own identity provider and cannot use business data from your application. If you have full control like with Openiddict, IdenityServer4 or Auth0, this is no problem, just more complicated to implement. If you do not control the data in your identity provider, you would need to create a second identity provider to issue credentials. This is part of your business logic then and not just an identity provider. This will always be a problem is using Azure AD or IDPs from large, medium size companies. The quality of the verifiable credentials also depend on how good the OIDC credential issuers are implemented as these are still central databases for these credentials and are still open to all the problems we have today. Decentralized identities have to potential to solve many problems but still have many unsolved problems.  </p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://mattr.global/">https://mattr.global/</a></p>
-
-
-
-<p><a href="https://learn.mattr.global/tutorials/verify/using-callback/callback-e-to-e">https://learn.mattr.global/tutorials/verify/using-callback/callback-e-to-e</a></p>
-
-
-
-<p><a href="https://mattr.global/get-started/">https://mattr.global/get-started/</a></p>
-
-
-
-<p><a href="https://learn.mattr.global/">https://learn.mattr.global/</a></p>
-
-
-
-<p><a href="https://keybase.io/">https://keybase.io/</a></p>
-
-
-
- 
-  
- 
-
-
-
-<p><a href="https://learn.mattr.global/tutorials/dids/did-key">https://learn.mattr.global/tutorials/dids/did-key</a></p>
-
-
-
-<p><a href="https://gunnarpeipman.com/httpclient-remove-charset/">https://gunnarpeipman.com/httpclient-remove-charset/</a></p>
-
-
-
-<p><a href="https://auth0.com/">https://auth0.com/</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/04/mattr_verify_vc_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:04 &bull;
    3 months ago
 </div>
 
