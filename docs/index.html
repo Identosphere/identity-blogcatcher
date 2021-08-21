@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 10:43 AM August 21, 2021 (UTC)</sup>
+<sup>Last Update 3:47 PM August 21, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,417 @@
  <h2 class='new-date'>
   Saturday, 21. August 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2021/08/21/postgres-functional-style/'>Postgres functional style</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  My dual premises in this series are: – Modern SQL is more valuable as a programming language than you might think (see Markus Winand’s Modern SQL: A lot has changed since SQL-92) – Postgres is more valuable as a programming environment than you might think. (see R0ml Lefkowitz’s The Image of Postgres) As the patron … Continue reading Postgres functional style
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>My dual premises in this series are:</p>
+<p>– Modern SQL is more valuable as a programming language than you might think (see Markus Winand’s <a href="https://www.youtube.com/watch?v=xEDZQtAHpX8">Modern SQL: A lot has changed since SQL-92</a>)</p>
+<p>– Postgres is more valuable as a programming environment than you might think. (see R0ml Lefkowitz’s <a href="https://blog.jonudell.net/2021/01/24/the-image-of-postgres/">The Image of Postgres</a>)</p>
+<p>As the patron saint of trailing edge technology it is my duty to explore what’s possible at the intersection of these two premises. The topic for this episode is Postgres functional style. Clearly what I’ve been doing with the combo of pl/python and pl/pgsql is very far from pure functional programming. The self-memoization technique shown in <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/What%20I%20showed">episode 7</a> is all about mutating state (ed: this means writing stuff down somewhere). But it feels functional to me in the broader sense that I’m using functions to orchestrate behavior that’s expressed in terms of SQL queries.</p>
+<p>To help explain what I mean, I’m going to unpack one of the Postgres functions in our library. </p>
+ count_of_distinct_lms_students_from_to(_guid text, _from date, _to date)
+ 
+<p>This is a function that accepts a school id (aka guid), a start date, and an end date. Its job is to:</p>
+<p>– Find all the courses (groups) for that school (guid)</p>
+<p>– Filter to those created between the start and end date</p>
+<p>– Find all the users in the filtered set of courses</p>
+<p>– Filter to just students (i.e. omit instructors)</p>
+<p>– Remove duplicate students (i.e., who are in more than one course)</p>
+<p>– Return the count of distinct students at the school who annotated in the date range</p>
+<p>The production database doesn’t yet store things in ways friendly to this outcome, so doing all this requires some heavy lifting in the analytics data warehouse. Here’s the function that orchestrates that work.</p>
+ create function count_of_distinct_lms_students_from_to(_guid text, _from date, _to date) 
+  returns bigint as $$
+  declare count bigint;
+  begin
+ 1  -- all groups active for the guid in the date range
+ 2  with groups as (
+ 3    select pubid from groups_for_guid(_guid)
+ 4    where group_is_active_from_to(pubid, _from, _to)
+ 5  ),
+ 6  -- usernames in those groups
+ 7  usernames_by_course as (
+ 8    select
+ 9      pubid,
+10      (users_in_group(pubid)).username 
+11  from groups 
+12  ),
+13  -- filtered to just students
+14  students_by_course as (
+15    select * from usernames_by_course
+16    where not is_instructor(username, pubid)
+17  )
+18  select 
+19    count (distinct username) 
+20  from students_by_course
+    into count;
+    return count;
+  end;
+$$ language plpgsql;
+ 
+<p>If you think pl/pgsql is old and clunky, then you are welcome to do this in pl/python instead. There’s negligible difference between how they’re written and how fast they run. It’s the same chunk of SQL either way, and it exemplifies the functional style I’m about to describe. </p>
+<p>Two kinds of chunking work together here: CTEs (aka common table expressions, aka WITH clauses) and functions. If you’ve not worked with SQL for a long time, as I hadn’t, then CTEs may be unfamiliar. I think of them as pipelines of table transformations in which each stage of the pipeline gets a name. In this example those names are groups (line 2), usernames_by_course (line 7), and students_by_course (line 14). </p>
+<p>The pipeline phases aren’t functions that accept parameters, but I still think of them as being function-like in the sense that they encapsulate named chunks of behavior. The style I’ve settled into aims to make each phase of the pipeline responsible for a single idea (“groups active in the range”, “usernames in those groups”), and to express that idea in a short snippet of SQL. </p>
+<p>As I’m developing one of these pipelines, I test each phase. To test the first phase, for example, I’d do this in psql or Metabase.</p>
+ -- all groups active for the guid in the date range
+with groups as (
+  select pubid from groups_for_guid('8anU0QwbgC2Cq:canvas-lms')
+  where group_is_active_from_to(pubid, _from, _to)
+)
+select * from groups;
+ 
+<p>And I’d spot-check to make sure the selected groups for that school really are in the date range. Then I’d check the next phase.</p>
+ -- all groups active for the guid in the date range
+with groups as (
+),
+-- usernames in those groups
+usernames_by_course as (
+  select
+    pubid,
+    (users_in_group(pubid)).username 
+  from groups 
+)
+select * from usernames_by_course;
+ 
+<p>After another sanity check against these results, I’d continue to the next phase, and eventually arrive at the final result. It’s the same approach I take with regular expressions. I am unable to visualize everything that’s happening in a complex regex. But I can reason effectively about a pipeline of matches that occur in easier-to-understand named steps.</p>
+<p>Ideally each phase in one of these pipelines requires just a handful of lines of code: few enough to fit within the 7 +- 2 limit of working memory. Postgres functions make that possible. Here are the functions used in this 20-line chunk of SQL.</p>
+<p>– groups_for_guid(guid): Returns a table of course ids for a school.</p>
+<p>– group_is_active_from_to(pubid, _from, _to): Returns true if the group was created in the range.</p>
+<p>– users_in_group(pubid): Returns a table of user info for a course.</p>
+<p>– is_instructor(username, pubid): Returns true if that user is an instructor.</p>
+<p>Two of these, groups_for_guid and users_in_group, are set-returning functions. As noted in <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">Working with Postgres types</a>, they have the option of returning an explicit Postgres type defined elsewhere, or an implicit Postgres type defined inline. As it happens, both do the latter.</p>
+ create or replace function groups_for_guid(_guid text)
+  returns table(
+    pubid text
+  ) as $$
+ 
+ create or replace function users_in_group (_pubid text)
+  returns table (
+    groupid text, 
+    username text, 
+    display_name text
+  ) as $$
+ 
+<p>The other two, group_is_active_from_to and is_instructor, return boolean values.</p>
+<p>All this feels highly readable to me now, but the syntax of line 10 took quite a while to sink in. It helps me to look at what users_in_group(pubid) does in a SELECT context.</p>
+ select * from users_in_group('4VzA92Yy')
+
+groupid   | username    | display_name
+----------+-------------+----------------
+4VzA92Yy  | 39vA94AsQp  | Brendan Nadeau
+ 
+<p>Here is an alternate way to write the usernames_by_course CTE at line 7.</p>
+ -- usernames in those groups
+usernames_by_course as (
+  select
+    g.pubid,
+    u.username
+from groups g 
+join users_in_group(g.pubid) u on g.pubid = u.groupid
+)
+select * from usernames_by_course;
+ 
+<p>Both do exactly the same thing in very close to the same amount of time. Having mixed the two styles I’m leaning toward the first, but you could go either way or both. What matters more is the mental leverage you wield when writing CTEs and functions together to compose pipelines of transformations, and that others wield when reading and debugging.</p>
+<p>I hope I’ve made the case for writing and reading. There’s a case to be made for debugging too, but that’s another episode.</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
+2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
+3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
+6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:35 &bull;
+   15 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2021/11-assertions-about-blockchain'>11 assertions about blockchain</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+    Proof-of-work is a disaster. There’s no way to couch it; arguments about it providing economic incentives for renewable energy are cognitive dissonance at best. Proof-of-work blockchains have the environmental footprint of a small country. Bitcoin could raise global temperatures by two degrees over the next decade all on its own. There is no valid argument for that being acceptable - or neces
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://werd.io/file/612119c6c0bae02082594c52/thumb.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+<p></p>  Proof-of-work is a disaster. There’s no way to couch it; arguments about it providing economic incentives for renewable energy <a href="https://medium.com/crypto-lucid/even-running-100-on-renewables-bitcoin-would-still-be-a-disaster-df3e09c16595">are cognitive dissonance at best</a>. Proof-of-work blockchains have the environmental footprint of a small country. Bitcoin <a href="https://science.howstuffworks.com/environmental/conservation/issues/cryptocurrency-climate-change-news.htm">could raise global temperatures by two degrees over the next decade</a> all on its own. There is no valid argument for that being acceptable - or necessary.<br><br> 
+ Not all blockchains are terrible. <a href="https://www.algorand.com/">Algorand</a> could <a href="https://algorand.foundation/news/carbon-neutral">be considered to be carbon-negative</a> if you accept that carbon offsets are effective (<a href="https://www.greenpeace.org.uk/news/the-biggest-problem-with-carbon-offsetting-is-that-it-doesnt-really-work/">I don’t</a>). Still, it’s got a very low footprint. Proof-of-stake chains have a much lower impact; <a href="https://money.usnews.com/investing/cryptocurrency/articles/what-is-proof-of-stake-and-why-is-ethereum-adopting-it">Ethereum is a high profile example</a> of one that’s making the change. But, of course, <a href="https://www.rollingstone.com/culture/culture-features/nfts-crypto-environmental-global-warming-proof-of-stake-blockchain-1194402/">it should have happened faster</a>.<br><br> 
+ The financialization of everything sucks. The instinct to put everything on-chain is a horrible idea that undermines social contracts in favor of free markets. In its worst embodiments, it’s a hardcore conservative libertarian’s wet dream. To have value, something doesn’t need to have financial value. Social contracts, representative democracy, social programs, and welfare all have immeasurable social value that should not be replaced with a Decentralized Autonomous Organization or anything else. Not to mention creating art for the sake of art, or community spaces for the sake of community. We don’t have to - and shouldn’t - make everything into a market.<br><br> 
+ But putting some resources on-chain isn’t bad. A rough rule of thumb for me: if the current gatekeeper for a resource is a wealth silo (giant corporation, wealthy individual) then it’s a prime candidate for replacement by a decentralized mechanism. Once again for the conservative libertarians: <a href="https://plato.stanford.edu/entries/democracy/">our democratically-elected government represents us and our interests</a>, so government-run programs are not candidates for this.<br><br> 
+ Too many projects use an “if we built it they will come” mentality. I once saw a crypto investor tell an audience that he likes crypto projects to find an audience for their work in year two or three. That’s bonkers. As with every other software project - or every project - you need to validate the need and the users on day one. Otherwise you’re playing a very risky game, probably with other people’s money. It’s fun to pretend that you’re smarter than everyone else and can make something amazing without outside input, but it’s also highly unlikely.<br><br> 
+ And most of them are near-impossible to use. Using web3 projects is a horrible, archaic user experience. Centralized exchanges like Coinbase are far easier to use than decentralized exchanges for almost everyone, and unless someone comes up with the equivalent of Netscape Navigator (the first truly usable web browser), centralized services will always be the gateway to blockchain tech for most people.<br><br> 
+ Crypto may threaten to replace reserve currencies. The dollar has been used as a reserve currency for decades, <a href="https://www.coindesk.com/dollar-reserve-currency-yuan-bitcoin-central-banks">but the ease of cross-border trade with cryptocurrencies</a> may unseat it. Countries like China and El Salvador seem to be betting on this. It’s not obvious to me that a truly-decentralized currency replacing the dollar is a bad thing; but of course, not every cryptocurrency is truly decentralized. Even the likes of Bitcoin aren’t if a single entity controls enough of the miners.<br><br> 
+ Crypto is transforming global trade on a local level (which is great). I’m personally aware of freelancers in countries like Colombia being paid in crypto rather than USD or local currency. Vietnam, India, and Pakistan <a href="https://www.cnbc.com/2021/08/18/new-cryptocurrency-bitcoin-user-global-map.html">lead global adoption</a>. I think this is a really positive change that could have a major impact on traditional global power hierarchies.<br><br> 
+ Some incumbents won’t go down without a fight. Both the empowerment of individuals in the global south and the upending of reserve currency structures will be major issues over the next decade or so. It’s the kind of change that has the potential to start wars. And at the very least, there are plenty of interests locked up in the traditional financial system that will do what they can to preserve their wealth.<br><br> 
+ Free markets tend not to protect the vulnerable - and we can’t afford to not. We need mechanisms to mitigate climate change, to empower people who live in poverty, to support social goods like education and public health, and to ensure that everyone has the opportunity to lead a prosperous, good life in health and safety. Those things need to be dealt with intentionally.<br><br> 
+ We need to be wary of crypto-libertarians. We need to beware of people who want to replace representative democracy with a financialized system, and who want to replace social safety nets with markets. Markets and society can happily live hand in hand; one does not need to replace the other. There are lots of opportunities that come with decentralization; conservative libertarians see opportunities to remove these social protections. We should continue to build for progress, and not tear down important protections that were hard-won over generations. 
+ <p>&nbsp;</p><p>Photo by <a href="https://unsplash.com/@nasa?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText">NASA</a> on <a href="https://unsplash.com/s/photos/blockchain?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText">Unsplash</a> </p> 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://werd.io/file/612119c6c0bae02082594c52/thumb.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:20 &bull;
+   30 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.npr.org/2021/08/20/1029625793/black-lives-matter-protesters-targeted?fbclid=IwAR1waTE1D-k0hyXeoJA6rzroYUGwtveefXtYORI-lBjccNlgJAkbzRZirxE'>Feds Deliberately Targeted Black Lives Matter Protesters, A Report Says</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ "Movement leaders and experts said the prosecution of protesters over the past year continues a century-long practice by the federal government, rooted in structural racism, to suppress Black social movements via the use of surveillance tactics and other mechanisms." 
+             [Link] 
+         
+     
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>"Movement leaders and experts said the prosecution of protesters over the past year continues a century-long practice by the federal government, rooted in structural racism, to suppress Black social movements via the use of surveillance tactics and other mechanisms."</p>
+            <p>[<a href="https://www.npr.org/2021/08/20/1029625793/black-lives-matter-protesters-targeted?fbclid=IwAR1waTE1D-k0hyXeoJA6rzroYUGwtveefXtYORI-lBjccNlgJAkbzRZirxE">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:13 &bull;
+   36 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.reuters.com/world/europe/rain-falls-greenland-ice-summit-first-time-record-2021-08-20/'>Rain falls at Greenland ice summit for first time on record</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ “That meltwater is streaming into the ocean, causing sea levels to rise. Already, melting from Greenland's ice sheet --the world's second-largest after Antarctica's -- has caused around 25% of global sea level rise seen over the last few decades, scientists estimate. That share is expected to grow, as global temperatures increase.” We’re increasingly screwed. 
+             [Li
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>“That meltwater is streaming into the ocean, causing sea levels to rise. Already, melting from Greenland's ice sheet --the world's second-largest after Antarctica's -- has caused around 25% of global sea level rise seen over the last few decades, scientists estimate. That share is expected to grow, as global temperatures increase.” We’re increasingly screwed.</p>
+            <p>[<a href="https://www.reuters.com/world/europe/rain-falls-greenland-ice-summit-first-time-record-2021-08-20/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:16 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -803,7 +1214,7 @@
 
 <div class='item-footer'>
    07:08 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -874,7 +1285,7 @@
 
 <div class='item-footer'>
    06:51 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -955,7 +1366,7 @@
 
 <div class='item-footer'>
    05:56 &bull;
-   5 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1031,7 +1442,7 @@
 
 <div class='item-footer'>
    03:07 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1105,7 +1516,7 @@
 
 <div class='item-footer'>
    02:29 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1178,7 +1589,7 @@
 
 <div class='item-footer'>
    00:27 &bull;
-   10 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1262,7 +1673,7 @@
 
 <div class='item-footer'>
    00:21 &bull;
-   10 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1340,7 +1751,7 @@
 
 <div class='item-footer'>
    22:34 &bull;
-   12 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1405,7 +1816,7 @@
 
 <div class='item-footer'>
    21:49 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1472,7 +1883,7 @@
 
 <div class='item-footer'>
    21:49 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1561,7 +1972,7 @@
 
 <div class='item-footer'>
    21:35 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2852,7 +3263,7 @@
 
 <div class='item-footer'>
    20:15 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2923,7 +3334,7 @@
 
 <div class='item-footer'>
    19:57 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2988,7 +3399,7 @@
 
 <div class='item-footer'>
    19:54 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3063,7 +3474,7 @@
 
 <div class='item-footer'>
    19:52 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3229,7 +3640,8 @@ HINT:  You might need to increase max_locks_per_transaction.
 4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
-7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a></p>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
    
   
   
@@ -3240,7 +3652,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    19:14 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3866,7 +4278,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    23:01 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3930,78 +4342,6 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    20:49 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.bostonglobe.com/2021/08/15/metro/101-years-old-maine-lobsterwoman-still-works-water/'>‘It’s not hard work for me’: At 101 years old, this Maine lobsterwoman still works the water</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "Virginia Oliver is the oldest licensed lobsterer in Maine and possibly on the planet. But in her eyes, it’s simply what she does. Her world has changed in once-unimaginable ways since 1920, but in other ways it’s hardly changed at all." Come for the story, stay for the amazing photo. 
-             [Link] 
-         
-     
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"Virginia Oliver is the oldest licensed lobsterer in Maine and possibly on the planet. But in her eyes, it’s simply what she does. Her world has changed in once-unimaginable ways since 1920, but in other ways it’s hardly changed at all." Come for the story, stay for the amazing photo.</p>
-            <p>[<a href="https://www.bostonglobe.com/2021/08/15/metro/101-years-old-maine-lobsterwoman-still-works-water/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:12 &bull;
    4 days ago
 </div>
 
@@ -4866,7 +5206,8 @@ position_from_anno
 4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
-7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a></p>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
    
   
   
@@ -4883,79 +5224,6 @@ position_from_anno
 
 <div class='item-footer'>
    14:55 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://laurajedeed.medium.com/afghanistan-meant-nothing-9e3f099b00e5'>Afghanistan Meant Nothing. A Veteran Reflects on 20 Wasted Years</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- “And so I sit here, reading these sad fucking articles and these horrified social media posts about the suffering in Afghanistan and the horror of the encroaching Taliban and how awful it is that this is happening but I can’t stop feeling this grim happiness, like, finally, you fuckers, finally you have to face the thing Afghanistan has always been. You can’t keep lying to you
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>“And so I sit here, reading these sad fucking articles and these horrified social media posts about the suffering in Afghanistan and the horror of the encroaching Taliban and how awful it is that this is happening but I can’t stop feeling this grim happiness, like, finally, you fuckers, finally you have to face the thing Afghanistan has always been. You can’t keep lying to yourself about what you sent us into.”</p>
-            <p>[<a href="https://laurajedeed.medium.com/afghanistan-meant-nothing-9e3f099b00e5">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:37 &bull;
    6 days ago
 </div>
 
@@ -5495,82 +5763,6 @@ Variable
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://amp.wbur.org/hereandnow/2021/08/12/shock-treatment-school-disability?__twitter_impression=true'>Disability Advocates Fight Ruling Allowing Electric Shock Treatment Back In Mass. Residential School</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- “students wear backpacks equipped with electrical stimulation devices around the clock. Workers at the residential school employ the shocks using a remote control device when the students display a range of unwanted behaviors.” WTF? 
-             [Link] 
-         
-     
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>“students wear backpacks equipped with electrical stimulation devices around the clock. Workers at the residential school employ the shocks using a remote control device when the students display a range of unwanted behaviors.” WTF?</p>
-            <p>[<a href="https://amp.wbur.org/hereandnow/2021/08/12/shock-treatment-school-disability?__twitter_impression=true">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:39 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Friday, 13. August 2021
  </h2>
@@ -5894,7 +6086,8 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
-7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a></p>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
    
   
   
@@ -6035,7 +6228,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    01:21 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6099,7 +6292,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    01:03 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6243,7 +6436,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    01:29 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6305,7 +6498,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    01:28 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7154,7 +7347,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    00:23 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7914,7 +8107,7 @@ Introduction
 
 <div class='item-footer'>
    23:37 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8095,7 +8288,8 @@ $$ language plpython3u;
 4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
-7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a></p>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
    
   
   
@@ -10251,7 +10445,8 @@ $$ language plpgsql;
 4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
-7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a></p>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
    
   
   
@@ -10335,7 +10530,7 @@ $$ language plpgsql;
 
 <div class='item-footer'>
    23:37 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11146,7 +11341,7 @@ public class UserAccessController : ControllerBase
 
 <div class='item-footer'>
    03:30 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11212,7 +11407,7 @@ public class UserAccessController : ControllerBase
 
 <div class='item-footer'>
    03:16 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11432,7 +11627,8 @@ pl/python: 290ms, 255ms, 300ms
 4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
-7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a></p>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
    
   
   
@@ -11878,7 +12074,8 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
-7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a></p>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
    
   
   
@@ -27742,84 +27939,6 @@ identity in the European mode
 
 <div class='item-footer'>
    12:36 &bull;
-   5 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.jonudell.net'>Jon Udell</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.jonudell.net/2021/03/11/a-wider-view/'>A wider view</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  For 20 bucks or less, nowadays, you can buy an extra-wide convex mirror that clips onto your car’s existing rear-view mirror. We just tried one for the first time, and I’m pretty sure it’s a keeper. These gadgets claim to eliminate blind spots, and this one absolutely does. Driving down 101, I counted three seconds … Continue reading A wider view
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p>
-<p>For 20 bucks or less, nowadays, you can buy an extra-wide convex mirror that clips onto your car’s existing rear-view mirror. We just tried one for the first time, and I’m pretty sure it’s a keeper. These gadgets claim to eliminate blind spots, and this one absolutely does. Driving down 101, I counted three seconds as a car passed through my driver’s-side blind spot. That’s a long time when you’re going 70 miles per hour; during that whole time I could see that passing car in the extended mirror.</p>
-<p>Precious few gadgets spark joy for me. This one had me at hello. Not having to turn your head, avoiding the risk of not turning your head — these are huge benefits, quite possibly life-savers. For 20 bucks!</p>
-<p>It got even better. As darkness fell, we wondered how it would handle approaching headlights. It’s not adjustable like the stock mirror, but that turns out not to be a problem. The mirror dims those headlights so they’re easy to look at. The same lights in the side mirrors are blinding by comparison.</p>
-<p>I’ve been driving more than 40 years. This expanded view could have been made available at any point along the way. There’s nothing electronic or digital. It’s just a better idea that combines existing ingredients in a new way. That pretty much sums up my own approach to product development.</p>
-<p>Finally, there’s the metaphor. Seeing around corners is a superpower I’ve always wanted. I used to love taking photos with the fisheye lens on my dad’s 35mm Exacta, now I love making panoramic views with my phone. I hate being blindsided, on the road and in life, by things I can’t see coming. I hate narrow-mindedness, and always reach for a wider view.</p>
-<p>I’ll never overcome all my blind spots but it’s nice to chip away at them. After today, there will be several fewer to contend with.</p>
- 
-<p><a href="https://commons.wikimedia.org/wiki/File:A_wider_view_at_sunset_-_geograph.org.uk_-_593022.jpg">File:A wider view at sunset – geograph.org.uk – 593022.jpg – Wikimedia Commons</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://upload.wikimedia.org/wikipedia/commons/6/6c/A_wider_view_at_sunset_-_geograph.org.uk_-_593022.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:05 &bull;
    5 months ago
 </div>
 
