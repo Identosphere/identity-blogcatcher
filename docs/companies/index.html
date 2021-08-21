@@ -851,7 +851,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 3:52 PM August 21, 2021 (UTC)</sup>
+<sup>Last Update 8:51 PM August 21, 2021 (UTC)</sup>
 
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
@@ -943,6 +943,76 @@ Come on out to the Urbit Meetup! Whether you are an OG Martian or just curious a
 
 
 <h4 class='feed-title'>
+  <a href='https://holochain.org/'>Holochain</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.holochain.org/countersigning-in-holochain-v0-0-103/'>Countersigning in Holochain v0.0.103</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Holochain Dev Pulse 102
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>First of all, I want to publicly say that I’ve struggled with obsessive-compulsive disorder for most of my life. This is Dev Pulse 102 and I'm talking about Holochain v0.0.103, which differ by one, and that really annoys me. But I’ve found that laughing at myself is one of the best remedies for OCD, so I’m going to have a little chuckle, delight in the mismatch, and move on to the exciting news for this release!</p> Countersigning <p>This is the big news in Holochain v0.0.103. Many of you who follow Holochain come from the cryptocurrency world, so naturally you’re interested in Holochain as a platform for building new cryptocurrencies. But you probably also know that they <a href="https://medium.com/holochain/beyond-blockchain-simple-scalable-cryptocurrencies-1eb7aebac6ae">won’t work like traditional cryptocurrencies</a>.</p><p>So how will they work?</p><p>Using a technique called countersigning. Because every participant in a hApp has their own source chain, every transaction is a bit like a cross-chain <a href="https://www.investopedia.com/terms/a/atomic-swaps.asp">atomic swap</a> (not exactly, but close enough).</p><p>Here’s what countersigning looks like, in rough terms. Although it can be used for any sort of interaction that requires guarantees of completion, we’ll use a currency transaction because everyone is familiar with that.</p><p>Alice owes Bob 100 credits for a bicycle purchase. She sends Bob the details of the transaction and Bob acknowledges that it’s the correct amount.</p><p>Now that the transaction details are agreed upon, Alice and Bob’s hApps start an automated process to countersign and commit the transaction to their own source chains. From here on in, ‘Alice and Bob’ actually mean Alice and Bob’s computers. Once it’s done, each person will have a copy of the transaction on their own source chain, signed by both themselves and the other party, and published to the DHT.</p><p>Alice creates a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/countersigning/struct.PreflightRequest.html">preflight request</a>. This request is a proposal that Alice and Bob come to ‘local consensus’ on the states of their source chains. It specifies who’s involved (her and Bob), the hash of the proposed transaction, and the time window for action. Once she’s created it, she sends it to Bob.</p><p>Bob sends Alice his signature on the preflight request, along with his current source chain state. This is called a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.PreflightResponse.html">preflight response</a>. His source chain is now ‘locked’ until the transaction succeeds or fails. In the meantime, Alice signs the preflight request too, locking her own source chain.</p><p>Now Alice creates a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.CounterSigningSessionData.html">countersigning session</a>, containing the preflight request, along with her and Bob’s signatures and source chain states. Once again, she sends it off to Bob.</p><p>Alice and Bob both try to commit a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/enum.Entry.html#variant.CounterSign">countersigned entry</a>, including both the countersigning session and the transaction data, to their source chains.</p><p>This is where they both have the chance to back out if something goes wrong — their entry gets passed through a validation function which double-checks that Alice still has sufficient balance. Alice and Bob both run the validation function twice — once from their perspective and once from the other’s perspective — just to make sure it’s valid for both source chains.</p><p>If all goes well in validation, it’s ready to commit — almost. First, Alice and Bob publish the entry and their own headers to a certain part of the DHT — the entry’s neighbourhood — where it gets validated by third parties.</p><p>Once the neighbourhood collects both Alice and Bob’s headers, they send a copy of both headers to both of them.</p><p>Now that Alice and Bob have seen that the other has signed the entry, the transaction is almost complete. There’s one last step: they finally commit the entry to their source chains and publish their headers to two more parts of the DHT, their own neighbourhoods. This allows future counterparties to check for <a href="https://www.investopedia.com/terms/d/doublespending.asp">double-spend attempts</a>.</p><p>Now the money is transferred, Alice and Bob’s source chains are unlocked, and Bob gives Alice her bike.</p><p>If this sounds complicated, it’s because it is. The good news is that most of this stuff is handled by the Holochain conductor. As a developer you only need to think about:</p>  Application flow that lets someone create the transaction and lets other parties acknowledge what’s about to be countersigned,  Application flow that lets the initiator create a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/countersigning/struct.PreflightRequest.html">preflight request</a>, distribute it to all parties, collect the <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.PreflightResponse.html">responses</a> into a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.CounterSigningSessionData.html">countersigning session</a>, and distribute the signed version back to them,  A function for all parties to receive the countersigning session and commit it, along with the entry data, into a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/enum.Entry.html#variant.CounterSign">countersigned entry</a>,  A validation function for the countersigned entry.  <p>Looking at the Alice and Bob example above, remote calls would usually be the best way to do this coordination work. Any app entry type that you define can be part of a countersigned transaction, in both <a href="https://developer.holochain.org/concepts/6_crud_actions/#simulating-mutability">create and update flavours</a>.</p><blockquote>Note: By itself, countersigning doesn’t have the power to prevent the dreaded double-spend attack. It just collects all the evidence needed to detect double-spending and eject the bad actor after it’s detected. But our core devs are working on a possible preventative solution; watch the Dev Pulse in the coming months for more details.</blockquote> Parallel network functions <p>Network functions, like DHT gets, remote calls, and remote signals, are blocking calls — that is, they stop execution of your code until they’re done. If you have to retrieve a lot of DHT data or call the same function on a lot of peers’ devices, that means you have to loop over everything you wanted to do and do each call in serial. This can take a lot of time.</p><p>There’s been a change to many network functions; now you can specify multiple DHT hashes for <code>get</code>, <code>get_details</code>, <code>get_links</code>, and <code>get_link_details</code>, and multiple agent IDs for <code>call_remote</code>. Holochain then does the work in parallel, returning a list of successes and failures all at once.</p> Fixes and breaking changes   Breaking: A header timestamp will always be newer than its previous header’s timestamp. Previously it was always newer than or equal to.  Breaking: Conductor configs now <a href="https://github.com/holochain/holochain/blob/holochain-0.0.103/CHANGELOG.md#holochain_conductor_api-003">require a <code>passphrase_service</code> directive</a>.  Breaking: <code>sys_time</code> returns a <code>Timestamp</code> instead of a <code>Duration</code>.  Bugfix: DNAs can now be <a href="https://github.com/holochain/holochain/pull/881">installed in parallel</a>.  Holochain now uses Lair 0.0.3, which stores entries in SQLite and encrypts them using a supplied passphrase. This is why conductor configs now require a passphrase service directive.  <p><a href="https://github.com/holochain/holochain/blob/holochain-0.0.103/CHANGELOG.md#20210817185301">Read the full changelog</a> for more details.</p> Two more releases coming soon! <p>Over the next two or three weeks, the core dev team will release Holochain v0.0.104 and v0.0.105. These changes are scheduled to include:</p>  DHT sharding (yay!)  Fixes and speed improvements for gossiping and publishing  HDK improvements  <a href="https://github.com/holochain/holochain/pull/932">‘Relaxed’ concurrent source chain writes</a>  Binary releases for Linux  <p>I’m away on holiday next week, so I might be late announcing one of these releases. If you’re eager to find out about the latest changes, <a href="https://github.com/holochain/holochain/blob/main/CHANGELOG.md">watch the changelog</a> in the GitHub repo.</p><p>Cover photo by<a href="https://unsplash.com/@cytonn_photography?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText"> Cytonn Photography</a> on<a href="https://unsplash.com/s/photos/contract?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText"> Unsplash</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blog.holochain.org/content/images/2021/08/cytonn-photography-GJao3ZTX9gU-unsplash.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:00 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://www.kuppingercole.com'>KuppingerCole</a>
 </h4>
 
@@ -1014,7 +1084,7 @@ Yeah, sure. I will talk about the so-called the US drug supply chain security ac
 
 <div class='item-footer'>
    07:30 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1096,7 +1166,7 @@ Yeah, sure. I will talk about the so-called the US drug supply chain security ac
 
 <div class='item-footer'>
    20:48 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1172,7 +1242,7 @@ Yeah, sure. I will talk about the so-called the US drug supply chain security ac
 
 <div class='item-footer'>
    20:44 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1276,7 +1346,7 @@ Yeah, sure. I will talk about the so-called the US drug supply chain security ac
 
 <div class='item-footer'>
    19:45 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1380,7 +1450,7 @@ Yeah, sure. I will talk about the so-called the US drug supply chain security ac
 
 <div class='item-footer'>
    19:36 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1488,7 +1558,7 @@ Yeah, sure. I will talk about the so-called the US drug supply chain security ac
 
 <div class='item-footer'>
    19:28 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1600,7 +1670,7 @@ Yeah, sure. I will talk about the so-called the US drug supply chain security ac
 
 <div class='item-footer'>
    19:08 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1704,7 +1774,7 @@ Yeah, sure. I will talk about the so-called the US drug supply chain security ac
 
 <div class='item-footer'>
    19:07 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2717,7 +2787,7 @@ sudo ld -x --shared -o /lib/security/deviceflow.so deviceflow.o qr.o \
 
 <div class='item-footer'>
    22:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3223,7 +3293,7 @@ sudo ld -x --shared -o /lib/security/deviceflow.so deviceflow.o qr.o \
 	 
    
 	 
-				 <a href="https://tokeny.com/tokenys-talent-barboras-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 28 May at 8:44  <a href="https://tokeny.com/tokenys-talent-barboras-story/">Tokeny’s Talent｜Barbora’s Story</a>  	 
+				 <a href="https://tokeny.com/tokenys-talent-story-of-jose/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Aug at 16:50  <a href="https://tokeny.com/tokenys-talent-story-of-jose/">Tokeny’s Talent｜José’s Story</a>  	 
  
  
 	 
@@ -3231,7 +3301,19 @@ sudo ld -x --shared -o /lib/security/deviceflow.so deviceflow.o qr.o \
  
  
 	 
+				 <a href="https://tokeny.com/tokenys-talent-shurongs-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 20 Nov 2020  <a href="https://tokeny.com/tokenys-talent-shurongs-story/">Tokeny’s Talent｜Shurong’s Story</a>  	 
+ 
+ 
+	 
 				 <a href="https://tokeny.com/tokenys-talent-luis-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 16 Jul at 13:10  <a href="https://tokeny.com/tokenys-talent-luis-story/">Tokeny’s Talent｜Luis’s Story</a>  	 
+ 
+ 
+	 
+				 <a href="https://tokeny.com/tokenys-talent-barboras-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 28 May at 8:44  <a href="https://tokeny.com/tokenys-talent-barboras-story/">Tokeny’s Talent｜Barbora’s Story</a>  	 
+ 
+ 
+	 
+				 <a href="https://tokeny.com/tokenys-talent-joachims-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 23 Apr at 10:10  <a href="https://tokeny.com/tokenys-talent-joachims-story/">Tokeny’s Talent｜Joachim’s Story</a>  	 
  
  
 	 
@@ -3244,18 +3326,6 @@ sudo ld -x --shared -o /lib/security/deviceflow.so deviceflow.o qr.o \
  
 	 
 				 <a href="https://tokeny.com/tokenys-talent-xavi-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Mar at 10:28  <a href="https://tokeny.com/tokenys-talent-xavi-story/">Tokeny’s Talent｜Xavi’s Story</a>  	 
- 
- 
-	 
-				 <a href="https://tokeny.com/tokenys-talent-story-of-jose/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Aug at 16:50  <a href="https://tokeny.com/tokenys-talent-story-of-jose/">Tokeny’s Talent｜José’s Story</a>  	 
- 
- 
-	 
-				 <a href="https://tokeny.com/tokenys-talent-joachims-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 23 Apr at 10:10  <a href="https://tokeny.com/tokenys-talent-joachims-story/">Tokeny’s Talent｜Joachim’s Story</a>  	 
- 
- 
-	 
-				 <a href="https://tokeny.com/tokenys-talent-shurongs-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 20 Nov 2020  <a href="https://tokeny.com/tokenys-talent-shurongs-story/">Tokeny’s Talent｜Shurong’s Story</a>  	 
  
  	 
 		 
@@ -3661,7 +3731,7 @@ Tweet
 
 <div class='item-footer'>
    08:28 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4376,7 +4446,7 @@ Tweet
 
 <div class='item-footer'>
    08:01 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4830,7 +4900,7 @@ make init
 
 <div class='item-footer'>
    05:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5349,7 +5419,7 @@ I'm really looking forward to EIC and to talk. I'll talk about the topics we men
 
 <div class='item-footer'>
    07:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6954,7 +7024,7 @@ Collators are located in orange coloured&nbsp;areas.<p>13 August 2021, Berlin 
 
 <div class='item-footer'>
    08:02 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7818,7 +7888,7 @@ public class SecureRandomReactiveImpl implements SecureRandomService {
 
 <div class='item-footer'>
    05:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8417,7 +8487,7 @@ Great question. I think one of the primary obstacles standing in the way of iden
 
 <div class='item-footer'>
    05:57 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8488,7 +8558,7 @@ Great question. I think one of the primary obstacles standing in the way of iden
 
 <div class='item-footer'>
    05:29 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8562,7 +8632,7 @@ Great question. I think one of the primary obstacles standing in the way of iden
 
 <div class='item-footer'>
    04:07 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10830,7 +10900,7 @@ Tweet
 
 <div class='item-footer'>
    08:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10912,7 +10982,7 @@ Podcast trailer transcript and links to episodes:
 
 <div class='item-footer'>
    07:30 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10992,7 +11062,7 @@ Podcast trailer transcript and links to episodes:
 
 <div class='item-footer'>
    07:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11086,7 +11156,7 @@ Podcast trailer transcript and links to episodes:
 
 <div class='item-footer'>
    05:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11150,7 +11220,7 @@ Podcast trailer transcript and links to episodes:
 
 <div class='item-footer'>
    04:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12604,7 +12674,7 @@ namespace Okta_AWSTookit
 
 <div class='item-footer'>
    05:00 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14079,7 +14149,7 @@ dotnet new page -n Logout -na CaloriesTracker.Blazor.Pages -o Pages
 
 <div class='item-footer'>
    05:00 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14889,7 +14959,7 @@ If you enjoyed this post, check out these related ones on our blog.</p>
 
 <div class='item-footer'>
    05:00 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14953,7 +15023,7 @@ If you enjoyed this post, check out these related ones on our blog.</p>
 
 <div class='item-footer'>
    04:00 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16049,7 +16119,7 @@ If you enjoyed this post, check out these related ones on our blog.</p>
 
 <div class='item-footer'>
    06:53 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17222,7 +17292,7 @@ Or get the result in JSON:
 
 <div class='item-footer'>
    05:00 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17792,7 +17862,7 @@ The absolute best way is to get involved. We have been talking with the browser 
 
 <div class='item-footer'>
    08:00 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17856,7 +17926,7 @@ The absolute best way is to get involved. We have been talking with the browser 
 
 <div class='item-footer'>
    07:36 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18375,7 +18445,7 @@ Senior Sales Manager UK &amp; I<br>
 
 <div class='item-footer'>
    08:45 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18458,7 +18528,7 @@ Senior Sales Manager UK &amp; I<br>
 
 <div class='item-footer'>
    07:00 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18532,7 +18602,7 @@ Rapid Transition Lab flow&nbsp;map<p>In a post-pandemic world, food is not just 
 
 <div class='item-footer'>
    06:48 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18596,7 +18666,7 @@ Rapid Transition Lab flow&nbsp;map<p>In a post-pandemic world, food is not just 
 
 <div class='item-footer'>
    06:00 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19734,7 +19804,7 @@ Rencontrez les équipes Unikname à l’occasion d’une démo pour mieux approf
 
 <div class='item-footer'>
    08:55 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19798,7 +19868,7 @@ Rencontrez les équipes Unikname à l’occasion d’une démo pour mieux approf
 
 <div class='item-footer'>
    07:39 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21980,7 +22050,7 @@ Tue, 2021-07-27 - 21:10
 
 <div class='item-footer'>
    07:02 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -23012,7 +23082,7 @@ Mon, 2021-07-26 - 21:03
 
 <div class='item-footer'>
    07:00 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -23076,7 +23146,7 @@ Mon, 2021-07-26 - 21:03
 
 <div class='item-footer'>
    05:37 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -23136,7 +23206,7 @@ Mon, 2021-07-26 - 21:03
 
 <div class='item-footer'>
    05:36 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -23892,7 +23962,7 @@ Senior Account Manager Global Gambling<br>
 
 <div class='item-footer'>
    18:46 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27281,113 +27351,6 @@ Wed, 2021-07-21 - 21:01
 
 <div class='item-footer'>
    09:54 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://indicio.tech/blog/'>Indicio</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://indicio.tech/the-decentralized-identity-revolution-is-powered-by-machine-readable-governance/?utm_source=rss&utm_medium=rss&utm_campaign=the-decentralized-identity-revolution-is-powered-by-machine-readable-governance'>The decentralized identity revolution is powered by machine-readable governance</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   The post The decentralized identity revolution is powered by machine-readable governance appeared first on Indicio Tech. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- 
-				
-				
-				
-				
-					 
-				 
-				
-				
-				 
-				
-				
-				  Machine-readable governance is the key to making decentralized identity accountable, effective, and trustworthy.  
-			  
-				
-				
-				 <p>Much is talked, much is written about governance in decentralized identity. “Trust frameworks,” “trust marks,” “transitive trust” all form part of a lexicon that can be confusing to those looking to enter the field, develop a product or service, or find a simple solution to a problem. In part, this is because the word “governance” is used to cover a lot of ground, from corporate structure and network policy, to responsibilities, values, policies, and legal agreements. Corporate and technical governance can overlap to the point where it’s easy to end up thinking that governance is a problem that needs to be solved before we can use the technology.</p>
-<p>There are many reasons why this isn’t true. From a design perspective, it’s impossible to lay out all the rules of an information ecosystem in advance, and unwise to try and do so, given that an ecosystem must be able to grow organically to become an ecosystem. The architecture of decentralized identity has clear and simple constants defining its essence: privacy by design, security by design, permanent and portable identity for everyone and everything. The key to sustainable innovation is to combine these constants with flexible parameters. This allows a simple set of rules to generate an infinite number of variations. If all these varieties are interoperable, we end up with a network of networks.</p>
-<p>All of this is not to understate the value of paperwork—and the need for common agreement around issues like interoperability. Mars will need a constitution—and a great one. But we must get there first.</p>
-<p>Machine-readable governance enabled by Agents<br>
-The thing is, we have a way to enable clear, flexible, governance right now through Agents and machine-readable governance. Agents are the software that allow data to be shared and authenticated by consent between parties, and this makes them the most important governance entities in decentralized identity. That’s because they are programmable with governance rules that define how digital information can be accepted, exchanged, verified, updated, and revoked. They enable people and organizations to trust an exchanged credential.</p>
-<p>When Indicio deployed its decentralized ecosystem for a pilot on digital COVID credentials in Aruba (the ecosystem is now called <a href="https://cardea.app/">Cardea</a> and is a project of Linux Foundation Public Health), Agents containing machine readable governance made the whole system work:</p>
- 
- Tourists downloaded a “digital wallet” agent to accept a COVID test credential 
- The COVID testing lab used an agent to issue a test credential 
- The government used an agent to verify the test credential and then issue a proof-of-test credential to the tourist. 
- Hospitality businesses across the island used downloadable verifier agents to scan and verify the government issued credential when the tourists showed up 
- 
-<p>Machine-readable governance allowed the government to implement its COVID test policies quickly within an architecture for privacy-preserving technology. People knew what was needed. People knew that changes could be quickly dialed into the governance if information changed. And above all, people knew who to trust. Instead of starting with top-down rules, the combination of Agents and machine-readable governance enabled bottom up governance to get the job done.</p>
-<p>Start local, scale global<br>
-This is a critically important point. While decentralized identity is a new and unfamiliar concept to many people, most have an intuitive grasp of decentralized governance. In politics, it is synonymous with the view that local knowledge will drive better governance for the governed than a decision taken far away; in the European Union, this is the principle of subsidiarity: Power should be exercised as close to the citizen as possible.</p>
-<p>When it comes to decentralized identity, this is why figuring out what works at the local or hyperlocal level becomes a powerful source of trust. Because specific, local knowledge is essential to building transparent, competent, and reliable solutions—the three distinguishing features of trustworthiness, according to philosopher <a href="https://www.youtube.com/watch?v=1PNX6M_dVsk">Onora O’Neill</a>—the technology is more likely to be trusted and adopted when it can incorporate specific, local knowledge.</p>
-<p>When we have learned what works to solve a myriad of local problems, we can then scale up to governance at a global level. The governance frameworks created as we deploy these solutions are not going to be mutually exclusive; but the search for one framework to rule them all now is likely to be fruitless at best and a hindrance at worst.</p>
-<p>Instead, we need to focus on maximal privacy through minimal rules, and let the interplay of agents and machine-readable governance handle all the pre-existing, national, international, sector-specific, and institutional governance frameworks that will need to be accommodated as decentralized identity expands across the globe.</p>
-<p>If you want to know how Indicio can deploy machine readable governance to solve your identity and authentication needs, <a href="https://indiciogolive.wpengine.com/contact/">contact us</a>.</p> 
-			 
-			 
-				
-				
-			 
-				
-				
-			 
-<p>The post <a href="https://indicio.tech/the-decentralized-identity-revolution-is-powered-by-machine-readable-governance/">The decentralized identity revolution is powered by machine-readable governance</a> appeared first on <a href="https://indicio.tech">Indicio Tech</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:26 &bull;
    1 months ago
 </div>
 
