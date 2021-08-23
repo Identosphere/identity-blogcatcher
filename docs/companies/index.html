@@ -851,7 +851,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 1:36 AM August 23, 2021 (UTC)</sup>
+<sup>Last Update 5:51 AM August 23, 2021 (UTC)</sup>
 
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
@@ -978,7 +978,7 @@ Come on out to the Urbit Meetup! Whether you are an OG Martian or just curious a
  -->
 <div class='wrap'>
 
-<p>First of all, I want to publicly say that I’ve struggled with obsessive-compulsive disorder for most of my life. This is Dev Pulse 102 and I'm talking about Holochain v0.0.103, which differ by one, and that really annoys me. But I’ve found that laughing at myself is one of the best remedies for OCD, so I’m going to have a little chuckle, delight in the mismatch, and move on to the exciting news for this release!</p> Countersigning <p>This is the big news in Holochain v0.0.103. Many of you who follow Holochain come from the cryptocurrency world, so naturally you’re interested in Holochain as a platform for building new cryptocurrencies. But you probably also know that they <a href="https://medium.com/holochain/beyond-blockchain-simple-scalable-cryptocurrencies-1eb7aebac6ae">won’t work like traditional cryptocurrencies</a>.</p><p>So how will they work?</p><p>Using a technique called countersigning. Because every participant in a hApp has their own source chain, every transaction is a bit like a cross-chain <a href="https://www.investopedia.com/terms/a/atomic-swaps.asp">atomic swap</a> (not exactly, but close enough).</p><p>Here’s what countersigning looks like, in rough terms. Although it can be used for any sort of interaction that requires guarantees of completion, we’ll use a currency transaction because everyone is familiar with that.</p><p>Alice owes Bob 100 credits for a bicycle purchase. She sends Bob the details of the transaction and Bob acknowledges that it’s the correct amount.</p><p>Now that the transaction details are agreed upon, Alice and Bob’s hApps start an automated process to countersign and commit the transaction to their own source chains. From here on in, ‘Alice and Bob’ actually mean Alice and Bob’s computers. Once it’s done, each person will have a copy of the transaction on their own source chain, signed by both themselves and the other party, and published to the DHT.</p><p>Alice creates a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/countersigning/struct.PreflightRequest.html">preflight request</a>. This request is a proposal that Alice and Bob come to ‘local consensus’ on the states of their source chains. It specifies who’s involved (her and Bob), the hash of the proposed transaction, and the time window for action. Once she’s created it, she sends it to Bob.</p><p>Bob sends Alice his signature on the preflight request, along with his current source chain state. This is called a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.PreflightResponse.html">preflight response</a>. His source chain is now ‘locked’ until the transaction succeeds or fails. In the meantime, Alice signs the preflight request too, locking her own source chain.</p><p>Now Alice creates a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.CounterSigningSessionData.html">countersigning session</a>, containing the preflight request, along with her and Bob’s signatures and source chain states. Once again, she sends it off to Bob.</p><p>Alice and Bob both try to commit a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/enum.Entry.html#variant.CounterSign">countersigned entry</a>, including both the countersigning session and the transaction data, to their source chains.</p><p>This is where they both have the chance to back out if something goes wrong — their entry gets passed through a validation function which double-checks that Alice still has sufficient balance. Alice and Bob both run the validation function twice — once from their perspective and once from the other’s perspective — just to make sure it’s valid for both source chains.</p><p>If all goes well in validation, it’s ready to commit — almost. First, Alice and Bob publish the entry and their own headers to a certain part of the DHT — the entry’s neighbourhood — where it gets validated by third parties.</p><p>Once the neighbourhood collects both Alice and Bob’s headers, they send a copy of both headers to both of them.</p><p>Now that Alice and Bob have seen that the other has signed the entry, the transaction is almost complete. There’s one last step: they finally commit the entry to their source chains and publish their headers to two more parts of the DHT, their own neighbourhoods. This allows future counterparties to check for <a href="https://www.investopedia.com/terms/d/doublespending.asp">double-spend attempts</a>.</p><p>Now the money is transferred, Alice and Bob’s source chains are unlocked, and Bob gives Alice her bike.</p><p>If this sounds complicated, it’s because it is. The good news is that most of this stuff is handled by the Holochain conductor. As a developer you only need to think about:</p>  Application flow that lets someone create the transaction and lets other parties acknowledge what’s about to be countersigned,  Application flow that lets the initiator create a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/countersigning/struct.PreflightRequest.html">preflight request</a>, distribute it to all parties, collect the <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.PreflightResponse.html">responses</a> into a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.CounterSigningSessionData.html">countersigning session</a>, and distribute the signed version back to them,  A function for all parties to receive the countersigning session and commit it, along with the entry data, into a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/enum.Entry.html#variant.CounterSign">countersigned entry</a>,  A validation function for the countersigned entry.  <p>Looking at the Alice and Bob example above, remote calls would usually be the best way to do this coordination work. Any app entry type that you define can be part of a countersigned transaction, in both <a href="https://developer.holochain.org/concepts/6_crud_actions/#simulating-mutability">create and update flavours</a>.</p><blockquote>Note: By itself, countersigning doesn’t have the power to prevent the dreaded double-spend attack. It just collects all the evidence needed to detect double-spending and eject the bad actor after it’s detected. But our core devs are working on a possible preventative solution; watch the Dev Pulse in the coming months for more details.</blockquote> Parallel network functions <p>Network functions, like DHT gets, remote calls, and remote signals, are blocking calls — that is, they stop execution of your code until they’re done. If you have to retrieve a lot of DHT data or call the same function on a lot of peers’ devices, that means you have to loop over everything you wanted to do and do each call in serial. This can take a lot of time.</p><p>There’s been a change to many network functions; now you can specify multiple DHT hashes for <code>get</code>, <code>get_details</code>, <code>get_links</code>, and <code>get_link_details</code>, and multiple agent IDs for <code>call_remote</code>. Holochain then does the work in parallel, returning a list of successes and failures all at once.</p> Fixes and breaking changes   Breaking: A header timestamp will always be newer than its previous header’s timestamp. Previously it was always newer than or equal to.  Breaking: Conductor configs now <a href="https://github.com/holochain/holochain/blob/holochain-0.0.103/CHANGELOG.md#holochain_conductor_api-003">require a <code>passphrase_service</code> directive</a>.  Breaking: <code>sys_time</code> returns a <code>Timestamp</code> instead of a <code>Duration</code>.  Bugfix: DNAs can now be <a href="https://github.com/holochain/holochain/pull/881">installed in parallel</a>.  Holochain now uses Lair 0.0.3, which stores entries in SQLite and encrypts them using a supplied passphrase. This is why conductor configs now require a passphrase service directive.  <p><a href="https://github.com/holochain/holochain/blob/holochain-0.0.103/CHANGELOG.md#20210817185301">Read the full changelog</a> for more details.</p> Two more releases coming soon! <p>Over the next two or three weeks, the core dev team will release Holochain v0.0.104 and v0.0.105. These changes are scheduled to include:</p>  DHT sharding (yay!)  Fixes and speed improvements for gossiping and publishing  HDK improvements  <a href="https://github.com/holochain/holochain/pull/932">‘Relaxed’ concurrent source chain writes</a>  Binary releases for Linux  <p>I’m away on holiday next week, so I might be late announcing one of these releases. If you’re eager to find out about the latest changes, <a href="https://github.com/holochain/holochain/blob/main/CHANGELOG.md">watch the changelog</a> in the GitHub repo.</p><p>Cover photo by<a href="https://unsplash.com/@cytonn_photography?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText"> Cytonn Photography</a> on<a href="https://unsplash.com/s/photos/contract?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText"> Unsplash</a></p>
+<p>First of all, I want to publicly say that I’ve struggled with obsessive-compulsive disorder for most of my life. This is Dev Pulse 102 and I'm talking about Holochain v0.0.103. Those numbers differ by one, and that really annoys me. But I’ve found that one of the best remedies for OCD is to laugh at myself. So I’m going to have a little chuckle, delight in the mismatch, and move on to the exciting news for this release!</p> Countersigning <p>[Editor's note: this section was modified on August 23rd, 2021, at 04:30 UTC, after I received feedback from the core devs. It's meant to be a gentle introduction to countersigning, not a comprehensive guide. It'll make it into the Core Concepts soon though. In the meantime, <a href="https://forum.holochain.org/t/countersigning-has-landed-in-holochain-v0-0-103/6739">join this forum thread</a> to share your questions, use cases, and other thoughts related to countersigning.]</p><p>This is the big news in Holochain v0.0.103. Many of you who follow Holochain come from the cryptocurrency world, so naturally you’re probably interested in Holochain as a platform for building new cryptocurrencies. But you probably also know that they <a href="https://medium.com/holochain/beyond-blockchain-simple-scalable-cryptocurrencies-1eb7aebac6ae">won’t work like traditional cryptocurrencies</a>.</p><p>So how will they work?</p><p>Using a technique called countersigning. Because every participant in a hApp has their own source chain, every transaction is a bit like a cross-chain <a href="https://www.investopedia.com/terms/a/atomic-swaps.asp">atomic swap</a> (not exactly, but close enough).</p><p>Here’s what countersigning looks like, in rough terms. Although it can be used for any sort of interaction where multiple parties come to agreement, we’ll use a currency transaction because everyone is familiar with that. (Other use cases we've seen include legal contracts, ownership transfers (also known as <a href="https://blog.holochain.org/nfts-on-holochain-easy-as-passing-the-ball-2/">NFTs</a>), and even <a href="https://youtu.be/AQ6-_QsuLIw">chess</a> player <a href="https://en.wikipedia.org/wiki/Elo_rating_system">ranking</a>.)</p><p>Alice owes Bob 100 credits for a bicycle purchase. She sends Bob the details of the transaction and Bob acknowledges that it’s the correct amount. This is the human part, where Alice and Bob are interacting with their app UIs.</p><p>Now that the transaction details are agreed upon, Alice and Bob’s hApps start an automated process to countersign and commit the transaction to their own source chains. It's meant to happen quickly, when both parties are online. Once it’s done, each person will have a copy of the transaction on their own source chain, signed by both themselves and the other party, and published to the DHT.</p><p>(Note: From here on in, ‘Alice and Bob’ actually mean Alice and Bob’s computers.)</p><p>Alice creates a proposal that she and Bob come to ‘local consensus’ on the states of their source chains. This is called a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/countersigning/struct.PreflightRequest.html">preflight request</a>. It specifies who’s involved (her and Bob), the hash of the proposed transaction, and the time window for action. Once she’s created it, she sends it to Bob.</p><p>Bob sends Alice his signature on the preflight request, along with his current source chain state. This is called a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.PreflightResponse.html">preflight response</a>. His source chain is now ‘locked’ at this state until the transaction succeeds or fails. In the meantime, Alice signs the preflight request too.</p><p>Now Alice creates a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.CounterSigningSessionData.html">countersigning session</a>, containing the preflight request, along with her and Bob’s signatures and source chain states. Once again, she sends it off to Bob.</p><p>Alice and Bob both try to commit a <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/enum.Entry.html#variant.CounterSign">countersigned entry</a>, including both the countersigning session and the transaction data, to their source chains.</p><p>This is where they both have the chance to back out if something goes wrong — their entry gets passed through a validation function which double-checks that Alice still has sufficient balance. Alice and Bob both run the validation function twice — once from their perspective and once from the other’s perspective — just to make sure it’s valid for both source chains.</p><p>If all goes well in validation, it’s ready to commit — almost. First, Alice and Bob publish the entry and their own headers to a certain part of the DHT, the entry’s neighbourhood, where it gets validated by third parties.</p><p>Once the neighbourhood collects both Alice and Bob’s headers, they send a copy of both headers to both of them.</p><p>Now that Alice and Bob have seen that the other has signed the entry, the transaction is almost complete. There’s one last step: they finally commit the entry to their source chains and publish their headers to two more parts of the DHT, their own neighbourhoods. This allows future counterparties to check for <a href="https://www.investopedia.com/terms/d/doublespending.asp">double-spend attempts</a>.</p><p>Now the money is transferred, Alice and Bob’s source chains are unlocked, and Bob gives Alice her bike.</p><p>If this sounds complicated, it’s because it is. The good news is that most of this stuff is handled by the Holochain conductor. As a developer, you just need to know about <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/countersigning/struct.PreflightRequest.html">preflight requests</a>, <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.PreflightResponse.html">preflight response</a> signing, <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/struct.CounterSigningSessionData.html">countersigning sessions</a>, <a href="https://docs.rs/hdk/0.0.103/hdk/prelude/enum.Entry.html#variant.CounterSign">countersigned entries</a>, and the new <code><a href="https://docs.rs/hdk/0.0.103/hdk/countersigning/fn.accept_countersigning_preflight_request.html">accept_countersigning_preflight_request</a></code> host function which does most of the heavy lifting for you. The rest is flexible; you can create, distribute, and collect these things in whatever way works for you. And any app entry type that you define can be part of a countersigned transaction, in both <a href="https://developer.holochain.org/concepts/6_crud_actions/#simulating-mutability">create and update flavours</a>.</p><blockquote>Note: Countersigning isn't related to 'chain fork detection', which catches the dreaded double-spend attack, so it doesn't have the power to prevent it. That's the job of the DHT, which <a href="https://developer.holochain.org/concepts/4_dht/#a-cloud-of-witnesses">collects all the evidence</a> needed to detect a fork and eject the bad actor after the fact. Our core devs are also working on a possible preventative solution; watch the Dev Pulse in the coming months for more details.</blockquote> Parallel network functions <p>Network functions, like DHT gets, remote calls, and remote signals, are blocking calls — that is, they stop execution of your code until they’re done. If you have to retrieve a lot of DHT data or call the same function on a lot of peers’ devices, that means you have to loop over everything you wanted to do and do each call in serial. This can take a lot of time.</p><p>There’s been a change to many network functions; now you can specify multiple DHT hashes for <code>get</code>, <code>get_details</code>, <code>get_links</code>, and <code>get_link_details</code>, and multiple agent IDs for <code>call_remote</code>. Holochain then does the work in parallel, returning a list of successes and failures all at once.</p> Fixes and breaking changes   Breaking: A header timestamp will always be newer than its previous header’s timestamp. Previously it was always newer than or equal to.  Breaking: Conductor configs now <a href="https://github.com/holochain/holochain/blob/holochain-0.0.103/CHANGELOG.md#holochain_conductor_api-003">require a <code>passphrase_service</code> directive</a>.  Breaking: <code>sys_time</code> returns a <code>Timestamp</code> instead of a <code>Duration</code>.  Bugfix: DNAs can now be <a href="https://github.com/holochain/holochain/pull/881">installed in parallel</a>.  Holochain now uses Lair 0.0.3, which stores entries in SQLite and encrypts them using a supplied passphrase. This is why conductor configs now require a passphrase service directive.  <p><a href="https://github.com/holochain/holochain/blob/holochain-0.0.103/CHANGELOG.md#20210817185301">Read the full changelog</a> for more details.</p> Two more releases coming soon! <p>Over the next two or three weeks, the core dev team will release Holochain v0.0.104 and v0.0.105. These changes are scheduled to include:</p>  DHT sharding (yay!)  Fixes and speed improvements for gossiping and publishing  HDK improvements  <a href="https://github.com/holochain/holochain/pull/932">‘Relaxed’ concurrent source chain writes</a>  Binary releases for Linux  <p>I’m away on holiday next week, so I might be late announcing one of these releases. If you’re eager to find out about the latest changes, <a href="https://github.com/holochain/holochain/blob/main/CHANGELOG.md">watch the changelog</a> in the GitHub repo.</p><p>Cover photo by<a href="https://unsplash.com/@cytonn_photography?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText"> Cytonn Photography</a> on<a href="https://unsplash.com/s/photos/contract?utm_source=unsplash&amp;utm_medium=referral&amp;utm_content=creditCopyText"> Unsplash</a></p>
    
   
   
@@ -1874,7 +1874,7 @@ Yeah, sure. I will talk about the so-called the US drug supply chain security ac
 
 <div class='item-footer'>
    15:12 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3185,7 +3185,7 @@ sudo ld -x --shared -o /lib/security/deviceflow.so deviceflow.o qr.o \
 
 <div class='item-footer'>
    14:55 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3293,19 +3293,27 @@ sudo ld -x --shared -o /lib/security/deviceflow.so deviceflow.o qr.o \
 	 
    
 	 
-				 <a href="https://tokeny.com/tokenys-talent-xavi-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Mar at 10:28  <a href="https://tokeny.com/tokenys-talent-xavi-story/">Tokeny’s Talent｜Xavi’s Story</a>  	 
- 
- 
-	 
-				 <a href="https://tokeny.com/tokenys-talent-evas-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Feb at 8:43  <a href="https://tokeny.com/tokenys-talent-evas-story/">Tokeny’s Talent｜Eva’s Story</a>  	 
- 
- 
-	 
-				 <a href="https://tokeny.com/tokenys-talent-story-of-jose/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Aug at 16:50  <a href="https://tokeny.com/tokenys-talent-story-of-jose/">Tokeny’s Talent｜José’s Story</a>  	 
+				 <a href="https://tokeny.com/tokenys-talent-barboras-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 28 May at 8:44  <a href="https://tokeny.com/tokenys-talent-barboras-story/">Tokeny’s Talent｜Barbora’s Story</a>  	 
  
  
 	 
 				 <a href="https://tokeny.com/tokenys-talent-marios-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 25 Jun at 8:25  <a href="https://tokeny.com/tokenys-talent-marios-story/">Tokeny’s Talent｜Mario’s Story</a>  	 
+ 
+ 
+	 
+				 <a href="https://tokeny.com/tokenys-talent-nidas-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 15 Jan at 10:42  <a href="https://tokeny.com/tokenys-talent-nidas-story/">Tokeny’s Talent｜Nida’s Story</a>  	 
+ 
+ 
+	 
+				 <a href="https://tokeny.com/tokenys-talent-xavi-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Mar at 10:28  <a href="https://tokeny.com/tokenys-talent-xavi-story/">Tokeny’s Talent｜Xavi’s Story</a>  	 
+ 
+ 
+	 
+				 <a href="https://tokeny.com/tokenys-talent-luis-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 16 Jul at 13:10  <a href="https://tokeny.com/tokenys-talent-luis-story/">Tokeny’s Talent｜Luis’s Story</a>  	 
+ 
+ 
+	 
+				 <a href="https://tokeny.com/tokenys-talent-story-of-jose/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Aug at 16:50  <a href="https://tokeny.com/tokenys-talent-story-of-jose/">Tokeny’s Talent｜José’s Story</a>  	 
  
  
 	 
@@ -3317,15 +3325,7 @@ sudo ld -x --shared -o /lib/security/deviceflow.so deviceflow.o qr.o \
  
  
 	 
-				 <a href="https://tokeny.com/tokenys-talent-nidas-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 15 Jan at 10:42  <a href="https://tokeny.com/tokenys-talent-nidas-story/">Tokeny’s Talent｜Nida’s Story</a>  	 
- 
- 
-	 
-				 <a href="https://tokeny.com/tokenys-talent-barboras-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 28 May at 8:44  <a href="https://tokeny.com/tokenys-talent-barboras-story/">Tokeny’s Talent｜Barbora’s Story</a>  	 
- 
- 
-	 
-				 <a href="https://tokeny.com/tokenys-talent-luis-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 16 Jul at 13:10  <a href="https://tokeny.com/tokenys-talent-luis-story/">Tokeny’s Talent｜Luis’s Story</a>  	 
+				 <a href="https://tokeny.com/tokenys-talent-evas-story/"></a>    <a href="https://tokeny.com/category/tokenys-talent/">Tokeny's Talent</a> 19 Feb at 8:43  <a href="https://tokeny.com/tokenys-talent-evas-story/">Tokeny’s Talent｜Eva’s Story</a>  	 
  
  	 
 		 
@@ -3357,7 +3357,7 @@ sudo ld -x --shared -o /lib/security/deviceflow.so deviceflow.o qr.o \
 
 <div class='item-footer'>
    14:50 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4101,7 +4101,7 @@ Tweet
 
 <div class='item-footer'>
    15:05 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4168,7 +4168,7 @@ Tweet
 
 <div class='item-footer'>
    14:55 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4232,7 +4232,7 @@ Tweet
 
 <div class='item-footer'>
    14:54 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4298,7 +4298,7 @@ Tweet
 
 <div class='item-footer'>
    13:41 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5052,7 +5052,7 @@ make init
 
 <div class='item-footer'>
    16:06 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5116,7 +5116,7 @@ make init
 
 <div class='item-footer'>
    16:01 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5180,7 +5180,7 @@ make init
 
 <div class='item-footer'>
    15:53 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5244,7 +5244,7 @@ make init
 
 <div class='item-footer'>
    15:01 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5318,7 +5318,7 @@ make init
 
 <div class='item-footer'>
    14:21 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5779,7 +5779,7 @@ I'm really looking forward to EIC and to talk. I'll talk about the topics we men
 
 <div class='item-footer'>
    17:40 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5843,7 +5843,7 @@ I'm really looking forward to EIC and to talk. I'll talk about the topics we men
 
 <div class='item-footer'>
    15:44 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5940,7 +5940,7 @@ I'm really looking forward to EIC and to talk. I'll talk about the topics we men
 
 <div class='item-footer'>
    14:23 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6442,7 +6442,7 @@ Euronext &amp; Tokeny Solutions</p>
 
 <div class='item-footer'>
    15:35 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6535,7 +6535,7 @@ During this conversation, we discuss:</p>
 
 <div class='item-footer'>
    16:30 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6609,7 +6609,7 @@ Collators are located in orange coloured&nbsp;areas.<p>13 August 2021, Berlin 
 
 <div class='item-footer'>
    13:54 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8130,7 +8130,7 @@ public class SecureRandomReactiveImpl implements SecureRandomService {
 
 <div class='item-footer'>
    15:07 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9162,7 +9162,7 @@ During this conversation, we discuss:</p>
 
 <div class='item-footer'>
    16:44 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9312,7 +9312,7 @@ During this conversation, we discuss:</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9376,7 +9376,7 @@ During this conversation, we discuss:</p>
 
 <div class='item-footer'>
    15:45 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9481,7 +9481,7 @@ During this conversation, we discuss:</p>
 
 <div class='item-footer'>
    15:23 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9545,7 +9545,7 @@ During this conversation, we discuss:</p>
 
 <div class='item-footer'>
    14:34 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9622,7 +9622,7 @@ During this conversation, we discuss:</p>
 
 <div class='item-footer'>
    14:29 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9686,7 +9686,7 @@ During this conversation, we discuss:</p>
 
 <div class='item-footer'>
    14:25 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11288,7 +11288,7 @@ Podcast trailer transcript and links to episodes:
 
 <div class='item-footer'>
    17:36 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11362,7 +11362,7 @@ Podcast trailer transcript and links to episodes:
 
 <div class='item-footer'>
    16:12 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11436,7 +11436,7 @@ Podcast trailer transcript and links to episodes:
 
 <div class='item-footer'>
    16:01 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11500,7 +11500,7 @@ Podcast trailer transcript and links to episodes:
 
 <div class='item-footer'>
    14:58 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11975,7 +11975,7 @@ That it would be a very exciting time deploying the first IoT deployment solutio
 
 <div class='item-footer'>
    16:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13039,7 +13039,7 @@ It Is Evident That Blockchain Markets Have Seen An Unprecedented Ride Since The 
 
 <div class='item-footer'>
    16:35 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13132,7 +13132,7 @@ It Is Evident That Blockchain Markets Have Seen An Unprecedented Ride Since The 
 
 <div class='item-footer'>
    14:42 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14229,7 +14229,7 @@ dotnet new page -n Logout -na CaloriesTracker.Blazor.Pages -o Pages
 
 <div class='item-footer'>
    17:26 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14293,7 +14293,7 @@ dotnet new page -n Logout -na CaloriesTracker.Blazor.Pages -o Pages
 
 <div class='item-footer'>
    15:58 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14353,7 +14353,7 @@ dotnet new page -n Logout -na CaloriesTracker.Blazor.Pages -o Pages
 
 <div class='item-footer'>
    15:58 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14435,7 +14435,7 @@ dotnet new page -n Logout -na CaloriesTracker.Blazor.Pages -o Pages
 
 <div class='item-footer'>
    15:25 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15332,7 +15332,7 @@ If you enjoyed this post, check out these related ones on our blog.</p>
 
 <div class='item-footer'>
    16:56 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15574,7 +15574,7 @@ If you enjoyed this post, check out these related ones on our blog.</p>
 
 <div class='item-footer'>
    15:19 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17358,7 +17358,7 @@ Or get the result in JSON:
 
 <div class='item-footer'>
    15:19 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17418,7 +17418,7 @@ Or get the result in JSON:
 
 <div class='item-footer'>
    15:17 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17478,7 +17478,7 @@ Or get the result in JSON:
 
 <div class='item-footer'>
    15:15 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17552,7 +17552,7 @@ Or get the result in JSON:
 
 <div class='item-footer'>
    14:05 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18306,7 +18306,7 @@ Senior Sales Manager UK &amp; I<br>
 
 <div class='item-footer'>
    14:53 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19103,7 +19103,7 @@ THE PRESENT&nbsp;MOMENT<p>Today, when the line between online and offline is blu
 
 <div class='item-footer'>
    17:37 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -20082,7 +20082,7 @@ Elemental Chat Demonstrates new P2P Possibilities<p>We have reached an important
 
 <div class='item-footer'>
    17:09 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -20146,7 +20146,7 @@ Elemental Chat Demonstrates new P2P Possibilities<p>We have reached an important
 
 <div class='item-footer'>
    14:14 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -20229,7 +20229,7 @@ Elemental Chat Demonstrates new P2P Possibilities<p>We have reached an important
 
 <div class='item-footer'>
    13:55 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -20295,7 +20295,7 @@ Elemental Chat Demonstrates new P2P Possibilities<p>We have reached an important
 
 <div class='item-footer'>
    13:55 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21096,7 +21096,7 @@ Wed, 2021-07-28 - 21:16
 
 <div class='item-footer'>
    16:00 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21181,7 +21181,7 @@ Wed, 2021-07-28 - 21:16
 
 <div class='item-footer'>
    15:45 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21828,7 +21828,7 @@ Tue, 2021-07-27 - 21:10
 
 <div class='item-footer'>
    14:08 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21902,7 +21902,7 @@ Tue, 2021-07-27 - 21:10
 
 <div class='item-footer'>
    14:03 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21976,7 +21976,7 @@ Tue, 2021-07-27 - 21:10
 
 <div class='item-footer'>
    13:56 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -22736,7 +22736,7 @@ Mon, 2021-07-26 - 21:03
 
 <div class='item-footer'>
    15:47 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -22913,7 +22913,7 @@ Mon, 2021-07-26 - 21:03
 
 <div class='item-footer'>
    14:54 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -23430,7 +23430,7 @@ Photo by <a href="https://unsplash.com/@brandbymide?utm_source=unsplash&amp;utm_
 
 <div class='item-footer'>
    15:38 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
