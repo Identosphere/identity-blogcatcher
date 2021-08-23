@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:41 AM August 23, 2021 (UTC)</sup>
+<sup>Last Update 10:44 AM August 23, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,349 @@
  <h2 class='new-date'>
   Monday, 23. August 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/08/23/improving-application-security-in-blazor-using-http-headers-part-2/'>Improving application security in Blazor using HTTP headers – Part 2</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to improve the security of an ASP.NET Core Blazor application by adding security headers to all HTTP Razor Page responses (Blazor WASM hosted in a ASP.NET Core hosted backend). The security headers are added using the NetEscapades.AspNetCore.SecurityHeaders Nuget package from Andrew Lock. The headers are used to protect the session, not […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to improve the security of an ASP.NET Core Blazor application by adding security headers to all HTTP Razor Page responses (Blazor WASM hosted in a ASP.NET Core hosted backend). The security headers are added using the <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package from <a href="https://twitter.com/andrewlocknet">Andrew Lock</a>. The headers are used to protect the session, not for authentication. The application is authenticated using OpenID Connect, the security headers are used to protected the session. The authentication is implemented in the Blazor application using the BFF pattern. The WASM client part is just a view of the server rendered trusted backend and cookies are used in the browser. All API calls are same domain only and protected with a cookie and same site.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCore6Experiments">https://github.com/damienbod/AspNetCore6Experiments</a> </p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/08/16/improving-application-security-in-asp-net-core-razor-pages-using-http-headers-part-1/">Improving application security in ASP.NET Core Razor Pages using HTTP headers – Part 1</a>  Improving application security in Blazor using HTTP headers – Part 2  Improving application security in an ASP.NET Core API using HTTP headers – Part 3  
+
+
+
+<p>The NetEscapades.AspNetCore.SecurityHeaders and the NetEscapades.AspNetCore.SecurityHeaders.TagHelpers Nuget packages are added to the csproj file of the web application. The tag helpers are added to use the nonce from the CSP in the Razor Pages.</p>
+
+
+  &lt;ItemGroup&gt;
+	&lt;PackageReference 
+		Include="NetEscapades.AspNetCore.SecurityHeaders" 
+		Version="0.16.0" /&gt;
+	&lt;PackageReference 
+		Include="NetEscapades.AspNetCore.SecurityHeaders.TagHelpers" 
+		Version="0.16.0" /&gt;
+&lt;/ItemGroup&gt;
+  
+
+
+<p>The Blazor definition is very similar to the ASP.NET Core Razor Page one. The main difference is that the CSP script policy is almost disabled due to the Blazor script requirements. We can at least force self on the content security policy header script-src definition.</p>
+
+
+
+<p>The Blazor WASM logout link sends a HTTP Form POST request which is redirected to the OpenID Connect identity provider. The CSP needs to allow this redirect and the content secure policy form definition allows this.</p>
+
+
+  public static HeaderPolicyCollection GetHeaderPolicyCollection(
+     bool isDev, string identityProviderHost)
+{
+	var policy = new HeaderPolicyCollection()
+		.AddFrameOptionsDeny()
+		.AddXssProtectionBlock()
+		.AddContentTypeOptionsNoSniff()
+		.AddReferrerPolicyStrictOriginWhenCrossOrigin()
+		.RemoveServerHeader()
+		.AddCrossOriginOpenerPolicy(builder =&gt;
+		{
+			builder.SameOrigin();
+		})
+		.AddCrossOriginEmbedderPolicy(builder =&gt;
+		{
+			builder.RequireCorp();
+		})
+		.AddCrossOriginResourcePolicy(builder =&gt;
+		{
+			builder.SameOrigin();
+		})
+		.AddContentSecurityPolicy(builder =&gt;
+		{
+			builder.AddObjectSrc().None();
+			builder.AddBlockAllMixedContent();
+			builder.AddImgSrc().Self().From("data:");
+			builder.AddFormAction().Self().From(identityProviderHost);
+			builder.AddFontSrc().Self();
+			builder.AddStyleSrc().Self().UnsafeInline();
+			builder.AddBaseUri().Self();
+			builder.AddFrameAncestors().None();
+
+			// due to Blazor
+			builder.AddScriptSrc().Self().UnsafeInline().UnsafeEval();
+		})
+		.RemoveServerHeader()
+		.AddPermissionsPolicy(builder =&gt;
+		{
+			builder.AddAccelerometer().None();
+			builder.AddAutoplay().None(); 
+			builder.AddCamera().None();
+			builder.AddEncryptedMedia().None();
+			builder.AddFullscreen().All();
+			builder.AddGeolocation().None();
+			builder.AddGyroscope().None();
+			builder.AddMagnetometer().None();
+			builder.AddMicrophone().None();
+			builder.AddMidi().None();
+			builder.AddPayment().None();
+			builder.AddPictureInPicture().None();
+			builder.AddSyncXHR().None();
+			builder.AddUsb().None();
+		});
+
+	if (!isDev)
+	{
+		// maxage = one year in seconds
+		policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
+	}
+
+	return policy;
+}
+  
+
+
+<p>Blazor adds the following script to the WASM host file. This means the CSP for scripts cannot be implemented in a good way.</p>
+
+
+  &lt;script&gt;
+var Module; window.__wasmmodulecallback__(); delete window.__wasmmodulecallback__;
+&lt;/script&gt;
+
+
+  
+
+
+<p>script-src (from CSP evaluator)</p>
+
+
+
+<p>‘self’ can be problematic if you host JSONP, Angular or user uploaded files.<br>‘unsafe-inline’ allows the execution of unsafe in-page scripts and event handlers.<br>‘unsafe-eval’ allows the execution of code injected into DOM APIs such as eval().</p>
+
+
+
+<p></p>
+
+
+
+<p>The aspnetcore-browser-refresh.js is also added for hot reload. This also prevents a strong CSP script definition in development. This could be fixed with a dev check in the policy definition. There is no point fixing this, until the wasmmodulecallback script bug is fixed.</p>
+
+
+
+<p>I am following the ASP.NET Core <a href="https://github.com/dotnet/aspnetcore/issues/34428">issue</a> and hope this can be improved for Blazor.</p>
+
+
+
+<p></p>
+
+
+
+<p>In the Startup class, the UseSecurityHeaders method is used to apply the HTTP headers policy and add the middleware to the application. The env.IsDevelopment() is used to add or not to add the HSTS header. The default HSTS middleware from the ASP.NET Core templates was removed from the Configure method as this is not required. </p>
+
+
+  public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+{
+	if (env.IsDevelopment())
+	{
+		app.UseDeveloperExceptionPage();
+	}
+	else
+	{
+		app.UseExceptionHandler("/Error");
+	}
+
+	app.UseSecurityHeaders(
+		SecurityHeadersDefinitions
+			.GetHeaderPolicyCollection(env.IsDevelopment(),
+                    Configuration["AzureAd:Instance"]));
+  
+
+
+<p>The server header can be removed in the program class file of the Blazor server project if using Kestrel. If using IIS, you probably need to use the web.config to remove this.</p>
+
+
+  public static IHostBuilder CreateHostBuilder(string[] args) =&gt;
+	Host.CreateDefaultBuilder(args)
+		.ConfigureWebHostDefaults(webBuilder =&gt;
+		{
+			webBuilder
+				.ConfigureKestrel(options =&gt; 
+					options.AddServerHeader = false)
+				.UseStartup&lt;Startup&gt;();
+		});
+  
+
+
+<p>When we scan the <a href="https://securityheaders.com/">https://securityheaders.com/</a> you can view the results. You might need to disable the authentication to check this, or provide a public view.</p>
+
+
+
+
+
+
+
+<p>The content security policy has a warning due to the script definition which is required for Blazor.</p>
+
+
+
+
+
+
+
+<p>The <a href="https://csp-evaluator.withgoogle.com/">https://csp-evaluator.withgoogle.com/</a> also displays a high severity finding due the the CSP script definition.</p>
+
+
+
+
+
+
+
+<p>Notes:</p>
+
+
+
+<p>If the application is fully protected without any public views, the follow redirects checkbox on the security headers needs to be disabled as then you only get the results of the identity provider used to authenticate. </p>
+
+
+
+<p>I block all traffic, if possible, which is not from my domain including sub domains. If implementing enterprise applications, I would always do this. If implementing public facing applications with high traffic volumes or need extra fast response times, or need to reduce the costs of hosting, then CDNs would need to be used, allowed and so on. Try to block all first and open up as required and maybe you can avoid some nasty surprises from all the Javascript, CSS frameworks used.</p>
+
+
+
+<p>Maybe until the CSP script is fixed for Blazor, you probably should avoid using Blazor for high security applications and use ASP.NET Core Razor Page applications instead. </p>
+
+
+
+<p>If you use Blazor together with tokens in Azure AD or Azure B2C and this CSP script bug, you leave yourself open to having your tokens stolen. I would recommend using server authentication with Azure which removes the tokens from the browser and also solves the Azure SPA logout problem. Azure AD, Azure B2C do not support the revocation endpoint or introspection, so it is impossible to invalidate your tokens on a logout. It does not help if the IT admin, Azure monitoring can invalidate tokens using CAE.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://securityheaders.com/">https://securityheaders.com/</a></p>
+
+
+
+<p><a href="https://csp-evaluator.withgoogle.com/">https://csp-evaluator.withgoogle.com/</a></p>
+
+
+
+<p><a href="https://www.youtube.com/watch?v=J6BZ9IQELNA">Security by Default Chrome developers</a></p>
+
+
+
+<p><a href="https://www.snigel.com/blog/a-simple-guide-to-coop-coep-corp-and-cors/">A Simple Guide to COOP, COEP, CORP, and CORS</a></p>
+
+
+
+<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
+
+
+
+<p><a href="https://github.com/dotnet/aspnetcore/issues/34428">https://github.com/dotnet/aspnetcore/issues/34428</a></p>
+
+
+
+<p><a href="https://w3c.github.io/webappsec-trusted-types/dist/spec/">https://w3c.github.io/webappsec-trusted-types/dist/spec/</a></p>
+
+
+
+<p><a href="https://web.dev/trusted-types/">https://web.dev/trusted-types/</a></p>
+
+
+
+<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Cross-Origin_Resource_Policy_(CORP)">https://developer.mozilla.org/en-US/docs/Web/HTTP/Cross-Origin_Resource_Policy_(CORP)</a></p>
+
+
+
+<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS">https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS</a></p>
+
+
+
+<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies">https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies</a></p>
+
+
+
+<p><a href="https://docs.google.com/document/d/1zDlfvfTJ_9e8Jdc8ehuV4zMEu9ySMCiTGMS9y0GU92k/edit">https://docs.google.com/document/d/1zDlfvfTJ_9e8Jdc8ehuV4zMEu9ySMCiTGMS9y0GU92k/edit</a></p>
+
+
+
+<p><a href="https://scotthelme.co.uk/coop-and-coep/">https://scotthelme.co.uk/coop-and-coep/</a></p>
+
+
+
+<p><a href="https://github.com/OWASP/ASVS">https://github.com/OWASP/ASVS</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/08/security_headers_blazor_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:47 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -814,7 +1157,7 @@
 
 <div class='item-footer'>
    02:02 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -878,7 +1221,7 @@
 
 <div class='item-footer'>
    01:59 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -961,7 +1304,7 @@
 
 <div class='item-footer'>
    23:40 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1867,7 +2210,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    15:35 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1956,7 +2299,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    15:20 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2028,7 +2371,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    15:13 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2098,7 +2441,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    13:16 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2700,7 +3043,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    22:34 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2765,7 +3108,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    21:49 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2832,7 +3175,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    21:49 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2921,7 +3264,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    21:35 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4146,7 +4489,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    22:10 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4212,7 +4555,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    20:15 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4390,7 +4733,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    19:14 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4773,7 +5116,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    19:40 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5142,7 +5485,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    20:37 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5268,6 +5611,14 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 
 <p>Code: <a href="https://github.com/damienbod/AspNetCore6Experiments">https://github.com/damienbod/AspNetCore6Experiments</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/08/16/improving-application-security-in-asp-net-core-razor-pages-using-http-headers-part-1/">Improving application security in ASP.NET Core Razor Pages using HTTP headers – Part 1</a>  <a href="https://damienbod.com/2021/08/23/improving-application-security-in-blazor-using-http-headers-part-2/">Improving application security in Blazor using HTTP headers – Part 2</a>  Improving application security in an ASP.NET Core API using HTTP headers – Part 3  
 
 
 
@@ -5964,7 +6315,7 @@ position_from_anno
 
 <div class='item-footer'>
    20:16 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6499,7 +6850,7 @@ Variable
 
 <div class='item-footer'>
    22:07 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7299,7 +7650,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    21:00 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8087,7 +8438,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    18:00 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8980,7 +9331,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:09 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9323,7 +9674,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    21:09 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9589,7 +9940,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    22:12 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9676,7 +10027,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    18:34 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10187,7 +10538,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    20:55 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10297,7 +10648,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    19:32 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10439,7 +10790,7 @@ a declarative format for creating, saving, and sharing visualization designs. Wi
 
 <div class='item-footer'>
    22:18 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10616,7 +10967,7 @@ Integrates well with version control. I like to keep my site content under versi
 
 <div class='item-footer'>
    20:23 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11389,7 +11740,7 @@ $$ language plpgsql;
 
 <div class='item-footer'>
    19:00 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12153,7 +12504,7 @@ public class UserAccessController : ControllerBase
 
 <div class='item-footer'>
    20:12 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12313,7 +12664,7 @@ pl/python: 290ms, 255ms, 300ms
 
 <div class='item-footer'>
    19:23 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21537,271 +21888,6 @@ The post 国際金融協会（IIF）のAPACサミットでバンコク銀行頭�
 
 <div class='item-footer'>
    10:48 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 17. May 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/05/17/securing-multiple-identity-provider-oauth-bearer-tokens-in-an-asp-net-core-api/'>Securing OAuth Bearer tokens from multiple Identity Providers in an ASP.NET Core API</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to secure and use different APIs in an ASP.NET Core API which support OAuth access tokens from multiple identity providers. Access tokens from Azure AD and from Auth0 can be be used to access data from the service. Each API only supports a specific token from the specific identity provider. Microsoft.Identity.Web […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to secure and use different APIs in an ASP.NET Core API which support OAuth access tokens from multiple identity providers. Access tokens from Azure AD and from Auth0 can be be used to access data from the service. Each API only supports a specific token from the specific identity provider. Microsoft.Identity.Web is used to implement the access token authorization for the Azure AD tokens and the default authorization is used to support the Auth0 access tokens.</p>
-
-
-
-<p>Code:&nbsp;<a href="https://github.com/damienbod/SeparatingApisPerSecurityLevel">https://github.com/damienbod/SeparatingApisPerSecurityLevel</a></p>
-
-
-
-<p>Blogs in this series</p>
-
-
-
-  <a href="https://damienbod.com/2021/04/19/securing-multiple-auth0-apis-in-asp-net-core-using-oauth-bearer-tokens/">Securing multiple Auth0 APIs in ASP.NET Core using OAuth Bearer&nbsp;tokens</a>  Securing OAuth Bearer tokens from multiple Identity Providers in an ASP.NET Core API  
-
-
-
-<p>Setup</p>
-
-
-
-<p>An API ASP.NET Core application is created to implement the multiple APIs and accept access tokens created by Auth0 and Azure AD. The access tokens need to be validated and should only work for the intended purpose for which the access token was created. The Azure AD API is used by an ASP.NET Core Razor page application which requests an user access token with the correct scope to access the API. Two Azure AD App registrations are used to define the Azure AD setup. The Auth0 application is implemented using a Blazor server hosted application and accesses the two Auth0 APIs, See the pervious post for details.</p>
-
-
-
-
-
-
-
-<p>To support the multiple identity providers, multiple schemes are used. The Auth0 APIs use the default scheme definition for JWT Bearer tokens and the Azure AD uses a custom named scheme. It does not matter which scheme is used for which as long as the correct scheme is defined on the controller securing the API. The AddMicrosoftIdentityWebApiAuthentication method takes the scheme and the configuration name as a optional parameter. The Azure AD configuration is defined like any standard Azure AD API in ASP.NET Core.</p>
-
-
-  public void ConfigureServices(IServiceCollection services)
-{
-	// Adds Microsoft Identity platform (AAD v2.0) 
-	// support to protect this Api
-	services.AddMicrosoftIdentityWebApiAuthentication(
-		Configuration, "AzureAd", "myADscheme");
-
-	// Auth0 API configuration=&gt; default scheme
-	services.AddAuthentication(options =&gt;
-	{
-		options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-		options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-	}).AddJwtBearer(options =&gt;
-	{
-		options.Authority = "https://dev-damienbod.eu.auth0.com/";
-		options.Audience = "https://auth0-api1";
-	});
-
-	services.AddSingleton&lt;IAuthorizationHandler, UserApiScopeHandler&gt;();
-
-	// authorization definitions for the multiple Auth0 tokens
-	services.AddAuthorization(policies =&gt;
-	{
-		policies.AddPolicy("p-user-api-auth0", p =&gt;
-		{
-			p.Requirements.Add(new UserApiScopeHandlerRequirement());
-			// Validate id of application for which the token was created
-			p.RequireClaim("azp", "AScjLo16UadTQRIt2Zm1xLHVaEaE1feA");
-		});
-
-		policies.AddPolicy("p-service-api-auth0", p =&gt;
-		{
-			// Validate id of application for which the token was created
-			p.RequireClaim("azp", "naWWz6gdxtbQ68Hd2oAehABmmGM9m1zJ");
-			p.RequireClaim("gty", "client-credentials");
-		});
-	});
-
-	services.AddControllers(options =&gt;
-	{
-		var policy = new AuthorizationPolicyBuilder()
-			.RequireAuthenticatedUser()
-			.Build();
-		options.Filters.Add(new AuthorizeFilter(policy));
-	});
-}
-  
-
-
-<p>The Configure method uses the UseAuthentication method to add the middleware for the APIs.</p>
-
-
-  public void Configure(IApplicationBuilder app, 
-	IWebHostEnvironment env)
-{
-	// ...
-
-	app.UseRouting();
-
-	app.UseAuthentication();
-	app.UseAuthorization();
-
-	app.UseEndpoints(endpoints =&gt;
-	{
-		endpoints.MapControllers();
-	});
-}
-  
-
-
-<p>The AzureADUserOneController class is used to implement the API for the Azure AD access tokens. The AuthorizeForScopes attribute from Microsoft.Identity.Web is used to validate the Azure AD App registration access token and define the scheme required for the validation. The scope name must match the Azure App registration definition.</p>
-
-
-  using System.Collections.Generic;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
-using Microsoft.Identity.Web;
-
-namespace MyApi.Controllers
-{
-    [AuthorizeForScopes(Scopes = new string[] { "api://72286b8d-5010-4632-9cea-e69e565a5517/user_impersonation" }, 
-        AuthenticationScheme = "myADscheme")]
-    [ApiController]
-    [Route("api/[controller]")]
-    public class AzureADUserOneController : ControllerBase
-    {
-        private readonly ILogger&lt;UserOneController&gt; _logger;
-
-        public AzureADUserOneController(ILogger&lt;UserOneController&gt; logger)
-        {
-            _logger = logger;
-        }
-
-        [HttpGet]
-        public IEnumerable&lt;string&gt; Get()
-        {
-            return new List&lt;string&gt; { "AzureADUser one data" };
-        }
-    }
-}
-
-  
-
-
-<p>The UserOneController implements the Auth0 user access token API. Since the default scheme is used, no scheme definition is required. The authorization policy is used to secure the API which validates the scope and the claims for this API.</p>
-
-
-  using System.Collections.Generic;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
-
-namespace MyApi.Controllers
-{
-    [Authorize(Policy = "p-user-api-auth0")]
-    [ApiController]
-    [Route("api/[controller]")]
-    public class UserOneController : ControllerBase
-    {
-        private readonly ILogger&lt;UserOneController&gt; _logger;
-
-        public UserOneController(ILogger&lt;UserOneController&gt; logger)
-        {
-            _logger = logger;
-        }
-
-        [HttpGet]
-        public IEnumerable&lt;string&gt; Get()
-        {
-            return new List&lt;string&gt; { "user one data" };
-        }
-    }
-}
-
-  
-
-
-<p>When the API application is started the APIs can be used and a swagger UI implemented using Swashbuckle was created to display the different APIs. Each API will only work with the correct access token. The different UIs can use the APIs and data is returned.</p>
-
-
-
-
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://auth0.com/docs/quickstart/webapp/aspnet-core">https://auth0.com/docs/quickstart/webapp/aspnet-core</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authorization/introduction">https://docs.microsoft.com/en-us/aspnet/core/security/authorization/introduction</a></p>
-
-
-
-<p><a href="https://openid.net/connect/">Open ID Connect</a></p>
-
-
-
-<p><a href="https://damienbod.com/2021/04/12/securing-blazor-web-assembly-using-cookies-and-auth0/">Securing Blazor Web assembly using Cookies and&nbsp;Auth0</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/05/apis_idps_02.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:13 &bull;
    3 months ago
 </div>
 
