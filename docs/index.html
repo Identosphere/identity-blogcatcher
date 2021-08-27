@@ -736,12 +736,294 @@
 
 </div>
 </div>
-<sup>Last Update 1:42 AM August 27, 2021 (UTC)</sup>
+<sup>Last Update 5:41 AM August 27, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Friday, 27. August 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/'>Working in a hybrid Metabase / Postgres code base</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  In this series I’m exploring how to work in a code base that lives in two places: Metabase questions that encapsulate chunks of SQL, and Postgres functions/procedures/views that also encapsulate chunks of SQL. To be effective working with this hybrid collection of SQL chunks, I needed to reason about their interrelationships. One way to do … Continue reading Working in a hybrid Metabase / Postgres 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>In this series I’m exploring how to work in a code base that lives in two places: Metabase questions that encapsulate chunks of SQL, and Postgres functions/procedures/views that also encapsulate chunks of SQL. To be effective working with this hybrid collection of SQL chunks, I needed to reason about their interrelationships. One way to do that entailed the creation of a documentation generator that writes a concordance of callers and callees.</p>
+<p>Here’s the entry for the function sparklines_for_guid(_guid).</p>
+<p></p>
+<p>The called by column says that this function is called from two different contexts. One is a Metabase question, All courses: Weekly activity. If you’re viewing that question in Metabase, you’ll find that its SQL text is simply this:</p>
+ select * from sparklines_for_guid( {{guid}} )
+ 
+<p>The same function call appears in a procedure, cache warmer, that preemptively memoizes the function for a set of the most active schools in the system. In either case, you can look up the function in the concordance, view its definition, and review how it’s called.</p>
+<p>In the definition of sparkline_for_guid, names of other functions (like guid_hashed_view_exists) appear and are linked to their definitions. Similarly, names of views appearing in SELECT or JOIN contexts are linked to their definitions. </p>
+<p>Here’s the entry for the function guid_hashed_view_exists. It is called by sparklines_for_guid as well as by functions that drive panels on the school dashboard. It links to the functions it uses: hash_for_guid and exists_view. </p>
+<p></p>
+<p>Here’s the entry for the view lms_course_groups which appears as a JOIN target in sparklines_for_guid. This central view is invoked — in SELECT or JOIN context — from many functions, from dependent views, and from Metabase questions. </p>
+<p></p>
+<p>Metabase questions can also “call” other Metabase questions. In <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">A virtuous cycle for analytics</a> I noted: “Queries can emit URLs in order to compose themselves with other queries.” Here’s an example of that.</p>
+<p></p>
+<p>This Metabase question (985) calls various linked functions, and is called by two other Metabase questions. Here is one of those.</p>
+<p></p>
+<p>Because this Metabase question (600) emits an URL that refers to 985, it links to the definition of 985. It also links to the view, top_annotated_domains_last_week, from which it SELECTs.</p>
+<p>It was straightforward to include Postgres functions, views, and procedures in the concordance since these live in files that reside in the fileystem under source control. Metabase questions, however, live in a database — in our case, a Postgres database that’s separate from our primary Postgres analytics db. In order to extract them into a file I use this SQL snippet.</p>
+ select
+  r.id,
+  m.name as dbname,
+  r.name,
+  r.description,
+  r.dataset_query
+from report_card r
+join metabase_database m
+  on m.id = cast(r.dataset_query::jsonb-&gt;&gt;'database' as int)
+where not r.archived
+order by r.id;
+ 
+<p>The doc generator downloads that Metabase data as a CSV file, queries.csv, and processes it along with the files that contain the definitions of functions, procedures, and views in the Postgres data warehouse. It also emits queries.txt which is a more convenient way to diff changes from one commit to the next. </p>
+<p>This technique solved a couple of problems. First, when we were only using Metabase — unaugmented by anything in Postgres — it enabled us to put our Metabase SQL under source control and helped us visualize relationships among queries.</p>
+<p>Later, as we augmented Metabase with Postgres functions, procedures, and views, it became even more powerful. Developing a new panel for a school or course dashboard means writing a new memoized function. That process begins as a Metabase question with SQL code that calls existing Postgres functions, and/or JOINs/SELECTs FROM existing Postgres views. Typically it then leads to the creation of new supporting Postgres functions and/or views. All this can be tested by internal users, or even invited external users, in Metabase, with the concordance available to help understand the relationships among the evolving set of functions and views.</p>
+<p>When supporting functions and views are finalized, the SQL content of the Metabase question gets wrapped up in a memoized Postgres function that’s invoked from a panel of a dashboard app. At that point the concordance links the new wrapper function to the same set of supporting functions and views. I’ve found this to be an effective way to reason about a hybrid code base as features move from Metabase for prototyping to Postgres in production, while maintaining all the code under source control.</p>
+<p>That foundation of source control is necessary, but maybe not sufficient, for a team to consider this whole approach viable. The use of two complementary languages for in-database programming will certainly raise eyebrows, and if it’s not your cup of tea I completely understand. If you do find it appealing, though, one thing you’ll wonder about next will be tooling. I work in VSCode nowadays, for which I’ve not yet found a useful extension for pl/pgsql or pl/python. With <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">metaprogramming</a> life gets even harder for a aspiring pl/pgsql or pl/python VSCode extensions. I can envision them, but I’m not holding my breath awaiting them. Meanwhile, two factors enable VSCode to be helpful even without deep language-specific intelligence.</p>
+<p>The first factor, and by far the dominant one, is outlining. In <a href="https://blog.jonudell.net/2019/09/05/products-and-capabilities/">Products and capabilities</a> I reflect on how I’ve never adopted an outlining product, but often rely on outlining capability infused into a product. In VSCode that’s “only” basic indentation-driven folding and unfolding. But I find it works remarkably well across SQL queries, views and functions that embed them, CTEs that comprise them, and pl/pgsql or pl/python functions called by them. </p>
+<p>The second factor, nascent thus far, is GitHub Copilot. It’s a complementary kind of language intelligence that’s aware of, but not bounded by, what a file extension of .sql or .py implies. It can sometimes discern patterns that mix language syntaxes and offer helpful suggestions. That hasn’t happened often so far, but it’s striking when it does. I don’t yet know the extent to which it may be <a href="https://blog.jonudell.net/2021/07/11/working-with-intelligent-machines/">training me while I train it</a>, or how those interactions might influence others. At this point I’m not a major Copilot booster, but I am very much an interested observer of and participant in the experiment.</p>
+<p>All in all, I’m guardedly optimistic that existing or feasible tooling can enable individuals and teams to sanely navigate the hybrid corpus of source code discussed in this series. If you’re along for the ride, you’ll next wonder about debugging and monitoring a system built this way. That’s a topic for a future episode.</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
+2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
+3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
+6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i1.wp.com/jonudell.info/images/_docgen-sparklines-for-guid.jpg?w=656&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:07 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/08/27/cocoon-remains-independent.html'> 
+ “Cocoon remains independent and not be part of Substack. D</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ “Cocoon remains independent and not be part of Substack. Design and engineering talent will be joining team to contribute their skills, creativity, and vision to strengthening Substack’s community. 
+ 
+
+ (Quote edited to fit space) 
+
+ What exactly is Substack announcing? Confused. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<blockquote>
+<p>“Cocoon remains independent and not be part of Substack. Design and engineering talent will be joining team to contribute their skills, creativity, and vision to strengthening Substack’s community.</p>
+</blockquote>
+
+<p>(Quote edited to fit space)</p>
+
+<p>What exactly is Substack announcing? Confused.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:33 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/08/27/originally-aimed-at.html'> Originally aimed at the U.S.A. .. this seems to be the N.Z. </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Originally aimed at the U.S.A. .. this seems to be the N.Z. Strategy … let’s see if it works. 
+
+ Of course the US tends to think that if if it’s alright - then so is the world. 
+
+ Down here in N.Z. we know we also have to think of borders. 
+
+  
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2021/2c5e79dcc2.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Originally aimed at the U.S.A. .. this seems to be the N.Z. Strategy … let’s see if it works.</p>
+
+<p>Of course the US tends to think that if if it’s alright - then so is the world.</p>
+
+<p>Down here in N.Z. we know we also have to think of borders.</p>
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2021/2c5e79dcc2.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:44 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -811,7 +1093,7 @@
 
 <div class='item-footer'>
    03:07 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1152,7 +1434,7 @@
 
 <div class='item-footer'>
    09:20 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1773,7 +2055,7 @@
 
 <div class='item-footer'>
    17:21 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1891,7 +2173,7 @@
 
 <div class='item-footer'>
    15:23 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1967,7 +2249,7 @@
 
 <div class='item-footer'>
    14:50 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3700,7 +3982,8 @@ select * from usernames_by_course;
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
-8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
    
   
   
@@ -3711,7 +3994,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    15:35 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3800,7 +4083,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    15:20 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3872,7 +4155,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    15:13 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5133,144 +5416,6 @@ select * from usernames_by_course;
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/08/20/can-uber-and.html'> Can Uber and Lyft’s Copycat Ballot Measure Win in Massachuse</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Can Uber and Lyft’s Copycat Ballot Measure Win in Massachusetts? 
-
- It shouldn’t - BUT - unless Mass isn’t awake to what is going on, it will. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://themarkup.org/ask-the-markup/2021/08/19/can-uber-and-lyfts-copycat-ballot-measure-win-in-massachusetts">Can Uber and Lyft’s Copycat Ballot Measure Win in Massachusetts?</a></p>
-
-<p>It shouldn’t - BUT - unless Mass isn’t awake to what is going on, it will.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:00 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/08/20/interesting-thread-re.html'> Interesting thread re Electron if you are tracking the 1Pass</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Interesting thread re Electron if you are tracking the 1Password debate. 
-
- 
- “I think the history of tabs serves as a fascinating case study of how Apple’s neglect for its own UI frameworks assisted the rise and acceptance of cross-platform frameworks.” 
- 
-
- 💬 Francisco Tolmasky 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://twitter.com/tolmasky/status/1427708768033378310">Interesting thread re Electron if you are tracking the 1Password debate.</a></p>
-
-<blockquote>
-<p>“I think the history of tabs serves as a fascinating case study of how Apple’s neglect for its own UI frameworks assisted the rise and acceptance of cross-platform frameworks.”</p>
-</blockquote>
-
-<p>💬 Francisco Tolmasky</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:59 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Thursday, 19. August 2021
  </h2>
@@ -5616,7 +5761,8 @@ HINT:  You might need to increase max_locks_per_transaction.
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
-8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
    
   
   
@@ -5703,7 +5849,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    14:52 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5782,7 +5928,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    13:53 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6221,7 +6367,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    15:35 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6666,7 +6812,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    16:13 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6900,7 +7046,8 @@ position_from_anno
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
-8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
    
   
   
@@ -6917,7 +7064,7 @@ position_from_anno
 
 <div class='item-footer'>
    14:55 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7582,7 +7729,7 @@ Variable
 
 <div class='item-footer'>
    16:36 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7780,7 +7927,8 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
-8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
    
   
   
@@ -7859,7 +8007,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    16:53 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8384,7 +8532,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    14:30 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8970,7 +9118,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    17:13 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9172,7 +9320,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    16:30 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9232,7 +9380,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    16:17 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9982,7 +10130,8 @@ $$ language plpython3u;
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
-8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
    
   
   
@@ -10075,7 +10224,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    17:28 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10462,7 +10611,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    16:54 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10738,7 +10887,7 @@ I’m delighted to be jumping on this ride with them.</p>
 
 <div class='item-footer'>
    16:55 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11718,7 +11867,8 @@ $$ language plpgsql;
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
-8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
    
   
   
@@ -12830,7 +12980,8 @@ pl/python: 290ms, 255ms, 300ms
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
-8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
    
   
   
@@ -13015,7 +13166,8 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
-8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a></p>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
    
   
   
@@ -25141,7 +25293,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    05:01 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
@@ -25375,7 +25527,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    04:15 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27651,90 +27803,6 @@ The post Fin/Sum 2021 Day 2に出演します〜ポストコロナで金融サ�
 
 <div class='item-footer'>
    02:14 &bull;
-   5 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Sunday, 14. March 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.jonudell.net'>Jon Udell</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.jonudell.net/2021/03/14/the-modesto-pile/'>The Modesto Pile</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Reading a collection of John McPhee stories, I found several that were new to me. The Duty of Care, published in the New Yorker in 1993, is about tires, and how we do or don’t properly recycle them. One form of reuse we’ve mostly abandoned is retreads. McPhee writes: A retread is in no way … Continue reading The Modesto Pile
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p>
-<p>Reading a collection of John McPhee stories, I found several that were new to me. <a href="https://www.newyorker.com/magazine/1993/06/28/duty-of-care">The Duty of Care</a>, published in the New Yorker in 1993, is about tires, and how we do or don’t properly recycle them. One form of reuse we’ve mostly abandoned is retreads. McPhee writes:</p>
-<blockquote><p>A retread is in no way inferior to a new tire, but new tires are affordable, and the retreaded passenger tire has descended to the status of a clip-on tie.</p></blockquote>
-<p>My dad wore clip-on ties. He also used retreaded tires, and I can remember visiting a shop on several occasions to have the procedure done.</p>
-<p>Recently I asked a friend: “Whatever happened to retreaded tires?” We weren’t sure, but figured they’d gone away for good reasons: safety, reliability. But maybe not. <a href="https://www.tirerecappers.com/how-does-retread-work/">TireRecappers</a> and <a href="https://www.treadwright.com/pages/retread-moldcure-manufacturing">TreadWright</a> don’t buy those arguments. Maybe retreads were always a viable option for our passenger fleet, as they still are for our truck fleet. And maybe, with better tech, they’re better than they used to be.</p>
-<p>In Duty of Care, McPhee tells the story of the Modesto pile. It was, at the time, the world’s largest pile of scrap tires containing, by his estimate, 34 million tires.</p>
-<blockquote><p>You don’t have to stare long at that pile before the thought occurs to you that those tires were once driven upon by the Friends of the Earth. They are Environmental Defense Fund tires, Rainforest Action Network tires, Wilderness Society tires. They are California Natural Resources Federation tires, Save San Francisco Bay Association tires, Citizens for a Better Environment tires. They are Greenpeace tires, Sierra Club tires, Earth Island Institute tires. They are Earth First! tires!</p></blockquote>
-<p>(I love a good John McPhee list.)</p>
-<p>The world’s largest pile of tires left a surprisingly small online footprint, but you can find the LA Times’ <a href="https://www.latimes.com/archives/la-xpm-1987-11-30-mn-16908-story.html">Massive Pile of Tires Fuels Controversial Energy Plan</a> which describes the power plant — 41 million dollars, 14 megawatts, “the first of its kind in the United States and the largest in the world” — that McPhee visited when researching his story. I found it on Google Maps by following McPhee’s directions.</p>
-<blockquote><p>If you were abandon your car three miles from the San Joaquin County line and make your way on foot southwest one mile…</p></blockquote>
-<p>You can see the power plant. There’s no evidence of tires, or trucks moving them, so maybe the plant, having consumed the pile, is retired. Fortunately it never caught fire, that would’ve made a hell of a mess.</p>
-<p>According to <a href="https://en.wikipedia.org/wiki/Tire_recycling">Wikipedia</a>, we’ve reduced our inventory of stockpiled tires by an order of magnitude from a peak of a billion around the time McPhee wrote that article. We burn most of them for energy, and turn some into ground rubber for such uses as paving and flooring. So that’s progress. But I can’t help but wonder about the tire equivalent of Amory Lovins’ <a href="https://www.renewableenergyworld.com/energy-efficiency/whats-a-negawatt">negawatt</a>: “A watt of energy that you have not used through energy conservation or the use of energy-efficient products.”</p>
-<p>Could retreaded passenger tires be an important source of negawatts? Do we reject the idea just because they’re as unfashionable as clip-on ties? I’m no expert on the subject, obviously, but I suspect these things might be true.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/jonudell.info/images/modesto-pile.jpg?w=656&ssl=1'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:32 &bull;
    6 months ago
 </div>
 
