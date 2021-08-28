@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 3:46 PM August 28, 2021 (UTC)</sup>
+<sup>Last Update 8:41 PM August 28, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,280 @@
  <h2 class='new-date'>
   Saturday, 28. August 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/'>Working with interdependent Postgres functions and materialized views</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  In Working with Postgres types I showed an example of a materialized view that depends on a typed set-returning function. Because Postgres knows about that dependency, it won’t allow DROP FUNCTION foo. Instead it requires DROP FUNCTION foo CASCADE. A similar thing happens with materialized views that depend on tables or other materialized views. Let’s … Continue reading Working with interdependent 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>In <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">Working with Postgres types</a> I showed an example of a materialized view that depends on a typed set-returning function. Because Postgres knows about that dependency, it won’t allow DROP FUNCTION foo. Instead it requires DROP FUNCTION foo CASCADE.</p>
+<p>A similar thing happens with materialized views that depend on tables or other materialized views. Let’s build a cascade of views and consider the implications.</p>
+ create materialized view v1 as (
+  select 
+    1 as number,
+    'note_count' as label 
+);
+SELECT 1
+
+select * from v1;
+
+number | label
+-------+-------
+     1 | note_count
+ 
+<p>Actually, before continuing the cascade, let’s linger here for a moment. This is a table-like object created without using CREATE TABLE and without explicitly specifying types. But Postgres knows the types.</p>
+ \d v1;
+
+Materialized view "public.v1"
+
+Column  | Type 
+--------+-----
+number  | integer
+label   | text
+ 
+<p>The read-only view can become a read-write table like so.</p>
+ create table t1 as (select * from v1);
+SELECT 1
+
+select * from t1;
+
+number | label
+-------+-------
+     1 | note_count
+
+\d t1
+
+Table "public.v1"
+
+Column  | Type 
+--------+-----
+number  | integer
+label   | text
+ 
+<p>This ability to derive a table from a materialized view will come in handy later. It’s also just interesting to see how the view’s implicit types become explicit in the table.</p>
+<p>OK, let’s continue the cascade.</p>
+ create materialized view v2 as (
+  select 
+    number + 1,
+    label
+  from v1
+);
+SELECT 1
+
+select * from v2;
+
+number | label
+-------+-------
+     2 | note_count
+
+create materialized view v3 as (
+  select 
+    number + 1,
+    label
+  from v2
+);
+SELECT 1
+
+select * from v3;
+
+number | label
+-------+-------
+     3 | note_count
+ 
+<p>Why do this? Arguably you shouldn’t. Laurenz Albe makes that case in <a href="https://www.cybertec-postgresql.com/en/tracking-view-dependencies-in-postgresql/">Tracking view dependencies in PostgreSQL</a>. Recognizing that it’s sometimes useful, though, he goes on to provide code that can track recursive view dependencies. </p>
+<p>I use cascading views advisedly to augment the use of CTEs and functions described in <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">Postgres functional style</a>. Views that refine views can provide a complementary form of the chunking that aids reasoning in an analytics system. But that’s a topic for another episode. In this episode I’ll describe a problem that arose in a case where there’s only a single level of dependency from a table to a set of dependent materialized views, and discuss my solution to that probem.</p>
+<p>Here’s the setup. We have an annotation table that’s reloaded nightly. On an internal dashboard we have a chart based on the materialized view annos_at_month_ends_for_one_year which is derived from the annotation table and, as its name suggests, reports annotation counts on a monthly cycle. At the beginning of the nightly load, this happens: DROP TABLE annotation CASCADE. So the derived view gets dropped and needs to be recreated as part of the nightly process. But that’s a lot of unnecessary work for a chart that only changes monthly.</p>
+<p>Here are two ways to protect a view from a cascading drop of the table it depends on. Both reside in a SQL script, monthly.sql, that only runs on the first of every month. First, annos_at_month_ends_for_one_year.</p>
+ drop materialized view annos_at_month_ends_for_one_year;
+create materialized view annos_at_month_ends_for_one_year as (
+  with last_days as (
+    select 
+      last_days_of_prior_months( 
+        date(last_month_date() - interval '6 year')
+      ) as last_day
+    ),
+    monthly_counts as (
+      select
+        to_char(last_day, '_YYYY-MM') as end_of_month,
+        anno_count_between( 
+          date(last_day - interval '1 month'), last_day
+        ) as monthly_annos
+      from last_days
+    )
+    select
+      end_of_month,
+      monthly_annos,
+      sum(monthly_annos) over 
+        (order by end_of_month asc rows 
+           between unbounded preceding and current row
+        ) as cumulative_annos
+    from monthly_counts
+) with data;
+ 
+<p>Because this view depends indirectly on the annotation table  — by way of the function anno_count_between — Postgres doesn’t see the dependency. So the view isn’t affected by the cascading drop of the annotation table. It persists until, once a month, it gets dropped and recreated.</p>
+<p>What if you want Postgres to know about such a dependency, so that the view will participate in a cascading drop? You can do this.</p>
+ create materialized view annos_at_month_ends_for_one_year as (
+  with depends as (
+    select * from annotation limit 1
+  )
+  last_days as (
+    ),
+  monthly_counts as (
+    )
+  select
+    *
+  from monthly_counts;
+ 
+<p>The depends CTE doesn’t do anything relevant to the query, it just tells Postgres that this view depends on the annotation table.</p>
+<p>Here’s another way to protect a view from a cascading drop. This expensive-to-build view depends directly on the annotation table but only needs to be updated monthly. So in this case, cumulative_annotations is a table derived from a temporary materialized view.</p>
+ create materialized view _cumulative_annotations as (
+  with data as (
+    select 
+      to_char(created, 'YYYY-MM') as created
+    from annotation
+    group by created
+  ) 
+  select 
+    data.created, 
+    sum(data.count) 
+      over ( 
+        order by data.created asc 
+        rows between unbounded preceding and current row
+      )
+    from data
+    group by data.created 
+    order by data.created 
+
+drop table cumulative_annotations;
+
+create table cumulative_annotations as (
+  select * from _cumulative_annotations
+);
+
+drop materialized view _cumulative_annotations;
+ 
+<p>The table cumulative_annotations is only rebuilt once a month. It depends indirectly on the annotation table but Postgres doesn’t see that, so doesn’t include it in the cascading drop.</p>
+<p>Here’s the proof.</p>
+ -- create a table
+create table t1 (number int);
+
+insert into t1 (number) values (1);
+INSERT 0 1
+
+select * from t1;
+
+number
+-------
+     1
+
+-- derive a view from t1
+create materialized view v1 as (select * from t1);
+SELECT 1
+
+select * from v1
+
+number
+-------
+     1
+
+-- try to drop t1
+drop table t1;
+
+ERROR: cannot drop table t1 because other objects depend on it
+DETAIL: materialized view v1 depends on table t1
+HINT: Use DROP ... CASCADE to drop the dependent objects too.
+
+-- derive an independent table from t1 by way of a matview
+drop materialized view v1;
+
+create materialized view v1 as (select * from t1);
+SELECT 1
+
+create table t2 as (select * from v1);
+SELECT 1
+
+-- drop the matview
+drop materialized view v1;
+
+-- drop t1
+drop table t1;
+
+-- no complaint, and t2 still exists
+select * from t2;
+
+number
+-------
+     1
+ 
+<p>These are two ways I’ve found to protect a long-lived result set from the cascading drop of a short-lived table on which it depends. You can hide the dependency behind a function, or you can derive an independent table by way of a transient materialized view. I use them interchangeably, and don’t have a strong preference one way or another. Both lighten the load on the analytics server. Materialized views (or tables) that only need to change weekly or monthly, but were being dropped nightly by cascade from core tables, are now recreated only on their appropriate weekly or monthly cycles.</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
+2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
+3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
+6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:18 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -807,7 +1081,7 @@
 
 <div class='item-footer'>
    04:43 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -873,7 +1147,7 @@
 
 <div class='item-footer'>
    04:21 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -952,7 +1226,7 @@
 
 <div class='item-footer'>
    01:33 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1019,7 +1293,7 @@
 
 <div class='item-footer'>
    01:32 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1089,7 +1363,7 @@
 
 <div class='item-footer'>
    01:28 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1162,7 +1436,7 @@
 
 <div class='item-footer'>
    01:27 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1227,7 +1501,7 @@
 
 <div class='item-footer'>
    01:25 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1302,7 +1576,7 @@
 
 <div class='item-footer'>
    01:24 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1379,7 +1653,7 @@
 
 <div class='item-footer'>
    01:14 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1446,7 +1720,7 @@
 
 <div class='item-footer'>
    01:08 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1516,7 +1790,7 @@
 
 <div class='item-footer'>
    00:58 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1585,7 +1859,7 @@
 
 <div class='item-footer'>
    00:42 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1687,7 +1961,8 @@ order by r.id;
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
-9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
    
   
   
@@ -1867,7 +2142,7 @@ order by r.id;
 
 <div class='item-footer'>
    01:44 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3713,7 +3988,7 @@ var Module; window.__wasmmodulecallback__(); delete window.__wasmmodulecallback_
 
 <div class='item-footer'>
    05:47 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4004,7 +4279,7 @@ var Module; window.__wasmmodulecallback__(); delete window.__wasmmodulecallback_
 
 <div class='item-footer'>
    05:31 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4066,7 +4341,7 @@ var Module; window.__wasmmodulecallback__(); delete window.__wasmmodulecallback_
 
 <div class='item-footer'>
    05:27 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4311,7 +4586,7 @@ scp photos.db dogsheep:/home/dogsheep/photos.db
 
 <div class='item-footer'>
    04:46 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4832,7 +5107,8 @@ select * from usernames_by_course;
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
-9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
    
   
   
@@ -4997,7 +5273,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    07:08 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5068,7 +5344,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    06:51 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5149,7 +5425,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    05:56 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5736,7 +6012,8 @@ HINT:  You might need to increase max_locks_per_transaction.
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
-9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
    
   
   
@@ -6675,7 +6952,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    06:24 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7021,7 +7298,8 @@ position_from_anno
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
-9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
    
   
   
@@ -7567,7 +7845,7 @@ Variable
 
 <div class='item-footer'>
    04:57 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7902,7 +8180,8 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
-9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
    
   
   
@@ -7913,7 +8192,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    06:58 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9026,7 +9305,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    05:46 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9420,7 +9699,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    06:32 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9660,7 +9939,7 @@ EOD
 
 <div class='item-footer'>
    06:05 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10105,7 +10384,8 @@ $$ language plpython3u;
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
-9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
    
   
   
@@ -10276,7 +10556,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    06:54 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11140,7 +11420,7 @@ export class HomeComponent implements OnInit {
 
 <div class='item-footer'>
    05:48 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11842,7 +12122,8 @@ $$ language plpgsql;
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
-9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
    
   
   
@@ -12955,7 +13236,8 @@ pl/python: 290ms, 255ms, 300ms
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
-9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
    
   
   
@@ -13141,7 +13423,8 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
-9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a></p>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
    
   
   
@@ -27216,91 +27499,6 @@ devaluing or dismissing the people who have suffered them.</p>
 
 <div class='item-footer'>
    15:17 &bull;
-   5 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Saturday, 20. March 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.jonudell.net'>Jon Udell</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.jonudell.net/2021/03/20/original-memories/'>Original memories</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Were it not for the Wayback Machine, a lot of my post-1995 writing would now be gone. Since the advent of online-only publications, getting published has been a lousy way to stay published. When pubs change hands, or die, the works of their writers tend to evaporate. I’m not a great self-archivist, despite having better-than-average … Continue reading Original memories
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p>
-<p>Were it not for the Wayback Machine, a lot of my post-1995 writing would now be gone. Since the advent of online-only publications, getting published has been a lousy way to stay published. When pubs change hands, or die, the works of their writers tend to evaporate.</p>
-<p>I’m not a great self-archivist, despite having better-than-average skills for the job. Many but not all of my professional archives are preserved — for now! — on my website. Occasionally, when I reach for a long-forgotten and newly-relevant item, only to find it 404, I’ll dig around and try to resurrect it. The forensic effort can be a big challenge; an even bigger one is avoiding self-blame.</p>
-<p>The same thing happens with personal archives. When our family lived in New Delhi in the early 1960s, my dad captured thousands of images. Those <a href="http://jonudell.info/IndiaSlides/">color slides</a>, curated in carousels and projected onto our living room wall in the years following, solidified the memories of what my five-year-old self had directly experienced. When we moved my parents to the facility where they spent their last years, one big box of those slides went missing. I try, not always successfully, to avoid blaming myself for that loss.</p>
-<p>When our kids were little we didn’t own a videocassette recorder, which was how you captured home movies in that era. Instead we’d rent a VCR from Blockbuster every 6 months or so and spend the weekend filming. It turned out to be a great strategy. We’d set it on a table or on the floor, turn it on, and just let it run. The kids would forget it was there, and we recorded hours of precious daily life in episodic installments.</p>
-<p>Five years ago our son-in-law volunteered the services of a friend of his to digitize those tapes, and brought us the MP4s on a thumb drive. I put copies in various “safe” places. Then we moved a couple of times, and when I reached for the digitized videos, they were gone. As were the original cassettes. This time around, there was no avoiding the self-blame. I beat myself up about it, and was so mortified that I hesitated to ask our daughter and son-in-law if they have safe copies. (Spoiler alert: they do.) Instead I’d periodically dig around in various hard drives, clouds, and boxes, looking for files or thumb drives that had to be there somewhere.</p>
-<p>During this period of self-flagellation, I thought constantly about something I heard Roger Angell say about Carlton Fisk. Roger Angell was one of the greatest baseball writers, and Carlton Fisk one of the greatest players. One day I happened to walk into a bookstore in Harvard Square when Angell was giving a talk. In the Q and A, somebody asked: “What’s the most surprising thing you’ve ever heard a player say?”</p>
-<p>The player was Carlton Fisk, and the surprise was his answer to the question: “How many time have you seen the video clip of your most famous moment?”</p>
-<p>That moment is one of the most-watched sports clips ever: Fisk’s walk-off home run in game 6 of the 1975 World Series. He belts the ball deep to left field, it veers toward foul territory, he dances and waves it fair.</p>
-<p>So, how often did Fisk watch that clip? Never.</p>
-<p>Why not? He didn’t want to overwrite the original memory.</p>
-<p>Of course we are always revising our memories. Photographic evidence arguably prevents us from doing so. Is that good or bad? I honestly don’t know. Maybe both.</p>
-<p>For a while, when I thought those home videos were gone for good, I tried to convince myself that it was OK. The original memories live in my mind, I hold them in my heart, nothing can take them away, no recording can improve them.</p>
-<p>Although that sort of worked, I was massively relieved when I finally fessed up to my negligence and learned that there are safe copies. For now, I haven’t requested them and don’t need to see them. It’s enough to know that they exist.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i1.wp.com/jonudell.info/IndiaSlides/slides/india11.jpg?w=656'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:57 &bull;
    5 months ago
 </div>
 
