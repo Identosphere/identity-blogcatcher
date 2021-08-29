@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 8:41 PM August 28, 2021 (UTC)</sup>
+<sup>Last Update 1:42 AM August 29, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,230 @@
  <h2 class='new-date'>
   Saturday, 28. August 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2021/Aug/28/dynamic-github-repository-templates/#atom-everything'>Dynamic content for GitHub repository templates using cookiecutter and GitHub Actions</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   GitHub repository templates were introduced a couple of years ago to provide a mechanism for creating a brand new GitHub repository starting with an initial set of files. 
+ They have one big limitation: the repositories that they create share the exact same contents as the template repository. They're basically a replacement for duplicating an existing folder and using that as the starting point f
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>GitHub repository templates were <a href="https://github.blog/2019-06-06-generate-new-repositories-with-repository-templates/">introduced a couple of years ago</a> to provide a mechanism for creating a brand new GitHub repository starting with an initial set of files.</p>
+<p>They have one big limitation: the repositories that they create share the exact same contents as the template repository. They're basically a replacement for duplicating an existing folder and using that as the starting point for a new project.</p>
+<p>I'm a big fan of the Python <a href="https://cookiecutter.readthedocs.io/">cookiecutter</a> tool, which provides a way to dynamically create new folder structures from user-provided variables using Jinja templates to generate content.</p>
+<p>This morning, inspired by <a href="https://github.com/rochacbruno/python-project-template">this repo</a> by Bruno Rocha, I finally figured out a neat pattern for combining cookiecutter with repository templates to compensate for that missing dynamic content ability.</p>
+<p>The result: <a href="https://github.com/simonw/datasette-plugin-template-repository">datasette-plugin-template-repository</a> for creating new Datasette plugins with a single click, and <a href="https://github.com/simonw/python-lib-template-repository">python-lib-template-repository</a> for creating new Python libraries.</p>
+ Cookiecutter 
+<p>I maintain three cookiecutter templates at the moment:</p>
+ 
+ 
+<a href="https://github.com/simonw/datasette-plugin">simonw/datasette-plugin</a>, for creating new <a href="https://docs.datasette.io/en/stable/writing_plugins.html">Datasette plugins</a>. I've used that one for dozens of plugins myself. 
+ 
+<a href="https://github.com/simonw/click-app">simonw/click-app</a>, which generates a skeleton for a new <a href="https://click.palletsprojects.com/">Click-based</a> command-line tool. Many of my <a href="https://datasette.io/tools?q=to-sqlite">x-to-sqlite</a> tools were built using this. 
+ 
+<a href="https://github.com/simonw/python-lib">simonw/python-lib</a>, for generating general-purpose Python libraries. 
+ 
+<p>Having installed cookiecutter (<code>pip install cookiecutter</code>) each of these can be used like so:</p>
+ <code>% cookiecutter gh:simonw/datasette-plugin
+plugin_name []: visualize counties
+description []: Datasette plugin for visualizing counties
+hyphenated [visualize-counties]: 
+underscored [visualize_counties]: 
+github_username []: simonw
+author_name []: Simon Willison
+include_static_directory []: y
+include_templates_directory []: 
+</code> 
+<p>Cookiecutter prompts for some variables defined in a <code>cookiecutter.json</code> file, then generates the project by evaluating the templates.</p>
+<p>The challenge was: how can I run this automatically when a new repository is created from a GitHub repository template? And where can I get those variables from?</p>
+ Bruno's trick: a self-rewriting repository 
+<p>Bruno has a brilliant trick for getting this to run, exhibited by <a href="https://github.com/rochacbruno/python-project-template/blob/cec9c32ba007d633c4b9d26aad67889d1a6a5e9a/.github/workflows/rename_project.yml">this workflow YAML</a>. His workflow starts like this:</p>
+  name: Rename the project from template
+
+on: [push]
+
+jobs:
+  rename-project:
+    if: ${{ github.repository != 'rochacbruno/python-project-template' }}
+    runs-on: ubuntu-latest
+    steps:
+       # ...  
+<p>This means that his workflow only runs on copies of the original repository - the workflow is disabled in the template repository itself by that <code>if:</code> condition.</p>
+<p>Then at the end of the workflow he does this:</p>
+        - uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Ready to clone and code"
+          push_options: --force  
+<p>This does a force push to replace the contents of the repository with whatever was generated by the rest of the workflow script!</p>
+<p>This trick was exactly what I needed to get cookiecutter to work with repository templates.</p>
+ Gathering variables using the GitHub GraphQL API 
+<p>All three of my existing cookiecutter templates require the following variables:</p>
+ 
+ A name to use for the generated folder 
+ A one-line description to use in the README and in <code>setup.py</code>
+ 
+ The GitHub username of the owner of the package 
+ The display name of the owner 
+ 
+<p>I need values for all of these before I can run cookiecutter.</p>
+<p>It turns out they are all available from the GitHub GraphQL API, which can be called from the initial workflow copied from the repository template!</p>
+<p>Here's the GitHub Actions step that does that:</p>
+  - uses: actions/github-script@v4
+  id: fetch-repo-and-user-details
+  with:
+    script: |
+      const query = `query($owner:String!, $name:String!) {
+        repository(owner:$owner, name:$name) {
+          name
+          description
+          owner {
+            login
+            ... on User {
+              name
+            }
+            ... on Organization {
+              name
+            }
+          }
+        }
+      }`;
+      const variables = {
+        owner: context.repo.owner,
+        name: context.repo.repo
+      }
+      const result = await github.graphql(query, variables)
+      console.log(result)
+      return result  
+<p>Here I'm using the <a href="https://github.com/actions/github-script">actions/github-script</a> action, which provides a pre-configured, authenticated instance of GitHub's <a href="https://octokit.github.io/rest.js">octokit/rest.js</a> JavaScript library. You can then provide custom JavaScript that will be executed by the action.</p>
+<p><code>await github.graphql(query, variables)</code> can then execute a GitHub GraphQL query. The query I'm using here gives me back the currenty repository's <code>name</code> and <code>description</code> and the <code>login</code> and display name of the owner of that repository.</p>
+<p>GitHub repositories can be owned by either a user or an organization - the <code>... on User</code> / <code>... on Organization</code> syntax provides the same result here for both types of nested object.</p>
+<p>The output of this GraphQL query looks something like this:</p>
+  {
+  "repository": {
+    "name": "datasette-verify",
+    "description": "Verify that files can be opened by Datasette",
+    "owner": {
+      "login": "simonw",
+      "name": "Simon Willison"
+    }
+  }
+}  
+<p>I assigned an <code>id</code> of <code>fetch-repo-and-user-details</code> to that step of the workflow, so that the <code>return</code> value from the script could be accessed as JSON in the next step.</p>
+ Passing those variables to cookiecutter 
+<p>Cookiecutter defaults to asking for variables interactively, but it also supports passing in those variables as command-line parameters.</p>
+<p>Here's part of my next workflow steps that executes cookiecutter using the variables collected by the GraphQL query:</p>
+  - name: Rebuild contents using cookiecutter
+  env:
+    INFO: ${{ steps.fetch-repo-and-user-details.outputs.result }}
+  run: |
+    export REPO_NAME=$(echo $INFO | jq -r '.repository.name')
+    # Run cookiecutter
+    cookiecutter gh:simonw/python-lib --no-input \
+      lib_name=$REPO_NAME \
+      description="$(echo $INFO | jq -r .repository.description)" \
+      github_username="$(echo $INFO | jq -r .repository.owner.login)" \
+      author_name="$(echo $INFO | jq -r .repository.owner.name)"  
+<p>The <code>env: INFO:</code> block exposes an environment variable called <code>INFO</code> to the step, populated with the output of the previous <code>fetch-repo-and-user-details</code> step - a string of JSON.</p>
+<p>Then within the body of the step I use <a href="https://stedolan.github.io/jq/">jq</a> to extract out the details that I need - first the repository name:</p>
+ <code>export REPO_NAME=$(echo $INFO | jq -r '.repository.name')
+</code> 
+<p>Then I pass the other details directly to cookiecutter as arguments:</p>
+ <code>cookiecutter gh:simonw/python-lib --no-input \
+  lib_name=$REPO_NAME \
+  description="$(echo $INFO | jq -r .repository.description)" \
+  github_username="$(echo $INFO | jq -r .repository.owner.login)" \
+  author_name="$(echo $INFO | jq -r .repository.owner.name)"
+</code> 
+<p><code>jq -r</code> ensures that the raw text value is returned by <code>jq</code>, as opposed to the JSON string value which would be wrapped in double quotes.</p>
+ Cleaning up at the end 
+<p>Running cookiecutter in this way creates a folder within the root of the repository that duplicates the repository name, something like this:</p>
+ <code>datasette-verify/datasette-verify
+</code> 
+<p>I actually want the contents of that folder to live in the root, so the next step I run is:</p>
+ <code>mv $REPO_NAME/* .
+mv $REPO_NAME/.gitignore .
+mv $REPO_NAME/.github .
+</code> 
+<p>Here's <a href="https://github.com/simonw/python-lib-template-repository/blob/45869a9156aa3c2ab95bf1b985151d1d51719c1f/.github/workflows/cookiecutter.yml">my completed workflow</a>.</p>
+<p>This almost worked - but when I tried to run it for the first time I got this error:</p>
+<p><code>![remote rejected] (refusing to allow an integration to create or update .github/workflows/publish.yml)</code></p>
+<p>It turns out the credentials provided to GitHub Actions are forbidden from making modifications to their own workflow files!</p>
+<p>I can understand why that limitation is in place, but it's frustrating here. For the moment, my workaround is to do this just before pushing the final content back to the repository:</p>
+ <code>mv .github/workflows .github/rename-this-to-workflows
+</code> 
+<p>I leave it up to the user to rename that folder back again when they want to enable the workflows that have been generated for them.</p>
+ Give these a go 
+<p>I've set up two templates using this pattern now:</p>
+ 
+ 
+<a href="https://github.com/simonw/datasette-plugin-template-repository">datasette-plugin-template-repository</a> for creating new Datasette plugins - <a href="https://github.com/simonw/datasette-plugin-template-repository/generate">use this template</a>
+ 
+ 
+<a href="https://github.com/simonw/python-lib-template-repository">python-lib-template-repository</a> for creating new Python libraries - <a href="https://github.com/simonw/python-lib-template-repository/generate">use this template</a>
+ 
+ 
+<p>Both of these work the same way: enter a repository name and description, click "Create repository from template" and watch as GitHub copies the new repository and then, a few seconds later, runs the workflow to execute the cookiecutter template to replace the contents with the final result.</p>
+<p>You can see examples of repositories that I created using these templates here:</p>
+ 
+ <a href="https://github.com/simonw/datasette-plugin-template-repository-demo">https://github.com/simonw/datasette-plugin-template-repository-demo</a> 
+ <a href="https://github.com/simonw/python-lib-template-repository-demo">https://github.com/simonw/python-lib-template-repository-demo</a> 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:29 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -1012,7 +1236,7 @@ number
 
 <div class='item-footer'>
    18:18 &bull;
-   2 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1081,7 +1305,7 @@ number
 
 <div class='item-footer'>
    04:43 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1147,7 +1371,7 @@ number
 
 <div class='item-footer'>
    04:21 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1226,7 +1450,7 @@ number
 
 <div class='item-footer'>
    01:33 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1293,7 +1517,7 @@ number
 
 <div class='item-footer'>
    01:32 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1363,7 +1587,7 @@ number
 
 <div class='item-footer'>
    01:28 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1436,7 +1660,7 @@ number
 
 <div class='item-footer'>
    01:27 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1501,7 +1725,7 @@ number
 
 <div class='item-footer'>
    01:25 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1576,7 +1800,7 @@ number
 
 <div class='item-footer'>
    01:24 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1653,7 +1877,7 @@ number
 
 <div class='item-footer'>
    01:14 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1720,7 +1944,7 @@ number
 
 <div class='item-footer'>
    01:08 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1790,7 +2014,7 @@ number
 
 <div class='item-footer'>
    00:58 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1859,7 +2083,7 @@ number
 
 <div class='item-footer'>
    00:42 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1979,7 +2203,7 @@ order by r.id;
 
 <div class='item-footer'>
    04:07 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2057,7 +2281,7 @@ order by r.id;
 
 <div class='item-footer'>
    03:33 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2558,7 +2782,7 @@ order by r.id;
 
 <div class='item-footer'>
    09:20 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5656,7 +5880,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    10:19 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6282,7 +6506,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    12:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6358,7 +6582,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    11:22 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8464,7 +8688,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    09:53 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10576,193 +10800,6 @@ $$ language plpython3u;
 
 
 <h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Aug/3/samesite/#atom-everything'>Exploring the SameSite cookie attribute for preventing CSRF</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   In reading Yan Zhu's excellent write-up of the JSON CSRF vulnerability she found in OkCupid one thing puzzled me: I was under the impression that browsers these days default to treating cookies as SameSite=Lax, so I would expect attacks like the one Yan described not to work in modern browsers. 
- This lead me down a rabbit hole of exploring how SameSite actually works, including building an intera
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2021/samesite-tool.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>In reading Yan Zhu's excellent write-up of the <a href="https://blog.azuki.vip/csrf/">JSON CSRF vulnerability</a> she found in OkCupid one thing puzzled me: I was under the impression that browsers these days default to treating cookies as <code>SameSite=Lax</code>, so I would expect attacks like the one Yan described not to work in modern browsers.</p>
-<p>This lead me down a rabbit hole of exploring how SameSite actually works, including building <a href="https://samesite-lax-demo.vercel.app/">an interactive SameSite cookie exploration tool</a> along the way. Here's what I learned.</p>
- Background: Cross-Site Request Forgery 
-<p>I've been tracking CSRF (Cross-Site Request Forgery) <a href="https://simonwillison.net/tags/csrf/?page=2">on this blog</a> since 2005(!)</p>
-<p>A quick review: let's say you have a page in your application that allows a user to delete their account, at <code>https://www.example.com/delete-my-account</code>. The user has to be signed in with a cookie in order to activate that feature.</p>
-<p>If you created that page to respond to <code>GET</code> requests, I as an evil person could create a page at <code>https://www.evil.com/force-you-to-delete-your-account</code> that does this:</p>
-  &lt;img src="https://www.example.com/delete-my-account"&gt;  
-<p>If I can get you to visit my page, I can force you to delete your account!</p>
-<p>But you're smarter than that, and you know that GET requests should be idempotent. You implement your endpoint to require a POST request instead.</p>
-<p>Turns out I can still force-delete accounts, if I can trick a user into visiting a page with the following evil HTML on it:</p>
-  &lt;form action="https://www.example.com/delete-my-account" method="POST"&gt;
-&lt;input type="submit" value="Delete my account"&gt;
-&lt;/form&gt;
-&lt;script&gt;document.forms[0].submit()&lt;/script&gt;  
-<p>The form submits with JavaScript the instant they load the page!</p>
-<p>CSRF is an extremely common and nasty vulnerability - especially since it's a hole by default: if you don't know what CSRF is, you likely have it in your application.</p>
-<p>Traditionally the solution has been to use CSRF tokens - hidden form fields which "prove" that the user came from a form on your own site, and not a form hosted somewhere else. OWASP call this the <a href="https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#double-submit-cookie">Double Submit Cookie</a> pattern.</p>
-<p>Web frameworks like Django implement <a href="https://docs.djangoproject.com/en/3.2/ref/csrf/">CSRF protection</a> for you. I built <a href="https://github.com/simonw/asgi-csrf">asgi-csrf</a> to help add CSRF token protection to ASGI applications.</p>
- Enter the SameSite cookie attribute 
-<p>Clearly it would be better if we didn't have to worry about CSRF at all.</p>
-<p>As far as I can tell, work on specifying the <code>SameSite</code> cookie attribute started <a href="https://github.com/httpwg/http-extensions/commit/aa0722c12ccb367b8f4498e982616064d105a006#diff-70cc0c0600a934d002ea91a4a36d5eb0b7d5edebcce5a40c9a811391cc0fecf6">in June 2016</a>. The idea was to add an additional attribute to cookies that specifies the policy for if they should be included in requests made to a domain from pages hosted on another domain.</p>
-<p>Today, all modern browsers support SameSite. MDN <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie/SameSite">has SameSite documentation</a>, but a summary is:</p>
- 
- 
-<code>SameSite=None</code> - the cookie is sent in "all contexts" - more-or-less how things used to work before SameSite was invented. Update: One major edge-case here is that Safari apparently ignores <code>None</code> if the "Prevent cross-site tracking" privacy preference is turned on - and since that is on by default, this means that <code>SameSite=None</code> is effectively useless if you care about Safari or Mobile Safari users. 
- 
-<code>SameSite=Strict</code> - the cookie is only sent for requests that originate on the same domain. Even arriving on the site from an off-site link will not see the cookie, unless you subsequently refresh the page or navigate within the site. 
- 
-<code>SameSite=Lax</code> - cookie is sent if you navigate to the site through following a link from another domain but not if you submit a form. This is generally what you want to protect against CSRF attacks! 
- 
-<p>The attribute is specified by the server in a <code>set-cookie</code> header that looks like this:</p>
- <code>set-cookie: lax-demo=3473; Path=/; SameSite=lax
-</code> 
-<p>Why not habitually use <code>SameSite=Strict</code>? Because then if someone follows a link to your site their first request will be treated as if they are not signed in at all. That's bad!</p>
-<p>So explicitly setting a cookie with <code>SameSite=Lax</code> should be enough to protect your application from CSRF vulnerabilities... provided your users have a browser that supports it.</p>
-<p>(Can I Use reports <a href="https://caniuse.com/same-site-cookie-attribute">93.95% global support</a> for the attribute - not quite high enough for me to stop habitually using CSRF tokens, but we're getting there.)</p>
- What if the SameSite attribute is missing? 
-<p>Here's where things get interesting. If a cookie is set without a SameSite attribute at all, how should the browser treat it?</p>
-<p>Over the past year, all of the major browsers have been changing their default behaviour. The goal is for a missing SameSite attribute to be treated as if it was <code>SameSite=Lax</code> - providing CSRF protection by default.</p>
-<p>I have found it infuriatingly difficult to track down if and when this change has been made:</p>
- 
- Chrome/Chromium offer <a href="https://www.chromium.org/updates/same-site">the best documentation</a> - they claim to have ramped up the new default to 100% of users in August 2020. WebViews in Android still have the old default behaviour, which is scheduled to be fixed in Android 12 (<a href="https://en.wikipedia.org/wiki/Android_12">not yet released</a>). 
- Firefox have a <a href="https://hacks.mozilla.org/2020/08/changes-to-samesite-cookie-behavior/">blog entry from August 2020</a> which says "Starting with Firefox 79 (June 2020), we rolled it out to 50% of the Firefox Beta user base" - but I've not been able to find any subsequent updates. 
- I have no idea at all what's going on with Safari! 
- 
-<p>I started <a href="https://twitter.com/simonw/status/1422366158171238400">a Twitter thread</a> to try and collect more information, so please reply there if you know what's going on in more detail.</p>
- The Chrome 2-minute twist 
-<p>Assuming all of the above, the mystery remained: how did Yan's exploit fail to be prevented by browsers?</p>
-<p>After some back-and-forth about this on Twitter <a href="https://twitter.com/bcrypt/status/1422370774896177154">Yan proposed</a> that the answer may be this detail, tucked away on the <a href="https://www.chromestatus.com/feature/5088147346030592">Chrome Platform Status page for Feature: Cookies default to SameSite=Lax</a>.</p>
-<blockquote>
-<p>Note: Chrome will make an exception for cookies set without a SameSite attribute less than 2 minutes ago. Such cookies will also be sent with non-idempotent (e.g. POST) top-level cross-site requests despite normal SameSite=Lax cookies requiring top-level cross-site requests to have a safe (e.g. GET) HTTP method. Support for this intervention ("Lax + POST") will be removed in the future.</p>
-</blockquote>
-<p>It looks like OkCupid were setting their authentication cookie without a <code>SameSite</code> attribute... which opened them up to a form-based CSRF attack but only for the 120 seconds following the cookie being set!</p>
- Building a tool to explore SameSite browser behaviour 
-<p>I was finding this all very confusing, so I built a tool.</p>
-<p></p>
-<p>The code lives in <a href="https://github.com/simonw/samesite-lax-demo">simonw/samesite-lax-demo</a> on GitHub, but the tool itself has two sides:</p>
- 
- A server-side Python (<a href="https://www.starlette.io/">Starlette</a>) web application for setting cookies with different <code>SameSite</code> attributes. This is hosted on Vercel at <a href="https://samesite-lax-demo.vercel.app/">https://samesite-lax-demo.vercel.app/</a>
- 
- An HTML page on a different domain that links to that cookied site, provides a POST form targetting it, embeds an image from it and executes some <code>fetch()</code> requests against it. This is at <a href="https://simonw.github.io/samesite-lax-demo/">https://simonw.github.io/samesite-lax-demo/</a>
- 
- 
-<p>Hosting on two separate domains is critical for the tool to show what is going on. I chose Vercel and GitHub Pages because they are both trivial to set up to continuously deploy changes from a GitHub repository.</p>
-<p>Using the tool in different browsers helps show exactly what is going on with regards to cross-domain cookies.</p>
-<p>A few of the things I observed using the tool:</p>
- 
- 
-<code>SameSite=Strict</code> works as you would expect. It's particularly interesting to follow the regular <code>&lt;a href=...&gt;</code> link from the static site to the application and see how the strict cookie is NOT visible upon arrival - but becomes visible when you refresh that page. 
- I included a dynamically generated SVG in a <code>&lt;img src="/cookies.svg"&gt;</code> image tag, which shows the cookies (using SVG <code>&lt;text&gt;</code>) that are visible to the request. That image shows all four types of cookie when embedded on the Vercel domain, but when embedded on the GitHub pages domain it differs wildly:
- 
- Firefox 89 shows both the <code>SameSite=None</code> and the missing SameSite cookies 
- Chrome 92 shows just the <code>SameSite=None</code> cookie 
- Safari 14.0 shows no cookies at all! 
- 
- 
- Chrome won't let you set a <code>SameSite=None</code> cookie without including the <code>Secure</code> attribute. 
- I also added some JavaScript that makes a cross-domain <code>fetch(..., {credentials: "include"})</code> call against a <code>/cookies.json</code> endpoint. This didn't send any cookies at all until I added server-side headers <code>access-control-allow-origin: https://simonw.github.io</code> and <code>access-control-allow-credentials: true</code>. Having done that, I got the same results across the three browsers as for the <code>&lt;img</code> test described above. 
- 
-<p>Safari ignoring <code>SameSite=None</code> looked like it was this bug: <a href="https://bugs.webkit.org/show_bug.cgi?id=198181">Cookies with SameSite=None or SameSite=invalid treated as Strict</a> - it's marked as fixed but it's not clear to me if the fix has been released yet - I still saw that behaviour on my macOS 10.15.6 laptop or my iOS 14.7.1 iPhone.</p>
-
-<p>Update:  	
-<a href="https://news.ycombinator.com/item?id=28092943">krinchan on Hacker News</a> has an answer here:</p>
-<blockquote><p>The Safari "bug" is a new setting that's turned on by default: "Prevent cross-site tracking". It treats all cookies as SameSite=Lax, even cookies with SameSite=None.</p></blockquote>
-<p><a href="https://webkit.org/blog/10218/full-third-party-cookie-blocking-and-more/">Full Third-Party Cookie Blocking and More</a> on the WebKit blog has more about this.</p>
-
-<p>Most excitingly, I was able to replicate the Chrome two minute window bug using the tool! Each cookie has its value set to the timestamp when it was created, and I added code to display how many seconds ago the cookie was set. Here's an animation showing how Chrome on a form submission navigation can see the cookie that was set with <code>SameSite</code> missing at 114 seconds old, but that cookie is no longer visible once it passes 120 seconds.</p>
-<p></p>
- Consider your subdomains 
-<p>One last note about CSRF that you should consider:  <code>SameSite=Lax</code> still allows form submissions from  subdomains of your primary domain to carry their cookies.</p>
-<p>This means that if you have a XSS vulnerability on one of your subdomains the security of your primary domain will be compromised.</p>
-<p>Since it's common for subdomains to host other applications that may have their own security concerns, ditching CSRF tokens for Lax cookies may not be a wise step!</p>
- Login CSRF and SameSite=Lax 
-<p>Login CSRF is an interesting variety of CSRF with slightly different rules.</p>
-<p>A Login CSRF attack is when a malicious forces a user to sign into an account controlled by the attacker. Why do this? Because if that user then saves sensitive information the attacker can see it.</p>
-<p>Imagine I trick you into signing into an e-commerce account I control and saving your credit card details. I could then later sign in myself and buy things on your card!</p>
-<p>Here's how that would work: Say the site's login form makes a POST to <code>https://www.example.com/login</code> with <code>username</code> and <code>password</code> as the form fields. If those credentials match, the site sets an authentication cookie.</p>
-<p>I can set up my evil website with the following form:</p>
-  &lt;form action="https://www.example.com/login"&gt;
-  &lt;input type="hidden" name="username" value="my-username"&gt;
-  &lt;input type="hidden" name="password" value="my-password"&gt;
-&lt;/form&gt;
-&lt;script&gt;document.forms[0].submit()&lt;/script&gt;  
-<p>I trick you into visiting my evil pge and you're now signed in to that site using an account that I control. I cross my fingers and hope you don't notice the "you are signed in as X" message in the UI.</p>
-<p>An interesting thing about Login CSRF is that, since it involves setting a cookie but not sending a cookie, <code>SameSite=Lax</code> would seem to make no difference at all. You need to look to other mechanisms to protect against this attack.</p>
-<p>But actually, you can use <code>SameSite=Lax</code> to prevent these. The trick is to only allow logins from users that are carrying at least one cookie which you have set in that way - since you know that those cookies could not have been sent if the user originated in a form on another site.</p>
-<p>Another (potentially better) option: check the <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Origin">HTTP Origin header</a> on the oncoming request.</p>
- Final recommendations 
-<p>As an application developer, you should set all cookies with <code>SameSite=Lax</code> unless you have a very good reason not to. Most web frameworks do this by default now - Django shipped <a href="https://github.com/django/django/commit/9a56b4b13ed92d2d5bb00d6bdb905a73bc5f2f0a">support for this</a> in <a href="https://docs.djangoproject.com/en/3.2/releases/2.1/#requests-and-responses">Django 2.1</a> in August 2018.</p>
-<p>Do you still need CSRF tokens as well? I think so: I don't like the idea of users who fire up an older browser (maybe borrowing an obsolete computer) being vulnerable to this attack, and I worry about the subdomain issue described above.</p>
-<p>And if you work for a browser vendor, please make it easier to find information on what the default behaviour is and when it was shipped!</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2021/samesite-tool.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:09 &bull;
-   25 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://www.windley.com/'>Phil Windley's Technometria</a>
 </h4>
 
@@ -10941,7 +10978,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    10:46 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
