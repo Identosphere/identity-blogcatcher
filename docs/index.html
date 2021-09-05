@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 3:46 PM September 05, 2021 (UTC)</sup>
+<sup>Last Update 8:42 PM September 05, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,143 @@
  <h2 class='new-date'>
   Sunday, 05. September 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/'>Metabase as a lightweight app server</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  In A virtuous cycle for analytics I said this about Metabase: It’s all nicely RESTful. Interactive elements that can parameterize queries, like search boxes and date pickers, map to URLs. Queries can emit URLs in order to compose themselves with other queries. I came to see this system as a kind of lightweight application server … Continue reading Metabase as a lightweight app server
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>In <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">A virtuous cycle for analytics</a> I said this about Metabase:</p>
+<blockquote><p>
+It’s all nicely RESTful. Interactive elements that can parameterize queries, like search boxes and date pickers, map to URLs. Queries can emit URLs in order to compose themselves with other queries. I came to see this system as a kind of lightweight application server in which to incubate an analytics capability that could later be expressed more richly.
+</p></blockquote>
+<p>Let’s explore that idea in more detail. Consider this query that finds groups created in the last week.</p>
+ with group_create_days as (
+  select
+     to_char(created, 'YYYY-MM-DD') as day
+  from "group"
+  where created &gt; now() - interval '1 week'
+)
+select 
+  day,
+  count(*)
+from group_create_days
+group by day 
+order by day desc 
+ 
+<p>A Metabase user can edit the query and change the interval to, say, 1 month, but there’s a nicer way to enable that. Terms in double squigglies are Metabase variables. When you type {{interval}} in the query editor, the Variables pane appears. </p>
+<p></p>
+<p>Here I’m defining the variable’s type as text and providing the default value 1 week. The query sent to Postgres will be the same as above. Note that this won’t work if you omit ::interval. Postgres complains: “ERROR: operator does not exist: timestamp with time zone – character varying.” That’s because Metabase doesn’t support variables of type interval as required for date subtraction. But if you cast the variable to type interval it’ll work.</p>
+<p>That’s an improvement. A user of this Metabase question can now type 2 months or 1 year to vary the interval. But while Postgres’ interval syntax is fairly intuitive, this approach still requires people to make an intuitive leap. So here’s a version that eliminates the guessing. </p>
+<p></p>
+<p>The variable type is now Field Filter; the filtered field is the created column of the group table; the widget type is Relative Date; the default is Last Month. Choosing other intervals is now a point-and-click operation. It’s less flexible — 3 weeks is no longer an option — but friendlier.</p>
+<p>Metabase commendably provides URLs that capture these choices. The default in this case is METABASE_SERVER/question/1060?interval=lastmonth. For the Last Year option it becomes interval=lastyear. </p>
+<p>Because all Metabase questions that use variables work this way, the notion of Metabase as rudimentary app server expands to sets of interlinked questions. In <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">Working in a hybrid Metabase / Postgres code base</a> I showed the following example.</p>
+<p></p>
+<p>A Metabase question, #600, runs a query that selects columns from the view top_20_annotated_domains_last_week. It interpolates one of those columns, domain, into an URL that invokes Metabase question #985 and passes the domain as a parameter to that question. In the results for question #600, each row contains a link to a question that reports details about groups that annotated pages at that row’s domain.</p>
+<p>This is really powerful stuff. Even without all the advanced capabilities I’ve been discussing in this series — pl/python functions, materialized views — you can do a lot more with the Metabase / Postgres combo than you might think.</p>
+<p>For example, here’s a interesting idiom I’ve discovered. It’s often useful to interpolate a Metabase variable into a WHERE clause.</p>
+ select * 
+from dashboard_users
+where email = {{ email }} 
+ 
+<p>You can make that into a fuzzy search using the case-insensitive regex-match operator ~*.</p>
+ select * 
+from dashboard_users
+where email ~* {{ email }}
+ 
+<p>That’ll find a single address regardless of case; you can also find all records matching, say, ucsc.edu. But it requires the user to type some value into the input box. Ideally this query won’t require any input. If none is given, it lists all addresses in the table. If there is input it does a fuzzy match on that input. Here’s a recipe for doing that. Tell Metabase that {{ email }} a required variable, and set its default to any. Then, in the query, do this:</p>
+ select * 
+from dashboard_users
+where email ~*
+  case 
+    when {{ email }} = 'any' then ''
+    else {{ email}}
+  end
+ 
+<p>In the default case the matching operator binds to the empty string, so it matches everything and the query returns all rows. For any other input the operator binds to a value that drives a fuzzy search.</p>
+<p>This is all very nice, you may think, but even the simplest app server can write to the database as well as read from it, and Metabase can’t. It’s ultimately just a tool that you point at a data warehouse to SELECT data for display in tables and charts. You can’t INSERT or UPDATE or ALTER or DELETE or CALL anything. </p>
+<p>Well, it turns out that you can. Here’s a Metabase question that adds a user to the table.</p>
+<p>select add_dashboard_user( {{email}} )</p>
+<p>How can this possibly work? If add_dashboard_user were a Postgres procedure you could CALL it from psql, but in this context you can only SELECT.</p>
+<p>We’ve seen the solution in <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">Postgres set-returning functions that self-memoize as materialized views</a>. A Postgres function written in pl/python can import and use a Python function from a plpython_helpers module. That helper function can invoke psql to CALL a procedure. So this is possible.</p>
+<p></p>
+<p>We’ve used Metabase for years. It provides a basic, general-purpose UX that’s deeply woven into the fabric of the company. Until recently we thought of it as a read-only system for analytics, so a lot of data management happens in spreadsheets that don’t connect to the data warehouse. It hadn’t occurred to me to leverage that same basic UX for data management too, and that’s going to be a game-changer. I always thought of Metabase as a lightweight app server. With some help from Postgres it turns out to be a more capable one than I thought.</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
+2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
+3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
+6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i2.wp.com/jonudell.info/images/groups-created-interval-01.jpg?w=656&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:53 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -811,7 +948,7 @@
 
 <div class='item-footer'>
    13:00 &bull;
-   3 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -894,7 +1031,7 @@
 
 <div class='item-footer'>
    04:27 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -965,7 +1102,7 @@
 
 <div class='item-footer'>
    04:24 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1026,7 +1163,7 @@
 
 <div class='item-footer'>
    04:18 &bull;
-   12 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1103,7 +1240,7 @@
 
 <div class='item-footer'>
    02:54 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1170,7 +1307,7 @@
 
 <div class='item-footer'>
    22:06 &bull;
-   18 hours ago
+   23 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1363,7 +1500,7 @@ able to emerge, even if you want to.</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2829,7 +2966,7 @@ Polkadot ecosystem.
 
 <div class='item-footer'>
    06:17 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2904,7 +3041,7 @@ Polkadot ecosystem.
 
 <div class='item-footer'>
    05:19 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3918,7 +4055,7 @@ differentiate what is ‘true’ SSI
 
 <div class='item-footer'>
    05:46 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4262,7 +4399,7 @@ differentiate what is ‘true’ SSI
 
 <div class='item-footer'>
    05:31 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4327,7 +4464,7 @@ differentiate what is ‘true’ SSI
 
 <div class='item-footer'>
    05:25 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4498,7 +4635,7 @@ differentiate what is ‘true’ SSI
 
 <div class='item-footer'>
    05:13 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5432,7 +5569,8 @@ number
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -5546,7 +5684,8 @@ order by r.id;
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -5563,7 +5702,7 @@ order by r.id;
 
 <div class='item-footer'>
    04:07 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6606,7 +6745,7 @@ var Module; window.__wasmmodulecallback__(); delete window.__wasmmodulecallback_
 
 <div class='item-footer'>
    05:47 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6740,7 +6879,7 @@ var Module; window.__wasmmodulecallback__(); delete window.__wasmmodulecallback_
 
 <div class='item-footer'>
    05:31 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6802,7 +6941,7 @@ var Module; window.__wasmmodulecallback__(); delete window.__wasmmodulecallback_
 
 <div class='item-footer'>
    05:27 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7047,7 +7186,7 @@ scp photos.db dogsheep:/home/dogsheep/photos.db
 
 <div class='item-footer'>
    04:46 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7425,7 +7564,8 @@ select * from usernames_by_course;
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -7871,7 +8011,8 @@ HINT:  You might need to increase max_locks_per_transaction.
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -8810,7 +8951,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    06:24 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9157,7 +9298,8 @@ position_from_anno
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -9703,7 +9845,7 @@ Variable
 
 <div class='item-footer'>
    04:57 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10039,7 +10181,8 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -10050,7 +10193,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    06:58 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11163,7 +11306,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    05:46 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11365,7 +11508,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    18:00 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -11431,7 +11574,7 @@ public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
 
 <div class='item-footer'>
    16:30 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -11877,7 +12020,8 @@ $$ language plpython3u;
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -13428,7 +13572,8 @@ $$ language plpgsql;
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -14542,7 +14687,8 @@ pl/python: 290ms, 255ms, 300ms
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -14729,7 +14875,8 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
-10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a></p>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
    
   
   
@@ -18131,7 +18278,7 @@ The post Identiverse: 7 Principles of Digital Being first appeared on @_Nat Zone
 
 <div class='item-footer'>
    18:28 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27336,90 +27483,6 @@ For the 22nd Vienna Digital Identity Meetup* we hosted three of the lead
 
 
  <h2 class='new-date'>
-  Sunday, 28. March 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.jonudell.net'>Jon Udell</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.jonudell.net/2021/03/28/acknowledgement-of-uncertainty/'>Acknowledgement of uncertainty</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  In 2018 I built a tool to help researchers evaluate a proposed set of credibility signals intended to enable automated systems to rate the credibility of news stories. Here are examples of such signals: – Authors cite expert sources (positive) – Title is clickbaity (negative) And my favorite: – Authors acknowledge uncertainty (positive) Will the … Continue reading Acknowledgement of uncertainty
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>In 2018 I built a <a href="https://web.hypothes.is/blog/annotation-powered-questionnaires/">tool</a> to help researchers evaluate a proposed set of <a href="https://credweb.org/reviewed-signals-20200224/">credibility signals</a> intended to enable <a href="https://misinfocon.com/how-annotation-enables-machine-learning-fc4b0ceab10a">automated systems</a> to rate the credibility of news stories.</p>
-<p>Here are examples of such signals:</p>
-<p>– Authors cite expert sources (positive)</p>
-<p>– Title is clickbaity (negative)</p>
-<p>And my favorite:</p>
-<p>– Authors acknowledge uncertainty (positive)</p>
-<p>Will the news ecosystem ever be able to label stories automatically based on automatic detection of such signals, and if so, should it? These are open questions. The best way to improve news literacy may be the <a href="https://hapgood.us/2019/06/19/sift-the-four-moves/">SIFT</a> method advocated by Mike Caulfield, which shifts attention away from intrinsic properties of individual news stories and advises readers to:</p>
-<p>– Stop</p>
-<p>– Investigate the source</p>
-<p>– Find better coverage</p>
-<p>– Trace claims, quotes, and media to original context</p>
-<p>“The goal of SIFT,” writes Charlie Warzel in <a href="https://www.nytimes.com/2021/02/18/opinion/fake-news-media-attention.html">Don’t Go Down the Rabbit Hole</a>, “isn’t to be the arbiter of truth but to instill a reflex that asks if something is worth one’s time and attention and to turn away if not.”</p>
-<p>SIFT favors extrinsic signals over the intrinsic ones that were the focus of the <a href="https://www.w3.org/community/credibility/">W3C Credible Web Community Group</a>. But intrinsic signals may yet play an important role, if not as part of a large-scale automated labeling effort then at least as another kind of news literacy reflex.</p>
-<p>This morning, in <a href="https://www.bozemandailychronicle.com/ap_news/commentary-how-public-health-officials-can-convince-those-reluctant-to-get-the-covid-19-vaccine/article_0d3d0540-8c55-5f55-9078-f6ca2052cf4e.html">How public health officials can convince those reluctant to get the COVID-19 vaccine</a>, I read the following:</p>
-<blockquote><p>What made these Trump supporters shift their views on vaccines? Science — offered straight-up and with a dash of humility.</p>
-<p>The unlikely change agent was Dr. Tom Frieden, who headed the Centers for Disease Control and Prevention during the Obama administration. Frieden appealed to facts, not his credentials. He noted that the theory behind the vaccine was backed by 20 years of research, that tens of thousands of people had participated in well-controlled clinical trials, and that the overwhelming share of doctors have opted for the shots.</p>
-<p>He leavened those facts with an acknowledgment of uncertainty. He conceded that the vaccine’s potential long-term risks were unknown. He pointed out that the virus’s long-term effects were also uncertain.</p>
-<p>“He’s just honest with us and telling us nothing is 100% here, people,” one participant noted.</p></blockquote>
-<p>Here’s evidence that acknowledgement of uncertainty really is a powerful signal of credibility. Maybe machines will be able to detect it and label it; maybe those labels will matter to people. Meanwhile, it’s something people can detect and do care about. Teaching students to value sources that acknowledge uncertainty, and discount ones that don’t, ought to be part of any strategy to improve news literacy.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:52 &bull;
-   5 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Friday, 26. March 2021
  </h2>
 
@@ -27695,7 +27758,7 @@ For the 22nd Vienna Digital Identity Meetup* we hosted three of the lead
 
 <div class='item-footer'>
    19:19 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
