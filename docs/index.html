@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 8:42 PM September 07, 2021 (UTC)</sup>
+<sup>Last Update 1:39 AM September 08, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,196 @@
  <h2 class='new-date'>
   Tuesday, 07. September 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2021/09/07/the-postgres-repl/'>The Postgres REPL</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  R0ml Lefkowitz’s The Image of Postgres evokes the Smalltalk experience: reach deeply into a running system, make small changes, see immediate results. There isn’t yet a fullblown IDE for the style of Postgres-based development I describe in this series, though I can envision a VSCode extension that would provide one. But there is certainly a … Continue reading The Postgres REPL
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>R0ml Lefkowitz’s <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">The Image of Postgres</a> evokes the Smalltalk experience: reach deeply into a running system, make small changes, see immediate results. There isn’t yet a fullblown IDE for the style of Postgres-based development I describe in this series, though I can envision a VSCode extension that would provide one. But there is certainly a REPL (read-eval-print loop), it’s called psql, and it delivers the kind of immediacy that all REPLs do. In our case there’s also Metabase; it offers a complementary REPL that enhances its power as a <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">lightweight app server</a>. </p>
+<p>In the <a href="https://clojure.org/guides/repl/introduction">Clojure docs</a> it says:</p>
+<blockquote><p>
+The Clojure REPL gives the programmer an interactive development experience. When developing new functionality, it enables her to build programs first by performing small tasks manually, as if she were the computer, then gradually make them more and more automated, until the desired functionality is fully programmed. When debugging, the REPL makes the execution of her programs feel tangible: it enables the programmer to rapidly reproduce the problem, observe its symptoms closely, then improvise experiments to rapidly narrow down the cause of the bug and iterate towards a fix.
+</p></blockquote>
+<p>I feel the same way about the Python REPL, the browser’s REPL, the Metabase REPL, and now also the Postgres REPL. Every function and every materialized view in the analytics system begins as a snippet of code pasted into the psql console (or Metabase). Iteration yields successive results instantly, and those results reflect live data. In <a href="https://blog.bracha.org/exemplarDemo/exemplar2021.html">How is a Programmer Like a Pathologist</a> Gilad Bracha wrote:</p>
+<blockquote><p>
+A live program is dynamic; it changes over time; it is animated. A program is alive when it’s running. When you work on a program in a text editor, it is dead.
+</p></blockquote>
+<p>Tudor Girba amplified the point in a tweet. </p>
+<p></p>
+<p>In a database-backed system there’s no more direct way to interact with live data than to do so in the database. The Postgres REPL is, of course, a very sharp tool. Here are some ways to handle it carefully.</p>
+ Find the right balance for tracking incremental change 
+<p>In <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">Working in a hybrid Metabase / Postgres code base</a> I described how version-controlled files — for Postgres functions and views, and for Metabase questions — repose in GitHub and drive a concordance of docs. I sometimes write code snippets directly in psql or Metabase, but mainly compose in a “repository” (telling word!) where those snippets are “dead” artifacts in a text editor. </p>
+<p>A knock on Smalltalk was that it didn’t play nicely with version control. If you focus on the REPL aspect, you could say the same of Python or JavaScript. In any such case there’s a balance to be struck between iterating at the speed of thought and tracking incremental change. Working solo I’ve been inclined toward a fairly granular commit history. In a team context I’d want to leave a chunkier history but still record the ongoing narrative somewhere.</p>
+ Make it easy to understand the scope and effects of changes 
+<p>The doc concordance has been the main way I visualize interdependent Postgres functions, Postgres views, and Metabase questions. In <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">Working with interdependent Postgres functions and materialized views</a> I mentioned Laurenz Albe’s <a href="https://www.cybertec-postgresql.com/en/tracking-view-dependencies-in-postgresql/">Tracking View Dependencies in Postgres</a>. I’ve adapted the view dependency tracker he develops there, and adapted related work from others to track function dependencies. </p>
+<p>This tooling is still a work in progress, though. The concordance doesn’t yet include Postgres types, for example, nor the tables that are upstream from materialized views. My hypothetical VSCode extension would know about all the artifacts and react immediately when things change.</p>
+ Make it easy to find and discard unwanted artifacts 
+<p>Given a function or view named foo, I’ll often write and test a foo2 before transplanting changes back into foo. Because foo may often depend on bar and call baz I wind up also with bar2 and baz2. These artifacts hang around in Postgres until you delete them, which I try to do as I go along. </p>
+<p>If foo2 is a memoized function, it can be necessary to delete the set of views that it’s going to recreate. I find these with a query.</p>
+ select 
+  'drop materialized view ' || matviewname || ';' as drop_stmt
+from pg_matviews 
+where matviewname ~* {{ pattern }}
+ 
+<p>That pattern might be question_and_answer_summary_for_group to find all views based on that function, or _6djxg2yk to find all views for a group, or even [^_]{8,8}$ to find all views made by memoized functions. </p>
+<p>I haven’t yet automated the discovery or removal of stale artifacts and references to them. That’s another nice-to-have for the hypothetical IDE. </p>
+ The Image of Postgres 
+<p>I’ll give R0ml the last word on this topic.</p>
+<blockquote><p>
+This is the BYTE magazine cover from August of 1981. In the 70s and the 80s, programming languages had this sort of unique perspective that’s completely lost to history. The way it worked: a programming environment was a virtual machine image, it was a complete copy of your entire virtual machine memory and that was called the image. And then you loaded that up and it had all your functions and your data in it, and then you ran that for a while until you were sort of done and then you saved it out. And this wasn’t just Smalltalk, Lisp worked that way, APL worked that way, it was kind of like Docker only it wasn’t a separate thing because everything worked that way and so you didn’t worry very much about persistence because it was implied. If you had a programming environment it saved everything that you were doing in the programming environment, you didn’t have to separate that part out. A programming environment was a place where you kept all your data and business logic forever.</p>
+<p>So then Postgres is kind of like Smalltalk only different.</p>
+<p>What’s the difference? Well we took the UI out of Smalltalk and put it in the browser. The rest of it is the same, so really Postgres is an application delivery platform, just like we had back in the 80s.
+</p></blockquote>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/">https://blog.jonudell.net/2021/07/21/a-virtuous-cycle-for-analytics/</a><br>
+2 <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/</a><br>
+3 <a href="https://blog.jonudell.net/2021/07/27/working-with-postgres-types/">https://blog.jonudell.net/2021/07/27/working-with-postgres-types/</a><br>
+4 <a href="https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/">https://blog.jonudell.net/2021/08/05/the-tao-of-unicode-sparklines/</a><br>
+5 <a href="https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/">https://blog.jonudell.net/2021/08/13/pl-python-metaprogramming/</a><br>
+6 <a href="https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/">https://blog.jonudell.net/2021/08/15/postgres-and-json-finding-document-hotspots-part-1/</a><br>
+7 <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/</a><br>
+8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
+9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
+10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/jonudell.info/images/girba-bracha-live-data.jpg?w=656&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:43 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/09/08/mexico-decriminalizes-abortion.html'> Mexico decriminalizes abortion, a dramatic step in world’s s</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Mexico decriminalizes abortion, a dramatic step in world’s second-biggest Catholic country. 
+
+ In stark contrast to their Neighbour across the Rio Grande. 
+
+ Long term might we see a reverse of migrants - from Northwards to Southwards? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://apple.news/A4g-sOs1ASWyk1IecE7J5_w">Mexico decriminalizes abortion, a dramatic step in world’s second-biggest Catholic country.</a></p>
+
+<p>In stark contrast to their Neighbour across the Rio Grande.</p>
+
+<p>Long term might we see a reverse of migrants - from Northwards to Southwards?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:19 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -811,7 +1001,7 @@
 
 <div class='item-footer'>
    18:59 &bull;
-   2 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -882,7 +1072,7 @@
 
 <div class='item-footer'>
    17:29 &bull;
-   3 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -951,7 +1141,7 @@
 
 <div class='item-footer'>
    17:29 &bull;
-   3 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1020,7 +1210,7 @@
 
 <div class='item-footer'>
    17:14 &bull;
-   4 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1089,7 +1279,7 @@
 
 <div class='item-footer'>
    17:02 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1210,7 +1400,7 @@
 
 <div class='item-footer'>
    15:39 &bull;
-   5 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1286,7 +1476,7 @@
 
 <div class='item-footer'>
    15:36 &bull;
-   5 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1350,7 +1540,7 @@
 
 <div class='item-footer'>
    14:47 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1426,7 +1616,7 @@
 
 <div class='item-footer'>
    14:04 &bull;
-   7 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1511,7 +1701,7 @@
 
 <div class='item-footer'>
    04:25 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1587,7 +1777,7 @@
 
 <div class='item-footer'>
    02:05 &bull;
-   19 hours ago
+   24 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1663,7 +1853,7 @@
 
 <div class='item-footer'>
    00:50 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1742,7 +1932,7 @@
 
 <div class='item-footer'>
    00:24 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1815,7 +2005,7 @@
 
 <div class='item-footer'>
    00:22 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1900,7 +2090,7 @@
 
 <div class='item-footer'>
    21:54 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1973,7 +2163,7 @@
 
 <div class='item-footer'>
    21:47 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2046,7 +2236,7 @@
 
 <div class='item-footer'>
    21:47 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2125,7 +2315,7 @@
 
 <div class='item-footer'>
    21:45 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2356,7 +2546,7 @@
 
 <div class='item-footer'>
    07:06 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2728,7 +2918,7 @@ public class CallAdminApiModel : PageModel
 
 <div class='item-footer'>
    06:49 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2850,7 +3040,8 @@ where email ~*
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -2940,7 +3131,7 @@ where email ~*
 
 <div class='item-footer'>
    13:00 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4565,7 +4756,7 @@ The post ミュンヘンで行われるEICでキーノートスピーチをし�
 
 <div class='item-footer'>
    13:37 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4664,7 +4855,7 @@ Polkadot ecosystem.
 
 <div class='item-footer'>
    11:23 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5199,7 +5390,7 @@ differentiate what is ‘true’ SSI
 
 <div class='item-footer'>
    09:29 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5319,82 +5510,6 @@ differentiate what is ‘true’ SSI
 <div class='item-footer'>
    15:44 &bull;
    7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/08/31/what-exactly-are.html'> What Exactly Are The Differences? 
-
- win 11 v mac monterey 
-</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   What Exactly Are The Differences? 
-
- win 11 v mac monterey 
-
- To me it is very clear - but it doesn’t … can’t … show in a video. You need to live in them both. Experience them. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>What Exactly Are The Differences?</p>
-
-<p><a href="https://youtu.be/3SwbXNb-VDY">win 11 v mac monterey</a></p>
-
-<p>To me it is very clear - but it doesn’t … can’t … show in a video. You need to live in them both. Experience them.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:57 &bull;
-   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6469,7 +6584,8 @@ number
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -6584,7 +6700,8 @@ order by r.id;
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -8464,7 +8581,8 @@ select * from usernames_by_course;
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -8553,7 +8671,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    10:19 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8911,7 +9029,8 @@ HINT:  You might need to increase max_locks_per_transaction.
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -9180,7 +9299,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    12:00 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9256,7 +9375,7 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    11:22 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10198,7 +10317,8 @@ position_from_anno
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -11081,7 +11201,8 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -11364,7 +11485,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    09:53 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12784,7 +12905,8 @@ $$ language plpython3u;
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -14336,7 +14458,8 @@ $$ language plpgsql;
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -15451,7 +15574,8 @@ pl/python: 290ms, 255ms, 300ms
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -15639,7 +15763,8 @@ The post 東京オリンピックのショーディレクター選択に見ら�
 8 <a href="https://blog.jonudell.net/2021/08/21/postgres-functional-style/">https://blog.jonudell.net/2021/08/21/postgres-functional-style/</a><br>
 9 <a href="https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/">https://blog.jonudell.net/2021/08/26/working-in-a-hybrid-metabase-postgres-code-base/</a><br>
 10 <a href="https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/">https://blog.jonudell.net/2021/08/28/working-with-interdependent-postgres-functions-and-materialized-views/</a><br>
-11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a></p>
+11 <a href="https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/">https://blog.jonudell.net/2021/09/05/metabase-as-a-lightweight-app-server/</a><br>
+12 <a href="https://blog.jonudell.net/2021/09/07/the-postgres-repl/">https://blog.jonudell.net/2021/09/07/the-postgres-repl/</a></p>
    
   
   
@@ -18447,7 +18572,7 @@ else
 
 <div class='item-footer'>
    22:26 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22066,81 +22191,6 @@ stages:
 
 
  <h2 class='new-date'>
-  Wednesday, 02. June 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.jonudell.net'>Jon Udell</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.jonudell.net/2021/06/01/dear-background-mind-please-think-about-postgres-and-clojure/'>Dear background mind: please think about Postgres and Clojure</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  I used a Lisp variant in my first programming job, so I have some appreciation for the “code as data” power of that language. Nowadays I’m building an analytics system that combines Postgres and two of its procedural languages, pl/pgsql and pl/python, with a sense-making tool called Metabase that’s written in a Lisp variant called … Continue reading Dear background mind: please think about Postgres
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I used a Lisp variant in my first programming job, so I have some appreciation for the “code as data” power of that language. Nowadays I’m building an analytics system that combines Postgres and two of its procedural languages, pl/pgsql and pl/python, with a sense-making tool called <a href="https://metabase.com">Metabase</a> that’s written in a Lisp variant called <a href="https://clojure.org">Clojure</a>.</p>
-<p>In Postgres I’m able to wrap SQL queries in functions; they compose with other functions that do things like cache results in materialized views and aggregate subgroups. It all feels very dynamic and functional, which are two of Clojure’s main calling cards, so this makes me wonder about Clojure as another Postgres procedural language.</p>
-<p>For the pl/python functions in my system, “code as data” looks like building SQL statements that swap variables into SQL templates and combine them. This string-building approach is an anti-pattern for Clojure folk. They don’t want to work with fragments of SQL text, they want to work with Clojure maps. Here’s an example from <a href="https://github.com/musab/honeysql">Honey SQL</a>, the library that Metabase uses to build SQL texts from structured data.</p>
-<p><code>(def sqlmap {:select [:a :b :c]<br>
-:from   [:foo]<br>
-:where  [:= :f.a "baz"]})<br>
-</code></p>
-<p>This seems like an important power to be able to wield in the hybrid programming environment that Postgres provides. I can imagine making very good use of it.</p>
-<p>But I know very little yet about Clojure. Is this really an idea worth exploring? How else would it differ from what I’m now able to do in Python? To learn more about Clojure I’ve been watching talks by its creator, Rich Hickey. Most are tech-heavy but one of them isn’t like the others. In <a href="https://www.youtube.com/watch?v=f84n5oFoZBc">Hammock-driven development</a> he lays out a process for creative problem solving that coordinates the waking mind (at the computer doing critical thinking and analysis) with the background mind (on the hammock doing abstraction, analogy, and synthesis). The coordination is explicit: You use the waking mind to feed work to the background mind which is “the solver of most non-trivial problems”; you weight your inputs to the background mind in order to influence their priority in its thinking.</p>
-<p>I guess I’ve done that kind of thing implicitly from time to time, but never in such an intentional way. So, is Clojure-in-Postgres worth exploring? Perhaps by writing this I’ll prime my background mind and will receive more clarity in the morning.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:41 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Tuesday, 01. June 2021
  </h2>
 
@@ -22445,7 +22495,7 @@ stages:
 
 <div class='item-footer'>
    23:24 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
