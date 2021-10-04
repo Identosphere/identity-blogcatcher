@@ -736,12 +736,276 @@
 
 </div>
 </div>
-<sup>Last Update 5:41 AM October 04, 2021 (UTC)</sup>
+<sup>Last Update 10:44 AM October 04, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 04. October 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/10/04/implement-a-secure-api-and-a-blazor-app-in-the-same-asp-net-core-project-with-azure-ad-authentication/'>Implement a secure API and a Blazor app in the same ASP.NET Core project with Azure AD authentication</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The article shows how an ASP.NET Core API and a Blazor BBF application can be implemented in the same project and secured using Azure AD with Microsoft.Identity.Web. The Blazor application is secured using the BFF pattern with its backend APIs protected using cookies with anti-forgery protection and same site. The API is protected using JWT […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The article shows how an ASP.NET Core API and a Blazor BBF application can be implemented in the same project and secured using Azure AD with Microsoft.Identity.Web. The Blazor application is secured using the BFF pattern with its backend APIs protected using cookies with anti-forgery protection and same site. The API is protected using JWT Bearer tokens and used from a separate client from a different domain, not from the Blazor application. This API is not used for the Blazor application. When securing Blazor WASM hosted in an ASP.NET Core application, BFF architecture should be used for the Blazor application and not JWT tokens, especially in Azure where it is not possible to logout correctly.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCore6Experiments">https://github.com/damienbod/AspNetCore6Experiments</a></p>
+
+
+
+<p>Setup</p>
+
+
+
+<p>The Blazor application consists of three projects. The Server project implements the OpenID Connect user interaction flow and authenticates the client as well as the user authentication. The APIs created for the Blazor WASM are protected using cookies. A second API is implemented for separate clients and the API is protected using JWT tokens. Two separate Azure App registrations are setup for the UI client and the API. If using the API, a third Azure App registration would be used for the client, for example an ASP.NET Core Razor page, or a Power App.</p>
+
+
+
+<p>API </p>
+
+
+
+<p>The API is implemented and protected with the MyJwtApiScheme scheme. This will be implemented later in the Startup class. The API uses swagger configurations for Open API 3 and a simple HTTP GET is implemented to validate the API security.</p>
+
+
+  [Route("api/[controller]")]
+[ApiController]
+[Authorize(AuthenticationSchemes = "MyJwtApiScheme")]
+[Produces("application/json")]
+[SwaggerTag("Using to provide a public api for different clients")]
+public class MyApiJwtProtectedController : ControllerBase
+{
+	[HttpGet]
+	[ProducesResponseType(StatusCodes.Status200OK, Type = typeof(string))]
+	[SwaggerOperation(OperationId = "MyApiJwtProtected-Get", 
+		Summary = "Returns string with details")]
+	public IActionResult Get()
+	{
+		return Ok("yes my public api protected with Azure AD and JWT works");
+	}
+}
+  
+
+
+<p>Blazor BFF</p>
+
+
+
+<p>The Blazor applications are implemented using the backend for frontend security architecture. All security is implemented in the backend and the client requires a secret or a certificate to authenticate. The security data is stored to an encrypted cookie with same site protection. This is easier to secure than storing tokens in the browser storage, especially since Blazor does not support strong CSPs due to the generated Javascript and also that AAD does not support a proper logout for access tokens, refresh tokens stored in the browser. The following blog post explains this in more details.</p>
+
+
+
+<p><a href="https://damienbod.com/2021/03/08/securing-blazor-web-assembly-using-cookies/">Securing Blazor Web assembly using&nbsp;cookies</a></p>
+
+
+
+<p>Microsoft.Identity.Web</p>
+
+
+
+<p>The Microsoft.Identity.Web Nuget package is used to implement the Azure AD clients. This setup is different to the documentation. The default schemes need to be set correctly when using Cookie (App) authentication and also API Auth together. The AddMicrosoftIdentityWebApp method sets up the Blazor authentication for one Azure App registration using configuration from the AzureAd settings. The AddMicrosoftIdentityWebApi method implements the second Azure App registration for the JWT Bearer token Auth using the AzureAdMyApi settings and the MyJwtApiScheme scheme.</p>
+
+
+  services.AddAuthentication(options =&gt; 
+{
+	options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+	options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+	options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+	options.DefaultAuthenticateScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+})
+.AddMicrosoftIdentityWebApp(Configuration, "AzureAd", 
+	OpenIdConnectDefaults.AuthenticationScheme)
+   .EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
+   .AddMicrosoftGraph("https://graph.microsoft.com/beta",
+		"User.ReadBasic.All user.read")
+   .AddInMemoryTokenCaches();
+
+services.AddAuthentication("MyJwtApischeme")
+	.AddMicrosoftIdentityWebApi(
+		Configuration, "AzureAdMyApi", "MyJwtApiScheme");
+  
+
+
+<p>app.settings</p>
+
+
+
+<p>The ASP.NET Core project uses app.settings and user secrets in development to configure the Azure AD clients. The two Azure App registrations values are added here.</p>
+
+
+  "AzureAd": {
+	"Instance": "https://login.microsoftonline.com/",
+	"Domain": "damienbodhotmail.onmicrosoft.com",
+	"TenantId": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
+	"ClientId": "46d2f651-813a-4b5c-8a43-63abcb4f692c",
+	"CallbackPath": "/signin-oidc",
+	"SignedOutCallbackPath ": "/signout-callback-oidc"
+	// "ClientSecret": "add secret to the user secrets"
+},
+"AzureAdMyApi": {
+	"Instance": "https://login.microsoftonline.com/",
+	"Domain": "damienbodhotmail.onmicrosoft.com",
+	"TenantId": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
+	"ClientId": "b2a09168-54e2-4bc4-af92-a710a64ef1fa"
+},
+  
+
+
+<p>Swagger</p>
+
+
+
+<p>Swagger is added to make it easier to view and test the API. A simple UI is created so that you can paste your access token into the UI and test the APIs manually if required. You could also implement a user flow directly in the Swagger UI but then you would have to open up the security headers protection to allow this. </p>
+
+
+  services.AddSwaggerGen(c =&gt;
+{
+	c.EnableAnnotations();
+
+	// add JWT Authentication
+	var securityScheme = new OpenApiSecurityScheme
+	{
+		Name = "JWT Authentication",
+		Description = "Enter JWT Bearer token **_only_**",
+		In = ParameterLocation.Header,
+		Type = SecuritySchemeType.Http,
+		Scheme = "bearer", // must be lower case
+		BearerFormat = "JWT",
+		Reference = new OpenApiReference
+		{
+			Id = JwtBearerDefaults.AuthenticationScheme,
+			Type = ReferenceType.SecurityScheme
+		}
+	};
+	c.AddSecurityDefinition(securityScheme.Reference.Id, securityScheme);
+	c.AddSecurityRequirement(new OpenApiSecurityRequirement
+	{
+		{securityScheme, Array.Empty&lt;string&gt;() }
+	});
+	c.SwaggerDoc("v1", new OpenApiInfo
+	{
+		Title = "My API",
+		Version = "v1",
+		Description = "My API"
+	});
+
+});
+  
+
+
+<p>The Swagger middleware is added after the security headers middleware. Some people only add this to dev and not production deployments.</p>
+
+
+  app.UseSwagger(); 
+app.UseSwaggerUI(c =&gt;
+{
+	c.SwaggerEndpoint("/swagger/v1/swagger.json", "MyApi v1");
+});
+
+  
+
+
+<p>Testing</p>
+
+
+
+<p>The UITestClientForApiTest Razor Page application can be used to login and get an access token to test the API. Before starting this application, the AzureAD configuration in the settings need to be updated to match your Azure App registration and your tenant. The access token can be used directly in the Swagger UI. The API only accepts delegated access tokens and no CC tokens etc. The configuration in the Blazor server application also needs to match the Azure App registrations in your tenant. </p>
+
+
+
+
+
+
+
+<p>This setup is good for simple projects where you would like to avoid creating a second deployment or you want to re-use a small amount of business logic from the Blazor server. At some stage, it would probably make sense to split the API and the Blazor UI into two separate projects which would make this security setup more simple again but result in more infrastructure.</p>
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web/wiki/Mixing-web-app-and-web-api-in-the-same-ASP.NET-core-app">https://github.com/AzureAD/microsoft-identity-web/wiki/Mixing-web-app-and-web-api-in-the-same-ASP.NET-core-app</a></p>
+
+
+
+<p><a href="https://damienbod.com/2021/03/08/securing-blazor-web-assembly-using-cookies/">Securing Blazor Web assembly using&nbsp;cookies</a></p>
+
+
+
+<p><a href="https://jwt.ms/">https://jwt.ms/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/09/api_app_aad_blazor_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:11 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -811,7 +1075,7 @@
 
 <div class='item-footer'>
    23:19 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1909,7 +2173,7 @@ $ stepzen start
 
 <div class='item-footer'>
    14:44 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2137,7 +2401,7 @@ $ stepzen start
 
 <div class='item-footer'>
    18:11 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2765,7 +3029,7 @@ $ stepzen start
 
 <div class='item-footer'>
    21:13 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2834,7 +3098,7 @@ $ stepzen start
 
 <div class='item-footer'>
    19:24 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4222,7 +4486,7 @@ $ stepzen start
 
 <div class='item-footer'>
    21:18 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4981,7 +5245,7 @@ $ stepzen start
 
 <div class='item-footer'>
    18:44 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5115,7 +5379,7 @@ $ stepzen start
 
 <div class='item-footer'>
    18:29 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5273,7 +5537,7 @@ $ stepzen start
 
 <div class='item-footer'>
    21:15 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5489,7 +5753,7 @@ $ stepzen start
 
 <div class='item-footer'>
    21:57 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6381,7 +6645,7 @@ namespace TeamsAdminUI.Pages
 
 <div class='item-footer'>
    19:48 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6449,7 +6713,7 @@ namespace TeamsAdminUI.Pages
 
 <div class='item-footer'>
    20:15 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6808,7 +7072,7 @@ namespace TeamsAdminUI.Pages
 
 <div class='item-footer'>
    20:16 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8089,7 +8353,7 @@ Databases</p>
 
 <div class='item-footer'>
    19:15 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8339,7 +8603,7 @@ automation! This made things a bit harder because all of the tutorials and docum
 
 <div class='item-footer'>
    19:15 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8649,7 +8913,7 @@ This is the BYTE magazine cover from August of 1981. In the 70s and the 80s, pro
 
 <div class='item-footer'>
    22:43 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8935,7 +9199,7 @@ This is the BYTE magazine cover from August of 1981. In the 70s and the 80s, pro
 
 <div class='item-footer'>
    18:58 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9545,7 +9809,7 @@ where email ~*
 
 <div class='item-footer'>
    17:53 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13731,7 +13995,7 @@ select * from usernames_by_course;
 
 <div class='item-footer'>
    10:19 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -19824,348 +20088,6 @@ The post あり得たもう一つのオリンピック開会式 first appeared o
 
 <div class='item-footer'>
    14:40 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/07/20/using-an-asp-net-core-ihostedservice-to-run-azure-service-bus-subscriptions-and-consumers/'>Using an ASP.NET Core IHostedService to run Azure Service Bus subscriptions and consumers</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post shows how Azure Service bus subscription for topics or consumers for a queue, or can be used inside an ASP.NET Core application. The Azure Service Bus client listens to events and needs to be started, stopped and registered to the topic to receive messages. An IHostedService is used for this. Code: https://github.com/damienbod/AspNetCoreServiceBus Posts […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post shows how Azure Service bus subscription for topics or consumers for a queue, or can be used inside an ASP.NET Core application. The Azure Service Bus client listens to events and needs to be started, stopped and registered to the topic to receive messages. An IHostedService is used for this. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreServiceBus">https://github.com/damienbod/AspNetCoreServiceBus</a></p>
-
-
-
-<p>Posts in this series:</p>
-
-
-
-  <a href="https://damienbod.com/2019/04/23/using-azure-service-bus-queues-with-asp-net-core-services/">Using Azure Service Bus Queues with ASP.NET Core Services</a>  <a href="https://damienbod.com/2019/04/24/using-azure-service-bus-topics-in-asp-net-core/">Using Azure Service Bus Topics in ASP.NET Core</a>  <a href="https://damienbod.com/2019/04/27/using-azure-service-bus-topics-subscription-filters-in-asp-net-core/">Using Azure Service Bus Topics Subscription Filters in ASP.NET Core</a>  <a href="https://damienbod.com/2019/04/30/using-ef-core-to-process-azure-service-messages-in-asp-net-core/">Using Entity Framework Core to process Azure Service Messages in ASP.NET Core</a>  <a href="https://damienbod.com/2019/05/03/using-an-azure-service-bus-topic-subscription-in-an-azure-function/">Using an Azure Service Bus Topic Subscription in an Azure Function</a>  <a href="https://damienbod.com/2020/03/06/using-azure-service-bus-with-restricted-access/">Using Azure Service Bus with restricted access</a>  Using an ASP.NET Core IHostedService to run Azure Service Bus subscriptions and consumers  
-
-
-
-<p>The ServiceBusTopicSubscription class is used to setup the Azure Service bus subscription. The class uses the ServiceBusClient to set up the message handler, the ServiceBusAdministrationClient is used to implement filters and add or remove these rules. The Azure.Messaging.ServiceBus Nuget package is used to connect to the subscription.</p>
-
-
-  using Azure.Messaging.ServiceBus;
-using Azure.Messaging.ServiceBus.Administration;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-
-namespace ServiceBusMessaging
-{
-    public class ServiceBusTopicSubscription : IServiceBusTopicSubscription
-    {
-        private readonly IProcessData _processData;
-        private readonly IConfiguration _configuration;
-        private const string TOPIC_PATH = "mytopic";
-        private const string SUBSCRIPTION_NAME = "mytopicsubscription";
-        private readonly ILogger _logger;
-        private readonly ServiceBusClient _client;
-        private readonly ServiceBusAdministrationClient _adminClient;
-        private ServiceBusProcessor _processor;
-
-        public ServiceBusTopicSubscription(IProcessData processData,
-            IConfiguration configuration,
-            ILogger&lt;ServiceBusTopicSubscription&gt; logger)
-        {
-            _processData = processData;
-            _configuration = configuration;
-            _logger = logger;
-
-            var connectionString = _configuration.GetConnectionString("ServiceBusConnectionString");
-            _client = new ServiceBusClient(connectionString);
-            _adminClient = new ServiceBusAdministrationClient(connectionString);
-        }
-
-        public async Task PrepareFiltersAndHandleMessages()
-        {
-            ServiceBusProcessorOptions _serviceBusProcessorOptions = new ServiceBusProcessorOptions
-            {
-                MaxConcurrentCalls = 1,
-                AutoCompleteMessages = false,
-            };
-
-            _processor = _client.CreateProcessor(TOPIC_PATH, SUBSCRIPTION_NAME, _serviceBusProcessorOptions);
-            _processor.ProcessMessageAsync += ProcessMessagesAsync;
-            _processor.ProcessErrorAsync += ProcessErrorAsync;
-
-            await RemoveDefaultFilters().ConfigureAwait(false);
-            await AddFilters().ConfigureAwait(false);
-
-            await _processor.StartProcessingAsync().ConfigureAwait(false);
-        }
-
-        private async Task RemoveDefaultFilters()
-        {
-            try
-            {
-                var rules = _adminClient.GetRulesAsync(TOPIC_PATH, SUBSCRIPTION_NAME);
-                var ruleProperties = new List&lt;RuleProperties&gt;();
-                await foreach (var rule in rules)
-                {
-                    ruleProperties.Add(rule);
-                }
-
-                foreach (var rule in ruleProperties)
-                {
-                    if (rule.Name == "GoalsGreaterThanSeven")
-                    {
-                        await _adminClient.DeleteRuleAsync(TOPIC_PATH, SUBSCRIPTION_NAME, "GoalsGreaterThanSeven")
-                            .ConfigureAwait(false);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex.ToString());
-            }
-        }
-
-        private async Task AddFilters()
-        {
-            try
-            {
-                var rules = _adminClient.GetRulesAsync(TOPIC_PATH, SUBSCRIPTION_NAME)
-                    .ConfigureAwait(false);
-
-                var ruleProperties = new List&lt;RuleProperties&gt;();
-                await foreach (var rule in rules)
-                {
-                    ruleProperties.Add(rule);
-                }
-
-                if (!ruleProperties.Any(r =&gt; r.Name == "GoalsGreaterThanSeven"))
-                {
-                    CreateRuleOptions createRuleOptions = new CreateRuleOptions
-                    {
-                        Name = "GoalsGreaterThanSeven",
-                        Filter = new SqlRuleFilter("goals &gt; 7")
-                    };
-                    await _adminClient.CreateRuleAsync(TOPIC_PATH, SUBSCRIPTION_NAME, createRuleOptions)
-                        .ConfigureAwait(false);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex.ToString());
-            }
-        }
-
-        private async Task ProcessMessagesAsync(ProcessMessageEventArgs args)
-        {
-            var myPayload = args.Message.Body.ToObjectFromJson&lt;MyPayload&gt;();
-            await _processData.Process(myPayload).ConfigureAwait(false);
-            await args.CompleteMessageAsync(args.Message).ConfigureAwait(false);
-        }
-
-        private Task ProcessErrorAsync(ProcessErrorEventArgs arg)
-        {
-            _logger.LogError(arg.Exception, "Message handler encountered an exception");
-            _logger.LogDebug($"- ErrorSource: {arg.ErrorSource}");
-            _logger.LogDebug($"- Entity Path: {arg.EntityPath}");
-            _logger.LogDebug($"- FullyQualifiedNamespace: {arg.FullyQualifiedNamespace}");
-
-            return Task.CompletedTask;
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            if (_processor != null)
-            {
-                await _processor.DisposeAsync().ConfigureAwait(false);
-            }
-
-            if (_client != null)
-            {
-                await _client.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-
-        public async Task CloseSubscriptionAsync()
-        {
-            await _processor.CloseAsync().ConfigureAwait(false);
-        }
-    }
-}
-
-  
-
-
-<p>The WorkerServiceBus class implements the IHostedService  interface and uses the IServiceBusTopicSubscription interface to subscribe to an Azure Service Bus topic. The StartAsync method is used to register the subscription using the RegisterOnMessageHandlerAndReceiveMessages method.  The interface provides a start, and stop and a dispose. The Azure Service Bus class is controlled using this hosted service. If needed, a periodic task could be implemented to run health checks on the client or whatever.</p>
-
-
-  public class WorkerServiceBus : IHostedService, IDisposable
-{
-	private readonly ILogger&lt;WorkerServiceBus&gt; _logger;
-	private readonly IServiceBusConsumer _serviceBusConsumer;
-	private readonly IServiceBusTopicSubscription _serviceBusTopicSubscription;
-
-	public WorkerServiceBus(IServiceBusConsumer serviceBusConsumer,
-		IServiceBusTopicSubscription serviceBusTopicSubscription,
-		ILogger&lt;WorkerServiceBus&gt; logger)
-	{
-		_serviceBusConsumer = serviceBusConsumer;
-		_serviceBusTopicSubscription = serviceBusTopicSubscription;
-		_logger = logger;
-	}
-
-	public async Task StartAsync(CancellationToken stoppingToken)
-	{
-		_logger.LogDebug("Starting the service bus queue consumer and the subscription");
-		await _serviceBusConsumer.RegisterOnMessageHandlerAndReceiveMessages().ConfigureAwait(false);
-		await _serviceBusTopicSubscription.PrepareFiltersAndHandleMessages().ConfigureAwait(false);
-	}
-
-	public async Task StopAsync(CancellationToken stoppingToken)
-	{
-		_logger.LogDebug("Stopping the service bus queue consumer and the subscription");
-		await _serviceBusConsumer.CloseQueueAsync().ConfigureAwait(false);
-		await _serviceBusTopicSubscription.CloseSubscriptionAsync().ConfigureAwait(false);
-	}
-
-	public void Dispose()
-	{
-		Dispose(true);
-		GC.SuppressFinalize(this);
-	}
-
-	protected virtual async void Dispose(bool disposing)
-	{
-		if (disposing)
-		{
-			await _serviceBusConsumer.DisposeAsync().ConfigureAwait(false);
-			await _serviceBusTopicSubscription.DisposeAsync().ConfigureAwait(false);
-		}
-	}
-}
-  
-
-
-<p>The IHostedService is added to the services in the ConfigureServices method. The AddHostedService is used to initialize this. Now the Azure Service bus subscription can be managed and consume messages from the topic subscription or a queue is used.</p>
-
-
-  public void ConfigureServices(IServiceCollection services)
-{
-	services.AddControllers();
-
-	var connection = Configuration.GetConnectionString("DefaultConnection");
-
-	services.AddDbContext&lt;PayloadContext&gt;(options =&gt;
-		options.UseSqlite(connection));
-
-	services.AddSingleton&lt;IServiceBusConsumer, ServiceBusConsumer&gt;();
-	services.AddSingleton&lt;IServiceBusTopicSubscription, ServiceBusTopicSubscription&gt;();
-	services.AddSingleton&lt;IProcessData, ProcessData&gt;();
-
-	services.AddHostedService&lt;WorkerServiceBus&gt;();
-
-	services.AddSwaggerGen(c =&gt;
-	{
-		c.SwaggerDoc("v1", new OpenApiInfo
-		{
-			Version = "v1",
-			Title = "Payload API",
-		});
-	});
-}
-  
-
-
-<p>When the application is run, the messages can be sent to the topic and are received using the IHostedService Azure Service Bus subscription.</p>
-
-
-
-
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://github.com/Azure/azure-sdk-for-net/tree/master/sdk/servicebus/Azure.Messaging.ServiceBus">https://github.com/Azure/azure-sdk-for-net/tree/master/sdk/servicebus/Azure.Messaging.ServiceBus</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/service-bus-messaging/">https://docs.microsoft.com/en-us/azure/service-bus-messaging/</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/service-bus-messaging/service-bus-dotnet-get-started-with-queues">https://docs.microsoft.com/en-us/azure/service-bus-messaging/service-bus-dotnet-get-started-with-queues</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/fundamentals/host/hosted-services">https://docs.microsoft.com/en-us/aspnet/core/fundamentals/host/hosted-services</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/06/aspnetcore_sb_hosted_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:26 &bull;
    3 months ago
 </div>
 
@@ -28376,7 +28298,7 @@ incentive-alignment.</p>
 
 <div class='item-footer'>
    09:14 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
