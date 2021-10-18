@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:40 AM October 18, 2021 (UTC)</sup>
+<sup>Last Update 10:45 AM October 18, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,443 @@
  <h2 class='new-date'>
   Monday, 18. October 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/10/18/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph-application-permissions-part-2/'>Creating Microsoft Teams meetings in ASP.NET Core using Microsoft Graph application permissions part 2</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to create Microsoft Teams meetings in ASP.NET Core using Microsoft Graph with application permissions. This is useful if you have a designated account to manage or create meetings, send emails or would like to provide a service for users without an office account to create meetings. This is a follow up […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to create Microsoft Teams meetings in ASP.NET Core using Microsoft Graph with application permissions. This is useful if you have a designated account to manage or create meetings, send emails or would like to provide a service for users without an office account to create meetings. This is a follow up post to part one in this series which creates Teams meetings using delegated permissions. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/TeamsAdminUI">https://github.com/damienbod/TeamsAdminUI</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/09/20/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph/">Creating Microsoft Teams meetings in ASP.NET Core using Microsoft Graph</a> (delegated)  
+
+
+
+<p>Setup Azure App registration</p>
+
+
+
+<p>A simple ASP.NET Core application with no authentication was created and implements a form which creates online meetings on behalf of a designated account using Microsoft Graph with application permissions. The Microsoft Graph client uses an Azure App registration for authorization and the client credentials flow is used to authorize the client and get an access token. No user is involved in this flow and the application requires administration permissions in the Azure App registration for Microsoft Graph. </p>
+
+
+
+<p>An Azure App registration is setup to authenticate against Azure AD. The ASP.NET Core application will use application permissions for the Microsoft Graph. The listed permissions underneath are required to create the Teams meetings OBO and to send emails to the attendees using the configuration email which has access to office.</p>
+
+
+
+<p>Microsoft Graph application permissions:</p>
+
+
+
+  User.Read.All  Mail.Send   Mail.ReadWrite   OnlineMeetings.ReadWrite.All  
+
+
+
+<p>This is the list of permissions I have activate for this demo. </p>
+
+
+
+
+
+
+
+<p>Configuration</p>
+
+
+
+<p>The Azure AD configuration is used to get a new access token for the Microsoft Graph client and to define the email of the account which is used to create Microsoft Teams meetings and also used to send emails to the attendees. This account needs an office account.</p>
+
+
+  "AzureAd": {
+	"TenantId": "5698af84-5720-4ff0-bdc3-9d9195314244",
+	"ClientId": "b9be5f88-f629-46b0-ac4c-c5a4354ac192",
+	// "ClientSecret": "add secret to the user secrets"
+	"MeetingOrganizer": "--your-email-for-sending--"
+},
+  
+
+
+<p>Setup Client credentials flow to for Microsoft Graph</p>
+
+
+
+<p>A number of different ways can be used to authorize a Microsoft Graph client and is a bit confusing sometimes. Using the DefaultCredential is not really a good idea for Graph because you need to decide if you use a delegated authorization or a application authorization and the DefaultCredential will take the first one which works and this depends on the environment. For application authorization, I use the  ClientSecretCredential Identity to get the service access token. This requires the .default scope and a client secret or a client credential. Using a client secret is fine if you control both client and server and the secret is stored in an Azure Key Vault. A client certificate could also be used.</p>
+
+
+  private GraphServiceClient GetGraphClient()
+{
+	string[] scopes = new[] { "https://graph.microsoft.com/.default" };
+	var tenantId = _configuration["AzureAd:TenantId"];
+
+	// Values from app registration
+	var clientId = _configuration.GetValue&lt;string&gt;("AzureAd:ClientId");
+	var clientSecret = _configuration.GetValue&lt;string&gt;("AzureAd:ClientSecret");
+
+	var options = new TokenCredentialOptions
+	{
+		AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+	};
+
+	// https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
+	var clientSecretCredential = new ClientSecretCredential(
+		tenantId, clientId, clientSecret, options);
+
+	return new GraphServiceClient(clientSecretCredential, scopes);
+}
+  
+
+
+<p>The IConfidentialClientApplication interface could also be used to get access tokens which is used to authorize the Graph client. A simple in memory cache is used to store the access token. This token is reused until it expires or the application is restart. If using multiple instances, maybe a distributed cache would be better. The client uses the “<a href="https://graph.microsoft.com/.default&amp;#8221">https://graph.microsoft.com/.default&amp;#8221</a>; scope to get an access token for the Microsoft Graph client. A GraphServiceClient instance is returned with a value access token. </p>
+
+
+  public class ApiTokenInMemoryClient
+{
+	private readonly IHttpClientFactory _clientFactory;
+	private readonly ILogger&lt;ApiTokenInMemoryClient&gt; _logger;
+
+	private readonly IConfiguration _configuration;
+	private readonly IConfidentialClientApplication _app;
+	private readonly ConcurrentDictionary&lt;string, AccessTokenItem&gt; _accessTokens = new();
+
+	private class AccessTokenItem
+	{
+		public string AccessToken { get; set; } = string.Empty;
+		public DateTime ExpiresIn { get; set; }
+	}
+
+	public ApiTokenInMemoryClient(IHttpClientFactory clientFactory,
+		IConfiguration configuration, ILoggerFactory loggerFactory)
+	{
+		_clientFactory = clientFactory;
+		_configuration = configuration;
+		_logger = loggerFactory.CreateLogger&lt;ApiTokenInMemoryClient&gt;();
+		_app = InitConfidentialClientApplication();
+	}
+
+	public async Task&lt;GraphServiceClient&gt; GetGraphClient()
+	{
+		var result = await GetApiToken("default");
+
+		var httpClient = _clientFactory.CreateClient();
+		httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", result);
+		httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+		var graphClient = new GraphServiceClient(httpClient)
+		{
+			AuthenticationProvider = new DelegateAuthenticationProvider(async (requestMessage) =&gt;
+			{
+				requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", result);
+				await Task.FromResult&lt;object&gt;(null);
+			})
+		};
+
+		return graphClient;
+	}
+
+	private async Task&lt;string&gt; GetApiToken(string api_name)
+	{
+		if (_accessTokens.ContainsKey(api_name))
+		{
+			var accessToken = _accessTokens.GetValueOrDefault(api_name);
+			if (accessToken.ExpiresIn &gt; DateTime.UtcNow)
+			{
+				return accessToken.AccessToken;
+			}
+			else
+			{
+				// remove
+				_accessTokens.TryRemove(api_name, out _);
+			}
+		}
+
+		_logger.LogDebug($"GetApiToken new from STS for {api_name}");
+
+		// add
+		var newAccessToken = await AcquireTokenSilent();
+		_accessTokens.TryAdd(api_name, newAccessToken);
+
+		return newAccessToken.AccessToken;
+	}
+
+	private async Task&lt;AccessTokenItem&gt; AcquireTokenSilent()
+	{
+		//var scopes = "User.read Mail.Send Mail.ReadWrite OnlineMeetings.ReadWrite.All";
+		var authResult = await _app
+			.AcquireTokenForClient(scopes: new[] { "https://graph.microsoft.com/.default" })
+			.WithAuthority(AzureCloudInstance.AzurePublic, _configuration["AzureAd:TenantId"])
+			.ExecuteAsync();
+
+		return new AccessTokenItem
+		{
+			ExpiresIn = authResult.ExpiresOn.UtcDateTime,
+			AccessToken = authResult.AccessToken
+		};
+	}
+
+	private IConfidentialClientApplication InitConfidentialClientApplication()
+	{
+		return ConfidentialClientApplicationBuilder
+			.Create(_configuration["AzureAd:ClientId"])
+			.WithClientSecret(_configuration["AzureAd:ClientSecret"])
+			.Build();
+	}
+}
+  
+
+
+<p>OnlineMeetings Graph Service</p>
+
+
+
+<p>The AadGraphApiApplicationClient service is used to send the Microsoft Graph requests. This uses the graphServiceClient client with the correct access token. The GetUserIdAsync method is used to get the Graph Id using the UPN. This is used in the Users API to run the requests with the application scopes. The Me property is not used as this is for delegated scopes. We have no user in this application. We run the requests as an application on behalf of the designated user.</p>
+
+
+  public class AadGraphApiApplicationClient
+{
+	private readonly IConfiguration _configuration;
+
+	public AadGraphApiApplicationClient(IConfiguration configuration)
+	{
+		_configuration = configuration;
+	}
+
+	private async Task&lt;string&gt; GetUserIdAsync()
+	{
+		var meetingOrganizer = _configuration["AzureAd:MeetingOrganizer"];
+		var filter = $"startswith(userPrincipalName,'{meetingOrganizer}')";
+		var graphServiceClient = GetGraphClient();
+
+		var users = await graphServiceClient.Users
+			.Request()
+			.Filter(filter)
+			.GetAsync();
+
+		return users.CurrentPage[0].Id;
+	}
+
+	public async Task SendEmailAsync(Message message)
+	{
+		var graphServiceClient = GetGraphClient();
+
+		var saveToSentItems = true;
+
+		var userId = await GetUserIdAsync();
+
+		await graphServiceClient.Users[userId]
+			.SendMail(message, saveToSentItems)
+			.Request()
+			.PostAsync();
+	}
+
+	public async Task&lt;OnlineMeeting&gt; CreateOnlineMeeting(OnlineMeeting onlineMeeting)
+	{
+		var graphServiceClient = GetGraphClient();
+
+		var userId = await GetUserIdAsync();
+
+		return await graphServiceClient.Users[userId]
+			.OnlineMeetings
+			.Request()
+			.AddAsync(onlineMeeting);
+	}
+
+	public async Task&lt;OnlineMeeting&gt; UpdateOnlineMeeting(OnlineMeeting onlineMeeting)
+	{
+		var graphServiceClient = GetGraphClient();
+
+		var userId = await GetUserIdAsync();
+
+		return await graphServiceClient.Users[userId]
+			.OnlineMeetings[onlineMeeting.Id]
+			.Request()
+			.UpdateAsync(onlineMeeting);
+	}
+
+	public async Task&lt;OnlineMeeting&gt; GetOnlineMeeting(string onlineMeetingId)
+	{
+		var graphServiceClient = GetGraphClient();
+
+		var userId = await GetUserIdAsync();
+
+		return await graphServiceClient.Users[userId]
+			.OnlineMeetings[onlineMeetingId]
+			.Request()
+			.GetAsync();
+	}
+
+	private GraphServiceClient GetGraphClient()
+	{
+		string[] scopes = new[] { "https://graph.microsoft.com/.default" };
+		var tenantId = _configuration["AzureAd:TenantId"];
+
+		// Values from app registration
+		var clientId = _configuration.GetValue&lt;string&gt;("AzureAd:ClientId");
+		var clientSecret = _configuration.GetValue&lt;string&gt;("AzureAd:ClientSecret");
+
+		var options = new TokenCredentialOptions
+		{
+			AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+		};
+
+		// https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
+		var clientSecretCredential = new ClientSecretCredential(
+			tenantId, clientId, clientSecret, options);
+
+		return new GraphServiceClient(clientSecretCredential, scopes);
+	}
+}
+
+
+  
+
+
+<p>The startup class adds the services as required. No authentication is added for the ASP.NET Core application.</p>
+
+
+  public void ConfigureServices(IServiceCollection services)
+{
+	services.AddScoped&lt;AadGraphApiApplicationClient&gt;();
+	services.AddSingleton&lt;ApiTokenInMemoryClient&gt;();
+	services.AddScoped&lt;EmailService&gt;();
+	services.AddScoped&lt;TeamsService&gt;();
+	services.AddHttpClient();
+	services.AddOptions();
+
+	services.AddRazorPages();
+}
+  
+
+
+<p>Azure Policy configuration</p>
+
+
+
+<p>We need to allow applications to access online meetings on behalf of a user with this setup. This is implemented using the following documentation:</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/cloud-communication-online-meeting-application-access-policy">https://docs.microsoft.com/en-us/graph/cloud-communication-online-meeting-application-access-policy</a></p>
+
+
+
+<p>Testing</p>
+
+
+
+<p>When the application is started, you can create a new Teams meeting with the required details. The configuration email must have an account with access to Office and be on the same tenant as the Azure App registration setup for the Microsoft Graph application permissions. The Email must have a policy setup to allow the Microsoft Graph calls. The Teams meeting is organized using the identity that signed in because we used the applications permissions. </p>
+
+
+
+
+
+
+
+<p>This works really well and can be used for Azure B2C solutions as well. If possible, you should only use delegated scopes in the application, if possible. By using application permissions, the ASP.NET Core is implicitly an administrator of these permissions as well. It would be better if user accounts with delegated access was used which are managed by your IT etc. </p>
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/api/application-post-onlinemeetings">https://docs.microsoft.com/en-us/graph/api/application-post-onlinemeetings</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://damienbod.com/2021/08/09/send-emails-using-microsoft-graph-api-and-a-desktop-client/">Send Emails using Microsoft Graph API and a desktop&nbsp;client</a></p>
+
+
+
+<p><a href="https://www.office.com/?auth=2">https://www.office.com/?auth=2</a></p>
+
+
+
+<p><a href="https://aad.portal.azure.com/">https://aad.portal.azure.com/</a></p>
+
+
+
+<p><a href="https://admin.microsoft.com/Adminportal/Home">https://admin.microsoft.com/Adminportal/Home</a></p>
+
+
+
+<p><a href="https://blazorhelpwebsite.com/ViewBlogPost/43">https://blazorhelpwebsite.com/ViewBlogPost/43</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/09/teams_aspnetcore_app_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:12 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -815,7 +1252,7 @@
 
 <div class='item-footer'>
    01:18 &bull;
-   4 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -885,7 +1322,7 @@
 
 <div class='item-footer'>
    00:14 &bull;
-   5 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -955,7 +1392,7 @@
 
 <div class='item-footer'>
    00:10 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1020,7 +1457,7 @@
 
 <div class='item-footer'>
    00:08 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1114,7 +1551,7 @@
 
 <div class='item-footer'>
    00:03 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1187,7 +1624,7 @@
 
 <div class='item-footer'>
    23:57 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1256,7 +1693,7 @@
 
 <div class='item-footer'>
    23:56 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1326,7 +1763,7 @@
 
 <div class='item-footer'>
    15:53 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1393,7 +1830,7 @@ Wired: arguments about semicolons in JavaScript </p>
 
 <div class='item-footer'>
    15:05 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1462,7 +1899,7 @@ Wired: arguments about semicolons in JavaScript </p>
 
 <div class='item-footer'>
    14:30 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1531,7 +1968,7 @@ Wired: arguments about semicolons in JavaScript </p>
 
 <div class='item-footer'>
    13:59 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1591,7 +2028,7 @@ Wired: arguments about semicolons in JavaScript </p>
 
 <div class='item-footer'>
    13:45 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1661,7 +2098,7 @@ Wired: arguments about semicolons in JavaScript </p>
 
 <div class='item-footer'>
    13:45 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1733,7 +2170,7 @@ Wired: arguments about semicolons in JavaScript </p>
 
 <div class='item-footer'>
    13:45 &bull;
-   16 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1802,7 +2239,7 @@ Wired: arguments about semicolons in JavaScript </p>
 
 <div class='item-footer'>
    12:29 &bull;
-   17 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2160,7 +2597,7 @@ The <a href="https://duckduckgo.com/?q=worldwide+shipping+crisis">worldwide ship
 
 <div class='item-footer'>
    18:02 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3742,7 +4179,7 @@ the Customer.
 
 <div class='item-footer'>
    20:40 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3818,7 +4255,7 @@ the Customer.
 
 <div class='item-footer'>
    19:15 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3891,7 +4328,7 @@ the Customer.
 
 <div class='item-footer'>
    22:42 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4512,7 +4949,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    20:56 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5011,7 +5448,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    18:51 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5075,7 +5512,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    18:29 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5998,7 +6435,7 @@ Naming</p>
 
 <div class='item-footer'>
    18:26 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7428,7 +7865,7 @@ $ stepzen start
 
 <div class='item-footer'>
    21:18 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8187,7 +8624,7 @@ $ stepzen start
 
 <div class='item-footer'>
    18:44 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8321,7 +8758,7 @@ $ stepzen start
 
 <div class='item-footer'>
    18:29 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8479,7 +8916,7 @@ $ stepzen start
 
 <div class='item-footer'>
    21:15 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8695,7 +9132,7 @@ $ stepzen start
 
 <div class='item-footer'>
    21:57 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8801,7 +9238,7 @@ $ stepzen start
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This article shows how to create Microsoft Teams online meetings in ASP.NET Core using Microsoft Graph. Azure AD is used to implement the authentication using Microsoft.Identity.Web and the authenticated user can create teams meetings and send emails to all participants or attendees of the meeting. Code: https://github.com/damienbod/TeamsAdminUI Setup Azure App registration An Azure App registratio
+  This article shows how to create Microsoft Teams online meetings in ASP.NET Core using Microsoft Graph. Azure AD is used to implement the authentication using Microsoft.Identity.Web and the authenticated user can create teams meetings and send emails to all participants or attendees of the meeting. Code: https://github.com/damienbod/TeamsAdminUI Blogs in this series Creating Microsoft Teams meeting
    
   
   
@@ -8823,6 +9260,14 @@ $ stepzen start
 
 
 <p>Code: <a href="https://github.com/damienbod/TeamsAdminUI">https://github.com/damienbod/TeamsAdminUI</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/09/20/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph/">Creating Microsoft Teams meetings in ASP.NET Core using Microsoft Graph</a> (delegated)  <a href="https://damienbod.com/2021/10/18/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph-application-permissions-part-2/">Creating Microsoft Teams meetings in ASP.NET Core using Microsoft Graph application permissions part 2</a>  
 
 
 
@@ -19656,7 +20101,7 @@ $$ language plpython3u;
 
 <div class='item-footer'>
    06:54 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20054,285 +20499,6 @@ I’m delighted to be jumping on this ride with them.</p>
 
 <div class='item-footer'>
    16:55 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/08/02/securing-an-angular-app-which-uses-multiple-identity-providers/'>Securing an Angular app which uses multiple identity providers</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Sometimes Angular applications are required to authenticate against multiple identity providers. This blog post shows how to implement an Angular SPA which authenticates using Auth0 for one identity provider and also IdentityServer4 from Duende software as the second. The SPA can logout from both of the identity providers individually and also revoke the refresh token […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Sometimes Angular applications are required to authenticate against multiple identity providers. This blog post shows how to implement an Angular SPA which authenticates using <a href="https://auth0.com/">Auth0</a> for one identity provider and also IdentityServer4 from <a href="https://duendesoftware.com/">Duende</a> software as the second. The SPA can logout from both of the identity providers individually and also revoke the refresh token used to renew the session using the revocation endpoint. The endsession endpoint is used to logout. IdentityServer4 also supports introspection so that it is possible to revoke reference tokens on a logout as well as the refresh token. The Angular application uses OpenID Connect code flow with PKCE implemented using the npm <a href="https://github.com/damienbod/angular-auth-oidc-client">angular-auth-oidc-client</a> library.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/angular-auth-oidc-client/tree/main/projects/sample-code-flow-multi-Auth0-ID4">https://github.com/damienbod/angular-auth-oidc-client/tree/main/projects/sample-code-flow-multi-Auth0-ID4</a></p>
-
-
-
-<p>The  <a href="https://github.com/damienbod/angular-auth-oidc-client">angular-auth-oidc-client</a> npm package can be added to the application in the App.Module class. We used an AuthConfigModule module to configure the settings and can keep the AppModule small.</p>
-
-
-  import { NgModule } from '@angular/core';
-import { BrowserModule } from '@angular/platform-browser';
-import { RouterModule } from '@angular/router';
-import { AppComponent } from './app.component';
-import { AuthConfigModule } from './auth-config.module';
-import { HomeComponent } from './home/home.component';
-import { UnauthorizedComponent } from './unauthorized/unauthorized.component';
-
-@NgModule({
-  declarations: [AppComponent, HomeComponent, UnauthorizedComponent],
-  imports: [
-    BrowserModule,
-    RouterModule.forRoot([
-      { path: '', redirectTo: 'home', pathMatch: 'full' },
-      { path: 'home', component: HomeComponent },
-      { path: 'forbidden', component: UnauthorizedComponent },
-      { path: 'unauthorized', component: UnauthorizedComponent },
-    ]),
-    AuthConfigModule,
-  ],
-  providers: [],
-  bootstrap: [AppComponent],
-})
-export class AppModule {}
-
-  
-
-
-<p>The  AuthConfigModule  configures the two identity providers. Both clients are setup to use the Open ID Connect code flow with PKCE (proof key for code exchange). Each secure token server (STS) has it’s specifics configurations which are required to use this flow. These configurations must match the corresponding client configuration on the token service of the identity provider. All identity providers have their own flavour of the Open ID Connect specification and also support different features.  Some of these are worse, some are better. When implementing SPA applications, you should validate the required features supported by the identity provider.</p>
-
-
-  import { NgModule } from '@angular/core';
-import { AuthModule, LogLevel } from 'angular-auth-oidc-client';
-
-@NgModule({
-  imports: [
-    AuthModule.forRoot({
-      config: [
-        {
-          authority: 'https://offeringsolutions-sts.azurewebsites.net',
-          redirectUrl: window.location.origin,
-          postLogoutRedirectUri: window.location.origin,
-          clientId: 'angularCodeRefreshTokens',
-          scope: 'openid profile email taler_api offline_access',
-          responseType: 'code',
-          silentRenew: true,
-          useRefreshToken: true,
-          logLevel: LogLevel.Debug,
-        },
-        {
-          authority: 'https://dev-damienbod.eu.auth0.com',
-          redirectUrl: window.location.origin,
-          postLogoutRedirectUri: window.location.origin,
-          clientId: 'Ujh5oSBAFr1BuilgkZPcMWEgnuREgrwU',
-          scope: 'openid profile offline_access auth0-user-api-spa',
-          responseType: 'code',
-          silentRenew: true,
-          useRefreshToken: true,
-          logLevel: LogLevel.Debug,
-          customParamsAuthRequest: {
-            audience: 'https://auth0-api-spa',
-          },
-          customParamsRefreshTokenRequest: {
-            scope: 'openid profile offline_access auth0-user-api-spa',
-          },
-        },
-      ],
-    }),
-  ],
-  exports: [AuthModule],
-})
-export class AuthConfigModule {}
-  
-
-
-<p>The checkAuthMultiple function is used to initialize the authentication state and begin the flows or whatever. An SPA application requires some route when this logic can run before the guards execute. This is not a server rendered application where the security runs in the trusted backend. The initializing logic setups the state and handles callbacks form the different authentication flows. Great care should be taken when using guards. If a guard is applied to the default route, you need to ensure that the initialization logic runs first. The checkAuthMultiple  function should only be called once in the application.</p>
-
-
-  import { Component, OnInit } from '@angular/core';
-import { OidcSecurityService } from 'angular-auth-oidc-client';
-
-@Component({
-  selector: 'app-root',
-  templateUrl: 'app.component.html',
-})
-export class AppComponent implements OnInit {
-  constructor(public oidcSecurityService: OidcSecurityService) {}
-
-  ngOnInit() {
-    this.oidcSecurityService.checkAuthMultiple().subscribe(([{ isAuthenticated, userData, accessToken }]) =&gt; {
-      console.log('Authenticated', isAuthenticated);
-    });
-  }
-}
-  
-
-
-<p>The sign-in logout, revoke tokens can then be implemented anywhere for the different identity providers. Each client configuration has its own configuration ID which can be used to run or start the required authentication flow, logout or whatever.</p>
-
-
-  import { Component, OnInit } from '@angular/core';
-import {
-  AuthenticatedResult,
-  OidcClientNotification,
-  OidcSecurityService,
-  OpenIdConfiguration,
-  UserDataResult,
-} from 'angular-auth-oidc-client';
-import { Observable } from 'rxjs';
-
-@Component({
-  selector: 'app-home',
-  templateUrl: 'home.component.html',
-})
-export class HomeComponent implements OnInit {
-  configurations: OpenIdConfiguration[];
-  userDataChanged$: Observable&lt;OidcClientNotification&lt;any&gt;&gt;;
-  userData$: Observable&lt;UserDataResult&gt;;
-  isAuthenticated$: Observable&lt;AuthenticatedResult&gt;;
-
-  constructor(public oidcSecurityService: OidcSecurityService) {}
-
-  ngOnInit() {
-    this.configurations = this.oidcSecurityService.getConfigurations();
-    this.userData$ = this.oidcSecurityService.userData$;
-    this.isAuthenticated$ = this.oidcSecurityService.isAuthenticated$;
-  }
-
-  login(configId: string) {
-    this.oidcSecurityService.authorize(configId);
-  }
-
-  forceRefreshSession() {
-    this.oidcSecurityService.forceRefreshSession().subscribe((result) =&gt; console.warn(result));
-  }
-
-  logout(configId: string) {
-    this.oidcSecurityService.logoff(configId);
-  }
-
-  refreshSessionId4(configId: string) {
-    this.oidcSecurityService.forceRefreshSession(null, configId).subscribe((result) =&gt; console.log(result));
-  }
-
-  refreshSessionAuth0(configId: string) {
-    this.oidcSecurityService
-      .forceRefreshSession({ scope: 'openid profile offline_access auth0-user-api-spa' }, configId)
-      .subscribe((result) =&gt; console.log(result));
-  }
-
-  logoffAndRevokeTokens(configId: string) {
-    this.oidcSecurityService.logoffAndRevokeTokens(configId).subscribe((result) =&gt; console.log(result));
-  }
-
-  revokeRefreshToken(configId: string) {
-    this.oidcSecurityService.revokeRefreshToken(null, configId).subscribe((result) =&gt; console.log(result));
-  }
-}
-
-  
-
-
-<p>The application can be run and you can logout or use the required configuration. Underneath the identity has not signed in with IdentityServer and the Auth0 client has be authenticated. Each identity provider is independent from the other. </p>
-
-
-
-
-
-
-
-<p>The multiple identity provider support is implemented using redirects. You could also implement all of this using popups depending on you use cases.</p>
-
-
-
-<p></p>
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://github.com/damienbod/angular-auth-oidc-client">https://github.com/damienbod/angular-auth-oidc-client</a></p>
-
-
-
-<p><a href="https://auth0.com/">https://auth0.com/</a></p>
-
-
-
-<p><a href="https://github.com/IdentityServer/IdentityServer4">https://github.com/IdentityServer/IdentityServer4</a></p>
-
-
-
-<p><a href="https://duendesoftware.com/">https://duendesoftware.com/</a></p>
-
-
-
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/06/angular_multiple_auth0_id4_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:48 &bull;
    3 months ago
 </div>
 
