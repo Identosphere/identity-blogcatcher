@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:44 AM October 25, 2021 (UTC)</sup>
+<sup>Last Update 5:41 AM October 25, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -756,8 +756,803 @@
 
 
 <h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/10/25/create-and-issuer-verifiable-credentials-in-asp-net-core-using-azure-ad/'>Create and issuer verifiable credentials in ASP.NET Core using Azure AD</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how Azure AD verifiable credentials can be issued and used in an ASP.NET Core application. An ASP.NET Core Razor page application is used to implement the credential issuer. To issue credentials, the application must manage the credential subject data as well require authenticated users who would like to add verifiable credentials to […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how Azure AD verifiable credentials can be issued and used in an ASP.NET Core application. An ASP.NET Core Razor page application is used to implement the credential issuer. To issue credentials, the application must manage the credential subject data as well require authenticated users who would like to add verifiable credentials to their digital wallet. The Microsoft Authenticator mobile application is used as the digital wallet.</p>
+
+
+
+<p>Code: <a href="https://github.com/swiss-ssi-group/AzureADVerifiableCredentialsAspNetCore">https://github.com/swiss-ssi-group/AzureADVerifiableCredentialsAspNetCore</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  <a href="https://damienbod.com/2021/10/11/challenges-to-self-sovereign-identity/">Challenges to Self Sovereign Identity</a>  
+
+
+
+<p>Setup</p>
+
+
+
+<p>Two ASP.NET Core applications are implemented to issue and verify the verifiable credentials. The credential issuer must administrate and authenticate its identities to issue verifiable credentials. A verifiable credential issuer should never issue credentials to unauthenticated subjects of the credential. As the verifier normally only authorizes the credential, it is important to know that the credentials were at least issued correctly. We do not know as a verifier who or and mostly what sends the verifiable credentials but at least we know that the credentials are valid if we trust the issuer. It is possible to use private holder binding for a holder of a wallet which would increase the trust between the verifier and the issued credentials.</p>
+
+
+
+<p>The credential issuer in this demo issues credentials for driving licenses using Azure AD verifiable credentials. The ASP.NET Core application uses Microsoft.Identity.Web to authenticate all identities. In a real application, the application would be authenticated as well requiring 2FA for all users. Azure AD supports this good. The administrators would also require admin rights, which could be implemented using Azure security groups or Azure roles which are added to the application as claims after the OIDC authentication flow.</p>
+
+
+
+<p>Any authenticated identity can request credentials (A driving license in this demo) for themselves and no one else. The administrators can create data which is used as the subject, but not issue credentials for others.</p>
+
+
+
+<p>Azure AD verifiable credential setup</p>
+
+
+
+<p>Azure AD verifiable credentials is setup using the Azure Docs for the <a href="https://docs.microsoft.com/en-us/azure/active-directory/verifiable-credentials/get-started-request-api">Rest API</a> and the Azure verifiable credential ASP.NET Core sample <a href="https://github.com/Azure-Samples/active-directory-verifiable-credentials-dotnet">application</a>. </p>
+
+
+
+
+
+
+
+<p>Following the documentation, a display file and a rules file were uploaded for the verifiable credentials created for this issuer. In this demo, two credential subjects are defined to hold the data when issuing or verifying the credentials. </p>
+
+
+  {
+  "default": {
+    "locale": "en-US",
+    "card": {
+      "title": "National Driving License VC",
+      "issuedBy": "Damienbod",
+      "backgroundColor": "#003333",
+      "textColor": "#ffffff",
+      "logo": {
+        "uri": "https://raw.githubusercontent.com/swiss-ssi-group/TrinsicAspNetCore/main/src/NationalDrivingLicense/wwwroot/ndl_car_01.png",
+        "description": "National Driving License Logo"
+      },
+      "description": "Use your verified credential to prove to anyone that you can drive."
+    },
+    "consent": {
+      "title": "Do you want to get your Verified Credential?",
+      "instructions": "Sign in with your account to get your card."
+    },
+    "claims": {
+      "vc.credentialSubject.name": {
+        "type": "String",
+        "label": "Name"
+      },
+      "vc.credentialSubject.details": {
+        "type": "String",
+        "label": "Details"
+      }
+    }
+  }
+}
+
+  
+
+
+<p>The rules file defines the attestations for the credentials. Two standard claims are used to hold the data, the given_name and the family_name. These claims are mapped to our name and details subject claims and holds all the data. Adding custom claims to Azure AD or Azure B2C is not so easy and so I decided for the demo, it would be easier to use standard claims which works without custom configurations. The data sent from the issuer to the holder of the claims can be sent in the application. It should be possible to add credential subject properties without requiring standard AD id_token claims, but I was not able to set this up in the current preview version.</p>
+
+
+  {
+  "attestations": {
+    "idTokens": [
+      {
+        "id": "https://self-issued.me",
+        "mapping": {
+          "name": { "claim": "$.given_name" },
+          "details": { "claim": "$.family_name" }
+        },
+        "configuration": "https://self-issued.me",
+        "client_id": "",
+        "redirect_uri": ""
+      }
+    ]
+  },
+  "validityInterval": 2592001,
+  "vc": {
+    "type": [ "MyDrivingLicense" ]
+  }
+}
+  
+
+
+<p>The rest of the Azure AD credentials are setup exactly like the documentation. </p>
+
+
+
+<p>Administration of the Driving licenses</p>
+
+
+
+<p>The verifiable credential issuer application uses a Razor page application which accesses a Microsoft SQL Azure database using Entity Framework Core to access the database. The administrator of the credentials can assign driving licenses to any user. The DrivingLicenseDbContext class is used to define the DBSet  for driver licenses.</p>
+
+
+  ublic class DrivingLicenseDbContext : DbContext
+{
+	public DbSet&lt;DriverLicense&gt; DriverLicenses { get; set; }
+
+	public DrivingLicenseDbContext(DbContextOptions&lt;DrivingLicenseDbContext&gt; options)
+		: base(options)
+	{
+	}
+
+	protected override void OnModelCreating(ModelBuilder builder)
+	{
+		builder.Entity&lt;DriverLicense&gt;().HasKey(m =&gt; m.Id);
+
+		base.OnModelCreating(builder);
+	}
+}
+  
+
+
+<p>A DriverLicense entity contains the infomation we use to create verifiable credentials.</p>
+
+
+  public class DriverLicense
+{
+	[Key]
+	public Guid Id { get; set; }
+	public string UserName { get; set; } = string.Empty;
+	public DateTimeOffset IssuedAt { get; set; }
+	public string Name { get; set; } = string.Empty;
+	public string FirstName { get; set; } = string.Empty;
+	public DateTimeOffset DateOfBirth { get; set; }
+	public string Issuedby { get; set; } = string.Empty;
+	public bool Valid { get; set; }
+	public string DriverLicenseCredentials { get; set; } = string.Empty;
+	public string LicenseType { get; set; } = string.Empty;
+}
+  
+
+
+<p></p>
+
+
+
+<p>Issuing credentials to authenticated identities</p>
+
+
+
+<p>When issuing verifiable credentials using Azure AD Rest API, an IssuanceRequestPayload payload is used to request the credentials which are to be issued to the digital wallet. Verifiable credentials are issued to a digital wallet. The credentials are issued for the holder of the wallet. The payload classes are the same for all API implementations apart from the CredentialsClaims class which contains the subject claims which match the rules file of your definition.</p>
+
+
+  public class IssuanceRequestPayload
+    {
+        [JsonPropertyName("includeQRCode")]
+        public bool IncludeQRCode { get; set; }
+        [JsonPropertyName("callback")]
+        public Callback Callback { get; set; } = new Callback();    
+        [JsonPropertyName("authority")]
+        public string Authority { get; set; } = string.Empty;
+        [JsonPropertyName("registration")]
+        public Registration Registration { get; set; } = new Registration();
+        [JsonPropertyName("issuance")]
+        public Issuance Issuance { get; set; } = new Issuance();
+    }
+
+    public class Callback
+    {
+        [JsonPropertyName("url")]
+        public string Url { get; set; } = string.Empty;
+        [JsonPropertyName("state")]
+        public string State { get; set; } = string.Empty;
+        [JsonPropertyName("headers")]
+        public Headers Headers { get; set; } = new Headers();
+
+    }
+
+    public class Headers
+    {
+        [JsonPropertyName("api-key")]
+        public string ApiKey { get; set; } = string.Empty;
+    }
+
+    public class Registration
+    {
+        [JsonPropertyName("clientName")]
+        public string ClientName { get; set; } = string.Empty;
+    }
+
+    public class Issuance
+    {
+        [JsonPropertyName("type")]
+        public string CredentialsType { get; set; } = string.Empty;
+        [JsonPropertyName("manifest")]
+        public string Manifest { get; set; } = string.Empty;
+        [JsonPropertyName("pin")]
+        public Pin Pin { get; set; } = new Pin();   
+        [JsonPropertyName("claims")]
+        public CredentialsClaims Claims { get; set; } = new CredentialsClaims();
+        
+    }
+
+    public class Pin
+    {
+        [JsonPropertyName("value")]
+        public string Value { get; set; } = string.Empty;
+        [JsonPropertyName("length")]
+        public int Length { get; set; } = 4;
+    }
+
+    /// Application specific claims used in the payload of the issue request. 
+    /// When using the id_token for the subject claims, the IDP needs to add the values to the id_token!
+    /// The claims can be mapped to anything then.
+    public class CredentialsClaims
+    {
+        /// &lt;summary&gt;
+        /// attribute names need to match a claim from the id_token
+        /// &lt;/summary&gt;
+        [JsonPropertyName("given_name")]
+        public string Name { get; set; } = string.Empty;
+        [JsonPropertyName("family_name")]
+        public string Details { get; set; } = string.Empty;
+    }
+  
+
+
+<p>The GetIssuanceRequestPayloadAsync method sets the data for each identity that requested the credentials. Only a signed in user can request the credentials for themselves. The context.User.Identity is used and the data is selected from the database for the signed in user. It is important that credentials are only issued to authenticated users. Users and the application must be authenticated correctly using 2FA and so on. Per default, the credentials are only authorized on the verifier which is probably not enough for most security flows. </p>
+
+
+  public async Task&lt;IssuanceRequestPayload&gt; GetIssuanceRequestPayloadAsync(HttpRequest request, HttpContext context)
+{
+	var payload = new IssuanceRequestPayload();
+	var length = 4;
+	var pinMaxValue = (int)Math.Pow(10, length) - 1;
+	var randomNumber = RandomNumberGenerator.GetInt32(1, pinMaxValue);
+	var newpin = string.Format("{0:D" + length.ToString() + "}", randomNumber);
+
+	payload.Issuance.Pin.Length = 4;
+	payload.Issuance.Pin.Value = newpin;
+	payload.Issuance.CredentialsType = "MyDrivingLicense";
+	payload.Issuance.Manifest = _credentialSettings.CredentialManifest;
+
+	var host = GetRequestHostName(request);
+	payload.Callback.State = Guid.NewGuid().ToString();
+	payload.Callback.Url = $"{host}:/api/issuer/issuanceCallback";
+	payload.Callback.Headers.ApiKey = _credentialSettings.VcApiCallbackApiKey;
+
+	payload.Registration.ClientName = "Verifiable Credential NDL Sample";
+	payload.Authority = _credentialSettings.IssuerAuthority;
+
+	var driverLicense = await _driverLicenseService.GetDriverLicense(context.User.Identity.Name);
+
+	payload.Issuance.Claims.Name = $"{driverLicense.FirstName} {driverLicense.Name}  {driverLicense.UserName}";
+	payload.Issuance.Claims.Details = $"Type: {driverLicense.LicenseType} IssuedAt: {driverLicense.IssuedAt:yyyy-MM-dd}";
+
+	return payload;
+}
+  
+
+
+<p>The IssuanceRequestAsync method gets the payload data and request credentials from the Azure AD verifiable credentials REST API and returns this value which can be scanned using a QR code in the Razor page. The request returns fast. Depending on how the flow continues, a web hook in the application will update the status in a cache. This cache is persisted and polled from the UI. This could be improved by using SignalR.</p>
+
+
+  [HttpGet("/api/issuer/issuance-request")]
+public async Task&lt;ActionResult&gt; IssuanceRequestAsync()
+{
+	try
+	{
+		var payload = await _issuerService.GetIssuanceRequestPayloadAsync(Request, HttpContext);
+		try
+		{
+			var (Token, Error, ErrorDescription) = await _issuerService.GetAccessToken();
+			if (string.IsNullOrEmpty(Token))
+			{
+				_log.LogError($"failed to acquire accesstoken: {Error} : {ErrorDescription}");
+				return BadRequest(new { error = Error, error_description = ErrorDescription });
+			}
+
+			var defaultRequestHeaders = _httpClient.DefaultRequestHeaders;
+			defaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+
+			HttpResponseMessage res = await _httpClient.PostAsJsonAsync(
+				_credentialSettings.ApiEndpoint, payload);
+
+			var response = await res.Content.ReadFromJsonAsync&lt;IssuanceResponse&gt;();
+
+			if(response == null)
+			{
+				return BadRequest(new { error = "400", error_description = "no response from VC API"});
+			}
+
+			if (res.StatusCode == HttpStatusCode.Created)
+			{
+				_log.LogTrace("succesfully called Request API");
+	 
+				if (payload.Issuance.Pin.Value != null) 
+				{
+					response.Pin = payload.Issuance.Pin.Value; 
+				}
+
+				response.Id = payload.Callback.State;
+
+				var cacheData = new CacheData
+				{
+					Status = IssuanceConst.NotScanned,
+					Message = "Request ready, please scan with Authenticator",
+					Expiry = response.Expiry.ToString()
+				};
+				_cache.Set(payload.Callback.State, JsonSerializer.Serialize(cacheData));
+
+				return Ok(response);
+			}
+			else
+			{
+				_log.LogError("Unsuccesfully called Request API");
+				return BadRequest(new { error = "400", error_description = "Something went wrong calling the API: " + response });
+			}
+		}
+		catch (Exception ex)
+		{
+			return BadRequest(new { error = "400", error_description = "Something went wrong calling the API: " + ex.Message });
+		}
+	}
+	catch (Exception ex)
+	{
+		return BadRequest(new { error = "400", error_description = ex.Message });
+	}
+}
+  
+
+
+<p>The IssuanceResponse is returned to the UI.</p>
+
+
+  public class IssuanceResponse
+{
+	[JsonPropertyName("requestId")]
+	public string RequestId { get; set; } = string.Empty;
+	[JsonPropertyName("url")]
+	public string Url { get; set; } = string.Empty;
+	[JsonPropertyName("expiry")]
+	public int Expiry { get; set; }
+	[JsonPropertyName("pin")]
+	public string Pin { get; set; } = string.Empty;
+	[JsonPropertyName("id")]
+	public string Id { get; set; } = string.Empty;
+}
+  
+
+
+<p>The IssuanceCallback is used as a web hook for the Azure AD verifiable credentials. When developing or deploying, this web hook needs to have a public IP. I use ngrok to test this. Because the issuer authenticates the identities using an Azure App registration, everytime the ngrok URL changes, the redirect URL needs to be updated. Each callback request updates the cache. This API also needs to allow anonymous requests if the rest of the application is authenticated using OIDC. The AllowAnonymous attribute is required, if you use an authenticated ASP.NET Core application.</p>
+
+
+  [AllowAnonymous]
+[HttpPost("/api/issuer/issuanceCallback")]
+public async Task&lt;ActionResult&gt; IssuanceCallback()
+{
+	string content = await new System.IO.StreamReader(Request.Body).ReadToEndAsync();
+	var issuanceResponse = JsonSerializer.Deserialize&lt;IssuanceCallbackResponse&gt;(content);
+
+	try
+	{
+		//there are 2 different callbacks. 1 if the QR code is scanned (or deeplink has been followed)
+		//Scanning the QR code makes Authenticator download the specific request from the server
+		//the request will be deleted from the server immediately.
+		//That's why it is so important to capture this callback and relay this to the UI so the UI can hide
+		//the QR code to prevent the user from scanning it twice (resulting in an error since the request is already deleted)
+		if (issuanceResponse.Code == IssuanceConst.RequestRetrieved)
+		{
+			var cacheData = new CacheData
+			{
+				Status = IssuanceConst.RequestRetrieved,
+				Message = "QR Code is scanned. Waiting for issuance...",
+			};
+			_cache.Set(issuanceResponse.State, JsonSerializer.Serialize(cacheData));
+		}
+
+		if (issuanceResponse.Code == IssuanceConst.IssuanceSuccessful)
+		{
+			var cacheData = new CacheData
+			{
+				Status = IssuanceConst.IssuanceSuccessful,
+				Message = "Credential successfully issued",
+			};
+			_cache.Set(issuanceResponse.State, JsonSerializer.Serialize(cacheData));
+		}
+
+		if (issuanceResponse.Code == IssuanceConst.IssuanceError)
+		{
+			var cacheData = new CacheData
+			{
+				Status = IssuanceConst.IssuanceError,
+				Payload = issuanceResponse.Error?.Code,
+				//at the moment there isn't a specific error for incorrect entry of a pincode.
+				//So assume this error happens when the users entered the incorrect pincode and ask to try again.
+				Message = issuanceResponse.Error?.Message
+			};
+			_cache.Set(issuanceResponse.State, JsonSerializer.Serialize(cacheData));
+		}
+
+		return Ok();
+	}
+	catch (Exception ex)
+	{
+		return BadRequest(new { error = "400", error_description = ex.Message });
+	}
+}
+
+  
+
+
+<p>The IssuanceCallbackResponse is returned to the UI.</p>
+
+
+  public class IssuanceCallbackResponse
+{
+	[JsonPropertyName("code")]
+	public string Code { get; set; } = string.Empty;
+	[JsonPropertyName("requestId")]
+	public string RequestId { get; set; } = string.Empty;
+	[JsonPropertyName("state")]
+	public string State { get; set; } = string.Empty;
+	[JsonPropertyName("error")]
+	public CallbackError? Error { get; set; }
+	
+}
+  
+
+
+<p>The IssuanceResponse method is polled from a Javascript client in the Razor page UI. This method updates the status in the UI using the cache and the database. </p>
+
+
+  [HttpGet("/api/issuer/issuance-response")]
+public ActionResult IssuanceResponse()
+{
+	try
+	{
+		//the id is the state value initially created when the issuance request was requested from the request API
+		//the in-memory database uses this as key to get and store the state of the process so the UI can be updated
+		string state = this.Request.Query["id"];
+		if (string.IsNullOrEmpty(state))
+		{
+			return BadRequest(new { error = "400", error_description = "Missing argument 'id'" });
+		}
+		CacheData value = null;
+		if (_cache.TryGetValue(state, out string buf))
+		{
+			value = JsonSerializer.Deserialize&lt;CacheData&gt;(buf);
+			
+			Debug.WriteLine("check if there was a response yet: " + value);
+			return new ContentResult { ContentType = "application/json", Content = JsonSerializer.Serialize(value) };
+		}
+
+		return Ok();
+	}
+	catch (Exception ex)
+	{
+		return BadRequest(new { error = "400", error_description = ex.Message });
+	}
+}
+  
+
+
+<p>The DriverLicenseCredentialsModel class is used for the credential issuing for the sign-in user. The HTML part of the Razor page contains the Javascript client code which was implemented using the code from the Microsoft Azure <a href="https://github.com/Azure-Samples/active-directory-verifiable-credentials-dotnet">sample</a>.</p>
+
+
+  public class DriverLicenseCredentialsModel : PageModel
+{
+	private readonly DriverLicenseService _driverLicenseService;
+
+	public string DriverLicenseMessage { get; set; } = "Loading credentials";
+	public bool HasDriverLicense { get; set; } = false;
+	public DriverLicense DriverLicense { get; set; }
+
+	public DriverLicenseCredentialsModel(DriverLicenseService driverLicenseService)
+	{
+		_driverLicenseService = driverLicenseService;
+	}
+	public async Task OnGetAsync()
+	{
+		DriverLicense = await _driverLicenseService.GetDriverLicense(HttpContext.User.Identity.Name);
+
+		if (DriverLicense != null)
+		{
+			DriverLicenseMessage = "Add your driver license credentials to your wallet";
+			HasDriverLicense = true;
+		}
+		else
+		{
+			DriverLicenseMessage = "You have no valid driver license";
+		}
+	}
+}
+  
+
+
+<p></p>
+
+
+
+<p>Testing and running the applications</p>
+
+
+
+<p>Ngrok is used to provide a public callback for the Azure AD verifiable credentials callback. When the application is started, you need to create a driving license. This is done in the administration Razor page. Once a driving license exists, the View driver license Razor page can be used to issue a verifiable credential to the logged in user. A QR Code is displayed which can be scanned to begin the issue flow. </p>
+
+
+
+
+
+
+
+<p>Using the Microsoft authenticator, you can scan the QR Code and add the verifiable credentials to your digital wallet. The credentials can now be used in any verifier which supports the Microsoft Authenticator wallet. The verify ASP.NET Core application can be used to verify and used the issued verifiable credential from the Wallet.</p>
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/verifiable-credentials/">https://docs.microsoft.com/en-us/azure/active-directory/verifiable-credentials/</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-verifiable-credentials-dotnet">https://github.com/Azure-Samples/active-directory-verifiable-credentials-dotnet</a></p>
+
+
+
+<p><a href="https://www.microsoft.com/de-ch/security/business/identity-access-management/decentralized-identity-blockchain">https://www.microsoft.com/de-ch/security/business/identity-access-management/decentralized-identity-blockchain</a></p>
+
+
+
+<p><a href="https://didproject.azurewebsites.net/docs/issuer-setup.html">https://didproject.azurewebsites.net/docs/issuer-setup.html</a></p>
+
+
+
+<p><a href="https://didproject.azurewebsites.net/docs/credential-design.html">https://didproject.azurewebsites.net/docs/credential-design.html</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-verifiable-credentials">https://github.com/Azure-Samples/active-directory-verifiable-credentials</a></p>
+
+
+
+<p><a href="https://identity.foundation/">https://identity.foundation/</a></p>
+
+
+
+<p><a href="https://www.w3.org/TR/vc-data-model/">https://www.w3.org/TR/vc-data-model/</a></p>
+
+
+
+<p><a href="https://daniel-krzyczkowski.github.io/Azure-AD-Verifiable-Credentials-Intro/">https://daniel-krzyczkowski.github.io/Azure-AD-Verifiable-Credentials-Intro/</a></p>
+
+
+
+<p><a href="https://dotnetthoughts.net/using-node-services-in-aspnet-core/">https://dotnetthoughts.net/using-node-services-in-aspnet-core/</a></p>
+
+
+
+<p><a href="https://identity.foundation/ion/explorer">https://identity.foundation/ion/explorer</a></p>
+
+
+
+<p><a href="https://www.npmjs.com/package/ngrok">https://www.npmjs.com/package/ngrok</a></p>
+
+
+
+<p><a href="https://github.com/microsoft/VerifiableCredentials-Verification-SDK-Typescript">https://github.com/microsoft/VerifiableCredentials-Verification-SDK-Typescript</a></p>
+
+
+
+<p><a href="https://identity.foundation/ion/explorer">https://identity.foundation/ion/explorer</a></p>
+
+
+
+<p><a href="https://www.npmjs.com/package/ngrok">https://www.npmjs.com/package/ngrok</a></p>
+
+
+
+<p><a href="https://github.com/microsoft/VerifiableCredentials-Verification-SDK-Typescript">https://github.com/microsoft/VerifiableCredentials-Verification-SDK-Typescript</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/10/azure_vc_issuer_02.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:20 &bull;
+   24 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://werd.io'>Ben Werdmüller</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.rollingstone.com/politics/politics-news/exclusive-jan-6-organizers-met-congress-white-house-1245289/'>Jan. 6 Protest Organizers Say They Participated in ‘Dozens’ of Planning Meetings With Members of Congress and White House Staff</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ "Rolling Stone separately confirmed a third person involved in the main Jan. 6 rally in D.C. has communicated with the committee. This is the first report that the committee is hearing major new allegations from potential cooperating witnesses. While there have been prior indications that members of Congress were involved, this is also the first account detailing their purport
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>"Rolling Stone separately confirmed a third person involved in the main Jan. 6 rally in D.C. has communicated with the committee. This is the first report that the committee is hearing major new allegations from potential cooperating witnesses. While there have been prior indications that members of Congress were involved, this is also the first account detailing their purported role and its scope. The two sources also claim they interacted with members of Trump’s team, including former White House Chief of Staff Mark Meadows, who they describe as having had an opportunity to prevent the violence."</p>
+            <p>[<a href="https://www.rollingstone.com/politics/politics-news/exclusive-jan-6-organizers-met-congress-white-house-1245289/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:38 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2021/the-social-contract-is-good-actually'>The social contract is good, actually.</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The social contract is good, actually. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>The social contract is good, actually.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:27 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -802,7 +1597,7 @@
 
 <div class='item-footer'>
    01:19 &bull;
-   28 minutes ago
+   4 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -877,7 +1672,7 @@
 
 <div class='item-footer'>
    22:35 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -949,7 +1744,7 @@
 
 <div class='item-footer'>
    21:52 &bull;
-   4 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1009,7 +1804,7 @@
 
 <div class='item-footer'>
    19:34 &bull;
-   6 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1069,7 +1864,7 @@
 
 <div class='item-footer'>
    03:01 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1264,126 +2059,6 @@
 
 <div class='item-footer'>
    19:07 &bull;
-   a day ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2021/i-ate-breakfast-at-a-grateful-dead'>I ate breakfast at a Grateful Dead ...</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I ate breakfast at a Grateful Dead themed diner. They were my Dad’s neighbors before they were really big. Once, he organized an anti-Vietnam War protest (as a veteran) and got them to play; thousands of people turned up. The headlines read: Lynch Him! I’m really proud. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>I ate breakfast at a Grateful Dead themed diner. They were my Dad’s neighbors before they were really big. Once, he organized an anti-Vietnam War protest (as a veteran) and got them to play; thousands of people turned up. The headlines read: Lynch Him! I’m really proud.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:34 &bull;
-   a day ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2021/if-youre-thinking-about-a-university-degree'>If you’re thinking about a university degree ...</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   If you’re thinking about a university degree entirely based on how much you’ll earn, you’re thinking about it wrong. Please also consider what it will add to your life in terms of meaning and knowledge.  
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>If you’re thinking about a university degree entirely based on how much you’ll earn, you’re thinking about it wrong. Please also consider what it will add to your life in terms of meaning and knowledge. </p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:25 &bull;
    a day ago
 </div>
 
@@ -2066,7 +2741,7 @@ The post 【11月12日開催】金融・決済サービスにおける認証・A
 
 <div class='item-footer'>
    14:56 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2142,7 +2817,7 @@ The post 【11月12日開催】金融・決済サービスにおける認証・A
 
 <div class='item-footer'>
    14:38 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2523,7 +3198,7 @@ The post 【11月12日開催】金融・決済サービスにおける認証・A
 
 <div class='item-footer'>
    17:22 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4198,7 +4873,7 @@ Goto
 
 <div class='item-footer'>
    15:53 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4613,7 +5288,7 @@ The <a href="https://duckduckgo.com/?q=worldwide+shipping+crisis">worldwide ship
 
 <div class='item-footer'>
    13:54 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4876,7 +5551,7 @@ The <a href="https://duckduckgo.com/?q=worldwide+shipping+crisis">worldwide ship
 
 <div class='item-footer'>
    16:27 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4946,7 +5621,7 @@ The <a href="https://duckduckgo.com/?q=worldwide+shipping+crisis">worldwide ship
 
 <div class='item-footer'>
    14:07 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5060,7 +5735,7 @@ The <a href="https://duckduckgo.com/?q=worldwide+shipping+crisis">worldwide ship
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  The article goes through some of the challenges we face when using or implementing identity, authentication and authorization solutions using self sovereign identity. I based my findings after implementing and testing solutions and wallets with the following SSI solution providers: Trinsic MATTR.global Evernym Azure Active Directory Verifiable Credentials Different Wallets like Lissi SSI (Self Sove
+  The article goes through some of the challenges we face when using or implementing identity, authentication and authorization solutions using self sovereign identity. I based my findings after implementing and testing solutions and wallets with the following SSI solution providers: Trinsic MATTR.global Evernym Azure Active Directory Verifiable Credentials Different Wallets like Lissi Blogs in this 
    
   
   
@@ -5085,7 +5760,15 @@ The <a href="https://duckduckgo.com/?q=worldwide+shipping+crisis">worldwide ship
 
 
 
-<p> SSI (Self Sovereign Identity) is very new and a lot of its challenges will hopefully get solved and help to  improve identity management solutions.</p>
+<p>Blogs in this series:</p>
+
+
+
+  <a href="https://damienbod.com/2021/03/29/getting-started-with-self-sovereign-identity-ssi/">Getting started with Self Sovereign Identity SSI</a>  <a href="https://damienbod.com/2021/04/05/creating-verifiable-credentials-in-asp-net-core-for-decentralized-identities-using-trinsic/">Creating Verifiable credentials in ASP.NET Core for decentralized identities using Trinsic</a>  <a href="https://ml-software.ch/posts/verifiying-verifiable-credentials-using-trinsic">Verifying Verifiable Credentials in ASP.NET Core for Decentralized Identities using Trinsic</a>  <a href="https://damienbod.com/2021/05/03/create-an-oidc-credential-issuer-with-mattr-and-asp-net-core/">Create an OIDC credential Issuer with MATTR and ASP.NET Core</a>  <a href="https://damienbod.com/2021/05/10/present-and-verify-verifiable-credentials-in-asp-net-core-using-decentralized-identities-and-mattr/">Present and Verify Verifiable Credentials in ASP.NET Core using Decentralized Identities and MATTR</a>  <a href="https://damienbod.com/2021/05/31/verify-vaccination-data-using-zero-knowledge-proofs-with-asp-net-core-and-mattr/">Verify vaccination data using Zero Knowledge Proofs with ASP.NET Core and MATTR</a>  <a href="https://damienbod.com/2021/10/11/challenges-to-self-sovereign-identity/">Challenges to Self Sovereign Identity</a>  <a href="https://damienbod.com/2021/10/25/create-and-issuer-verifiable-credentials-in-asp-net-core-using-azure-ad/">Create and issuer verifiable credentials in ASP.NET Core using Azure AD</a>  
+
+
+
+<p>SSI (Self Sovereign Identity) is very new and a lot of its challenges will hopefully get solved and help to  improve identity management solutions.</p>
 
 
 
@@ -6929,7 +7612,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    15:19 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7491,7 +8174,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    16:32 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7567,7 +8250,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    15:18 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7710,7 +8393,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    17:23 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7784,7 +8467,7 @@ Photo by <a href="https://unsplash.com/@andrewcoop?utm_source=medium&amp;utm_med
 
 <div class='item-footer'>
    16:01 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8056,7 +8739,7 @@ Naming</p>
 
 <div class='item-footer'>
    15:24 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8798,7 +9481,7 @@ $ stepzen start
 
 <div class='item-footer'>
    15:18 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8870,7 +9553,7 @@ $ stepzen start
 
 <div class='item-footer'>
    17:23 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9004,7 +9687,7 @@ $ stepzen start
 
 <div class='item-footer'>
    15:27 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13049,7 +13732,7 @@ Databases</p>
 
 <div class='item-footer'>
    01:50 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -19852,526 +20535,6 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/08/09/send-emails-using-microsoft-graph-api-and-a-desktop-client/'>Send Emails using Microsoft Graph API and a desktop client</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to use Microsoft Graph API to send emails for a .NET Core Desktop WPF application. Microsoft.Identity.Client is used to authenticate using an Azure App registration with the required delegated scopes for the Graph API. The emails can be sent with text or html bodies and also with any file attachments uploaded […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to use Microsoft Graph API to send emails for a .NET Core Desktop WPF application. Microsoft.Identity.Client is used to authenticate using an Azure App registration with the required delegated scopes for the Graph API. The emails can be sent with text or html bodies and also with any file attachments uploaded in the WPF application.</p>
-
-
-
-<p>Code:  <a href="https://github.com/damienbod/EmailCalandarsClient">https://github.com/damienbod/EmailCalandarsClient</a></p>
-
-
-
-<p>To send emails using Microsoft Graph API, you need to have an office license for the Azure Active Directory user which sends the email.</p>
-
-
-
-<p>You can sign-in here to check this:</p>
-
-
-
-<p><a href="https://www.office.com">https://www.office.com</a></p>
-
-
-
-<p>Setup the Azure App Registration</p>
-
-
-
-<p>Before we can send emails using Microsoft Graph API, we need to create an Azure App registration with the correct delegated scopes. In our example, the URI <a href="http://localhost:65419">http://localhost:65419</a> is used for the AAD redirect to the browser opened by the WPF application and this is added to the authentication configuration.  Once created, the client ID of the Azure App registration is used in the app settings in the application as well as the tenant ID and the scopes.</p>
-
-
-
-
-
-
-
-<p>You need to add the required scopes for the Graph API to send emails. These are delegated permissions, which can be accessed using the Add a permission menu.</p>
-
-
-
-
-
-
-
-<p>The Mail.Send and the Mail.ReadWrite delegated scopes from the Microsoft Graph API are added to the Azure App registration.</p>
-
-
-
-
-
-
-
-<p>To add these, scroll down through the items in the App a permission, Microsoft Graph API delegated scopes menu, check the checkboxes for the Mail.Send and the Mail.ReadWrite.</p>
-
-
-
-
-
-
-
-<p>Desktop Application</p>
-
-
-
-<p>The Microsoft.Identity.Client and the Microsoft.Identity.Web.MicrosoftGraphBeta Nuget packages are used to authenticate and use the Graph API. You probably could use the Graph API Nuget packages directly instead of  Microsoft.Identity.Web.MicrosoftGraphBeta, I used this since I normally do web and it has everything required.</p>
-
-
-  &lt;ItemGroup&gt;
-  &lt;PackageReference Include="Microsoft.Identity.Client" Version="4.35.1" /&gt;
-  &lt;PackageReference Include="Microsoft.Identity.Web.MicrosoftGraphBeta" Version="1.15.2" /&gt;
-  &lt;PackageReference Include="Newtonsoft.Json" Version="13.0.1" /&gt;
-&lt;/ItemGroup&gt;
-  
-
-
-<p>The PublicClientApplicationBuilder class is used to define the redirect URL which matches the URL from the Azure App registration. The TokenCacheHelper class is the same as from the Microsoft examples.</p>
-
-
-  public void InitClient()
-{
-  _app = PublicClientApplicationBuilder.Create(ClientId)
-            .WithAuthority(Authority)
-            .WithRedirectUri("http://localhost:65419")
-            .Build();
-
-  TokenCacheHelper.EnableSerialization(_app.UserTokenCache);
-}
-  
-
-
-<p>The identity can authentication using the SignIn method. If a server session exists, a token is acquired silently otherwise an interactive flow is used.</p>
-
-
-  public async Task&lt;IAccount&gt; SignIn()
-{
-	try
-	{
-		var result = await AcquireTokenSilent();
-		return result.Account;
-	}
-	catch (MsalUiRequiredException)
-	{
-		return await AcquireTokenInteractive().ConfigureAwait(false);
-	}
-}
-
-private async Task&lt;IAccount&gt; AcquireTokenInteractive()
-{
-	var accounts = (await _app.GetAccountsAsync()).ToList();
-
-	var builder = _app.AcquireTokenInteractive(Scopes)
-		.WithAccount(accounts.FirstOrDefault())
-		.WithUseEmbeddedWebView(false)
-		.WithPrompt(Microsoft.Identity.Client.Prompt.SelectAccount);
-
-	var result = await builder.ExecuteAsync().ConfigureAwait(false);
-
-	return result.Account;
-}
-
-public async Task&lt;AuthenticationResult&gt; AcquireTokenSilent()
-{
-	var accounts = await GetAccountsAsync();
-	var result = await _app.AcquireTokenSilent(Scopes, accounts.FirstOrDefault())
-			.ExecuteAsync()
-			.ConfigureAwait(false);
-
-	return result;
-}
-  
-
-
-<p>The SendEmailAsync method uses a message object and Graph API to send the emails. If the identity has the permissions, the licenses and is authenticated, then an email will be sent using the definitions from the Message class.</p>
-
-
-  public async Task SendEmailAsync(Message message)
-{
-	var result = await AcquireTokenSilent();
-
-	_httpClient.DefaultRequestHeaders.Authorization 
-		= new AuthenticationHeaderValue("Bearer", result.AccessToken);
-	_httpClient.DefaultRequestHeaders.Accept.Add(
-		new MediaTypeWithQualityHeaderValue("application/json"));
-
-	GraphServiceClient graphClient = new GraphServiceClient(_httpClient)
-	{
-		AuthenticationProvider = new DelegateAuthenticationProvider(async (requestMessage) =&gt;
-		{
-			requestMessage.Headers.Authorization 
-				= new AuthenticationHeaderValue("Bearer", result.AccessToken);
-		})
-	};
-
-	var saveToSentItems = true;
-
-	await graphClient.Me
-		.SendMail(message, saveToSentItems)
-		.Request()
-		.PostAsync();
-}
-  
-
-
-<p>The EmailService class is used to added the recipient, header (subject) and the body to the message which represents the email. The attachments are added separately using the MessageAttachmentsCollectionPage class. The AddAttachment method is used to add as many attachments to the email as required which are uploaded as a base64 byte array. The service can send html bodies or text bodies.</p>
-
-
-  public class EmailService
-{
-	MessageAttachmentsCollectionPage MessageAttachmentsCollectionPage 
-		= new MessageAttachmentsCollectionPage();
-
-	public Message CreateStandardEmail(string recipient, string header, string body)
-	{
-		var message = new Message
-		{
-			Subject = header,
-			Body = new ItemBody
-			{
-				ContentType = BodyType.Text,
-				Content = body
-			},
-			ToRecipients = new List&lt;Recipient&gt;()
-			{
-				new Recipient
-				{
-					EmailAddress = new EmailAddress
-					{
-						Address = recipient
-					}
-				}
-			},
-			Attachments = MessageAttachmentsCollectionPage
-		};
-
-		return message;
-	}
-
-	public Message CreateHtmlEmail(string recipient, string header, string body)
-	{
-		var message = new Message
-		{
-			Subject = header,
-			Body = new ItemBody
-			{
-				ContentType = BodyType.Html,
-				Content = body
-			},
-			ToRecipients = new List&lt;Recipient&gt;()
-			{
-				new Recipient
-				{
-					EmailAddress = new EmailAddress
-					{
-						Address = recipient
-					}
-				}
-			},
-			Attachments = MessageAttachmentsCollectionPage
-		};
-
-		return message;
-	}
-
-	public void AddAttachment(byte[] rawData, string filePath)
-	{
-		MessageAttachmentsCollectionPage.Add(new FileAttachment
-		{
-			Name = Path.GetFileName(filePath),
-			ContentBytes = EncodeTobase64Bytes(rawData)
-		});
-	}
-
-	public void ClearAttachments()
-	{
-		MessageAttachmentsCollectionPage.Clear();
-	}
-
-	static public byte[] EncodeTobase64Bytes(byte[] rawData)
-	{
-		string base64String = System.Convert.ToBase64String(rawData);
-		var returnValue = Convert.FromBase64String(base64String);
-		return returnValue;
-	}
-}
-  
-
-
-<p>Azure App Registration settings</p>
-
-
-
-<p>The app settings specific to your Azure Active Directory tenant and the Azure App registration values need to be added to the app settings in the .NET Core application. The Scope configuration is set to use the required scopes required to send emails.</p>
-
-
-  &lt;appSettings&gt;
-	&lt;add key="AADInstance" value="https://login.microsoftonline.com/{0}/v2.0"/&gt;
-	&lt;add key="Tenant" value="5698af84-5720-4ff0-bdc3-9d9195314244"/&gt;
-	&lt;add key="ClientId" value="ae1fd165-d152-492d-b4f5-74209f8f724a"/&gt;
-	&lt;add key="Scope" value="User.read Mail.Send Mail.ReadWrite"/&gt;
-&lt;/appSettings&gt;
-  
-
-
-<p>WPF UI</p>
-
-
-
-<p>The WPF application provides an Azure AD login for the identity. The user of the WPF application can sign-in using a browser which redirects to the AAD authentication page. Once authenticated, the user can send a html email or a text email. The AddAttachment method uses the OpenFileDialog to upload a file in the WPF application, get the raw bytes and add these to the attachments which are sent with the next email message. Once the email is sent, the attachments are removed.</p>
-
-
-  public partial class MainWindow : Window
-{
-	AadGraphApiDelegatedClient _aadGraphApiDelegatedClient = new AadGraphApiDelegatedClient();
-	EmailService _emailService = new EmailService();
-
-	const string SignInString = "Sign In";
-	const string ClearCacheString = "Clear Cache";
-
-	public MainWindow()
-	{
-		InitializeComponent();
-		_aadGraphApiDelegatedClient.InitClient();
-	}
-
-	private async void SignIn(object sender = null, RoutedEventArgs args = null)
-	{
-		var accounts = await _aadGraphApiDelegatedClient.GetAccountsAsync();
-
-		if (SignInButton.Content.ToString() == ClearCacheString)
-		{
-			await _aadGraphApiDelegatedClient.RemoveAccountsAsync();
-
-			SignInButton.Content = SignInString;
-			UserName.Content = "Not signed in";
-			return;
-		}
-
-		try
-		{
-			var account = await _aadGraphApiDelegatedClient.SignIn();
-
-			Dispatcher.Invoke(() =&gt;
-			{
-				SignInButton.Content = ClearCacheString;
-				SetUserName(account);
-			});
-		}
-		catch (MsalException ex)
-		{
-			if (ex.ErrorCode == "access_denied")
-			{
-				// The user canceled sign in, take no action.
-			}
-			else
-			{
-				// An unexpected error occurred.
-				string message = ex.Message;
-				if (ex.InnerException != null)
-				{
-					message += "Error Code: " + ex.ErrorCode + "Inner Exception : " + ex.InnerException.Message;
-				}
-
-				MessageBox.Show(message);
-			}
-
-			Dispatcher.Invoke(() =&gt;
-			{
-				UserName.Content = "Not signed in";
-			});
-		}
-	}
-
-	private async void SendEmail(object sender, RoutedEventArgs e)
-	{
-		var message = _emailService.CreateStandardEmail(EmailRecipientText.Text, 
-			EmailHeader.Text, EmailBody.Text);
-
-		await _aadGraphApiDelegatedClient.SendEmailAsync(message);
-		_emailService.ClearAttachments();
-	}
-
-	private async void SendHtmlEmail(object sender, RoutedEventArgs e)
-	{
-		var messageHtml = _emailService.CreateHtmlEmail(EmailRecipientText.Text,
-			EmailHeader.Text, EmailBody.Text);
-
-		await _aadGraphApiDelegatedClient.SendEmailAsync(messageHtml);
-		_emailService.ClearAttachments();
-	}
-
-	private void AddAttachment(object sender, RoutedEventArgs e)
-	{
-		var dlg = new OpenFileDialog();
-		if (dlg.ShowDialog() == true)
-		{
-			byte[] data = File.ReadAllBytes(dlg.FileName);
-			_emailService.AddAttachment(data, dlg.FileName);
-		}
-	}
-
-	private void SetUserName(IAccount userInfo)
-	{
-		string userName = null;
-
-		if (userInfo != null)
-		{
-			userName = userInfo.Username;
-		}
-
-		if (userName == null)
-		{
-			userName = "Not identified";
-		}
-
-		UserName.Content = userName;
-	}
-}
-  
-
-
-<p>Running the application</p>
-
-
-
-<p>When the application is started, the user can sign-in using the Sign in button.</p>
-
-
-
-
-
-
-
-<p>The standard Azure AD login is used in a popup browser. Once the authentication is completed, the browser redirect sends the tokens back to the application.</p>
-
-
-
-
-
-
-
-<p>If a file attachment needs to be sent, the Add Attachment button can be used. This opens up a dialog and any single file can be selected.</p>
-
-
-
-
-
-
-
-<p>When the email is sent successfully, the email and the file can be viewed in the recipients inbox. The emails are also saved to the senders sent emails. This can be disabled if required. </p>
-
-
-
-
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/graph/outlook-send-mail-from-other-user">https://docs.microsoft.com/en-us/graph/outlook-send-mail-from-other-user</a></p>
-
-
-
-<p><a href="https://stackoverflow.com/questions/43795846/graph-api-daemon-app-with-user-consent">https://stackoverflow.com/questions/43795846/graph-api-daemon-app-with-user-consent</a></p>
-
-
-
-<p><a href="https://winsmarts.com/managed-identity-as-a-daemon-accessing-microsoft-graph-8d1bf87582b1">https://winsmarts.com/managed-identity-as-a-daemon-accessing-microsoft-graph-8d1bf87582b1</a></p>
-
-
-
-<p><a href="https://cmatskas.com/create-a-net-core-deamon-app-that-calls-msgraph-with-a-certificate/">https://cmatskas.com/create-a-net-core-deamon-app-that-calls-msgraph-with-a-certificate/</a></p>
-
-
-
- 
-<a href="https://docs.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0&amp;tabs=http">https://docs.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0&amp;tabs=http</a>
- 
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/answers/questions/43724/sending-emails-from-daemon-app-using-graph-api-on.html">https://docs.microsoft.com/en-us/answers/questions/43724/sending-emails-from-daemon-app-using-graph-api-on.html</a></p>
-
-
-
-<p><a href="https://stackoverflow.com/questions/56110910/sending-email-with-microsoft-graph-api-work-account">https://stackoverflow.com/questions/56110910/sending-email-with-microsoft-graph-api-work-account</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS#InteractiveProvider">https://docs.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS#InteractiveProvider</a></p>
-
-
-
-<p><a href="https://converter.telerik.com/">https://converter.telerik.com/</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/08/emailappregistration_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:46 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Sunday, 08. August 2021
  </h2>
@@ -23202,7 +23365,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    04:12 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
