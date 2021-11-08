@@ -736,12 +736,380 @@
 
 </div>
 </div>
-<sup>Last Update 5:41 AM November 08, 2021 (UTC)</sup>
+<sup>Last Update 10:45 AM November 08, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 08. November 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/11/08/asp-net-core-scheduling-with-quartz-net-and-signalr-monitoring/'>ASP.NET Core scheduling with Quartz.NET and SignalR monitoring</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how scheduled tasks can be implemented in ASP.NET Core using Quartz.NET and then displays the job info in an ASP.NET Core Razor page using SignalR. A concurrent job and a non concurrent job are implemented using a simple trigger to show the difference in how the jobs are run. Quartz.NET provides lots […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how scheduled tasks can be implemented in ASP.NET Core using <a href="https://www.quartz-scheduler.net/">Quartz.NET</a> and then displays the job info in an ASP.NET Core Razor page using SignalR. A concurrent job and a non concurrent job are implemented using a simple trigger to show the difference in how the jobs are run. Quartz.NET provides lots of scheduling features and has an easy to use API for implementing scheduled jobs.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreQuartz">https://github.com/damienbod/AspNetCoreQuartz</a></p>
+
+
+
+<p>A simple ASP.NET Core Razor Page web application is used to implement the scheduler and the SignalR messaging. The Quartz Nuget package and the Quartz.Extensions.Hosting Nuget package are used to implement the scheduling service. The Microsoft.AspNetCore.SignalR.Client package is used to send messages to all listening web socket clients. </p>
+
+
+  &lt;PropertyGroup&gt;
+  &lt;TargetFramework&gt;net6.0&lt;/TargetFramework&gt;
+  &lt;Nullable&gt;enable&lt;/Nullable&gt;
+  &lt;ImplicitUsings&gt;enable&lt;/ImplicitUsings&gt;
+ &lt;/PropertyGroup&gt;
+
+&lt;ItemGroup&gt;
+  &lt;PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="5.0.11" /&gt;
+  &lt;PackageReference Include="Microsoft.Extensions.Hosting" Version="5.0.0" /&gt;
+  &lt;PackageReference Include="Quartz" Version="3.3.3" /&gt;
+  &lt;PackageReference Include="Quartz.Extensions.Hosting" Version="3.3.3" /&gt;
+&lt;/ItemGroup&gt;
+  
+
+
+<p>The .NET 6 templates no longer use a Startup class, all this logic can now be implemented directly in the Program.cs file with no static main. The ConfigureServices logic can be implemented using a WebApplicationBuilder instance. The AddQuartz method is used to add the scheduling services. Two jobs are added, a concurrent job and a non concurrent job. Both jobs are triggered with a simple trigger every five seconds which runs forever. The AddQuartzHostedService method adds the service as a hosted service. The AddSignalR adds the SignalR services.</p>
+
+
+  using AspNetCoreQuartz;
+using AspNetCoreQuartz.QuartzServices;
+using Quartz;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddRazorPages();
+
+builder.Services.AddSignalR();
+
+builder.Services.AddQuartz(q =&gt;
+{
+    q.UseMicrosoftDependencyInjectionJobFactory();
+
+    var conconcurrentJobKey = new JobKey("ConconcurrentJob");
+    q.AddJob&lt;ConconcurrentJob&gt;(opts =&gt; opts.WithIdentity(conconcurrentJobKey));
+    q.AddTrigger(opts =&gt; opts
+        .ForJob(conconcurrentJobKey)
+        .WithIdentity("ConconcurrentJob-trigger")
+        .WithSimpleSchedule(x =&gt; x
+            .WithIntervalInSeconds(5)
+            .RepeatForever()));
+
+    var nonConconcurrentJobKey = new JobKey("NonConconcurrentJob");
+    q.AddJob&lt;NonConconcurrentJob&gt;(opts =&gt; opts.WithIdentity(nonConconcurrentJobKey));
+    q.AddTrigger(opts =&gt; opts
+        .ForJob(nonConconcurrentJobKey)
+        .WithIdentity("NonConconcurrentJob-trigger")
+        .WithSimpleSchedule(x =&gt; x
+            .WithIntervalInSeconds(5)
+            .RepeatForever()));
+
+});
+
+builder.Services.AddQuartzHostedService(
+    q =&gt; q.WaitForJobsToComplete = true);
+  
+
+
+<p>The WebApplication instance is used to add the middleware like the Startup Configure method. The SignalR JobsHub endpoint is added to send the live messages of the running jobs to the UI in the client browser..</p>
+
+
+  var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Error");
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+app.UseStaticFiles();
+
+app.UseRouting();
+
+app.UseAuthorization();
+
+app.UseEndpoints(endpoints =&gt;
+{
+    endpoints.MapHub&lt;JobsHub&gt;("/jobshub");
+});
+
+app.MapRazorPages();
+
+app.Run();
+  
+
+
+<p>The ConconcurrentJob implements the IJob interface and logs messages before and after a time delay. A SignalR client is used to send all the job information to any listening clients. A seven second sleep was added to simulate a slow running job. The jobs are triggered every 5 seconds, so this should result in no change in behavior as the jobs can run in parallel.</p>
+
+
+  using Microsoft.AspNetCore.SignalR;
+using Quartz;
+
+namespace AspNetCoreQuartz.QuartzServices
+{
+    public class ConconcurrentJob : IJob
+    {
+        private readonly ILogger&lt;ConconcurrentJob&gt; _logger;
+        private static int _counter = 0;
+        private readonly IHubContext&lt;JobsHub&gt; _hubContext;
+
+        public ConconcurrentJob(ILogger&lt;ConconcurrentJob&gt; logger, 
+            IHubContext&lt;JobsHub&gt; hubContext)
+        {
+            _logger = logger;
+            _hubContext = hubContext;
+        }
+
+        public async Task Execute(IJobExecutionContext context)
+        {
+            var count = _counter++;
+
+            var beginMessage = $"Conconcurrent Job BEGIN {count} {DateTime.UtcNow}";
+            await _hubContext.Clients.All.SendAsync("ConcurrentJobs", beginMessage);
+            _logger.LogInformation(beginMessage);
+
+            Thread.Sleep(7000);
+
+            var endMessage = $"Conconcurrent Job END {count} {DateTime.UtcNow}";
+            await _hubContext.Clients.All.SendAsync("ConcurrentJobs", endMessage);
+            _logger.LogInformation(endMessage);
+        }
+    }
+}
+  
+
+
+<p>The NonConconcurrentJob class is almost like the previous job, except the DisallowConcurrentExecution attribute is used to prevent concurrent running of the job. This means that even though the trigger is set to five seconds, each job must wait until the previous job finishes.</p>
+
+
+  [DisallowConcurrentExecution]
+public class NonConconcurrentJob : IJob
+{
+	private readonly ILogger&lt;NonConconcurrentJob&gt; _logger;
+	private static int _counter = 0;
+	private readonly IHubContext&lt;JobsHub&gt; _hubContext;
+
+	public NonConconcurrentJob(ILogger&lt;NonConconcurrentJob&gt; logger,
+		   IHubContext&lt;JobsHub&gt; hubContext)
+	{
+		_logger = logger;
+		_hubContext = hubContext;
+	}
+
+	public async Task Execute(IJobExecutionContext context)
+	{
+		var count = _counter++;
+
+		var beginMessage = $"NonConconcurrentJob Job BEGIN {count} {DateTime.UtcNow}";
+		await _hubContext.Clients.All.SendAsync("NonConcurrentJobs", beginMessage);
+		_logger.LogInformation(beginMessage);
+
+		Thread.Sleep(7000);
+
+		var endMessage = $"NonConconcurrentJob Job END {count} {DateTime.UtcNow}";
+		await _hubContext.Clients.All.SendAsync("NonConcurrentJobs", endMessage);
+		_logger.LogInformation(endMessage);
+	}
+}
+  
+
+
+<p>The JobsHub class implements the SignalR Hub and define methods for sending SignalR messages. Two messages are used, one for the concurrent job messages and one for the non concurrent job messages.</p>
+
+
+  public class JobsHub : Hub
+{
+	public Task SendConcurrentJobsMessage(string message)
+	{
+		return Clients.All.SendAsync("ConcurrentJobs",  message);
+	}
+
+	public Task SendNonConcurrentJobsMessage(string message)
+	{
+		return Clients.All.SendAsync("NonConcurrentJobs", message);
+	}
+
+}
+  
+
+
+<p>The microsoft signalr Javascript package is used to implement the client which listens for messages.</p>
+
+
+  {
+  "version": "1.0",
+  "defaultProvider": "cdnjs",
+  "libraries": [
+    {
+      "library": "microsoft-signalr@5.0.11",
+      "destination": "wwwroot/lib/microsoft-signalr/"
+    }
+  ]
+}
+  
+
+
+<p>The Index Razor Page view uses the SignalR Javascript file and displays messages by adding html elements.</p>
+
+
+  @page
+@model IndexModel
+@{
+    ViewData["Title"] = "Home page";
+}
+
+&lt;div class="container"&gt;
+    &lt;div class="row"&gt;
+        &lt;div class="col-6"&gt;
+            &lt;ul id="concurrentJobs"&gt;&lt;/ul&gt;
+        &lt;/div&gt;
+         &lt;div class="col-6"&gt;
+            &lt;ul id="nonConcurrentJobs"&gt;&lt;/ul&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;script src="~/lib/microsoft-signalr/signalr.js"&gt;&lt;/script&gt;
+
+  
+
+
+<p>The SignalR client adds the two methods to listen to messages sent from the Quartz jobs.</p>
+
+
+  const connection = new signalR.HubConnectionBuilder()
+    .withUrl("/jobshub")
+    .configureLogging(signalR.LogLevel.Information)
+    .build();
+
+async function start() {
+    try {
+        await connection.start();
+        console.log("SignalR Connected.");
+    } catch (err) {
+        console.log(err);
+        setTimeout(start, 5000);
+    }
+};
+
+connection.onclose(async () =&gt; {
+    await start();
+});
+
+start();
+
+connection.on("ConcurrentJobs", function (message) {
+    var li = document.createElement("li");
+    document.getElementById("concurrentJobs").appendChild(li);
+    li.textContent = `${message}`;
+});
+
+connection.on("NonConcurrentJobs", function (message) {
+    var li = document.createElement("li");
+    document.getElementById("nonConcurrentJobs").appendChild(li);
+    li.textContent = `${message}`;
+});
+
+
+  
+
+
+<p>When the application is run and the hosted Quartz service runs the scheduled jobs, the concurrent jobs starts every five seconds as required and the non concurrent job runs every seven seconds due to the thread sleep.  Running concurrent or non concurrent jobs by using a single attribute definition is a really powerful feature of Quartz.NET.</p>
+
+
+
+
+
+
+
+<p>Quartz.NET provides great documentation and has a really simple API. By using SignalR, it would be really easy to implement a good monitoring UI.</p>
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://www.quartz-scheduler.net/">https://www.quartz-scheduler.net/</a></p>
+
+
+
+<p><a href="https://andrewlock.net/using-quartz-net-with-asp-net-core-and-worker-services/">https://andrewlock.net/using-quartz-net-with-asp-net-core-and-worker-services/</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/signalr/introduction">https://docs.microsoft.com/en-us/aspnet/core/signalr/introduction</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/11/aspnetcorequartz_signalr_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:17 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -815,7 +1183,7 @@
 
 <div class='item-footer'>
    22:15 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -883,7 +1251,7 @@ These days it just sort of says “jdjdiehsj ejdgjeejehdj k”. Which, honestly,
 
 <div class='item-footer'>
    12:57 &bull;
-   17 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1302,7 +1670,7 @@ These days it just sort of says “jdjdiehsj ejdgjeejehdj k”. Which, honestly,
 
 <div class='item-footer'>
    15:41 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1362,7 +1730,7 @@ These days it just sort of says “jdjdiehsj ejdgjeejehdj k”. Which, honestly,
 
 <div class='item-footer'>
    14:17 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1422,7 +1790,7 @@ These days it just sort of says “jdjdiehsj ejdgjeejehdj k”. Which, honestly,
 
 <div class='item-footer'>
    13:51 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2003,7 +2371,7 @@ These days it just sort of says “jdjdiehsj ejdgjeejehdj k”. Which, honestly,
 
 <div class='item-footer'>
    21:23 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2084,7 +2452,7 @@ These days it just sort of says “jdjdiehsj ejdgjeejehdj k”. Which, honestly,
 
 <div class='item-footer'>
    21:15 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2705,7 +3073,7 @@ jobs:
 
 <div class='item-footer'>
    22:02 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2776,7 +3144,7 @@ jobs:
 
 <div class='item-footer'>
    21:43 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3124,7 +3492,7 @@ Photo by <a href="https://unsplash.com/@lemonvlad?utm_source=unsplash&amp;utm_me
 
 <div class='item-footer'>
    18:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3198,7 +3566,7 @@ Photo by <a href="https://unsplash.com/@lemonvlad?utm_source=unsplash&amp;utm_me
 
 <div class='item-footer'>
    18:12 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4008,7 +4376,7 @@ QmT57jkkR2sh2i4uLRAZuWu6TatEDQdKN8HnwaZGaXJTrr\";&gt;..."
 
 <div class='item-footer'>
    22:35 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4218,7 +4586,7 @@ QmT57jkkR2sh2i4uLRAZuWu6TatEDQdKN8HnwaZGaXJTrr\";&gt;..."
 
 <div class='item-footer'>
    21:57 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4279,7 +4647,7 @@ QmT57jkkR2sh2i4uLRAZuWu6TatEDQdKN8HnwaZGaXJTrr\";&gt;..."
 
 <div class='item-footer'>
    21:50 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4340,7 +4708,7 @@ QmT57jkkR2sh2i4uLRAZuWu6TatEDQdKN8HnwaZGaXJTrr\";&gt;..."
 
 <div class='item-footer'>
    21:30 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4978,7 +5346,7 @@ RUN apt-get update &amp;&amp; \
 
 <div class='item-footer'>
    20:22 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5948,7 +6316,7 @@ public ActionResult IssuanceResponse()
 
 <div class='item-footer'>
    22:40 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6022,7 +6390,7 @@ public ActionResult IssuanceResponse()
 
 <div class='item-footer'>
    22:00 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6096,7 +6464,7 @@ public ActionResult IssuanceResponse()
 
 <div class='item-footer'>
    20:19 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6157,7 +6525,7 @@ public ActionResult IssuanceResponse()
 
 <div class='item-footer'>
    19:52 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7395,7 +7763,7 @@ Goto
 
 <div class='item-footer'>
    20:21 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7457,7 +7825,7 @@ Goto
 
 <div class='item-footer'>
    19:03 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7527,7 +7895,7 @@ Goto
 
 <div class='item-footer'>
    18:17 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8218,7 +8586,7 @@ The <a href="https://duckduckgo.com/?q=worldwide+shipping+crisis">worldwide ship
 
 <div class='item-footer'>
    18:02 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9726,7 +10094,7 @@ the Customer.
 
 <div class='item-footer'>
    19:15 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9857,7 +10225,7 @@ The post IT批評でクロサカタツヤさんと対談しました first appea
 
 <div class='item-footer'>
    07:30 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20509,340 +20877,6 @@ HINT:  You might need to increase max_locks_per_transaction.
 
 <div class='item-footer'>
    20:37 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/08/16/improving-application-security-in-asp-net-core-razor-pages-using-http-headers-part-1/'>Improving application security in ASP.NET Core Razor Pages using HTTP headers – Part 1</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to improve the security of an ASP.NET Core Razor Page application by adding security headers to all HTTP Razor Page responses. The security headers are added using the NetEscapades.AspNetCore.SecurityHeaders Nuget package from Andrew Lock. The headers are used to protect the session, not for authentication. The application is authenticated using Open […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to improve the security of an ASP.NET Core Razor Page application by adding security headers to all HTTP Razor Page responses. The security headers are added using the <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package from <a href="https://twitter.com/andrewlocknet">Andrew Lock</a>. The headers are used to protect the session, not for authentication. The application is authenticated using Open ID Connect, the security headers are used to protected the session. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCore6Experiments">https://github.com/damienbod/AspNetCore6Experiments</a></p>
-
-
-
-<p>Blogs in this series</p>
-
-
-
-  <a href="https://damienbod.com/2021/08/16/improving-application-security-in-asp-net-core-razor-pages-using-http-headers-part-1/">Improving application security in ASP.NET Core Razor Pages using HTTP headers – Part 1</a>  <a href="https://damienbod.com/2021/08/23/improving-application-security-in-blazor-using-http-headers-part-2/">Improving application security in Blazor using HTTP headers – Part 2</a>  <a href="https://damienbod.com/2021/08/30/improving-application-security-in-an-asp-net-core-api-using-http-headers-part-3/">Improving application security in an ASP.NET Core API using HTTP headers – Part 3</a>  
-
-
-
-<p>The NetEscapades.AspNetCore.SecurityHeaders and the NetEscapades.AspNetCore.SecurityHeaders.TagHelpers Nuget packages are added to the csproj file of the web application. The tag helpers are added to use the nonce from the CSP in the Razor Pages.</p>
-
-
-  &lt;ItemGroup&gt;
-	&lt;PackageReference 
-		Include="NetEscapades.AspNetCore.SecurityHeaders" 
-		Version="0.16.0" /&gt;
-	&lt;PackageReference 
-		Include="NetEscapades.AspNetCore.SecurityHeaders.TagHelpers" 
-		Version="0.16.0" /&gt;
-&lt;/ItemGroup&gt;
-  
-
-
-<p>What each header protects against is explained really good on the <a href="https://securityheaders.com/">securityheaders.com</a> results view of your test. You can click different links of each validation which takes you to the documentation of each header. The links at the bottom of this post provide some excellent information about what and why of the headers.</p>
-
-
-
-<p>The security header definitions are added using the HeaderPolicyCollection class. I added this to a separate class to keep the Startup class small, where the middleware is added. I passed a boolean parameter into the method which is used to add or remove the HSTS header. We might not want to add this to local development and block all non HTTPS requests to localhost. </p>
-
-
-
-<p>The policy defined in this demo is for Razor Page applications with as much blocked as possible. You should be able to re-use this in your projects.</p>
-
-
-
-<p>The COOP (Cross Origin Opener Policy), COEP (Cross Origin Embedder Policy), CORP (Cross Origin Resource Policy) headers are relatively new. You might need to update you existing application deployments with these. The links at the bottom of the post provide information about these headers in detail and I would recommend reading these.</p>
-
-
-  public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev)
-{
-	var policy = new HeaderPolicyCollection()
-		.AddFrameOptionsDeny()
-		.AddXssProtectionBlock()
-		.AddContentTypeOptionsNoSniff()
-		.AddReferrerPolicyStrictOriginWhenCrossOrigin()
-		.RemoveServerHeader()
-		.AddCrossOriginOpenerPolicy(builder =&gt;
-		{
-			builder.SameOrigin();
-		})
-		.AddCrossOriginEmbedderPolicy(builder =&gt;
-		{
-			builder.RequireCorp();
-		})
-		.AddCrossOriginResourcePolicy(builder =&gt;
-		{
-			builder.SameOrigin();
-		})
-		.AddContentSecurityPolicy(builder =&gt;
-		{
-			builder.AddObjectSrc().None();
-			builder.AddBlockAllMixedContent();
-			builder.AddImgSrc().Self().From("data:");
-			builder.AddFormAction().Self();
-			builder.AddFontSrc().Self();
-			builder.AddStyleSrc().Self(); // .UnsafeInline();
-			builder.AddBaseUri().Self();
-			builder.AddScriptSrc().UnsafeInline().WithNonce();
-			builder.AddFrameAncestors().None();
-		})
-		.RemoveServerHeader()
-		.AddPermissionsPolicy(builder =&gt;
-		{
-			builder.AddAccelerometer().None();
-			builder.AddAutoplay().None();
-			builder.AddCamera().None();
-			builder.AddEncryptedMedia().None();
-			builder.AddFullscreen().All();
-			builder.AddGeolocation().None();
-			builder.AddGyroscope().None();
-			builder.AddMagnetometer().None();
-			builder.AddMicrophone().None();
-			builder.AddMidi().None();
-			builder.AddPayment().None();
-			builder.AddPictureInPicture().None();
-			builder.AddSyncXHR().None();
-			builder.AddUsb().None();
-		});
-
-	if (!isDev)
-	{
-		// maxage = one year in seconds
-		policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
-	}
-
-	return policy;
-}
-  
-
-
-<p>In the Startup class, the UseSecurityHeaders method is used to apply the HTTP headers policy and add the middleware to the application. The env.IsDevelopment() is used to add or not to add the HSTS header. The default HSTS middleware from the ASP.NET Core templates was removed from the Configure method as this is not required. </p>
-
-
-  public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
-{
-	if (env.IsDevelopment())
-	{
-		app.UseDeveloperExceptionPage();
-	}
-	else
-	{
-		app.UseExceptionHandler("/Error");
-	}
-
-	app.UseSecurityHeaders(
-		SecurityHeadersDefinitions
-			.GetHeaderPolicyCollection(env.IsDevelopment()));
-  
-
-
-<p>The server header can be removed in the program class if using Kestrel. If using IIS, you probably need to use the web.config to remove this.</p>
-
-
-  public static IHostBuilder CreateHostBuilder(string[] args) =&gt;
-	Host.CreateDefaultBuilder(args)
-		.ConfigureWebHostDefaults(webBuilder =&gt;
-		{
-			webBuilder
-				.ConfigureKestrel(options =&gt; 
-					options.AddServerHeader = false)
-				.UseStartup&lt;Startup&gt;();
-		});
-  
-
-
-<p>We want to apply the CSP nonce to all our scripts in the Razor Pages. We can add the NetEscapades.AspNetCore.SecurityHeaders namespace to the _ViewImports.cshtml file.</p>
-
-
-  @using AspNetCoreRazor
-@using NetEscapades.AspNetCore.SecurityHeaders
-@namespace AspNetCoreRazor.Pages
-@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
-
-  
-
-
-<p>In the Razor Page _Layout, the CSP nonce can be used. I had to get the nonce from the HttpContext and add this to all scripts. This way, the scripts will be loaded. If the nonce does not match or is not applied to the script, it will not be loaded due to the CSP definition. I’ll ping Andrew Lock to see if the tag helper could be used directly.</p>
-
-
-      @{var nonce = Context.GetNonce();}
-    &lt;script src="~/lib/jquery/dist/jquery.min.js" nonce="@nonce"&gt;&lt;/script&gt;
-    &lt;script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js" nonce="@nonce"&gt;&lt;/script&gt;
-    &lt;script src="~/js/site.js" asp-append-version="true" nonce="@nonce"&gt;&lt;/script&gt;
-
-    @await RenderSectionAsync("Scripts", required: false)
-&lt;/body&gt;
-&lt;/html&gt;
-
-  
-
-
-<p>The Http security headers can be tested using <a href="https://securityheaders.com">https://securityheaders.com </a></p>
-
-
-
-<p>I used ngrok to test this before I deployed the application. The Security headers scans the web application and returns a really neat summary to what headers you have and how good it finds them. Each header has a link to a excellent documentation, blog on <a href="https://twitter.com/Scott_Helme">Scott Helme</a>‘s website <a href="https://scotthelme.co.uk">https://scotthelme.co.uk</a></p>
-
-
-
-
-
-
-
-<p>The CSP can be tested using the <a href="https://csp-evaluator.withgoogle.com">https://csp-evaluator.withgoogle.com</a> from google. The CSP evaluator gives an excellent summary and also suggestions how to improve the CSP.</p>
-
-
-
-
-
-
-
-<p>The Razor Page application security can be much improved by added the headers to the application. The  <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package makes it incredibly easy to apply this. I will create a follow up blog with a policy definition for a Blazor application and also a for an Web API application. </p>
-
-
-
-<p>Notes:</p>
-
-
-
-<p>If the application is fully protected without any public views, the follow redirects checkbox on the security headers needs to be disabled as then you only get the results of the identity provider used to authenticate. </p>
-
-
-
-<p>I block all traffic, if possible, which is not from my domain including sub domains. If implementing enterprise applications, I would always do this. If implementing public facing applications with high traffic volumes or need extra fast response times, or need to reduce the costs of hosting, then CDNs would need to be used, allowed and so on. Try to block all first and open up as required and maybe you can avoid some nasty surprises from all the Javascript, CSS frameworks used.</p>
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://securityheaders.com/">https://securityheaders.com/</a></p>
-
-
-
-<p><a href="https://csp-evaluator.withgoogle.com/">https://csp-evaluator.withgoogle.com/</a></p>
-
-
-
-<p><a href="https://www.youtube.com/watch?v=J6BZ9IQELNA">Security by Default Chrome developers</a></p>
-
-
-
-<p><a href="https://www.snigel.com/blog/a-simple-guide-to-coop-coep-corp-and-cors/">A Simple Guide to COOP, COEP, CORP, and CORS</a></p>
-
-
-
-<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
-
-
-
-<p><a href="https://github.com/dotnet/aspnetcore/issues/34428">https://github.com/dotnet/aspnetcore/issues/34428</a></p>
-
-
-
-<p><a href="https://w3c.github.io/webappsec-trusted-types/dist/spec/">https://w3c.github.io/webappsec-trusted-types/dist/spec/</a></p>
-
-
-
-<p><a href="https://web.dev/trusted-types/">https://web.dev/trusted-types/</a></p>
-
-
-
-<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Cross-Origin_Resource_Policy_(CORP)">https://developer.mozilla.org/en-US/docs/Web/HTTP/Cross-Origin_Resource_Policy_(CORP)</a></p>
-
-
-
-<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS">https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS</a></p>
-
-
-
-<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies">https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies</a></p>
-
-
-
-<p><a href="https://docs.google.com/document/d/1zDlfvfTJ_9e8Jdc8ehuV4zMEu9ySMCiTGMS9y0GU92k/edit">https://docs.google.com/document/d/1zDlfvfTJ_9e8Jdc8ehuV4zMEu9ySMCiTGMS9y0GU92k/edit</a></p>
-
-
-
-<p><a href="https://scotthelme.co.uk/coop-and-coep/">https://scotthelme.co.uk/coop-and-coep/</a></p>
-
-
-
-<p><a href="https://github.com/OWASP/ASVS">https://github.com/OWASP/ASVS</a></p>
-
-
-
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/08/security_headers_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:24 &bull;
    3 months ago
 </div>
 
