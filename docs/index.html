@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:40 AM November 22, 2021 (UTC)</sup>
+<sup>Last Update 10:45 AM November 22, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,545 @@
  <h2 class='new-date'>
   Monday, 22. November 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/11/22/implement-certificate-authentication-in-asp-net-core-for-an-azure-b2c-api-connector/'>Implement certificate authentication in ASP.NET Core for an Azure B2C API connector</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how an ASP.NET Core API can be setup to require certificates for authentication. The API is used to implement an Azure B2C API connector service. The API connector client uses a certificate to request profile data from the Azure App Service API implementation, which is validated using the certificate thumbprint. Code: https://github.com/damienbod/AspNetCoreB2cExtraClaims […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how an ASP.NET Core API can be setup to require certificates for authentication. The API is used to implement an Azure B2C API connector service. The API connector client uses a certificate to request profile data from the Azure App Service API implementation, which is validated using the certificate thumbprint.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreB2cExtraClaims">https://github.com/damienbod/AspNetCoreB2cExtraClaims</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/07/26/securing-asp-net-core-razor-pages-web-apis-with-azure-b2c-external-and-azure-ad-internal-identities/">Securing ASP.NET Core Razor Pages, Web APIs with Azure B2C external and Azure AD internal identities</a>  <a href="https://damienbod.com/2021/09/06/using-azure-security-groups-in-asp-net-core-with-an-azure-b2c-identity-provider/">Using Azure security groups in ASP.NET Core with an Azure B2C Identity Provider</a>  <a href="https://damienbod.com/2021/11/15/add-extra-claims-to-an-azure-b2c-user-flow-using-api-connectors/">Add extra claims to an Azure B2C user flow using API connectors and ASP.NET Core</a>  <a href="https://damienbod.com/2021/11/22/implement-certificate-authentication-in-asp-net-core-for-an-azure-b2c-api-connector/">Implement certificate authentication in ASP.NET Core for an Azure B2C API connector</a>  
+
+
+
+<p>Setup Azure App Service</p>
+
+
+
+<p>An Azure App Service was created which uses .NET and 64 bit configurations. The Azure App Service is configured to require incoming client certificates and will forward this to the application. By configuring this, any valid certificate will work. The certificate still needs to be validated inside the application. You need to check that the correct client certificate is being used.</p>
+
+
+
+
+
+
+
+<p>Implement the API with certificate authentication for deployment</p>
+
+
+
+<p>The AddAuthentication sets the default scheme to CertificateAuthentication. The AddCertificate method adds the required configuration to validate the client certificates used with each request. We use a self signed certificate for the authentication. If a valid certificate is used, the MyCertificateValidationService is used to validate that it is also the correct certificate.</p>
+
+
+  var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+builder.Services.AddSingleton&lt;MyCertificateValidationService&gt;();
+
+builder.Services.AddAuthentication(CertificateAuthenticationDefaults.AuthenticationScheme)
+    .AddCertificate(options =&gt;
+    {
+        // https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth
+        options.AllowedCertificateTypes = CertificateTypes.SelfSigned;
+
+        options.Events = new CertificateAuthenticationEvents
+        {
+            OnCertificateValidated = context =&gt;
+            {
+                var validationService = context.HttpContext.RequestServices.GetService&lt;MyCertificateValidationService&gt;();
+
+                if (validationService != null &amp;&amp; validationService.ValidateCertificate(context.ClientCertificate))
+                {
+                    var claims = new[]
+                    {
+                        new Claim(ClaimTypes.NameIdentifier, context.ClientCertificate.Subject, ClaimValueTypes.String, context.Options.ClaimsIssuer),
+                        new Claim(ClaimTypes.Name, context.ClientCertificate.Subject, ClaimValueTypes.String, context.Options.ClaimsIssuer)
+                    };
+
+                    context.Principal = new ClaimsPrincipal(new ClaimsIdentity(claims, context.Scheme.Name));
+                    context.Success();
+                }
+                else
+                {
+                    context.Fail("invalid cert");
+                }
+
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Host.UseSerilog((hostingContext, loggerConfiguration) =&gt; loggerConfiguration
+    .ReadFrom.Configuration(hostingContext.Configuration)
+    .Enrich.FromLogContext()
+    .MinimumLevel.Debug()
+    .WriteTo.Console()
+    .WriteTo.File(
+        //$@"../certauth.txt",
+        $@"D:\home\LogFiles\Application\{Environment.UserDomainName}.txt",
+        fileSizeLimitBytes: 1_000_000,
+        rollOnFileSizeLimit: true,
+        shared: true,
+        flushToDiskInterval: TimeSpan.FromSeconds(1)));
+  
+
+
+<p>The middleware services are setup so that in development no authentication is used and the requests are validated using basic authentication. If the environment in not development, certificate authentication is used and all API calls require authorization. </p>
+
+
+  var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+    app.MapControllers().RequireAuthorization();
+}
+else
+{
+    app.UseAuthorization();
+    app.MapControllers();
+}
+
+app.Run();
+  
+
+
+<p>The MyCertificateValidationService validates the certificate. This checks if the certificate used has the correct thumbprint and is the same as the certificate used in the client application, in these case the Azure B2C API connector.</p>
+
+
+  public class MyCertificateValidationService 
+{
+	private readonly ILogger&lt;MyCertificateValidationService&gt; _logger;
+
+	public MyCertificateValidationService(ILogger&lt;MyCertificateValidationService&gt; logger)
+	{
+		_logger = logger;
+	}
+
+	public bool ValidateCertificate(X509Certificate2 clientCertificate)
+	{
+		return CheckIfThumbprintIsValid(clientCertificate);
+	}
+
+	private bool CheckIfThumbprintIsValid(X509Certificate2 clientCertificate)
+	{
+		var listOfValidThumbprints = new List&lt;string&gt;
+		{
+			// add thumbprints of your allowed clients
+			"15D118271F9AE7855778A2E6A00A575341D3D904"
+		};
+
+		if (listOfValidThumbprints.Contains(clientCertificate.Thumbprint))
+		{
+			_logger.LogInformation($"Custom auth-success for certificate  {clientCertificate.FriendlyName} {clientCertificate.Thumbprint}");
+
+			return true;
+		}
+
+		_logger.LogWarning($"auth failed for certificate  {clientCertificate.FriendlyName} {clientCertificate.Thumbprint}");
+
+		return false;
+	}
+}
+  
+
+
+<p>Setup Azure B2C API connector with certification authentication</p>
+
+
+
+<p>The Azure B2C API connector is setup to use a certificate. You can create the certificate anyway you want. I used the <a href="https://www.nuget.org/packages/CertificateManager/">CertificateManager</a> Nuget package to create a RSA 512 certificate with a 3072 key size. The thumbprint from this certificate needs to be validated in the ASP.NET Core API application.</p>
+
+
+
+
+
+
+
+<p>The Azure B2C API connector is added to the Azure B2C user flow. The use flow requires all the custom claims to be defined and the values can be set in the API Connector service. See the first post in this blog group for <a href="https://damienbod.com/2021/11/15/add-extra-claims-to-an-azure-b2c-user-flow-using-api-connectors/">details</a>.</p>
+
+
+
+
+
+
+
+<p>Creating an RSA 512 with a 3072 size key </p>
+
+
+
+<p>You can create certificates using .NET Core using the <a href="https://www.nuget.org/packages/CertificateManager/">CertificateManager</a> Nuget package which provides some helper methods for creating the X509 certificates as required.</p>
+
+
+  class Program
+{
+	static CreateCertificates _cc;
+	static void Main(string[] args)
+	{
+		var builder = new ConfigurationBuilder()
+			.AddUserSecrets&lt;Program&gt;();
+		var configuration = builder.Build();
+
+		var sp = new ServiceCollection()
+		   .AddCertificateManager()
+		   .BuildServiceProvider();
+
+		_cc = sp.GetService&lt;CreateCertificates&gt;();
+
+		var rsaCert = CreateRsaCertificateSha512KeySize2048("localhost", 10);
+
+		string password = configuration["certificateSecret"];
+		var iec = sp.GetService&lt;ImportExportCertificate&gt;();
+
+		var rsaCertPfxBytes = iec.ExportSelfSignedCertificatePfx(password, rsaCert);
+		File.WriteAllBytes("cert_rsa512.pfx", rsaCertPfxBytes);
+
+		Console.WriteLine("created");
+	}
+
+	public static X509Certificate2 CreateRsaCertificateSha512KeySize2048(string dnsName, int validityPeriodInYears)
+	{
+		var basicConstraints = new BasicConstraints
+		{
+			CertificateAuthority = false,
+			HasPathLengthConstraint = false,
+			PathLengthConstraint = 0,
+			Critical = false
+		};
+
+		var subjectAlternativeName = new SubjectAlternativeName
+		{
+			DnsName = new List&lt;string&gt;
+			{
+				dnsName,
+			}
+		};
+
+		var x509KeyUsageFlags = X509KeyUsageFlags.DigitalSignature;
+
+		// only if certification authentication is used
+		var enhancedKeyUsages = new OidCollection
+		{
+			OidLookup.ClientAuthentication,
+			// OidLookup.ServerAuthentication 
+			// OidLookup.CodeSigning,
+			// OidLookup.SecureEmail,
+			// OidLookup.TimeStamping  
+		};
+
+		var certificate = _cc.NewRsaSelfSignedCertificate(
+			new DistinguishedName { CommonName = dnsName },
+			basicConstraints,
+			new ValidityPeriod
+			{
+				ValidFrom = DateTimeOffset.UtcNow,
+				ValidTo = DateTimeOffset.UtcNow.AddYears(validityPeriodInYears)
+			},
+			subjectAlternativeName,
+			enhancedKeyUsages,
+			x509KeyUsageFlags,
+			new RsaConfiguration
+			{ 
+				KeySize = 3072,
+				HashAlgorithmName = HashAlgorithmName.SHA512
+			});
+
+		return certificate;
+	}
+}
+  
+
+
+<p>Running the applications</p>
+
+
+
+<p>I setup two user flows for running and testing the applications. One is using ngrok and local development with basic authentication. The second is using certification authentication and the deployed Azure App service. I published the API to the App service and run the UI application. When the user signs in, the API connector is used to get the extra custom claims from the deployed API and is returned.</p>
+
+
+
+
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/api-connectors-overview?pivots=b2c-user-flow">https://docs.microsoft.com/en-us/azure/active-directory-b2c/api-connectors-overview?pivots=b2c-user-flow</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/">https://docs.microsoft.com/en-us/azure/active-directory-b2c/</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-dotnet-external-identities-api-connector-azure-function-validate/">https://github.com/Azure-Samples/active-directory-dotnet-external-identities-api-connector-azure-function-validate/</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/dotnet/standard/serialization/system-text-json-customize-properties?pivots=dotnet-6-0">https://docs.microsoft.com/en-us/dotnet/standard/serialization/system-text-json-customize-properties?pivots=dotnet-6-0</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web/wiki">https://github.com/AzureAD/microsoft-identity-web/wiki</a></p>
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2020/09/04/securing-azure-functions-using-certificate-authentication/">Securing Azure Functions using certificate&nbsp;authentication</a></blockquote>
+ 
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/11/azureb2c_connector_cert_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:27 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2021/Nov/22/apache-proxies-datasette/#atom-everything'>Weeknotes: Apache proxies in Docker containers, refactoring Datasette</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Updates to six major projects this week, plus finally some concrete progress towards Datasette 1.0. 
+ Fixing Datasette's proxy bugs 
+ Now that Datasette has had its fourth birthday I've decided to really push towards hitting the 1.0 milestone. The key property of that release will be a stable JSON API, stable plugin hooks and a stable, documented context for custom templates. There's quite a lot o
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Updates to six major projects this week, plus finally some concrete progress towards Datasette 1.0.</p>
+ Fixing Datasette's proxy bugs 
+<p>Now that Datasette has had its fourth birthday I've decided to really push towards hitting <a href="https://github.com/simonw/datasette/milestone/7">the 1.0 milestone</a>. The key property of that release will be a stable JSON API, stable plugin hooks and a stable, documented context for custom templates. There's quite a lot of mostly unexciting work needed to get there.</p>
+<p>As I work through the issues in that milestone I'm encountering some that I filed more than two years ago!</p>
+<p>Two of those made it into the <a href="https://docs.datasette.io/en/stable/changelog.html#v0-59-3">Datasette 0.59.3</a> bug fix release earlier this week.</p>
+<p>The majority of the work in that release though related to Datasette's <a href="https://docs.datasette.io/en/stable/settings.html#base-url">base_url feature</a>, designed to help people who run Datasette behind a proxy.</p>
+<p><code>base_url</code> lets you run Datasette like this:</p>
+ <code>datasette --setting base_url=/prefix/ fixtures.db
+</code> 
+<p>When you do this, Datasette will change its URLs to start with that prefix - so the hompage will live at <code>/prefix/</code>, the database index page at <code>/prefix/fixtures/</code>, tables at <code>/prefix/fixtures/facetable</code> etc.</p>
+<p>The reason you would want this is if you are running a larger website, and you intend to proxy traffic to <code>/prefix/</code> to a separate Datasette instance.</p>
+<p>The Datasette documentation includes <a href="https://docs.datasette.io/en/stable/deploying.html#running-datasette-behind-a-proxy">suggested nginx and Apache configurations</a> for doing exactly that.</p>
+<p>This feature has been <a href="https://github.com/simonw/datasette/issues?q=is%3Aissue+base_url">a magnet for bugs</a> over the years! People keep finding new parts of the Datasette interface that fail to link to the correct pages when run in this mode.</p>
+<p>The principle cause of these bugs is that I don't use Datasette in this way myself, so I wasn't testing it nearly as thoroughly as it needed.</p>
+<p>So the first step in finally solving these issues once and for all was to get my own instance of Datasette up and running behind an Apache proxy.</p>
+<p>Since I like to deploy live demos to Cloud Run, I decided to try and run Apache and Datasette in the same container. This took a lot of figuring out. You can follow my progress on this in these two issue threads:</p>
+ 
+ <a href="https://github.com/simonw/datasette/issues/1521">#1521: Docker configuration for exercising Datasette behind Apache mod_proxy</a> 
+ <a href="https://github.com/simonw/datasette/issues/1522">#1522: Deploy a live instance of demos/apache-proxy</a> 
+ 
+<p>The short version: I got it working! My Docker implementation now lives in the <a href="https://github.com/simonw/datasette/tree/0.59.3/demos/apache-proxy">demos/apache-proxy</a> directory and the live demo itself is deployed to <a href="https://datasette-apache-proxy-demo.fly.dev/prefix/">datasette-apache-proxy-demo.fly.dev/prefix/</a>.</p>
+<p>(I ended up deploying it to <a href="https://fly.io/">Fly</a> after running into a bug when deployed to Cloud Run that I couldn't replicate on my own laptop.)</p>
+<p>My final implementation uses a Debian base container with Supervisord to manage the two processes.</p>
+<p>With a working live environment, I was finally able to track down the root cause of the bugs. My notes on
+<a href="https://github.com/simonw/datasette/issues/1519">#1519: base_url is omitted in JSON and CSV views</a> document how I found and solved them, and updated the associated test to hopefully avoid them ever coming back in the future.</p>
+ The big Datasette table refactor 
+<p>The single most complicated part of the Datasette codebase is the code behind the table view - the page that lets you browse, facet, search, filter and paginate through the contents of a table (<a href="https://covid-19.datasettes.com/covid/ny_times_us_counties">this page here</a>).</p>
+<p>It's got very thorough tests, but the actual implementation is mostly <a href="https://github.com/simonw/datasette/blob/main/datasette/views/table.py#L303-L992">a 600 line class method</a>.</p>
+<p>It was already difficult to work with, but the changes I want to make for Datasette 1.0 have proven too much for it. I need to refactor.</p>
+<p>Apart from making that view easier to change and maintain, a major goal I have is for it to support a much more flexible JSON syntax. I want the JSON version to default to just returning minimal information about the table, then allow <code>?_extra=x</code> parameters to opt into additional information - like facets, suggested facets, full counts, SQL schema information and so on.</p>
+<p>This means I want to break up that 600 line method into a bunch of separate methods, each of which can be opted-in-to by the calling code.</p>
+<p>The HTML interface should then build on top of the JSON, requesting the extras that it knows it will need and passing the resulting data through to the template. This helps solve the challenge of having a stable template context that I can document in advance of Datasette 1.0</p>
+<p>I've been putting this off for over a year now, because it's a lot of work. But no longer! This week I finally started to get stuck in.</p>
+<p>I don't know if I'll stick with it, but my initial attempt at this is a little unconventional. Inspired by how <a href="https://docs.pytest.org/en/6.2.x/fixture.html#back-to-fixtures">pytest fixtures work</a> I'm experimenting with a form of dependency injection, in a new (very alpha) library I've released called <a href="https://github.com/simonw/asyncinject">asyncinject</a>.</p>
+<p>The key idea behind <code>asyncinject</code> is to provide a way for class methods to indicate their dependencies as named parameters, in the same way as pytest fixtures do.</p>
+<p>When you call a method, the code can spot which dependencies have not yet been resolved and execute them before executing the method.</p>
+<p>Crucially, since they are all <code>async def</code> methods they can be executed in parallel. I'm cautiously excited about this - Datasette has a bunch of opportunities for parallel queries - fetching a single page of table rows, calculating a <code>count(*)</code> for the entire table, executing requested facets and calculating suggested facets are all queries that could potentially run in parallel rather than in serial.</p>
+<p>What about the GIL, you might ask? Datasette's database queries are handled by the <code>sqlite3</code> module, and that module releases the GIL once it gets into SQLite C code. So theoretically I should be able to use more than one core for this all.</p>
+<p>The <a href="https://github.com/simonw/asyncinject/blob/0.2a0/README.md">asyncinject README</a> has more details, including code examples. This may turn out to be a terrible idea! But it's really fun to explore, and I'll be able to tell for sure if this is a useful, maintainable and performant approach once I have Datasette's table view running on top of it.</p>
+ git-history and sqlite-utils 
+<p>I made some big improvements to my <a href="https://github.com/simonw/git-history">git-history</a> tool, which automates the process of turning a JSON (or other) file that has been version-tracked in a GitHub repository (see <a href="https://simonwillison.net/2020/Oct/9/git-scraping/">Git scraping</a>) into a SQLite database that can be used to explore changes to it over time.</p>
+<p>The biggest was a major change to the database schema. Previously, the tool used full Git SHA hashes as foreign keys in the largest table.</p>
+<p>The problem here is that a SHA hash string is 40 characters long, and if they are being used as a foreign key that's a LOT of extra weight added to the largest table.</p>
+<p><code>sqlite-utils</code> has a <a href="https://sqlite-utils.datasette.io/en/stable/python-api.html#python-api-lookup-tables">table.lookup() method</a> which is designed to make creating "lookup" tables - where a string is stored in a unique column but an integer ID can be used for things like foreign keys - as easy as possible.</p>
+<p>That method was previously quite limited, but in <a href="https://sqlite-utils.datasette.io/en/stable/changelog.html#v3-18">sqlite-utils 3.18</a> and <a href="https://sqlite-utils.datasette.io/en/stable/changelog.html#v3-19">3.19</a> - both released this week - I expanded it to cover the more advanced needs of my <code>git-history</code> tool.</p>
+<p>The great thing about building stuff on top of your own libraries is that you can discover new features that you need along the way - and then ship them promptly without them blocking your progress!</p>
+ Some other highlights 
+ 
+ 
+<a href="https://github.com/simonw/s3-credentials/releases/tag/0.6">s3-credentials 0.6</a> adds a <code>--dry-run</code> option that you can use to show what the tool would do without making any actual changes to your AWS account. I found myself wanting this while continuing to work on the ability to <a href="https://github.com/simonw/s3-credentials/issues/12">specify a folder prefix</a> within S3 that the bucket credentials should be limited to. 
+ 
+<a href="https://github.com/simonw/datasette-publish-vercel/releases/tag/0.12">datasette-publish-vercel 0.12</a> applies some pull requests from Romain Clement that I had left unreviewed for far too long, and adds the ability to customize the <code>vercel.json</code> file used for the deployment - useful for things like setting up additional custom redirects. 
+ 
+<a href="https://github.com/simonw/datasette-graphql/releases/tag/2.0">datasette-graphql 2.0</a> updates that plugin to <a href="https://github.com/graphql-python/graphene/wiki/v3-release-notes">Graphene 3.0</a>, a major update to that library. I had to break backwards compatiblity in very minor ways, hence the 2.0 version number. 
+ 
+ 
+ 
+<a href="https://github.com/simonw/csvs-to-sqlite/releases/tag/1.3">csvs-to-sqlite 1.3</a> is the first relase of that tool in just over a year. William Rowell contributed a new feature that allows you to populate "fixed" database columns on your imported records, see <a href="https://github.com/simonw/csvs-to-sqlite/pull/81">PR #81</a> for details. 
+ 
+ TIL this week 
+ 
+ <a href="https://til.simonwillison.net/python/graphlib-topologicalsorter">Planning parallel downloads with TopologicalSorter</a> 
+ <a href="https://til.simonwillison.net/python/cog-to-update-help-in-readme">Using cog to update --help in a Markdown README file</a> 
+ <a href="https://til.simonwillison.net/cloudrun/using-build-args-with-cloud-run">Using build-arg variables with Cloud Run deployments</a> 
+ <a href="https://til.simonwillison.net/fly/custom-subdomain-fly">Assigning a custom subdomain to a Fly app</a> 
+ 
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/datasette-publish-vercel">datasette-publish-vercel</a>: <a href="https://github.com/simonw/datasette-publish-vercel/releases/tag/0.12">0.12</a> - (<a href="https://github.com/simonw/datasette-publish-vercel/releases">18 releases total</a>) - 2021-11-22
+<br>Datasette plugin for publishing data using Vercel 
+ 
+<a href="https://github.com/simonw/git-history">git-history</a>: <a href="https://github.com/simonw/git-history/releases/tag/0.4">0.4</a> - (<a href="https://github.com/simonw/git-history/releases">6 releases total</a>) - 2021-11-21
+<br>Tools for analyzing Git history using SQLite 
+ 
+<a href="https://github.com/simonw/sqlite-utils">sqlite-utils</a>: <a href="https://github.com/simonw/sqlite-utils/releases/tag/3.19">3.19</a> - (<a href="https://github.com/simonw/sqlite-utils/releases">90 releases total</a>) - 2021-11-21
+<br>Python CLI utility and library for manipulating SQLite databases 
+ 
+<a href="https://github.com/simonw/datasette">datasette</a>: <a href="https://github.com/simonw/datasette/releases/tag/0.59.3">0.59.3</a> - (<a href="https://github.com/simonw/datasette/releases">101 releases total</a>) - 2021-11-20
+<br>An open source multi-tool for exploring and publishing data 
+ 
+<a href="https://github.com/simonw/datasette-redirect-to-https">datasette-redirect-to-https</a>: <a href="https://github.com/simonw/datasette-redirect-to-https/releases/tag/0.1">0.1</a> - 2021-11-20
+<br>Datasette plugin that redirects all non-https requests to https 
+ 
+<a href="https://github.com/simonw/s3-credentials">s3-credentials</a>: <a href="https://github.com/simonw/s3-credentials/releases/tag/0.6">0.6</a> - (<a href="https://github.com/simonw/s3-credentials/releases">6 releases total</a>) - 2021-11-18
+<br>A tool for creating credentials for accessing S3 buckets 
+ 
+<a href="https://github.com/simonw/csvs-to-sqlite">csvs-to-sqlite</a>: <a href="https://github.com/simonw/csvs-to-sqlite/releases/tag/1.3">1.3</a> - (<a href="https://github.com/simonw/csvs-to-sqlite/releases">13 releases total</a>) - 2021-11-18
+<br>Convert CSV files into a SQLite database 
+ 
+<a href="https://github.com/simonw/datasette-graphql">datasette-graphql</a>: <a href="https://github.com/simonw/datasette-graphql/releases/tag/2.0">2.0</a> - (<a href="https://github.com/simonw/datasette-graphql/releases">32 releases total</a>) - 2021-11-17
+<br>Datasette plugin providing an automatic GraphQL API for your SQLite databases 
+ 
+<a href="https://github.com/simonw/asyncinject">asyncinject</a>: <a href="https://github.com/simonw/asyncinject/releases/tag/0.2a0">0.2a0</a> - (<a href="https://github.com/simonw/asyncinject/releases">2 releases total</a>) - 2021-11-17
+<br>Run async workflows using pytest-fixtures-style dependency injection 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:43 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -814,7 +1353,7 @@
 
 <div class='item-footer'>
    05:39 &bull;
-   5 minutes ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -874,7 +1413,7 @@
 
 <div class='item-footer'>
    03:52 &bull;
-   2 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -944,7 +1483,7 @@
 
 <div class='item-footer'>
    03:32 &bull;
-   2 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1023,7 +1562,7 @@
 
 <div class='item-footer'>
    19:34 &bull;
-   10 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1094,7 +1633,7 @@
 
 <div class='item-footer'>
    19:30 &bull;
-   10 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1170,7 +1709,7 @@
 
 <div class='item-footer'>
    15:13 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1241,7 +1780,7 @@
 
 <div class='item-footer'>
    14:44 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1752,7 +2291,7 @@ Now moving posts at .vision to .business</p>
 
 <div class='item-footer'>
    21:00 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1821,7 +2360,7 @@ Now moving posts at .vision to .business</p>
 
 <div class='item-footer'>
    20:59 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2030,7 +2569,7 @@ Now moving posts at .vision to .business</p>
 
 <div class='item-footer'>
    21:55 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2109,7 +2648,7 @@ Now moving posts at .vision to .business</p>
 
 <div class='item-footer'>
    21:23 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2183,7 +2722,7 @@ Now moving posts at .vision to .business</p>
 
 <div class='item-footer'>
    21:16 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2256,7 +2795,7 @@ Now moving posts at .vision to .business</p>
 
 <div class='item-footer'>
    18:49 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2326,7 +2865,7 @@ Now moving posts at .vision to .business</p>
 
 <div class='item-footer'>
    18:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2396,7 +2935,7 @@ Now moving posts at .vision to .business</p>
 
 <div class='item-footer'>
    18:40 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2469,7 +3008,7 @@ Now moving posts at .vision to .business</p>
 
 <div class='item-footer'>
    18:33 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2543,7 +3082,7 @@ Move along! Move along”</p>
 
 <div class='item-footer'>
    18:20 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2942,7 +3481,7 @@ Move along! Move along”</p>
 
 <div class='item-footer'>
    19:28 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4021,7 +4560,7 @@ As a simple example, suppose Victor is given a <code>sha256</code> hash, <code>H
 
 <div class='item-footer'>
    22:44 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4079,6 +4618,14 @@ As a simple example, suppose Victor is given a <code>sha256</code> hash, <code>H
 
 
 <p>Code: <a href="https://github.com/damienbod/AspNetCoreB2cExtraClaims">https://github.com/damienbod/AspNetCoreB2cExtraClaims</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/07/26/securing-asp-net-core-razor-pages-web-apis-with-azure-b2c-external-and-azure-ad-internal-identities/">Securing ASP.NET Core Razor Pages, Web APIs with Azure B2C external and Azure AD internal identities</a>  <a href="https://damienbod.com/2021/09/06/using-azure-security-groups-in-asp-net-core-with-an-azure-b2c-identity-provider/">Using Azure security groups in ASP.NET Core with an Azure B2C Identity Provider</a>  <a href="https://damienbod.com/2021/11/15/add-extra-claims-to-an-azure-b2c-user-flow-using-api-connectors/">Add extra claims to an Azure B2C user flow using API connectors and ASP.NET Core</a>  <a href="https://damienbod.com/2021/11/22/implement-certificate-authentication-in-asp-net-core-for-an-azure-b2c-api-connector/">Implement certificate authentication in ASP.NET Core for an Azure B2C API connector</a>  
 
 
 
@@ -4681,7 +5228,7 @@ private bool IsAuthorized(HttpRequest req)
 
 <div class='item-footer'>
    18:14 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5013,7 +5560,7 @@ private bool IsAuthorized(HttpRequest req)
 
 <div class='item-footer'>
    20:44 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5098,7 +5645,7 @@ private bool IsAuthorized(HttpRequest req)
 
 <div class='item-footer'>
    22:45 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5543,7 +6090,7 @@ connection.on("NonConcurrentJobs", function (message) {
 
 <div class='item-footer'>
    22:15 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6303,7 +6850,7 @@ jobs:
 
 <div class='item-footer'>
    22:02 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6467,7 +7014,7 @@ Photo by <a href="https://unsplash.com/@lemonvlad?utm_source=unsplash&amp;utm_me
 
 <div class='item-footer'>
    18:30 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6541,7 +7088,7 @@ Photo by <a href="https://unsplash.com/@lemonvlad?utm_source=unsplash&amp;utm_me
 
 <div class='item-footer'>
    18:12 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7774,7 +8321,7 @@ RUN apt-get update &amp;&amp; \
 
 <div class='item-footer'>
    20:22 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14340,106 +14887,6 @@ $ stepzen start
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Sep/28/weeknotes/#atom-everything'>Weeknotes: CDC vaccination history fixes, developing in GitHub Codespaces</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I spent the last week mostly surrounded by boxes: we're completing our move to the new place and life is mostly unpacking now. I did find some time to fix some issues with my CDC vaccination history Datasette instance though. 
- Fixing my CDC vaccination history site 
- I started tracking changes made to the CDC's COVID Data Tracker website back in Feburary. I created a git scraper repository for it
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>I spent the last week mostly surrounded by boxes: we're completing our move to the new place and life is mostly unpacking now. I did find some time to fix some issues with my <a href="https://cdc-vaccination-history.datasette.io/">CDC vaccination history</a> Datasette instance though.</p>
- Fixing my CDC vaccination history site 
-<p>I started tracking changes made to the <a href="https://covid.cdc.gov/covid-data-tracker/#vaccinations_vacc-total-admin-rate-total">CDC's COVID Data Tracker</a> website back in Feburary. I created <a href="https://github.com/simonw/cdc-vaccination-history">a git scraper repository</a> for it as part of my <a href="https://simonwillison.net/2021/Mar/5/git-scraping/">five minute lightning talk on git scraping</a> (notes and video) at this year's NICAR data journalism conference.</p>
-<p>Since then it's been quietly ticking along, recording the latest data in a git repository that now has <a href="https://github.com/simonw/cdc-vaccination-history/commits/main">335 commits</a>.</p>
-<p>In March I <a href="https://github.com/simonw/cdc-vaccination-history/commit/bf88c1e6cc3e5b6344a7dfea5d2a70dcb0552847#diff-87ee5504a3e25ac558b343724c905f2f7949e8cec3d92b9c4300bb922afa164f">added a script</a> to build the collected historic data into a SQLite database and publish it to Vercel using GitHub. That started breaking a few weeks ago, and it turnoud out that was because the database file had grown in size to the point where it was too large to deploy to Vercel (~100MB).</p>
-<p>I got a bug report about this, so I took some time to <a href="https://github.com/simonw/cdc-vaccination-history/issues/8">move the deployment over</a> to Google Cloud Run which doesn't have a documented size limit (though in my experience starts to creak once you go above about 2GB.)</p>
-<p>I also started publishing the raw collected data <a href="https://github.com/simonw/cdc-vaccination-history/issues/9">directly as a CSV file</a>, partly as an excuse to learn <a href="https://til.simonwillison.net/googlecloud/gsutil-bucket">how to publish to Google Cloud Storage</a>.</p>
- datasette-template-request 
-<p>I released an extremely simple plugin this week called <a href="https://datasette.io/plugins/datasette-template-request">datasette-template-request</a> - all it does is expose Datasette's <a href="https://docs.datasette.io/en/stable/internals.html#request-object">request object</a> in the context passed to <a href="https://docs.datasette.io/en/stable/custom_templates.html">custom templates</a>, for people who want to update their custom page based on incoming request parameters.</p>
-<p>More notable is how I built the plugin: this is the first plugin I've developed, tested and released entirely in my browser using the new <a href="https://github.com/features/codespaces">GitHub Codespaces</a> online development environment.</p>
-<p>I created the new repo using my <a href="https://github.com/simonw/datasette-plugin-template-repository">Datasette plugin template repository</a>, opened it up in Codespaces, implemented the plugin and tests, tried it out using the port forwarding feature and then published it to PyPI using the <a href="https://github.com/simonw/datasette-template-request/blob/0.1/.github/workflows/publish.yml">publish.yml</a> workflow.</p>
-<p>Not having to even open a text editor on my laptop (let alone get a new Python development environment up and running) felt really good. I should turn this into a tutorial.</p>
- Releases this week 
- 
- 
-<a href="https://github.com/simonw/datasette-template-request">datasette-template-request</a>: <a href="https://github.com/simonw/datasette-template-request/releases/tag/0.1">0.1</a> - 2021-09-23
-<br>Expose the Datasette request object to custom templates 
- 
-<a href="https://github.com/simonw/datasette-notebook">datasette-notebook</a>: <a href="https://github.com/simonw/datasette-notebook/releases/tag/0.1a1">0.1a1</a> - (<a href="https://github.com/simonw/datasette-notebook/releases">2 releases total</a>) - 2021-09-22
-<br>A markdown wiki and dashboarding system for Datasette 
- 
-<a href="https://github.com/simonw/datasette-render-markdown">datasette-render-markdown</a>: <a href="https://github.com/simonw/datasette-render-markdown/releases/tag/2.0">2.0</a> - (<a href="https://github.com/simonw/datasette-render-markdown/releases">8 releases total</a>) - 2021-09-22
-<br>Datasette plugin for rendering Markdown 
- 
-<a href="https://github.com/simonw/sqlite-utils">sqlite-utils</a>: <a href="https://github.com/simonw/sqlite-utils/releases/tag/3.17.1">3.17.1</a> - (<a href="https://github.com/simonw/sqlite-utils/releases">87 releases total</a>) - 2021-09-22
-<br>Python CLI utility and library for manipulating SQLite databases 
- 
-<a href="https://github.com/dogsheep/twitter-to-sqlite">twitter-to-sqlite</a>: <a href="https://github.com/dogsheep/twitter-to-sqlite/releases/tag/0.22">0.22</a> - (<a href="https://github.com/dogsheep/twitter-to-sqlite/releases">28 releases total</a>) - 2021-09-21
-<br>Save data from Twitter to a SQLite database 
- 
- TIL this week 
- 
- <a href="https://til.simonwillison.net/til/til/googlecloud_gsutil-bucket.md">Publishing to a public Google Cloud bucket with gsutil</a> 
- <a href="https://til.simonwillison.net/til/til/javascript_lit-with-skypack.md">Loading lit from Skypack</a> 
- 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:53 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Saturday, 25. September 2021
  </h2>
@@ -18226,6 +18673,14 @@ This is the BYTE magazine cover from August of 1981. In the 70s and the 80s, pro
 
 
 
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2021/07/26/securing-asp-net-core-razor-pages-web-apis-with-azure-b2c-external-and-azure-ad-internal-identities/">Securing ASP.NET Core Razor Pages, Web APIs with Azure B2C external and Azure AD internal identities</a>  <a href="https://damienbod.com/2021/09/06/using-azure-security-groups-in-asp-net-core-with-an-azure-b2c-identity-provider/">Using Azure security groups in ASP.NET Core with an Azure B2C Identity Provider</a>  <a href="https://damienbod.com/2021/11/15/add-extra-claims-to-an-azure-b2c-user-flow-using-api-connectors/">Add extra claims to an Azure B2C user flow using API connectors and ASP.NET Core</a>  <a href="https://damienbod.com/2021/11/22/implement-certificate-authentication-in-asp-net-core-for-an-azure-b2c-api-connector/">Implement certificate authentication in ASP.NET Core for an Azure B2C API connector</a>  
+
+
+
 <p>Two Azure AD security groups were created to demonstrate this feature with Azure B2C authentication. The users were added to the admin group and the user group as required. The ASP.NET Core application uses an ASP.NET Core Razor page which should only be used by admin users, i.e. people in the group. To validate this in the application, Microsoft Graph API is used to get groups for the signed in user and an ASP.NET Core handler, requirement and policy uses the group claim created from the Azure group to force the authorization.</p>
 
 
@@ -19634,352 +20089,6 @@ differentiate what is ‘true’ SSI
 
 <div class='item-footer'>
    15:44 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 30. August 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/08/30/improving-application-security-in-an-asp-net-core-api-using-http-headers-part-3/'>Improving application security in an ASP.NET Core API using HTTP headers – Part 3</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to improve the security of an ASP.NET Core Web API application by adding security headers to all HTTP API responses. The security headers are added using the NetEscapades.AspNetCore.SecurityHeaders Nuget package from Andrew Lock. The headers are used to protect the session, not for authorization. The application uses Microsoft.Identity.Web to authorize the […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to improve the security of an ASP.NET Core Web API application by adding security headers to all HTTP API responses. The security headers are added using the <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package from <a href="https://twitter.com/andrewlocknet">Andrew Lock</a>. The headers are used to protect the session, not for authorization. The application uses Microsoft.Identity.Web to authorize the API requests. The security headers are used to protected the session.  Swagger is used in development and the CSP needs to be weakened to allow swagger to work during development. A strict CSP definition is used for the deployed environment.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AzureAD-Auth-MyUI-with-MyAPI">https://github.com/damienbod/AzureAD-Auth-MyUI-with-MyAPI</a></p>
-
-
-
-<p>Blogs in this series</p>
-
-
-
-  <a href="https://damienbod.com/2021/08/16/improving-application-security-in-asp-net-core-razor-pages-using-http-headers-part-1/">Improving application security in ASP.NET Core Razor Pages using HTTP headers – Part 1</a>  <a href="https://damienbod.com/2021/08/23/improving-application-security-in-blazor-using-http-headers-part-2/">Improving application security in Blazor using HTTP headers – Part 2</a>  Improving application security in an ASP.NET Core API using HTTP headers – Part 3  
-
-
-
-<p></p>
-
-
-
-<p>The NetEscapades.AspNetCore.SecurityHeaders Nuget package is added to the csproj file of the web applications. The Swagger Open API packages are added as well as the Microsoft.Identity.Web to protect the API using OAuth.</p>
-
-
-  &lt;ItemGroup&gt;
-	&lt;PackageReference 
-		Include="Microsoft.Identity.Web" Version="1.15.2" /&gt;
-	&lt;PackageReference 
-		Include="IdentityModel.AspNetCore" Version="3.0.0" /&gt;
-	&lt;PackageReference 
-		Include="NetEscapades.AspNetCore.SecurityHeaders" Version="0.16.0" /&gt;
-	&lt;PackageReference 
-		Include="Swashbuckle.AspNetCore" Version="6.1.4" /&gt;
-	&lt;PackageReference 
-		Include="Swashbuckle.AspNetCore.Annotations" Version="6.1.4" /&gt;
-&lt;/ItemGroup&gt;
-  
-
-
-<p>The security header definitions are added using the HeaderPolicyCollection class. I added this to a separate class to keep the Startup class small where the middleware is added. I passed a boolean parameter into the method which is used to add or remove the HSTS header and create a CSP policy depending on the environment. </p>
-
-
-
-<p></p>
-
-
-  public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev)
-{
-	var policy = new HeaderPolicyCollection()
-		.AddFrameOptionsDeny()
-		.AddXssProtectionBlock()
-		.AddContentTypeOptionsNoSniff()
-		.AddReferrerPolicyStrictOriginWhenCrossOrigin()
-		.RemoveServerHeader()
-		.AddCrossOriginOpenerPolicy(builder =&gt;
-		{
-			builder.SameOrigin();
-		})
-		.AddCrossOriginEmbedderPolicy(builder =&gt;
-		{
-			builder.RequireCorp();
-		})
-		.AddCrossOriginResourcePolicy(builder =&gt;
-		{
-			builder.SameOrigin();
-		})
-		.RemoveServerHeader()
-		.AddPermissionsPolicy(builder =&gt;
-		{
-			builder.AddAccelerometer().None();
-			builder.AddAutoplay().None();
-			builder.AddCamera().None();
-			builder.AddEncryptedMedia().None();
-			builder.AddFullscreen().All();
-			builder.AddGeolocation().None();
-			builder.AddGyroscope().None();
-			builder.AddMagnetometer().None();
-			builder.AddMicrophone().None();
-			builder.AddMidi().None();
-			builder.AddPayment().None();
-			builder.AddPictureInPicture().None();
-			builder.AddSyncXHR().None();
-			builder.AddUsb().None();
-		});
-
-	AddCspHstsDefinitions(isDev, policy);
-
-	return policy;
-}
-  
-
-
-<p>The AddCspHstsDefinitions defines different policies using the parameter. In development, the HSTS header is not added to the headers and a weak CSP is used so that the Swagger UI will work. This UI uses unsafe inline Javascript and needs to be allowed in development. I remove swagger from all non dev deployments due to this and force a strong CSP definition then.</p>
-
-
-  private static void AddCspHstsDefinitions(bool isDev, HeaderPolicyCollection policy)
-{
-	if (!isDev)
-	{
-		policy.AddContentSecurityPolicy(builder =&gt;
-		{
-			builder.AddObjectSrc().None();
-			builder.AddBlockAllMixedContent();
-			builder.AddImgSrc().None();
-			builder.AddFormAction().None();
-			builder.AddFontSrc().None();
-			builder.AddStyleSrc().None();
-			builder.AddScriptSrc().None();
-			builder.AddBaseUri().Self();
-			builder.AddFrameAncestors().None();
-			builder.AddCustomDirective("require-trusted-types-for", "'script'");
-		});
-		// maxage = one year in seconds
-		policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains
-          (maxAgeInSeconds: 60 * 60 * 24 * 365);
-	}
-	else
-	{
-		// allow swagger UI for dev
-		policy.AddContentSecurityPolicy(builder =&gt;
-		{
-			builder.AddObjectSrc().None();
-			builder.AddBlockAllMixedContent();
-			builder.AddImgSrc().Self().From("data:");
-			builder.AddFormAction().Self();
-			builder.AddFontSrc().Self();
-			builder.AddStyleSrc().Self().UnsafeInline();
-			builder.AddScriptSrc().Self().UnsafeInline(); //.WithNonce();
-			builder.AddBaseUri().Self();
-			builder.AddFrameAncestors().None();
-		});
-	}
-}
-  
-
-
-<p>In the Startup class, the UseSecurityHeaders method is used to apply the HTTP headers policy and add the middleware to the application. The env.IsDevelopment() is used to add or not to add the HSTS header. The default HSTS middleware from the ASP.NET Core templates was removed from the Configure method as this is not required.   The UseSecurityHeaders is added before the swagger middleware so that the security headers are deployment to all environments.</p>
-
-
-  public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
-{
-	app.UseSecurityHeaders(
-		SecurityHeadersDefinitions.GetHeaderPolicyCollection(env.IsDevelopment()));
-
-	if (env.IsDevelopment())
-	{
-		app.UseDeveloperExceptionPage();
-
-		app.UseSwagger();
-		app.UseSwaggerUI(c =&gt;
-		{
-			c.SwaggerEndpoint("/swagger/v1/swagger.json", "API v1");
-		});
-	}
-  
-
-
-<p>The server header can be removed in the program class if using Kestrel. If using IIS, you probably need to use the web.config to remove this. </p>
-
-
-  public static IHostBuilder CreateHostBuilder(string[] args) =&gt;
-            Host.CreateDefaultBuilder(args)
-                .ConfigureWebHostDefaults(webBuilder =&gt;
-                {
-                    webBuilder
-                        .ConfigureKestrel(options =&gt; options.AddServerHeader = false)
-                        .UseStartup&lt;Startup&gt;();
-                });
-  
-
-
-<p>Running the application using a non development environment, the securtiyheaders.com check returns good results. Everything is closed as this is an API with no UI. </p>
-
-
-
-
-
-
-
-<p>And the <a href="https://csp-evaluator.withgoogle.com/">https://csp-evaluator.withgoogle.com/</a> check returns a very possible evaluation of the headers. </p>
-
-
-
-
-
-
-
-<p>If a swagger UI is required, the API application can be run in the development environment. This could also be deployed if required, but in a production deployment, you probably don’t need this.</p>
-
-
-
-
-
-
-
-<p>To support the swagger UI, a weakened CSP is used and the <a href="https://csp-evaluator.withgoogle.com/">https://csp-evaluator.withgoogle.com/</a> check returns a more negative result.</p>
-
-
-
-<p></p>
-
-
-
-
-
-
-
-<p>Notes:</p>
-
-
-
-<p>I block all traffic, if possible, which is not from my domain including sub domains. If implementing enterprise applications, I would always do this. If implementing public facing applications with high traffic volumes or need extra fast response times, or need to reduce the costs of hosting, then CDNs would need to be used, allowed and so on. Try to block all first and open up as required and maybe you can avoid some nasty surprises from all the Javascript, CSS frameworks used.</p>
-
-
-
-<p></p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://securityheaders.com/">https://securityheaders.com/</a></p>
-
-
-
-<p><a href="https://csp-evaluator.withgoogle.com/">https://csp-evaluator.withgoogle.com/</a></p>
-
-
-
-<p><a href="https://www.youtube.com/watch?v=J6BZ9IQELNA">Security by Default Chrome developers</a></p>
-
-
-
-<p><a href="https://www.snigel.com/blog/a-simple-guide-to-coop-coep-corp-and-cors/">A Simple Guide to COOP, COEP, CORP, and CORS</a></p>
-
-
-
-<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
-
-
-
-<p><a href="https://github.com/dotnet/aspnetcore/issues/34428">https://github.com/dotnet/aspnetcore/issues/34428</a></p>
-
-
-
-<p><a href="https://w3c.github.io/webappsec-trusted-types/dist/spec/">https://w3c.github.io/webappsec-trusted-types/dist/spec/</a></p>
-
-
-
-<p><a href="https://web.dev/trusted-types/">https://web.dev/trusted-types/</a></p>
-
-
-
-<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Cross-Origin_Resource_Policy_(CORP)">https://developer.mozilla.org/en-US/docs/Web/HTTP/Cross-Origin_Resource_Policy_(CORP)</a></p>
-
-
-
-<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS">https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS</a></p>
-
-
-
-<p><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies">https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies</a></p>
-
-
-
-<p><a href="https://docs.google.com/document/d/1zDlfvfTJ_9e8Jdc8ehuV4zMEu9ySMCiTGMS9y0GU92k/edit">https://docs.google.com/document/d/1zDlfvfTJ_9e8Jdc8ehuV4zMEu9ySMCiTGMS9y0GU92k/edit</a></p>
-
-
-
-<p><a href="https://scotthelme.co.uk/coop-and-coep/">https://scotthelme.co.uk/coop-and-coep/</a></p>
-
-
-
-<p><a href="https://github.com/OWASP/ASVS">https://github.com/OWASP/ASVS</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/08/security_headers_api_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:31 &bull;
    3 months ago
 </div>
 
