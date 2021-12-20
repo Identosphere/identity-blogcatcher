@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:45 PM December 19, 2021 (UTC)</sup>
+<sup>Last Update 8:45 PM December 20, 2021 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -747,8 +747,1238 @@
 
 
  <h2 class='new-date'>
+  Monday, 20. December 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2021/12/20/use-calendar-mailbox-settings-and-teams-presence-in-asp-net-core-hosted-blazor-wasm-with-microsoft-graph/'>Use calendar, mailbox settings and Teams presence in ASP.NET Core hosted Blazor WASM with Microsoft Graph</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to use Microsoft Graph with delegated permissions in a Blazor WASM ASP.NET Core hosted application. The application uses Microsoft.Identity.Web and the BFF architecture to authenticate against Azure AD. All security logic is implemented in the trusted backend. Microsoft Graph is used to access mailbox settings, teams presence and a users calendar. […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to use Microsoft Graph with delegated permissions in a Blazor WASM ASP.NET Core hosted application. The application uses Microsoft.Identity.Web and the BFF architecture to authenticate against Azure AD. All security logic is implemented in the trusted backend. Microsoft Graph is used to access mailbox settings, teams presence and a users calendar. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreBlazorMicrosoftGraph">https://github.com/damienbod/AspNetCoreBlazorMicrosoftGraph</a></p>
+
+
+
+<p>Use Case and setup</p>
+
+
+
+<p>A Blazor WASM UI hosted in ASP.NET Core is used to access any users mailbox settings, team presence or calendar data in the same tenant. The application uses Azure AD for authentication. <a href="https://blazorise.com">Blazorise</a> is used in the Blazor WASM UI client project. An authenticated user can enter the target email to view the required data. Delegated Microsoft Graph permissions are used to authorize the API calls.</p>
+
+
+
+
+
+
+
+<p>Setup Azure App registration</p>
+
+
+
+<p>The Azure App registration is setup to allow the Microsoft Graph delegated permissions to access the mailbox settings, the teams presence data and the calendar data. The mail permissions are also added if you would like to send emails using Microsoft Graph. The application is a trusted server rendered one and can keep a secret. Because of this, the app is authenticated using a secret or a certificate. You should always authenticate the application if possible. </p>
+
+
+
+
+
+
+
+<p>Implement the Blazor WASM ASP.NET Core Hosted authentication</p>
+
+
+
+<p>Only one application exists for the UI and the backend and so only one Azure app registration is used. All authentication is implemented in the trusted backend. The BFF security architecture is used.  Microsoft.Identity.Web is used in the the trusted backend to authenticate the application and the identity. No authentication is implemented in the Blazor WASM. This is a view of the server rendered application. The security architecture is more simple and no sensitive data is stored in the client browser. This is especially important since Azure AD does not support revocation, introspection or any way to invalidate the tokens on a logout. SPAs cannot fully logout in Azure AD or Azure B2C because the tokens cannot be invalidated. You should not be sharing the tokens in the untrusted zone due to this as this is hard to secure and you need to evaluate the risk of losing the tokens for your system.  Using cookies with same site protection and keeping the tokens in the trusted backend reduces these security risks. Here is a quick start for dotnet Blazor BFF using Azure AD: <a href="https://github.com/damienbod/Blazor.BFF.AzureAD.Template">Blazor.BFF.AzureAD.Template</a>.</p>
+
+
+
+
+
+
+
+<p>The ConfigureServices method is used to setup the services. You can do this in the program file as well. The AddAntiforgery method is used because cookies are used to access the API. Same site is also used to protect the cookies which should only work on the same domain and no sub domains or any other domain. The AddMicrosoftIdentityWebAppAuthentication method is used with a downstream API used for Microsoft Graph. Razor pages are used as the Blazor WASM is hosted in a Razor page and dynamic server data can be used to protect the application or also be used to add meta tags.</p>
+
+
+  public void ConfigureServices(IServiceCollection services)
+{
+	services.AddScoped&lt;GraphApiClientService&gt;();
+
+	services.AddAntiforgery(options =&gt;
+	{
+		options.HeaderName = "X-XSRF-TOKEN";
+		options.Cookie.Name = "__Host-X-XSRF-TOKEN";
+		options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict;
+		options.Cookie.SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.Always;
+	});
+
+	services.AddHttpClient();
+	services.AddOptions();
+
+	var scopes = Configuration.GetValue&lt;string&gt;("DownstreamApi:Scopes");
+	string[] initialScopes = scopes?.Split(' ');
+
+	services.AddMicrosoftIdentityWebAppAuthentication(Configuration)
+		.EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
+		.AddMicrosoftGraph("https://graph.microsoft.com/beta", scopes)
+		.AddInMemoryTokenCaches();
+
+	services.AddControllersWithViews(options =&gt;
+		options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
+
+	services.AddRazorPages().AddMvcOptions(options =&gt; { })
+		.AddMicrosoftIdentityUI();
+}
+  
+
+
+<p>The Configure method adds the middleware as required. The UseSecurityHeaders method adds all the required security headers which are possible for Blazor. The Razor page _Host is used as the fallback, not a static page.</p>
+
+
+  public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+{
+	if (env.IsDevelopment())
+	{
+		app.UseDeveloperExceptionPage();
+		app.UseWebAssemblyDebugging();
+	}
+	else
+	{
+		app.UseExceptionHandler("/Error");
+	}
+
+	app.UseSecurityHeaders(
+		SecurityHeadersDefinitions.GetHeaderPolicyCollection(env.IsDevelopment(),
+			Configuration["AzureAd:Instance"]));
+
+	app.UseHttpsRedirection();
+	app.UseBlazorFrameworkFiles();
+	app.UseStaticFiles();
+
+	app.UseRouting();
+	app.UseAuthentication();
+	app.UseAuthorization();
+
+	app.UseEndpoints(endpoints =&gt;
+	{
+		endpoints.MapRazorPages();
+		endpoints.MapControllers();
+		endpoints.MapFallbackToPage("/_Host");
+	});
+}
+  
+
+
+<p>The security headers are implemented using the <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package. This adds everything which is possible for a production deployment. If you want to use hot reload you need to disable some of these policies. You must ensure that the CSS, script code is not implemented in a bad way, otherwise you leave you application open for attacks. A good dev environment should be as close as possible to the production deployment. I don’t use hot reload due to this. Due to Blazorise, the style policy allows inline style in the CSP protection. </p>
+
+
+  public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev, string idpHost)
+{
+	var policy = new HeaderPolicyCollection()
+		.AddFrameOptionsDeny()
+		.AddXssProtectionBlock()
+		.AddContentTypeOptionsNoSniff()
+		.AddReferrerPolicyStrictOriginWhenCrossOrigin()
+		.AddCrossOriginOpenerPolicy(builder =&gt;
+		{
+			builder.SameOrigin();
+		})
+		.AddCrossOriginResourcePolicy(builder =&gt;
+		{
+			builder.SameOrigin();
+		})
+		.AddCrossOriginEmbedderPolicy(builder =&gt; // remove for dev if using hot reload
+		{
+			builder.RequireCorp();
+		})
+		.AddContentSecurityPolicy(builder =&gt;
+		{
+			builder.AddObjectSrc().None();
+			builder.AddBlockAllMixedContent();
+			builder.AddImgSrc().Self().From("data:");
+			builder.AddFormAction().Self().From(idpHost);
+			builder.AddFontSrc().Self();
+			builder.AddStyleSrc().Self().UnsafeInline();
+			builder.AddBaseUri().Self();
+			builder.AddFrameAncestors().None();
+
+			// due to Blazor
+            builder.AddScriptSrc()
+                  .Self()
+                  .WithHash256("v8v3RKRPmN4odZ1CWM5gw80QKPCCWMcpNeOmimNL2AA=")
+                  .UnsafeEval();
+
+			// due to Blazor hot reload requires you to disable script and style CSP protection
+			// if using hot reload, DO NOT deploy an with an insecure CSP
+		})
+		.RemoveServerHeader()
+		.AddPermissionsPolicy(builder =&gt;
+		{
+			builder.AddAccelerometer().None();
+			builder.AddAutoplay().None();
+			builder.AddCamera().None();
+			builder.AddEncryptedMedia().None();
+			builder.AddFullscreen().All();
+			builder.AddGeolocation().None();
+			builder.AddGyroscope().None();
+			builder.AddMagnetometer().None();
+			builder.AddMicrophone().None();
+			builder.AddMidi().None();
+			builder.AddPayment().None();
+			builder.AddPictureInPicture().None();
+			builder.AddSyncXHR().None();
+			builder.AddUsb().None();
+		});
+
+	if (!isDev)
+	{
+		// maxage = one year in seconds
+		policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
+	}
+
+	return policy;
+}
+  
+
+
+<p>Microsoft Graph client service</p>
+
+
+
+<p>The GraphServiceClient service can be used directly from the IoC because of how we setup the Microsoft.Identity.Web configuration in the Startup class to use Microsoft Graph and Azure AD. A persistent cache is required for this to work correctly. The GetUserIdAsync method is used to get the Id of the user behind the email address. An equals filter is used. This method is used in most of the services.</p>
+
+
+  private readonly GraphServiceClient _graphServiceClient;
+
+public GraphApiClientService(GraphServiceClient graphServiceClient)
+{
+	_graphServiceClient = graphServiceClient;
+}
+
+private async Task&lt;string&gt; GetUserIdAsync(string email)
+{
+	var filter = $"userPrincipalName eq '{email}'";
+	//var filter = $"startswith(userPrincipalName,'{email}')";
+
+	var users = await _graphServiceClient.Users
+		.Request()
+		.Filter(filter)
+		.GetAsync();
+
+	if(users.CurrentPage.Count == 0)
+	{
+		return string.Empty;
+	}
+	return users.CurrentPage[0].Id;
+}
+  
+
+
+<p>The GetGraphApiUser method uses an email to get the profile data of that user. This can be any email from your tenant. The users of the Microsoft Graph client is used.</p>
+
+
+  public async Task&lt;User&gt; GetGraphApiUser(string email)
+{
+	var id= await GetUserIdAsync(email);
+	if (string.IsNullOrEmpty(upn))
+		return null;
+
+	return await _graphServiceClient.Users[id]
+		.Request()
+		.GetAsync();
+}
+  
+
+
+<p>The GetUserMailboxSettings method is used to get the MailboxSettings for the given email. The Id for the user is requested, then the MailboxSettings settings are returned for the user. This only works, if the MailboxSettings.Read permission is granted to the Azure App registration.</p>
+
+
+  public async Task&lt;MailboxSettings&gt; GetUserMailboxSettings(string email)
+{
+	var id= await GetUserIdAsync(email);
+	if (string.IsNullOrEmpty(upn))
+		return null;
+
+	var user = await _graphServiceClient.Users[id]
+		.Request()
+		.Select("MailboxSettings")
+		.GetAsync();
+
+	return user.MailboxSettings;
+}
+  
+
+
+<p>The GetCalanderForUser returns the calendar for the given email. This returns a flat list of FilteredEvent items. Microsoft Graph returns a IUserCalendarViewCollectionPage which is a bit complicated for using if only requesting small amounts of data. This works well for large results which needs to be paged, streamed or whatever. The CalendarView is used with a ‘to’ and a ‘from’ datetime filter to request the calendar events. </p>
+
+
+  public async Task&lt;List&lt;FilteredEvent&gt;&gt; GetCalanderForUser(string email, string from, string to)
+{
+
+	var userCalendarViewCollectionPages = await GetCalanderForUserUsingGraph(email, from, to);
+
+	var allEvents = new List&lt;FilteredEvent&gt;();
+
+	while (userCalendarViewCollectionPages != null &amp;&amp; userCalendarViewCollectionPages.Count &gt; 0)
+	{
+		foreach (var calenderEvent in userCalendarViewCollectionPages)
+		{
+			var filteredEvent = new FilteredEvent
+			{
+				ShowAs = calenderEvent.ShowAs,
+				Sensitivity = calenderEvent.Sensitivity,
+				Start = calenderEvent.Start,
+				End = calenderEvent.End,
+				Subject = calenderEvent.Subject,
+				IsAllDay = calenderEvent.IsAllDay,
+				Location = calenderEvent.Location
+			};
+			allEvents.Add(filteredEvent);
+		}
+
+		if (userCalendarViewCollectionPages.NextPageRequest == null)
+			break;
+	}
+
+	return allEvents;
+}
+
+private async Task&lt;IUserCalendarViewCollectionPage&gt; GetCalanderForUserUsingGraph(string email, string from, string to)
+{
+	var id= await GetUserIdAsync(email);
+	if (string.IsNullOrEmpty(id))
+		return null;
+
+	var queryOptions = new List&lt;QueryOption&gt;()
+	{
+		new QueryOption("startDateTime", from),
+		new QueryOption("endDateTime", to)
+	};
+
+	var calendarView = await _graphServiceClient.Users[id].CalendarView
+		.Request(queryOptions)
+		.Select("start,end,subject,location,sensitivity, showAs, isAllDay")
+		.GetAsync();
+
+	return calendarView;
+}
+  
+
+
+<p>The GetPresenceforEmail returns a teams presence list for the given email. This only works if the Presence.Read.All delegated permission is granted to the Azure App registration. Again Microsoft Graph returns a paged result which is not required in our use case. We only want this for a single email.</p>
+
+
+  public async Task&lt;List&lt;Presence&gt;&gt; GetPresenceforEmail(string email)
+{
+	var cloudCommunicationPages = await GetPresenceAsync(email);
+
+	var allPresenceItems = new List&lt;Presence&gt;();
+
+	while (cloudCommunicationPages != null &amp;&amp; cloudCommunicationPages.Count &gt; 0)
+	{
+		foreach (var presence in cloudCommunicationPages)
+		{
+			allPresenceItems.Add(presence);
+		}
+
+		if (cloudCommunicationPages.NextPageRequest == null)
+			break;
+	}
+
+	return allPresenceItems;
+}
+
+private async Task&lt;ICloudCommunicationsGetPresencesByUserIdCollectionPage&gt; GetPresenceAsync(string email)
+{
+	var id = await GetUserIdAsync(email);
+
+	var ids = new List&lt;string&gt;()
+	{
+		id
+	};
+
+	return await _graphServiceClient.Communications
+		.GetPresencesByUserId(ids)
+		.Request()
+		.PostAsync();
+}
+  
+
+
+<p>Blazor Server API</p>
+
+
+
+<p>The Blazor server host application implements an API which requires cookies and a correct anti-forgery token to access the protected resource.  This can only be accessed from the same domain. The used cookie has also same site protection and should only work for the exact same domain. All the Blazor WASM API calls use this API in for the Microsoft Graph data displays. The WASM application does not authenticate directly or use the Microsoft Graph service directly. The Microsoft Graph client is not exposed to the untrusted client browser.</p>
+
+
+  [ValidateAntiForgeryToken]
+[Authorize(AuthenticationSchemes = CookieAuthenticationDefaults.AuthenticationScheme)]
+[AuthorizeForScopes(Scopes = new string[] { "User.ReadBasic.All user.read" })]
+[ApiController]
+[Route("api/[controller]")]
+public class GraphApiCallsController : ControllerBase
+{
+	private GraphApiClientService _graphApiClientService;
+
+	public GraphApiCallsController(GraphApiClientService graphApiClientService)
+	{
+		_graphApiClientService = graphApiClientService;
+	}
+
+	[HttpGet("UserProfile")]
+	public async Task&lt;IEnumerable&lt;string&gt;&gt; UserProfile()
+	{
+		var userData = await _graphApiClientService.GetGraphApiUser(User.Identity.Name);
+		return new List&lt;string&gt; { $"DisplayName: {userData.DisplayName}",
+			$"GivenName: {userData.GivenName}", $"Preferred Language: {userData.PreferredLanguage}" };
+	}
+
+	[HttpPost("MailboxSettings")]
+	public async Task&lt;IActionResult&gt; MailboxSettings([FromBody] string email)
+	{
+		if (string.IsNullOrEmpty(email))
+			return BadRequest("No email");
+		try
+		{
+			var mailbox = await _graphApiClientService.GetUserMailboxSettings(email);
+
+			if(mailbox == null)
+			{
+				return NotFound($"mailbox settings for {email} not found");
+			}
+			var result = new List&lt;MailboxSettingsData&gt; {
+			new MailboxSettingsData { Name = "User Email", Data = email },
+			new MailboxSettingsData { Name = "AutomaticRepliesSetting", Data = mailbox.AutomaticRepliesSetting.Status.ToString() },
+			new MailboxSettingsData { Name = "TimeZone", Data = mailbox.TimeZone },
+			new MailboxSettingsData { Name = "Language", Data = mailbox.Language.DisplayName }
+		};
+
+			return Ok(result);
+		}
+		catch (Exception ex)
+		{
+			return BadRequest(ex.Message);
+		}
+	}
+
+	[HttpPost("TeamsPresence")]
+	public async Task&lt;IActionResult&gt; PresencePost([FromBody] string email)
+	{
+		if (string.IsNullOrEmpty(email))
+			return BadRequest("No email");
+		try
+		{
+			var userPresence = await _graphApiClientService.GetPresenceforEmail(email);
+
+			if (userPresence.Count == 0)
+			{
+				return NotFound(email);
+			}
+
+			var result = new List&lt;PresenceData&gt; {
+			new PresenceData { Name = "User Email", Data = email },
+			new PresenceData { Name = "Availability", Data = userPresence[0].Availability }
+		};
+
+			return Ok(result);
+		}
+		catch (Exception ex)
+		{
+			return BadRequest(ex.Message);
+		}
+	}
+
+	[HttpPost("UserCalendar")]
+	public async Task&lt;IEnumerable&lt;FilteredEventDto&gt;&gt; UserCalendar(UserCalendarDataModel userCalendarDataModel)
+	{
+		var userCalendar = await _graphApiClientService.GetCalanderForUser(
+			userCalendarDataModel.Email, 
+			userCalendarDataModel.From.Value.ToString("yyyy-MM-ddTHH:mm:ss.sssZ"),
+			userCalendarDataModel.To.Value.ToString("yyyy-MM-ddTHH:mm:ss.sssZ"));
+
+		return userCalendar.Select(l =&gt; new FilteredEventDto
+		{
+			IsAllDay = l.IsAllDay.GetValueOrDefault(),
+			Sensitivity = l.Sensitivity.ToString(),
+			Start = l.Start?.DateTime,
+			End = l.End?.DateTime,
+			ShowAs = l.ShowAs.Value.ToString(),
+			Subject=l.Subject
+		});
+	}
+
+  
+
+
+<p>Blazor Calendar client</p>
+
+
+
+<p>The Blazor WASM client does not implement any security and does not require a Microsoft.Identity.Web client. I like Blazorize and the Nuget packages are added to the UI so that these components can be used. These are nice components but use inline css.</p>
+
+
+  &lt;ItemGroup&gt;
+ &lt;PackageReference Include="blazored.sessionstorage" Version="2.2.0" /&gt;
+ &lt;PackageReference Include="Blazorise" Version="0.9.5.2" /&gt;
+ &lt;PackageReference Include="Blazorise.Components" Version="0.9.5.2" /&gt;
+ &lt;PackageReference Include="Blazorise.DataGrid" Version="0.9.5.2" /&gt;
+ &lt;PackageReference Include="Blazorise.Icons.FontAwesome" Version="0.9.5.2" /&gt;
+ &lt;PackageReference Include="Blazorise.Icons.Material" Version="0.9.5.2" /&gt;
+ &lt;PackageReference Include="Blazorise.Material" Version="0.9.5.2" /&gt;
+ &lt;PackageReference Include="Blazorise.Sidebar" Version="0.9.5.2" /&gt;
+ &lt;PackageReference Include="Blazorise.Snackbar" Version="0.9.5.2" /&gt;
+ &lt;PackageReference Include="Blazorise.SpinKit" Version="0.9.5.2" /&gt;
+ &lt;PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="6.0.1" /&gt;
+ &lt;PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="6.0.1" PrivateAssets="all" /&gt;
+ &lt;PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0" /&gt;
+ &lt;PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="6.0.1" /&gt;
+&lt;/ItemGroup&gt;
+  
+
+
+<p>The Blazor WASM client is hosted in a Razor page. This makes it possible to add dynamic data. The anti-forgery token is added here as well as the security headers and the dynamic meta data if required.</p>
+
+
+  @page "/"
+@namespace AspNetCoreMicrosoftGraph.Pages
+@using AspNetCoreMicrosoftGraph.Client
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@{
+    Layout = null;
+}
+
+&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+    &lt;link rel="apple-touch-icon" sizes="57x57" href="/apple-icon-57x57.png"&gt;
+    &lt;link rel="apple-touch-icon" sizes="60x60" href="/apple-icon-60x60.png"&gt;
+    &lt;link rel="apple-touch-icon" sizes="72x72" href="/apple-icon-72x72.png"&gt;
+    &lt;link rel="apple-touch-icon" sizes="76x76" href="/apple-icon-76x76.png"&gt;
+    &lt;link rel="apple-touch-icon" sizes="114x114" href="/apple-icon-114x114.png"&gt;
+    &lt;link rel="apple-touch-icon" sizes="120x120" href="/apple-icon-120x120.png"&gt;
+    &lt;link rel="apple-touch-icon" sizes="144x144" href="/apple-icon-144x144.png"&gt;
+    &lt;link rel="apple-touch-icon" sizes="152x152" href="/apple-icon-152x152.png"&gt;
+    &lt;link rel="apple-touch-icon" sizes="180x180" href="/apple-icon-180x180.png"&gt;
+    &lt;link rel="icon" type="image/png" sizes="192x192"  href="/android-icon-192x192.png"&gt;
+    &lt;link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png"&gt;
+    &lt;link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png"&gt;
+    &lt;link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"&gt;
+    &lt;link rel="manifest" href="/manifest.json"&gt;
+    &lt;meta name="msapplication-TileColor" content="#ffffff"&gt;
+    &lt;meta name="msapplication-TileImage" content="/ms-icon-144x144.png"&gt;
+    &lt;meta name="theme-color" content="#ffffff"&gt;
+    &lt;meta charset="utf-8" /&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /&gt;
+    &lt;title&gt;Blazor Graph&lt;/title&gt;
+    &lt;base href="~/" /&gt;
+    
+    &lt;link rel="stylesheet" href="/lib/font-awesome/css/all.min.css"&gt;
+
+    &lt;!-- Material CSS --&gt;
+    &lt;link href="css/material.min.css" rel="stylesheet"&gt;
+
+    &lt;!-- Add Material font (Roboto) and Material icon as needed --&gt;
+    &lt;link href="css/googlefontsroboto.css" rel="stylesheet"&gt;
+    &lt;link href="css/fonts.google.icons.css" rel="stylesheet"&gt;
+
+    &lt;link href="_content/Blazorise/blazorise.css" rel="stylesheet" /&gt;
+    &lt;link href="_content/Blazorise.Material/blazorise.material.css" rel="stylesheet" /&gt;
+    &lt;link href="_content/Blazorise.Icons.Material/blazorise.icons.material.css" rel="stylesheet" /&gt;
+
+    &lt;link href="_content/Blazorise.SpinKit/blazorise.spinkit.css" rel="stylesheet" /&gt;
+    &lt;link href="_content/Blazorise.Snackbar/blazorise.snackbar.css" rel="stylesheet" /&gt;
+
+    &lt;link href="css/app.css" rel="stylesheet" /&gt;
+    &lt;link href="AspNetCoreMicrosoftGraph.Client.styles.css" rel="stylesheet" /&gt;
+    &lt;link href="manifest.json" rel="manifest" /&gt;
+    &lt;link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" /&gt;
+&lt;/head&gt;
+&lt;body&gt;
+
+    &lt;div id="app"&gt;
+        &lt;!-- Spinner --&gt;
+        &lt;div class="spinner d-flex align-items-center justify-content-center spinner"&gt;
+            &lt;div class="spinner-border text-success" role="status"&gt;
+                &lt;span class="sr-only"&gt;Loading...&lt;/span&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div id="blazor-error-ui"&gt;
+        &lt;environment include="Staging,Production"&gt;
+            An error has occurred. This application may no longer respond until reloaded.
+        &lt;/environment&gt;
+        &lt;environment include="Development"&gt;
+            An unhandled exception has occurred. See browser dev tools for details.
+        &lt;/environment&gt;
+        &lt;a href="" class="reload"&gt;Reload&lt;/a&gt;
+        &lt;a class="dismiss"&gt;🗙&lt;/a&gt;
+    &lt;/div&gt;
+
+    &lt;script src="lib/jquery/jquery.slim.min.js"&gt;&lt;/script&gt;
+    &lt;script src="lib/popper.js/umd/popper.min.js"&gt;&lt;/script&gt;
+    &lt;script src="js/material.min.js"&gt;&lt;/script&gt;
+
+    @*&lt;script src="_content/Blazorise/blazorise.js"&gt;&lt;/script&gt;*@
+    &lt;script src="_content/Blazorise.Material/blazorise.material.js"&gt;&lt;/script&gt;
+
+    &lt;script src="lib/flatpickr/l10n/default.js"&gt;&lt;/script&gt;
+    &lt;script src="lib/flatpickr/l10n/de.js"&gt;&lt;/script&gt;
+    &lt;script src="lib/flatpickr/l10n/fr.js"&gt;&lt;/script&gt;
+    &lt;script src="lib/flatpickr/l10n/it.js"&gt;&lt;/script&gt;
+    &lt;script language="javascript"&gt;
+        flatpickr.localize(flatpickr.l10ns.default); /*set global*/
+    &lt;/script&gt;
+
+    &lt;script src="_framework/blazor.webassembly.js" &gt;&lt;/script&gt;
+    &lt;script src="antiForgeryToken.js" &gt;&lt;/script&gt;
+    @Html.AntiForgeryToken()
+&lt;/body&gt;
+&lt;/html&gt;
+  
+
+
+<p>The user calendar WASM view uses an input text field to enter any tenant email. This posts a request to the server API add returns the data which is displayed in the Blazorise Data Grid.</p>
+
+
+  @page "/usercalendar"
+@inject IHttpClientFactory HttpClientFactory
+@inject IJSRuntime JSRuntime
+
+&lt;h4&gt;Calendar Events&lt;/h4&gt;
+
+&lt;Validations StatusChanged="@OnStatusChanged"&gt;
+    &lt;Validation Validator="@ValidateEmail"  &gt;
+        &lt;TextEdit Placeholder="Enter email" @bind-Text="userCalendarDataModel.Email" &gt;
+            &lt;Feedback&gt;
+                &lt;ValidationNone&gt;Please enter the email.&lt;/ValidationNone&gt;
+                &lt;ValidationSuccess&gt;Email is good.&lt;/ValidationSuccess&gt;
+                &lt;ValidationError&gt;Enter valid email!&lt;/ValidationError&gt;
+            &lt;/Feedback&gt;
+        &lt;/TextEdit&gt;
+    &lt;/Validation&gt;
+
+    &lt;Field Horizontal="true"&gt;
+        &lt;FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop"&gt;From&lt;/FieldLabel&gt;
+        &lt;FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is10.OnDesktop"&gt;
+            &lt;DateEdit TValue="DateTime?" InputMode="DateInputMode.DateTime" @bind-Date="userCalendarDataModel.From" /&gt;
+        &lt;/FieldBody&gt;
+    &lt;/Field&gt;
+
+    &lt;Field Horizontal="true"&gt;
+        &lt;FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop"&gt;To&lt;/FieldLabel&gt;
+        &lt;FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is10.OnDesktop"&gt;
+            &lt;DateEdit TValue="DateTime?" InputMode="DateInputMode.DateTime" @bind-Date="userCalendarDataModel.To" /&gt;
+        &lt;/FieldBody&gt;
+    &lt;/Field&gt;
+
+    &lt;br /&gt;
+    &lt;Button Color="Color.Primary" Disabled="@saveDisabled" PreventDefaultOnSubmit="true" Clicked="@Submit"&gt;Get calendar events for user&lt;/Button&gt;
+&lt;/Validations&gt;
+
+ &lt;br /&gt;&lt;br /&gt;
+
+@if (filteredEvents == null)
+{
+    &lt;p&gt;&lt;em&gt;@noDataResult&lt;/em&gt;&lt;/p&gt;
+}
+else
+{
+    &lt;DataGrid TItem="FilteredEventDto"
+              Data="@filteredEvents" Bordered="true"
+              @bind-SelectedRow="@selectedFilteredEvent" PageSize=15
+              Responsive&gt;
+        &lt;DataGridCommandColumn TItem="FilteredEventDto" /&gt;
+        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.Subject)" Caption="Subject" Sortable="true" /&gt;
+        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.Start)" Caption="Start" Editable="false" /&gt;
+        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.End)" Caption="End" Editable="false" /&gt;
+        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.Sensitivity)" Caption="Sensitivity" Editable="false"/&gt;
+        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.IsAllDay)" Caption="IsAllDay" Editable="false"/&gt;
+        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.ShowAs)" Caption="ShowAs" Editable="false"/&gt;
+    &lt;/DataGrid&gt;
+}
+
+@code {
+    private List&lt;FilteredEventDto&gt; filteredEvents;
+    private UserCalendarDataModel userCalendarDataModel { get; set; } = new UserCalendarDataModel()
+    {
+        From = DateTime.UtcNow.AddDays(-7.0),
+        To = DateTime.UtcNow.AddDays(7.0)
+    };
+
+    private FilteredEventDto selectedFilteredEvent;
+    private string noDataResult { get; set; } = "no data";
+    bool saveDisabled = true;
+
+    Task OnStatusChanged( ValidationsStatusChangedEventArgs eventArgs )
+    {
+        saveDisabled = eventArgs.Status != ValidationStatus.Success;
+
+        return Task.CompletedTask;
+    }
+
+    void ValidateEmail( ValidatorEventArgs e )
+    {
+        var email = Convert.ToString( e.Value );
+
+        e.Status = string.IsNullOrEmpty( email ) ? ValidationStatus.None :
+             email.Contains( "@" ) ? ValidationStatus.Success : ValidationStatus.Error;
+    }
+
+    async Task Submit()
+    {
+        await PostData(userCalendarDataModel);
+    }
+
+    private async Task PostData(UserCalendarDataModel userCalendarDataModel)
+    {
+        var token = await JSRuntime.InvokeAsync&lt;string&gt;("getAntiForgeryToken");
+        var client = HttpClientFactory.CreateClient("default");
+        client.DefaultRequestHeaders.Add("X-XSRF-TOKEN", token);
+        var response = await client.PostAsJsonAsync&lt;UserCalendarDataModel&gt;("api/GraphApiCalls/UserCalendar", userCalendarDataModel);
+        if(response.IsSuccessStatusCode)
+        {
+            filteredEvents = await response.Content.ReadFromJsonAsync&lt;List&lt;FilteredEventDto&gt;&gt;();
+        }
+        else
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            filteredEvents = null;
+            noDataResult = error;
+        }
+    }
+}
+  
+
+
+<p>Running the application, a user can sign-in and request calendar data, mailbox settings or teams presence of any user in the tenant.</p>
+
+
+
+
+
+
+
+<p>Using Graph together with Microsoft.Identity.Web works really well and can be implemented with little effort. By using the BFF and hosting the WASM in an ASP.NET Core application, less sensitive data needs to be exposed and it is possible to sign out without tokens possibly still existing in the untrusted zone after the logout. Blazor and Blazorise could be improved to support a better CSP and better security headers.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://blazorise.com/">https://blazorise.com/</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/api/user-get-mailboxsettings">https://docs.microsoft.com/en-us/graph/api/user-get-mailboxsettings</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/api/presence-get">https://docs.microsoft.com/en-us/graph/api/presence-get</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security/content-security-policy">https://docs.microsoft.com/en-us/aspnet/core/blazor/security/content-security-policy</a></p>
+
+
+
+<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/12/blazorgraph_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:13 &bull;
+   15 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2021/Dec/20/annotated-explanation-of-dataklasses-by-david-beazley/#atom-everything'>Annotated explanation of David Beazley's dataklasses</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Annotated explanation of David Beazley's dataklasses 
+ David Beazley released a self-described "deliciously evil spin on dataclasses" that uses some deep Python trickery to implement a dataclass style decorator which creates classes that import 15-20 times faster than the original. I put together a heavily annotated version of his code while trying to figure out how all of the different Python tri
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://til.simonwillison.net/python/annotated-dataklasses">Annotated explanation of David Beazley's dataklasses</a></p>
+<p>David Beazley released a self-described "deliciously evil spin on dataclasses" that uses some deep Python trickery to implement a dataclass style decorator which creates classes that import 15-20 times faster than the original. I put together a heavily annotated version of his code while trying to figure out how all of the different Python tricks in it work.</p>
+
+    <p>Via <a href="https://twitter.com/simonw/status/1472788683199631362">@simonw</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:05 &bull;
+   16 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/12/20/i-have-to.html'> 
+ “I have to pay a debt.” 
+ 
+
+ At least according to the 245</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ “I have to pay a debt.” 
+ 
+
+ At least according to the 245 (and counting) email messages received this morning. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<blockquote>
+<p>“I have to pay a debt.”</p>
+</blockquote>
+
+<p>At least according to the 245 (and counting) email messages received this morning.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   00:09 &bull;
+   21 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Sunday, 19. December 2021
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2021/freedom-from-centralized-silos-of-wealth-and'>Freedom from centralized silos of wealth and ...</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Freedom from centralized silos of wealth and power doesn't mean freedom from societal contracts, laws, obligations, or the need to be decent human beings to each other. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Freedom from centralized silos of wealth and power doesn't mean freedom from societal contracts, laws, obligations, or the need to be decent human beings to each other.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:54 &bull;
+   22 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/12/20/time-to-kill.html'> Time to kill that Text Expander snippet. 
+
+ The one that is </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Time to kill that Text Expander snippet. 
+
+ The one that is reminding us of the upcoming meeting in February 2018! 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Time to kill that Text Expander snippet.</p>
+
+<p>The one that is reminding us of the upcoming meeting in February 2018!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:21 &bull;
+   23 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2021/12/20/i-wish-that.html'> I wish  that were true - it just isn’t. 
+
+  </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I wish  that were true - it just isn’t. 
+
+  
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2021/21d5cfa6f2.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I wish  that were true - it just isn’t.</p>
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2021/21d5cfa6f2.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:14 &bull;
+   24 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2021/seeing-a-lot-of-quotreview-of-the'>Seeing a lot of &quot;review of the ...</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Seeing a lot of "review of the year" posts, which honestly, I always love. But this was also the worst year of my life by far. Should I do one? Still trying to decide. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Seeing a lot of "review of the year" posts, which honestly, I always love. But this was also the worst year of my life by far. Should I do one? Still trying to decide.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:31 &bull;
+   a day ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -828,7 +2058,7 @@
 
 <div class='item-footer'>
    09:05 &bull;
-   5 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -856,7 +2086,7 @@
 
   
     
-    <a href='https://john.philpin.com/2021/12/19/the-videos-are.html'> The videos are at times absolutely mesmerizing, nice to see </a>
+    <a href='https://john.philpin.com/2021/12/19/the-videos-are.html'> The videos are at times absolutely mesmerising, nice to see </a>
   
 
 </h3>
@@ -867,7 +2097,7 @@
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   The videos are at times absolutely mesmerizing, nice to see them all curated in one place. But on a phone viewing does not do justice! 
+   The videos are at times absolutely mesmerising, nice to see them all curated in one place. But viewing on a phone does not do justice! 
 
  Watch All The Apple TV Aerial Video Screensavers. 
 
@@ -886,7 +2116,7 @@
  -->
 <div class='wrap'>
 
-<p>The videos are at times absolutely mesmerizing, nice to see them all curated in one place. But on a phone viewing does not do justice!</p>
+<p>The videos are at times absolutely mesmerising, nice to see them all curated in one place. But viewing on a phone does not do justice!</p>
 
 <p><a href="https://bzamayo.com/watch-all-the-apple-tv-aerial-video-screensavers#0a61e4b6ef66ad68c87e3c0c964ca165">Watch All The Apple TV Aerial Video Screensavers.</a></p>
 
@@ -901,7 +2131,7 @@
 
 <div class='item-footer'>
    06:07 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -966,7 +2196,7 @@
 
 <div class='item-footer'>
    04:16 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1077,7 +2307,7 @@
 
 <div class='item-footer'>
    20:46 &bull;
-   17 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1138,7 +2368,7 @@
 
 <div class='item-footer'>
    20:42 &bull;
-   17 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1202,7 +2432,7 @@
 
 <div class='item-footer'>
    18:39 &bull;
-   19 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1271,7 +2501,7 @@
 
 <div class='item-footer'>
    15:26 &bull;
-   22 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1331,7 +2561,7 @@
 
 <div class='item-footer'>
    06:58 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1405,7 +2635,7 @@
 
 <div class='item-footer'>
    05:16 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1481,7 +2711,7 @@
 
 <div class='item-footer'>
    04:01 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1547,7 +2777,7 @@
 
 <div class='item-footer'>
    01:34 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1625,7 +2855,7 @@
 
 <div class='item-footer'>
    00:55 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1691,7 +2921,7 @@
 
 <div class='item-footer'>
    21:10 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1761,7 +2991,7 @@
 
 <div class='item-footer'>
    19:43 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1825,7 +3055,7 @@
 
 <div class='item-footer'>
    19:09 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1897,139 +3127,7 @@
 
 <div class='item-footer'>
    04:11 &bull;
-   2 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2021/the-one-medical-nurse-told-me-to'>The One Medical nurse told me to ...</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   The One Medical nurse told me to take far more ibuprofen than I’d ever be comfortable taking, so I figure I’ll give it a shot. Maybe I’ll gain superpowers, like the ability to fly or feeling incrementally better.  
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>The One Medical nurse told me to take far more ibuprofen than I’d ever be comfortable taking, so I figure I’ll give it a shot. Maybe I’ll gain superpowers, like the ability to fly or feeling incrementally better. </p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:06 &bull;
-   2 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.pewforum.org/2021/12/14/about-three-in-ten-u-s-adults-are-now-religiously-unaffiliated/'>About Three-in-Ten U.S. Adults Are Now Religiously Unaffiliated</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- I’m one of them, and it’s still weird to me to be in a minority (vs the UK, where some polls have over 50% of respondents not identifying with any faith). There’s nothing wrong with being religious, but there’s nothing wrong with not being religious, too. I’d love to have better representation of that in this country. 
-             [Link] 
-         
-     
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>I’m one of them, and it’s still weird to me to be in a minority (vs the UK, where some polls have over 50% of respondents not identifying with any faith). There’s nothing wrong with being religious, but there’s nothing wrong with not being religious, too. I’d love to have better representation of that in this country.</p>
-            <p>[<a href="https://www.pewforum.org/2021/12/14/about-three-in-ten-u-s-adults-are-now-religiously-unaffiliated/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:08 &bull;
-   2 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2135,7 +3233,7 @@
 
 <div class='item-footer'>
    21:01 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2199,7 +3297,7 @@
 
 <div class='item-footer'>
    20:33 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2273,7 +3371,7 @@
 
 <div class='item-footer'>
    13:17 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2338,7 +3436,7 @@
 
 <div class='item-footer'>
    04:53 &bull;
-   3 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2403,7 +3501,7 @@
 
 <div class='item-footer'>
    01:47 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2478,7 +3576,7 @@
 
 <div class='item-footer'>
    19:20 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2624,7 +3722,7 @@
 
 <div class='item-footer'>
    18:29 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2700,7 +3798,7 @@
 
 <div class='item-footer'>
    16:21 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2769,7 +3867,7 @@
 
 <div class='item-footer'>
    03:22 &bull;
-   4 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2872,7 +3970,7 @@ The post 日本経済新聞にインタビューが掲載されました:「巨�
 
 <div class='item-footer'>
    17:03 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3876,7 +4974,7 @@ public async Task&lt;IActionResult&gt; VerificationDataCallback()
 
 <div class='item-footer'>
    06:19 &bull;
-   6 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3952,7 +5050,7 @@ public async Task&lt;IActionResult&gt; VerificationDataCallback()
 
 <div class='item-footer'>
    04:39 &bull;
-   6 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4027,7 +5125,7 @@ public async Task&lt;IActionResult&gt; VerificationDataCallback()
 
 <div class='item-footer'>
    21:46 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4097,7 +5195,7 @@ public async Task&lt;IActionResult&gt; VerificationDataCallback()
 
 <div class='item-footer'>
    18:32 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4162,7 +5260,7 @@ public async Task&lt;IActionResult&gt; VerificationDataCallback()
 
 <div class='item-footer'>
    04:59 &bull;
-   7 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4244,7 +5342,7 @@ public async Task&lt;IActionResult&gt; VerificationDataCallback()
 
 <div class='item-footer'>
    02:32 &bull;
-   7 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4341,7 +5439,7 @@ public async Task&lt;IActionResult&gt; VerificationDataCallback()
 
 <div class='item-footer'>
    01:52 &bull;
-   7 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4433,7 +5531,7 @@ public async Task&lt;IActionResult&gt; VerificationDataCallback()
 
 <div class='item-footer'>
    03:21 &bull;
-   8 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4517,7 +5615,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    02:38 &bull;
-   8 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4626,7 +5724,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    01:07 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4699,7 +5797,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    22:42 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4775,7 +5873,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    16:42 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4913,7 +6011,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    14:30 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4983,7 +6081,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    03:05 &bull;
-   9 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5048,7 +6146,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    02:26 &bull;
-   9 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5117,7 +6215,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    02:03 &bull;
-   9 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5192,7 +6290,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    23:43 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5260,7 +6358,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    23:07 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5322,7 +6420,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    22:39 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5425,7 +6523,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    22:31 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5614,7 +6712,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    22:06 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5758,208 +6856,7 @@ You can’t do that with a longtime mate because he knows all that old material.
 
 <div class='item-footer'>
    21:34 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/12/09/i-love-how.html'> I love how TV shows just 3 or 4 years old have this wonderfu</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I love how TV shows just 3 or 4 years old have this wonderful notion that releasing a tape/video of something bad from 30 years before will guilt someone into doing the right thing and somehow magically ‘change everything’. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I love how TV shows just 3 or 4 years old have this wonderful notion that releasing a tape/video of something bad from 30 years before will guilt someone into doing the right thing and somehow magically ‘change everything’.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:16 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/12/08/space-force-somebody.html'> Space Force 
-
- Somebody should change this name before it is</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Space Force 
-
- Somebody should change this name before it is too late. 
-
- It’s telling that Steve Carrell’s comedy show had a higher ranking than the actual ‘thing’. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://en.wikipedia.org/wiki/United_States_Space_Force">Space Force</a></p>
-
-<p>Somebody should change this name before it is too late.</p>
-
-<p>It’s telling that Steve Carrell’s comedy show had a higher ranking than the actual ‘thing’.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:26 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2021/12/08/at-per-month.html'> At $10 per month - I won’t be going ahead with the paid serv</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   At $10 per month - I won’t be going ahead with the paid service - BUT, it is rather nice and if you are someone who makes your money from writing - probably worth a looksee. 
-
- AUTHORY - I found the founder and CEO - Eric Hauch - very nice and very helpful throughout my trial. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>At $10 per month - I won’t be going ahead with the paid service - BUT, it is rather nice and if you are someone who makes your money from writing - probably worth a looksee.</p>
-
-<p><a href="https://authory.com">AUTHORY</a> - I found the founder and CEO - Eric Hauch - very nice and very helpful throughout my trial.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:32 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6088,7 +6985,7 @@ Kim's technical excellence got him a seat at the table. His position at Microsof
 
 <div class='item-footer'>
    01:51 &bull;
-   11 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6353,7 +7250,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    22:32 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6413,7 +7310,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    08:41 &bull;
-   12 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6475,7 +7372,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    07:04 &bull;
-   12 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6547,7 +7444,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    23:17 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6613,7 +7510,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    23:15 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6698,7 +7595,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    17:48 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6856,7 +7753,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    06:04 &bull;
-   13 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6924,7 +7821,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    01:41 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6996,7 +7893,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    23:05 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7112,7 +8009,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    22:35 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7238,7 +8135,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    19:24 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7321,6 +8218,7 @@ for event in data["Events"]:
  <a href="https://www.windley.com/archives/2021/12/in_memory_of_kim_cameron.shtml">Remembering Kim Cameron</a>, by Phil Windley 
  <a href="https://brittb.medium.com/remembering-a-human-being-2eb226818096">Remembering a Human, Being</a>, by Britt Blaser 
  <a href="https://www.linkedin.com/pulse/cannibal-lobsters-stolen-fingerprints-remembering-kim-branscombe/">Cannibal Lobsters and Stolen Fingerprints – remembering Kim Cameron</a>, by Mary Branscombe 
+ <a href="https://self-issued.info/?p=2218">Stories of Kim Cameron</a>, by Mike Jones 
  
    
   
@@ -7340,7 +8238,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    23:30 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7448,7 +8346,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    18:45 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7516,7 +8414,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    20:37 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7616,7 +8514,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    17:50 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7724,7 +8622,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    04:03 &bull;
-   17 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7792,7 +8690,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    21:02 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7868,7 +8766,7 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    12:43 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8016,7 +8914,7 @@ Link: https://latest.datasette.io/fixtures/compound_three_primary_keys.json; rel
 
 <div class='item-footer'>
    03:43 &bull;
-   18 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8112,7 +9010,7 @@ Link: https://latest.datasette.io/fixtures/compound_three_primary_keys.json; rel
 
 <div class='item-footer'>
    21:42 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8174,7 +9072,7 @@ Link: https://latest.datasette.io/fixtures/compound_three_primary_keys.json; rel
 
 <div class='item-footer'>
    15:15 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8286,7 +9184,7 @@ Lewes Barbican Gate and view from the Castle
 
 <div class='item-footer'>
    21:24 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8421,7 +9319,7 @@ Lewes Barbican Gate and view from the Castle
 
 <div class='item-footer'>
    20:15 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8558,7 +9456,7 @@ So they are really jumping into the unknown with both feet.</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8668,7 +9566,7 @@ Funicular and view from the top
 
 <div class='item-footer'>
    18:45 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8820,7 +9718,7 @@ latency.</p>
 
 <div class='item-footer'>
    16:43 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8934,7 +9832,7 @@ latency.</p>
 
 <div class='item-footer'>
    19:59 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9060,7 +9958,7 @@ Brighton cliffs and marina
 
 <div class='item-footer'>
    22:00 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9130,7 +10028,7 @@ Brighton cliffs and marina
 
 <div class='item-footer'>
    19:53 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9209,7 +10107,7 @@ Brighton cliffs and marina
 
 <div class='item-footer'>
    20:02 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9275,7 +10173,7 @@ Brighton cliffs and marina
 
 <div class='item-footer'>
    17:34 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9343,7 +10241,7 @@ Brighton cliffs and marina
 
 <div class='item-footer'>
    21:46 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9411,7 +10309,7 @@ Brighton cliffs and marina
 
 <div class='item-footer'>
    21:21 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9477,7 +10375,7 @@ Brighton cliffs and marina
 
 <div class='item-footer'>
    19:23 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9541,7 +10439,7 @@ Brighton cliffs and marina
 
 <div class='item-footer'>
    17:01 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9919,7 +10817,7 @@ app.Run();
 
 <div class='item-footer'>
    07:27 &bull;
-   27 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10080,7 +10978,7 @@ app.Run();
 
 <div class='item-footer'>
    05:43 &bull;
-   27 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10146,7 +11044,7 @@ app.Run();
 
 <div class='item-footer'>
    03:32 &bull;
-   27 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12426,76 +13324,6 @@ connection.on("NonConcurrentJobs", function (message) {
 
 <div class='item-footer'>
    01:51 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Saturday, 06. November 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Nov/6/aws-iam-definitions/#atom-everything'>AWS IAM definitions in Datasette</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   AWS IAM definitions in Datasette 
- As part of my ongoing quest to conquer IAM permissions, I built myself a Datasette instance that lets me run queries against all 10,441 permissions across 280 AWS services. It's deployed by a build script running in GitHub Actions which downloads a 8.9MB JSON file from the Salesforce policy_sentry repository - policy_sentry itself creates that JSON file by runnin
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://iam-definitions.vercel.app/">AWS IAM definitions in Datasette</a></p>
-<p>As part of my ongoing quest to conquer IAM permissions, I built myself a Datasette instance that lets me run queries against all 10,441 permissions across 280 AWS services. It's deployed by a build script running in GitHub Actions which downloads a 8.9MB JSON file from the Salesforce policy_sentry repository - policy_sentry itself creates that JSON file by running an HTML scraper against the official AWS documentation!</p>
-
-    <p>Via <a href="https://twitter.com/simonw/status/1456827588496674819">@simonw</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:47 &bull;
    1 months ago
 </div>
 
@@ -17184,7 +18012,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    16:32 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17260,7 +18088,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    15:18 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17403,7 +18231,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    17:23 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17477,7 +18305,7 @@ Photo by <a href="https://unsplash.com/@andrewcoop?utm_source=medium&amp;utm_med
 
 <div class='item-footer'>
    16:01 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -19632,554 +20460,6 @@ $ stepzen start
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/09/20/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph/'>Creating Microsoft Teams meetings in ASP.NET Core using Microsoft Graph</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to create Microsoft Teams online meetings in ASP.NET Core using Microsoft Graph. Azure AD is used to implement the authentication using Microsoft.Identity.Web and the authenticated user can create teams meetings and send emails to all participants or attendees of the meeting. Code: https://github.com/damienbod/TeamsAdminUI Blogs in this series Creating Microsoft Teams meeting
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to create Microsoft Teams online meetings in ASP.NET Core using Microsoft Graph. Azure AD is used to implement the authentication using Microsoft.Identity.Web and the authenticated user can create teams meetings and send emails to all participants or attendees of the meeting.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/TeamsAdminUI">https://github.com/damienbod/TeamsAdminUI</a></p>
-
-
-
-<p>Blogs in this series</p>
-
-
-
-  <a href="https://damienbod.com/2021/09/20/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph/">Creating Microsoft Teams meetings in ASP.NET Core using Microsoft Graph</a> (delegated)  <a href="https://damienbod.com/2021/10/18/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph-application-permissions-part-2/">Creating Microsoft Teams meetings in ASP.NET Core using Microsoft Graph application permissions part 2</a>  
-
-
-
-<p>Setup Azure App registration</p>
-
-
-
-<p>An Azure App registration is setup to authenticate against Azure AD. The ASP.NET Core application will use delegated permissions for the Microsoft Graph. The listed permissions underneath are required to create the teams meetings and to send emails to the attendees. The account used to login needs access to office and should be able to send emails.</p>
-
-
-
-  User.Read   Mail.Send   Mail.ReadWrite   OnlineMeetings.ReadWrite  
-
-
-
-<p>This is the list of permissions I have activate for this demo. </p>
-
-
-
-
-
-
-
-<p>The Azure App registration requires a user secret or a certificate to authentication the ASP.NET Core Razor page application. Microsoft.Identity.Web uses this to authenticate the application. You should always authenticate the application if possible. </p>
-
-
-
-<p>Setup ASP.NET Core application</p>
-
-
-
-<p>The Microsoft.Identity.Web Nuget packages with the MicrosoftGraphBeta package are used to implement the Azure AD client. We want to implement Open ID Connect code flow with PKCE and a secret to authenticate the identity and the Microsoft packages implements this client for us. </p>
-
-
-  &lt;ItemGroup&gt;
-&lt;PackageReference 
-	Include="Microsoft.Identity.Web" 
-	Version="1.16.1" /&gt;
-&lt;PackageReference 
-	Include="Microsoft.Identity.Web.UI" 
-	Version="1.16.1" /&gt;
-&lt;PackageReference 
-	Include="Microsoft.Identity.Web.MicrosoftGraphBeta" 
-	Version="1.16.1" /&gt;
-&lt;/ItemGroup&gt;
-  
-
-
-<p>The ConfigureServices method is used to add the required services for the Azure AD client authentication and the Microsoft Graph client for the API calls. The AddMicrosoftGraph is used to initialize the required permissions.</p>
-
-
-  public void ConfigureServices(IServiceCollection services)
-{
-	// more services ...
-
-	var scopes = "User.read Mail.Send Mail.ReadWrite OnlineMeetings.ReadWrite";
-
-	services.AddMicrosoftIdentityWebAppAuthentication(Configuration)
-		.EnableTokenAcquisitionToCallDownstreamApi()
-		.AddMicrosoftGraph("https://graph.microsoft.com/beta", scopes)
-		.AddInMemoryTokenCaches();
-
-	services.AddRazorPages().AddMvcOptions(options =&gt;
-	{
-		var policy = new AuthorizationPolicyBuilder()
-			.RequireAuthenticatedUser()
-			.Build();
-		options.Filters.Add(new AuthorizeFilter(policy));
-	}).AddMicrosoftIdentityUI();
-}
-  
-
-
-<p>The AzureAd configuration is read from the app.settings file. The secrets are read from the user secrets in local development.</p>
-
-
-  "AzureAd": {
-	"Instance": "https://login.microsoftonline.com/",
-	"Domain": "damienbodsharepoint.onmicrosoft.com",
-	"TenantId": "5698af84-5720-4ff0-bdc3-9d9195314244",
-	"ClientId": "a611a690-9f96-424f-9ea5-4ba99a642c01",
-	"CallbackPath": "/signin-oidc",
-	"SignedOutCallbackPath ": "/signout-callback-oidc"
-	// "ClientSecret": "add secret to the user secrets"
-},
-  
-
-
-<p>Creating a Teams meeting using Microsoft Graph</p>
-
-
-
-<p>The OnlineMeeting class from Microsoft.Graph is used to create the teams meeting. In this demo, we added a begin and an end DateTime in UTC and the name (Subject) of the meeting. We want that all invited attendees can bypass the lobby and enter directly into the meeting. This is implemented with the LobbyBypassSettings property. The attendees are added to the meeting using the Upn property and setting this with the email of each attendee. The organizer is automatically set to the identity signed in. </p>
-
-
-  public OnlineMeeting CreateTeamsMeeting(
-	string meeting, DateTimeOffset begin, DateTimeOffset end)
-{
-
-	var onlineMeeting = new OnlineMeeting
-	{
-		StartDateTime = begin,
-		EndDateTime = end,
-		Subject = meeting,
-		LobbyBypassSettings = new LobbyBypassSettings
-		{
-			Scope = LobbyBypassScope.Everyone
-		}
-	};
-
-	return onlineMeeting;
-}
-
-public OnlineMeeting AddMeetingParticipants(
-	OnlineMeeting onlineMeeting, List&lt;string&gt; attendees)
-{
-	var meetingAttendees = new List&lt;MeetingParticipantInfo&gt;();
-	foreach(var attendee in attendees)
-	{
-		if(!string.IsNullOrEmpty(attendee))
-		{
-			meetingAttendees.Add(new MeetingParticipantInfo
-			{
-				Upn = attendee.Trim()
-			});
-		}
-	}
-
-	if(onlineMeeting.Participants == null)
-	{
-		onlineMeeting.Participants = new MeetingParticipants();
-	};
-
-	onlineMeeting.Participants.Attendees = meetingAttendees;
-
-	return onlineMeeting;
-}
-  
-
-
-<p>A simple service is used to implement the GraphServiceClient instance which is used to send the Microsoft Graph requests. This uses the Microsoft Graph as described by the docs.</p>
-
-
-  public async Task&lt;OnlineMeeting&gt; CreateOnlineMeeting(
-	OnlineMeeting onlineMeeting)
-{
-	return await _graphServiceClient.Me
-		.OnlineMeetings
-		.Request()
-		.AddAsync(onlineMeeting);
-}
-
-public async Task&lt;OnlineMeeting&gt; UpdateOnlineMeeting(
-	OnlineMeeting onlineMeeting)
-{
-	return await _graphServiceClient.Me
-		.OnlineMeetings[onlineMeeting.Id]
-		.Request()
-		.UpdateAsync(onlineMeeting);
-}
-
-public async Task&lt;OnlineMeeting&gt; GetOnlineMeeting(
-	string onlineMeetingId)
-{
-	return await _graphServiceClient.Me
-		.OnlineMeetings[onlineMeetingId]
-		.Request()
-		.GetAsync();
-}
-  
-
-
-<p>A Razor page is used to create a new Microsoft Teams online meeting. The two services are added to the class and a HTTP Post method implements the form request from the Razor page. This method creates the Microsoft Teams meeting using the services and redirects to the created Razor page with the ID of the meeting. </p>
-
-
-  [AuthorizeForScopes(Scopes = new string[] { "User.read", "Mail.Send", "Mail.ReadWrite", "OnlineMeetings.ReadWrite" })]
-public class CreateTeamsMeetingModel : PageModel
-{
-	private readonly AadGraphApiDelegatedClient _aadGraphApiDelegatedClient;
-	private readonly TeamsService _teamsService;
-
-	public string JoinUrl { get; set; }
-
-	[BindProperty]
-	public DateTimeOffset Begin { get; set; }
-	[BindProperty]
-	public DateTimeOffset End { get; set; }
-	[BindProperty]
-	public string AttendeeEmail { get; set; }
-	[BindProperty]
-	public string MeetingName { get; set; }
-
-	public CreateTeamsMeetingModel(AadGraphApiDelegatedClient aadGraphApiDelegatedClient,
-		TeamsService teamsService)
-	{
-		_aadGraphApiDelegatedClient = aadGraphApiDelegatedClient;
-		_teamsService = teamsService;
-	}
-
-	public async Task&lt;IActionResult&gt; OnPostAsync()
-	{
-		if (!ModelState.IsValid)
-		{
-			return Page();
-		}
-
-		var meeting = _teamsService.CreateTeamsMeeting(MeetingName, Begin, End);
-
-		var attendees = AttendeeEmail.Split(';');
-		List&lt;string&gt; items = new();
-		items.AddRange(attendees);
-		var updatedMeeting = _teamsService.AddMeetingParticipants(
-		  meeting, items);
-
-		var createdMeeting = await _aadGraphApiDelegatedClient.CreateOnlineMeeting(updatedMeeting);
-
-		JoinUrl = createdMeeting.JoinUrl;
-
-		return RedirectToPage("./CreatedTeamsMeeting", "Get", new { meetingId = createdMeeting.Id });
-	}
-
-	public void OnGet()
-	{
-		Begin = DateTimeOffset.UtcNow;
-		End = DateTimeOffset.UtcNow.AddMinutes(60);
-	}
-}
-  
-
-
-<p>Sending Emails to attendees using Microsoft Graph</p>
-
-
-
-<p>The Created Razor page displays the meeting JoinUrl and some details of the Teams meeting. The page implements a form which can send emails to all the attendees using Microsoft Graph. The EmailService class implements the email logic to send plain mails or HTML mails using the Microsoft Graph.</p>
-
-
-  using Microsoft.Graph;
-using System;
-using System.Collections.Generic;
-using System.IO;
-
-namespace TeamsAdminUI.GraphServices
-{
-    public class EmailService
-    {
-        MessageAttachmentsCollectionPage MessageAttachmentsCollectionPage = new();
-
-        public Message CreateStandardEmail(string recipient, string header, string body)
-        {
-            var message = new Message
-            {
-                Subject = header,
-                Body = new ItemBody
-                {
-                    ContentType = BodyType.Text,
-                    Content = body
-                },
-                ToRecipients = new List&lt;Recipient&gt;()
-                {
-                    new Recipient
-                    {
-                        EmailAddress = new EmailAddress
-                        {
-                            Address = recipient
-                        }
-                    }
-                },
-                Attachments = MessageAttachmentsCollectionPage
-            };
-
-            return message;
-        }
-
-        public Message CreateHtmlEmail(string recipient, string header, string body)
-        {
-            var message = new Message
-            {
-                Subject = header,
-                Body = new ItemBody
-                {
-                    ContentType = BodyType.Html,
-                    Content = body
-                },
-                ToRecipients = new List&lt;Recipient&gt;()
-                {
-                    new Recipient
-                    {
-                        EmailAddress = new EmailAddress
-                        {
-                            Address = recipient
-                        }
-                    }
-                },
-                Attachments = MessageAttachmentsCollectionPage
-            };
-
-            return message;
-        }
-
-        public void AddAttachment(byte[] rawData, string filePath)
-        {
-            MessageAttachmentsCollectionPage.Add(new FileAttachment
-            {
-                Name = Path.GetFileName(filePath),
-                ContentBytes = EncodeTobase64Bytes(rawData)
-            });
-        }
-
-        public void ClearAttachments()
-        {
-            MessageAttachmentsCollectionPage.Clear();
-        }
-
-        static public byte[] EncodeTobase64Bytes(byte[] rawData)
-        {
-            string base64String = System.Convert.ToBase64String(rawData);
-            var returnValue = Convert.FromBase64String(base64String);
-            return returnValue;
-        }
-    }
-}
-  
-
-
-<p>The CreatedTeamsMeetingModel class is used to implement the Razor page logic to display some meeting details and send emails using a form post request. The OnGetAsync uses the meetingId to request the Teams meeting using Microsoft Graph and displays the data in the UI. The OnPostAsync method sends emails to all attendees.</p>
-
-
-  using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.RazorPages;
-using System.Threading.Tasks;
-using TeamsAdminUI.GraphServices;
-using Microsoft.Graph;
-
-namespace TeamsAdminUI.Pages
-{
-    public class CreatedTeamsMeetingModel : PageModel
-    {
-        private readonly AadGraphApiDelegatedClient _aadGraphApiDelegatedClient;
-        private readonly EmailService _emailService;
-
-        public CreatedTeamsMeetingModel(
-            AadGraphApiDelegatedClient aadGraphApiDelegatedClient,
-            EmailService emailService)
-        {
-            _aadGraphApiDelegatedClient = aadGraphApiDelegatedClient;
-            _emailService = emailService;
-        }
-
-        [BindProperty]
-        public OnlineMeeting Meeting {get;set;}
-
-        [BindProperty]
-        public string EmailSent { get; set; }
-
-        public async Task&lt;ActionResult&gt; OnGetAsync(string meetingId)
-        {
-            Meeting = await _aadGraphApiDelegatedClient.GetOnlineMeeting(meetingId);
-            return Page();
-        }
-
-        public async Task&lt;IActionResult&gt; OnPostAsync(string meetingId)
-        {
-            Meeting = await _aadGraphApiDelegatedClient.GetOnlineMeeting(meetingId);
-            foreach (var attendee in Meeting.Participants.Attendees)
-            {
-                var recipient = attendee.Upn.Trim();
-                var message = _emailService.CreateStandardEmail(recipient, Meeting.Subject, Meeting.JoinUrl);
-                await _aadGraphApiDelegatedClient.SendEmailAsync(message);
-            }
-
-            EmailSent = "Emails sent to all attendees, please check your mailbox";
-            return Page();
-        }
-
-    }
-}
-  
-
-
-<p>The created Razor page implements the HTML display logic and adds a form to send the emails. The JoinUrl is displayed as this is what you need to open the meeting a Microsoft Teams application.</p>
-
-
-  @page "{handler?}"
-@model TeamsAdminUI.Pages.CreatedTeamsMeetingModel
-@{
-}
-
-&lt;h4&gt;Teams Meeting Created: @Model.Meeting.Subject&lt;/h4&gt;
-&lt;hr /&gt;
-
-&lt;h4&gt;Meeting Id:&lt;/h4&gt;
-
-&lt;p&gt;@Model.Meeting.Id&lt;/p&gt;
-
-&lt;h4&gt;JoinUrl&lt;/h4&gt;
-
-&lt;p&gt;@Model.Meeting.JoinUrl&lt;/p&gt;
-
-&lt;h4&gt;Participants&lt;/h4&gt;
-
-@foreach(var attendee in Model.Meeting.Participants.Attendees)
-{
-	&lt;p&gt;@attendee.Upn&lt;/p&gt;
-}
-
-&lt;form method="post"&gt;
-    &lt;div class="form-group"&gt;
-        &lt;input type="hidden" value="@Model.Meeting.Id" /&gt;
-        &lt;button type="submit" class="btn btn-primary"&gt;&lt;i class="fas fa-save"&gt;&lt;/i&gt; Send Mail to attendees&lt;/button&gt;
-    &lt;/div&gt;
-&lt;/form&gt;
-
-&lt;p&gt;@Model.EmailSent&lt;/p&gt;
-  
-
-
-<p>Testing</p>
-
-
-
-<p>When the application is started, you can create a new Teams meeting with the required details. The logged in user must have an account with access to Office and be on the same tenant as the Azure App registration setup for the Microsoft Graph permissions. The Teams meeting is organized using the identity that signed in because we used the delegated permissions. </p>
-
-
-
-
-
-
-
-<p>Once the meeting is created, the created Razor page is opened with the details. You can send an email to all attendees or use the JoinUrl directly to open up the Teams meeting.</p>
-
-
-
-
-
-
-
-<p>Creating Teams meetings and sending emails in ASP.NET Core is really useful and I will do a few following up posts to this as there is so much more you can do here once this is integrated.</p>
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/graph/api/application-post-onlinemeetings">https://docs.microsoft.com/en-us/graph/api/application-post-onlinemeetings</a></p>
-
-
-
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-
-
-
-<p><a href="https://damienbod.com/2021/08/09/send-emails-using-microsoft-graph-api-and-a-desktop-client/">Send Emails using Microsoft Graph API and a desktop&nbsp;client</a></p>
-
-
-
-<p><a href="https://www.office.com/?auth=2">https://www.office.com/?auth=2</a></p>
-
-
-
-<p><a href="https://aad.portal.azure.com/">https://aad.portal.azure.com/</a></p>
-
-
-
-<p><a href="https://admin.microsoft.com/Adminportal/Home">https://admin.microsoft.com/Adminportal/Home</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/09/teams_aspnetcore_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:42 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Sunday, 19. September 2021
  </h2>
@@ -21983,7 +22263,7 @@ This is the BYTE magazine cover from August of 1981. In the 70s and the 80s, pro
 
 <div class='item-footer'>
    08:26 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22123,7 +22403,7 @@ where email ~*
 
 <div class='item-footer'>
    17:53 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -25400,7 +25680,7 @@ select * from questions_and_answers_for_group('qz9a4b3d')
 
 <div class='item-footer'>
    18:00 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27645,6 +27925,82 @@ The post あり得たもう一つのオリンピック開会式 first appeared o
 
 
  <h2 class='new-date'>
+  Friday, 16. July 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://kayaelle.medium.com/'>Kerri Lemole</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://kayaelle.medium.com/the-future-of-open-badges-is-verifiable-bce27664a668?source=rss-eccb4b25c339------2'>The Future of Open Badges is Verifiable</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  ‘hexadaisy layout’ by Darla available at http://www.flickr.com/photos/pedrosz/2040577615 under a Attribution 2.0 Generic (CC BY 2.0)&nbsp;license When Open Badges was kicking off ten years ago (see the original white paper), it was conceived to be a recognition infrastructure for skills attained and achievements accomplished anywhere at any time. Badges could assert skills learned informally, forma
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*v9PFw7iDz1Civm5rYUkfzw.jpeg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+‘hexadaisy layout’ by Darla available at <a href="https://flic.kr/p/e6MH6e">http://www.flickr.com/photos/pedrosz/2040577615</a> under a Attribution 2.0 Generic (CC BY 2.0)&nbsp;license<p>When Open Badges was kicking off ten years ago (<a href="https://wiki.mozilla.org/images/5/59/OpenBadges-Working-Paper_012312.pdf">see the original white paper</a>), it was conceived to be a recognition infrastructure for skills attained and achievements accomplished anywhere at any time. Badges could assert skills learned informally, formally, really in any aspect of and through life. It was hoped that recruiters, employers, and others could evaluate the badges to find people who had skills that aligned with the opportunities being offered. It was envisioned they could work like other types of credentials such as degrees and certifications, “but with room for much more granular or diverse skill representation” and available opportunities to capture these&nbsp;skills.</p><p>The infrastructure for this type of recognition system was a format called a digital badge. More than just a digital sticker, the badges would be filled with metadata properties describing the skills and achievements. Then the badges could convey the metadata both as human readable and machine readable content. By having a standard to describe the metadata and how it would be verified, Open Badges became usable in many technologies and contexts. For the most part, this resulted in badges being shared online on issuing platforms and social media — more as a tool for human understanding than one that took full advantage of the potential for machine readability.</p><p>Since then, the ethos of Open Badges, recognizing skills anywhere and anytime, has strengthened. Growth has accelerated, especially in the past few years. IMS Global and Credential Engine’s <a href="http://content.imsglobal.org/badge-count-2020/badge-count-2020/">Badge Count 2020 Report</a> indicated that there’d been an 80% increase in issued badges since 2018. Its use has expanded into more formal institutional contexts, the metadata have evolved, and initiatives have risen around it including the <a href="https://www.openrecognition.org/">Open Recognition Alliance</a>, <a href="https://www.thebadgesummit.com/">Badge Summit</a>, and the <a href="https://www.openskillsnetwork.org/">Open Skills&nbsp;Network</a>.</p><p>Over the years, internet technologies have evolved too and a credential verification model at the W3C called <a href="https://w3c.github.io/vc-data-model/">Verifiable Credentials</a> has gained traction. This verification model can be used for any type of credential including passports, drivers licenses, and educational credentials like Open Badges. In fact, members of the Open Badges community helped to write the very first <a href="https://opencreds.org/specs/source/use-cases/">use cases</a> for Verifiable Credentials back in 2018. This was because we knew then that if Open Badges data were to be trusted by apps, they not only needed to be readable by machines, they needed to be verifiable.</p><p>The Verifiable Credential model can provide security and privacy enhancements not yet available to Open Badges. This model gives learners persistent access to their badges increasing the longevity and resilience of credentials that were intended to promote and support lifelong learning. A more secure and universally supported verification model such as Verifiable Credentials enables Open Badges to become the personal skills currency it was originally envisioned to&nbsp;be.</p><p><a href="https://concentricsky.com/">Concentric Sky</a> (<a href="https://info.badgr.com/">Badgr</a>) has offered a <a href="https://github.com/concentricsky/openbadges-specification/blob/feature/ob3/proposals/OBv3p0/Proposal-Open-Badges-3.0.pdf">proposal for a new version of Open Badges</a> that explains what is needed to make it work within the Verifiable Credentials model. The use cases in the proposal provide scenarios where Open Badges are earned and then how they are exchanged. In one use case, a medical professional is able to start her new job sooner because her CME’s can be quickly verified:</p><p>Verifying Continuing Ed: Denise was offered a new job at a hospital as a physician assistant. Before starting, her continuing education training and license to practice needed to be verified. The last time she switched hospitals, the verification process took three weeks. This time, she was able to provide her badges to prove her training and license. Within minutes her credentials were verified and she was issued a new digital staff credential</p><p>In another use case, a career change is facilitated by using verifiable Open Badges to map skills to&nbsp;jobs:</p><p>Mapping Skills: Sid is shifting careers after many years working in construction. In his digital wallet he had several skill badges describing his mastery of several skills in construction but also in teamwork, communication, and organizational skills. Sid also had badges from some courses he’d taken in science and math over the last few years. After he uploaded the skill and course badges from his wallet to a career planning site, he was offered several opportunities to apply for work in software sales and cybersecurity.</p><p>Here’s an example of how an Open Badge as a Verifiable Credential (Open Badges 3.0) exchange could&nbsp;work:</p>  A learner connects to a badge issuing platform with their digital wallet app on their phone or&nbsp;laptop.  Once authenticated, the issuer provides the badge to the learner who puts it in their wallet. The badge data contains cryptographic proof that identifies the issuer and the&nbsp;learner.  A job employment app asks for proof that the applicant has experience with a requirement needed for that&nbsp;role.  The learner presents the job employment app with the badge using the digital wallet app. The job employment app can then verify<br>a. that the learner providing the badge is the recipient of that badge<br>b. that the issuer is the identity that issued the badge, and<br>c. that the badge data has not changed since it was&nbsp;issued.  The verifier responds that the badge is authentic.  <p>In comparison, here’s an Open Badges 2.0&nbsp;flow:</p>  A learner or an organization provides an issuer app with the learner’s email&nbsp;address  The Issuer generates badge data that includes the email address as the recipient identity and sends the earner the badge (typically as a link to a web&nbsp;page)  The earner can share the link on social media, or perhaps with a potential employer or a job application app.  The badge is verified by either<br>a. a human looking at the web page where the badge is hosted or<br>b. the application attempts to retrieve the badge data from a url hosted by the&nbsp;issuer.  <p>The Open Badges 2.0 example depends on the issuer hosting the data and relies on an email address for the learner. The Open Badges 3.0 example is self-contained and doesn’t require the issuer to continue to retain a web hosting provider in order for the credential to remain valid. Instead it uses cryptographic proof to authenticate the badge, the issuer, as well as the learner who earned it. With either example, the learner has a way to proudly share their achievement online but the Open Badges 3.0 method doesn’t rely on that online presence for verification. In fact, the original issuer may no longer exist, but the achievements can still be verified.</p><p>On Monday July 19, we’ll be reviewing the <a href="https://github.com/concentricsky/openbadges-specification/blob/feature/ob3/proposals/OBv3p0/Proposal-Open-Badges-3.0.pdf">Open Badges 3.0 proposal</a> and anyone is invited to join us to learn more. Here’s the meeting&nbsp;info:</p><p>Monday, July 19, 2021<br>Time: 8am PDT / 11am EDT / 4pm BST, 5pm CEST<br>Jitsi Web Conference: <a href="https://meet.w3c-ccg.org/education">https://meet.w3c-ccg.org/education</a><br>US phone: tel:+1.602.932.2243;3</p><p>On Thursday, July 22, Concentric Sky will be presenting this proposal to the IMS Global Open Badges working group to seek the members’ go-ahead to move forward on the work to make Open Badges 3.0 a reality. Public comments may be submitted <a href="https://github.com/IMSGlobal/openbadges-specification/pull/303">here</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*v9PFw7iDz1Civm5rYUkfzw.jpeg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:12 &bull;
+   5 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Monday, 12. July 2021
  </h2>
 
@@ -27956,7 +28312,7 @@ l3 = list(set(l1 + l2)) # yes: [1, 2, 3, 4, 5]<br>
 
 <div class='item-footer'>
    20:15 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
@@ -30159,74 +30515,6 @@ Illustration: Digital Identity&nbsp;Wallet<p>This article explains what a wallet
 
 <div class='item-footer'>
    10:15 &bull;
-   6 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Saturday, 19. June 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://identitywoman.net'>Identity Woman</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://identitywoman.net/fake-students/'>Fake Students</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   It became clear to me again today why we here in California need Verifiable Credentials. I teach in a CCC – a California Community College. This summer I have a class and right now is the “census deadline” to drop students who haven’t been attending class. Below is the note we were sent regarding fraudulent […] 
- The post Fake Students appeared first on Identity Woman. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>It became clear to me again today why we here in California need Verifiable Credentials. I teach in a CCC – a California Community College. This summer I have a class and right now is the “census deadline” to drop students who haven’t been attending class. Below is the note we were sent regarding fraudulent […]</p>
-<p>The post <a href="https://identitywoman.net/fake-students/">Fake Students</a> appeared first on <a href="https://identitywoman.net">Identity Woman</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:24 &bull;
    6 months ago
 </div>
 
