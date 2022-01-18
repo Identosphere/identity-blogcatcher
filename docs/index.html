@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:51 AM January 18, 2022 (UTC)</sup>
+<sup>Last Update 5:43 AM January 18, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -756,8 +756,285 @@
 
 
 <h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Jan/18/weeknotes/#atom-everything'>Weeknotes: s3-credentials prefix and Datasette 0.60</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   A new release of s3-credentials with support for restricting access to keys that start with a prefix, Datasette 0.60 and a write-up of my process for shipping a feature. 
+ s3-credentials --prefix 
+ s3-credentials is my tool for creating limited scope AWS credentials that can only read and write from a specific S3 bucket. I introduced it in this blog entry in November, and I've continued to iterate
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2022/s3-keys.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>A <a href="https://github.com/simonw/s3-credentials/releases/tag/0.9">new release</a> of <a href="https://github.com/simonw/s3-credentials">s3-credentials</a> with support for restricting access to keys that start with a prefix, <a href="https://docs.datasette.io/en/stable/changelog.html#v0-60">Datasette 0.60</a> and a write-up of <a href="https://simonwillison.net/2022/Jan/12/how-i-build-a-feature/">my process for shipping a feature</a>.</p>
+ s3-credentials --prefix 
+<p><a href="https://github.com/simonw/s3-credentials">s3-credentials</a> is my tool for creating limited scope AWS credentials that can only read and write from a specific S3 bucket. I introduced it <a href="https://simonwillison.net/2021/Nov/3/s3-credentials/">in this blog entry</a> in November, and I've continued to iterate on it since then.</p>
+<p>I released <a href="https://github.com/simonw/s3-credentials/releases/tag/0.9">s3-credentials 0.9</a> today with a feature I've been planning since I first built the tool: the ability to <a href="https://github.com/simonw/s3-credentials/issues/12">specify a --prefix</a> and get credentials that are only allowed to operate on keys within a specific folder within the S3 bucket.</p>
+<p>This is particularly useful if you are building multi-tenant SaaS applications on top of AWS. You might decide to create a bucket per customer... but S3 limits you to 100 buckets for your by default, with a maximum of 1,000 buckets if you request an increase.</p>
+<p>So a bucket per customer won't scale above 1,000 customers.</p>
+<p>The <a href="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sts.html#STS.Client.assume_role">sts.assume_role()</a> API lets you retrieve temporary credentials for S3 that can have limits attached to them - including a limit to access keys within a specific bucket and under a specific prefix. That means you can create limited duration credentials that can only read and write from a specific prefix within a bucket.</p>
+<p>Which solves the problem! Each of your customers can have a dedicated prefix within the bucket, and your application can issue restricted tokens that greatly reduce the risk of one customer accidentally seeing files that belong to another.</p>
+<p>Here's how to use it:</p>
+ <code>s3-credentials create name-of-bucket --prefix user1410/
+</code> 
+<p>This will return a JSON set of credentials - an access key and secret key - that can only be used to read and write keys in that bucket that start with <code>user1410/</code>.</p>
+<p>Add <code>--read-only</code> to make those credentials read-only, and <code>--write-only</code> for credentials that can be used to write but not read records.</p>
+<p>If you add <code>--duration 15m</code> the returned credentials will only be valid for 15 minutes, using <code>sts.assume_role()</code>. The README includes <a href="https://github.com/simonw/s3-credentials#changes-that-will-be-made-to-your-aws-account">a detailed description</a> of the changes that will be made to your AWS account by the tool.</p>
+<p>You can also add <code>--dry-run</code> to see a text summary of changes without applying them to your account. Here's an example:</p>
+ <code>% s3-credentials create name-of-bucket --prefix user1410/ --read-only --dry-run --duration 15m
+Would create bucket: 'name-of-bucket'
+Would ensure role: 's3-credentials.AmazonS3FullAccess'
+Would assume role using following policy for 900 seconds:
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "arn:aws:s3:::name-of-bucket"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::name-of-bucket"
+      ],
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "user1410/*"
+          ]
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectAcl",
+        "s3:GetObjectLegalHold",
+        "s3:GetObjectRetention",
+        "s3:GetObjectTagging"
+      ],
+      "Resource": [
+        "arn:aws:s3:::name-of-bucket/user1410/*"
+      ]
+    }
+  ]
+}
+</code> 
+<p>As with all things AWS, the magic is in the details of the JSON policy document. The README includes details of exactly what those policies look like. Getting them right was by far the hardest part of building this tool!</p>
+ s3-credentials integration tests 
+<p>When writing automated tests, I generally avoid calling any external APIs or making any outbound network traffic. I want the tests to run in an isolated environment, with no risk that some other system that's having a bad day could cause random test failures.</p>
+<p>Since the hardest part of building this tool is having confidence that it does the right thing, I decided to also include a suite of integration tests that actively exercise Amazon S3.</p>
+<p>By default, running <code>pytest</code> will skip these:</p>
+ <code>% pytest
+================ test session starts ================
+platform darwin -- Python 3.10.0, pytest-6.2.5, py-1.10.0, pluggy-1.0.0
+rootdir: /Users/simon/Dropbox/Development/s3-credentials
+plugins: recording-0.12.0, mock-3.6.1
+collected 61 items                                  
+
+tests/test_dry_run.py ....                    [  6%]
+tests/test_integration.py ssssssss            [ 19%]
+tests/test_s3_credentials.py ................ [ 45%]
+.................................             [100%]
+
+=========== 53 passed, 8 skipped in 1.21s ===========
+</code> 
+<p>Running <code>pytest --integration</code> runs the test suite with those tests enabled. It expects the computer they are running on to have AWS credentials with the ability to create buckets and users - I'm too nervous to add these secrets to GitHub Actions, so I currently only run the integration suite on my own laptop.</p>
+<p>These were invaluable for getting confident that the new <code>--prefix</code> option behaved as expected, especially when combined with <code>--read-only</code> and <code>--write-only</code>. Here's the <a href="https://github.com/simonw/s3-credentials/blob/0.9/tests/test_integration.py#L219-L279">test_prefix_read_only()</a> test which exercises the <code>--prefix --read-only</code> combination.</p>
+ s3-credentials list-bucket 
+<p>One more new feature: the <code>s3-credentials list-bucket name-of-bucket</code> command lists all of the keys in a specific bucket.</p>
+<p>By default it returns a JSON array, but you can add <code>--nl</code> to get back <a href="http://ndjson.org/">newline delimited JSON</a> or <code>--csv</code> or <code>--tsv</code> to get back CSV or TSV.</p>
+<p>So... a fun thing you can do with the command is pipe the output into <a href="https://sqlite-utils.datasette.io/en/stable/cli.html#inserting-newline-delimited-json">sqlite-utils insert</a> to create a SQLite database file of your bucket contents... and then use <a href="https://datasette.io/">Datasette</a> to browse it!</p>
+<p></p> <code>% s3-credentials list-bucket static.niche-museums.com --nl \
+  | sqlite-utils insert s3.db keys - --nl
+% datasette s3.db -o
+</code> <p></p>
+<p>This will create a <code>s3.db</code> SQLite database with a <code>keys</code> table containing your bucket contents, then open Datasette to let you interact with the table.</p>
+<p></p>
+ Datasette 0.60 
+<p>I shipped several months of work on Datasette a few days ago as <a href="https://docs.datasette.io/en/stable/changelog.html#v0-60">Datasette 0.60</a>. I published <a href="https://simonwillison.net/2022/Jan/14/datasette-060/">annotated release notes</a> for that release which describe the background of those changes in detail.</p>
+<p>I also released new versions of <a href="https://github.com/simonw/datasette-pretty-traces/releases/tag/0.4">datasette-pretty-traces</a> and <a href="https://github.com/simonw/datasette-leaflet-freedraw/releases/tag/0.3">datasette-leaflet-freedraw</a> to take advantage of new features added to Datasette.</p>
+ How I build a feature 
+<p>My other big project this week was a blog post: <a href="https://simonwillison.net/2022/Jan/12/how-i-build-a-feature/">How I build a feature</a>, which goes into detail about the process I use for adding new features to my various projects. I've had some great feedback about this, so I'm tempted to write more about general software engineering process stuff here in the future.</p>
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/s3-credentials">s3-credentials</a>: <a href="https://github.com/simonw/s3-credentials/releases/tag/0.9">0.9</a> - (<a href="https://github.com/simonw/s3-credentials/releases">9 releases total</a>) - 2022-01-18
+<br>A tool for creating credentials for accessing S3 buckets 
+ 
+<a href="https://github.com/simonw/datasette-pretty-traces">datasette-pretty-traces</a>: <a href="https://github.com/simonw/datasette-pretty-traces/releases/tag/0.4">0.4</a> - (<a href="https://github.com/simonw/datasette-pretty-traces/releases">6 releases total</a>) - 2022-01-14
+<br>Prettier formatting for ?_trace=1 traces 
+ 
+<a href="https://github.com/simonw/datasette-leaflet-freedraw">datasette-leaflet-freedraw</a>: <a href="https://github.com/simonw/datasette-leaflet-freedraw/releases/tag/0.3">0.3</a> - (<a href="https://github.com/simonw/datasette-leaflet-freedraw/releases">8 releases total</a>) - 2022-01-14
+<br>Draw polygons on maps in Datasette 
+ 
+<a href="https://github.com/simonw/datasette">datasette</a>: <a href="https://github.com/simonw/datasette/releases/tag/0.60">0.60</a> - (<a href="https://github.com/simonw/datasette/releases">105 releases total</a>) - 2022-01-14
+<br>An open source multi-tool for exploring and publishing data 
+ 
+<a href="https://github.com/simonw/datasette-graphql">datasette-graphql</a>: <a href="https://github.com/simonw/datasette-graphql/releases/tag/2.0.1">2.0.1</a> - (<a href="https://github.com/simonw/datasette-graphql/releases">33 releases total</a>) - 2022-01-12
+<br>Datasette plugin providing an automatic GraphQL API for your SQLite databases 
+ 
+ TIL this week 
+ 
+ <a href="https://til.simonwillison.net/github/dependabot-python-setup">Configuring Dependabot for a Python project with dependencies in setup.py</a> 
+ <a href="https://til.simonwillison.net/javascript/javascript-date-objects">JavaScript date objects</a> 
+ <a href="https://til.simonwillison.net/python/output-json-array-streaming">Streaming indented output of a JSON array</a> 
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2022/s3-keys.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:37 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/01/18/apparently-someone-did.html'> Apparently ‘someone’ ‘did it up’ 20 years ago - have to say </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Apparently ‘someone’ ‘did it up’ 20 years ago - have to say I thought it was much more recent … 
+
+  
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/07605e2f53.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Apparently ‘someone’ ‘did it up’ 20 years ago - have to say I thought it was much more recent …</p>
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/07605e2f53.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:00 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -803,7 +1080,7 @@
 
 <div class='item-footer'>
    00:30 &bull;
-   an hour ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -874,7 +1151,7 @@
 
 <div class='item-footer'>
    21:07 &bull;
-   5 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -942,7 +1219,7 @@
 
 <div class='item-footer'>
    19:08 &bull;
-   7 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1012,7 +1289,7 @@
 
 <div class='item-footer'>
    18:59 &bull;
-   7 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1205,7 +1482,7 @@ You can use it to add a flat virtual background to your video, or you could use 
 
 <div class='item-footer'>
    15:55 &bull;
-   10 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1369,7 +1646,7 @@ You can use it to add a flat virtual background to your video, or you could use 
 
 <div class='item-footer'>
    07:03 &bull;
-   19 hours ago
+   23 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1445,7 +1722,7 @@ You can use it to add a flat virtual background to your video, or you could use 
 
 <div class='item-footer'>
    03:56 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -4693,76 +4970,6 @@ Refs #348, #364, #366, #368, #371, #372, #374, #375, #376, #379"
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2022/01/12/182102.html'>1971 : 🚀 🧙‍♂️🎵</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   David Bowie’s Glam Masterpiece ‘Hunky Dory’ Turns 50 
-
- 
- In his book Never A Dull Moment: 1971 The Year That Rock Exploded, British music journalist David Hepworth lays out a case for considering 1971 as the most consequential year (from beginning to end) in music. 
- 
-
- … which reminded me of 1971 - The Year That 🎵🎼 Music Changed Everything - excellent series. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.popmatters.com/david-bowie-hunky-dory-50th/">David Bowie’s Glam Masterpiece ‘Hunky Dory’ Turns 50</a></p>
-
-<blockquote>
-<p>In his book Never A Dull Moment: 1971 The Year That Rock Exploded, British music journalist David Hepworth lays out a case for considering 1971 as the most consequential year (from beginning to end) in music.</p>
-</blockquote>
-
-<p>… which reminded me of <a href="https://www.imdb.com/title/tt14544732/">1971 - The Year That 🎵🎼 Music Changed Everything</a> - excellent series.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:21 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Tuesday, 11. January 2022
  </h2>
@@ -5307,7 +5514,7 @@ db["tablename"].delete_where(analyze=True)
 
 <div class='item-footer'>
    17:33 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6305,7 +6512,7 @@ discussions should ver much be dominating the public sphere.</p>
 
 <div class='item-footer'>
    15:10 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7145,7 +7352,7 @@ space.</p>
 
 <div class='item-footer'>
    15:51 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12227,74 +12434,6 @@ for event in data["Events"]:
 
 <div class='item-footer'>
    06:04 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2021/Dec/6/centrifue/#atom-everything'>Centrifuge: a reliable system for delivering billions of events per day</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Centrifuge: a reliable system for delivering billions of events per day 
- From 2018, a write-up from Segment explaining how they solved the problem of delivering webhooks from thousands of different producers to hundreds of potentially unreliable endpoints. They started with Kafka and ended up on a custom system written in Go against RDS MySQL that was specifically tuned to their write-heavy requi
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://segment.com/blog/introducing-centrifuge/">Centrifuge: a reliable system for delivering billions of events per day</a></p>
-<p>From 2018, a write-up from Segment explaining how they solved the problem of delivering webhooks from thousands of different producers to hundreds of potentially unreliable endpoints. They started with Kafka and ended up on a custom system written in Go against RDS MySQL that was specifically tuned to their write-heavy requirements.</p>
-
-    <p>Via <a href="https://twitter.com/jkakar/status/1467653837917863936">@jkakar</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:41 &bull;
    1 months ago
 </div>
 
@@ -20934,7 +21073,7 @@ Naming</p>
 
 <div class='item-footer'>
    03:55 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
