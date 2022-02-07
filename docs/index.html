@@ -736,12 +736,290 @@
 
 </div>
 </div>
-<sup>Last Update 1:42 AM February 07, 2022 (UTC)</sup>
+<sup>Last Update 5:42 AM February 07, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 07. February 2022
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/02/07/using-blazor-with-a-yarp-downstream-api-protected-using-certificate-authentication/'>Using Blazor with a YARP downstream API protected using certificate authentication</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to use a downstream API protected with certificate authentication using Microsoft YARP reverse proxy from a Blazor application. The Blazor WASM HTTP requests are sent to a secured backend which uses YARP to forward the requests to the API protected with the certificate authentication. The Blazor application authenticates using the OpenIddict […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to use a downstream API protected with certificate authentication using Microsoft  <a href="https://github.com/microsoft/reverse-proxy">YARP</a> reverse proxy from a Blazor application. The Blazor WASM HTTP requests are sent to a secured backend which uses YARP to forward the requests to the API protected with the certificate <a href="https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth">authentication</a>. The Blazor application authenticates using the OpenIddict identity provider using the BFF security architecture. The downstream API which is protected using the certificate authentication is deployed to an Azure App Service and requires a known client certificate to use the API.</p>
+
+
+
+<p>Code <a href="https://github.com/damienbod/AspNetCoreOpeniddict">https://github.com/damienbod/AspNetCoreOpeniddict</a></p>
+
+
+
+<p>Setup</p>
+
+
+
+<p>The application was built using the <a href="https://github.com/openiddict/openiddict-samples">openiddict-samples</a> and the Dantooine sample. Only small changes to the YARP configuration is required to implement the API calls. The dotnet template  <a href="https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template">Blazor.BFF.OpenIDConnect.Template</a> could also be used to setup the Blazor application. This pre-configures the BFF authentication and uses standard OpenID Connect.</p>
+
+
+
+<p>The API protected using certificate authentication is implemented using the following code: <a href="https://github.com/damienbod/AspNetCoreCertificates/tree/main/examplesUsingCertificateAuthentication/AzureCertAuth">AzureCertAuth</a>. This application is deployed to the Azure App service and certificates are required to use the application. The server validates that the correct certificate is used to access the API.</p>
+
+
+
+
+
+
+
+<p>The YARP reverse proxy is setup in the startup class and the app settings. The client certificate required for the downstream API, is loaded into the project using the X509Certificate2 class. This could be loaded from the operating system, or Azure key vault or some other secure way. The demo loads this directly in an unsecure way. </p>
+
+
+
+<p>The AddReverseProxy method adds the YARP definitions and the ConfigureHttpClient method is used to add the SslOptions containing the client certificate which is used for the Azure API calls. The MapReverseProxy is used to add the endpoints and reads the configuration from the app settings.</p>
+
+
+  public void ConfigureServices(IServiceCollection services)
+{
+	// ...
+
+   // Create an authorization policy used by YARP when forwarding requests
+   // from the WASM application to the Dantooine.Api1 resource server.
+   services.AddAuthorization(options =&gt; options.AddPolicy("CookieAuthenticationPolicy", builder =&gt;
+   {
+      builder.AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme);
+      builder.RequireAuthenticatedUser();
+    }));
+
+	var cert = new X509Certificate2("client.pfx", "1234");
+
+	services.AddReverseProxy()
+		 .ConfigureHttpClient((context, handler) =&gt;
+		 {
+			 handler.SslOptions = new SslClientAuthenticationOptions
+			 {
+				ClientCertificates = new X509CertificateCollection
+				{
+					cert
+				}
+			 };
+		 })
+		.LoadFromConfig(Configuration.GetSection("ReverseProxy"));
+}
+
+public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+{
+	// ...
+	
+	app.UseEndpoints(endpoints =&gt;
+	{
+		endpoints.MapRazorPages();
+		endpoints.MapControllers();
+		endpoints.MapReverseProxy();
+		endpoints.MapFallbackToPage("/_Host");
+	});
+}
+  
+
+
+<p>The ReverseProxy add the configuration which is almost standard like the documentation. The CookieAuthenticationPolicy is used to accept only authenticated requests.</p>
+
+
+  "ReverseProxy": {
+	"Routes": {
+	  "route1": {
+		"ClusterId": "cluster1",
+		"AuthorizationPolicy": "CookieAuthenticationPolicy",
+		"Match": {
+		  "Path": "{**catch-all}"
+		}
+	  }
+	},
+	"Clusters": {
+	  "cluster1": {
+		"HttpClient": {
+		  "SslProtocols": [
+			"Tls12"
+		  ]
+		},
+		"Destinations": {
+		  "cluster1/destination1": {
+			"Address": "https://azurecertauth20201108214641.azurewebsites.net/"
+		  }
+		}
+	  }
+	}
+}
+  
+
+
+<p>Blazor WASM is used to implement the UI which calls the YARP endpoint. The backend validates the HTTP requests for a secure cookie and a valid session and uses a client certificate to get the data from the Azure API. The Azure API validates the client certificate. </p>
+
+
+
+
+
+
+
+<p>Notes</p>
+
+
+
+<p>This works nicely and the downstream APIs can be protected in a secure way. Using this approach, it is very easy to increase security or implement the app to app security in a good way. Or course security is only as good as the weakest link. The WASM UI view calling to the API protected with cookies is now the weakest link, depending of course on how you secure the downstream APIs, but these should not be a problem to do correctly. The API using the YARP reverse proxy uses cookies but has no anti-forgery protection in this demo. This would need to be added. </p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://github.com/microsoft/reverse-proxy">https://github.com/microsoft/reverse-proxy</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template">https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth">https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth</a></p>
+
+
+
+<p><a href="https://github.com/openiddict/openiddict-samples">https://github.com/openiddict/openiddict-samples</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/AspNetCoreCertificates">https://github.com/damienbod/AspNetCoreCertificates</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/01/blazoryarpbffcertauthn_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:48 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/02/07/now-that-is.html'> Now that is an interesting service. </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Now that is an interesting service. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Now <a href="https://12ft.io/the-future">that</a> is an interesting service.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:28 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -814,7 +1092,7 @@
 
 <div class='item-footer'>
    17:33 &bull;
-   8 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -883,7 +1161,7 @@
 
 <div class='item-footer'>
    02:56 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1464,7 +1742,7 @@
 
 <div class='item-footer'>
    16:46 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2423,7 +2701,7 @@
 
 <div class='item-footer'>
    16:05 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5833,71 +6111,6 @@ Flatearth time. I mean - everything. (Barring two hidden pages being used for �
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/01/25/im-so-used.html'> I’m so used to stuff synching twixt devices that I just sent</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I’m so used to stuff synching twixt devices that I just sent 5minutes messing with settings to fix functionality that doesn’t exist. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I’m so used to stuff synching twixt devices that I just sent 5minutes messing with settings to fix functionality that doesn’t exist.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:13 &bull;
-   13 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Monday, 24. January 2022
  </h2>
@@ -6109,7 +6322,7 @@ Flatearth time. I mean - everything. (Barring two hidden pages being used for �
 
 <div class='item-footer'>
    16:50 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6257,7 +6470,7 @@ Flatearth time. I mean - everything. (Barring two hidden pages being used for �
 
 <div class='item-footer'>
    16:41 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7264,7 +7477,7 @@ You can use it to add a flat virtual background to your video, or you could use 
 
 <div class='item-footer'>
    15:55 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8598,7 +8811,7 @@ Refs #348, #364, #366, #368, #371, #372, #374, #375, #376, #379"
 
 <div class='item-footer'>
    17:13 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9152,7 +9365,7 @@ db["tablename"].delete_where(analyze=True)
 
 <div class='item-footer'>
    17:33 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18170,374 +18383,6 @@ private bool IsAuthorized(HttpRequest req)
 
 <div class='item-footer'>
    20:44 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 08. November 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/11/08/asp-net-core-scheduling-with-quartz-net-and-signalr-monitoring/'>ASP.NET Core scheduling with Quartz.NET and SignalR monitoring</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how scheduled tasks can be implemented in ASP.NET Core using Quartz.NET and then displays the job info in an ASP.NET Core Razor page using SignalR. A concurrent job and a non concurrent job are implemented using a simple trigger to show the difference in how the jobs are run. Quartz.NET provides lots […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how scheduled tasks can be implemented in ASP.NET Core using <a href="https://www.quartz-scheduler.net/">Quartz.NET</a> and then displays the job info in an ASP.NET Core Razor page using SignalR. A concurrent job and a non concurrent job are implemented using a simple trigger to show the difference in how the jobs are run. Quartz.NET provides lots of scheduling features and has an easy to use API for implementing scheduled jobs.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreQuartz">https://github.com/damienbod/AspNetCoreQuartz</a></p>
-
-
-
-<p>A simple ASP.NET Core Razor Page web application is used to implement the scheduler and the SignalR messaging. The Quartz Nuget package and the Quartz.Extensions.Hosting Nuget package are used to implement the scheduling service. The Microsoft.AspNetCore.SignalR.Client package is used to send messages to all listening web socket clients. </p>
-
-
-  &lt;PropertyGroup&gt;
-  &lt;TargetFramework&gt;net6.0&lt;/TargetFramework&gt;
-  &lt;Nullable&gt;enable&lt;/Nullable&gt;
-  &lt;ImplicitUsings&gt;enable&lt;/ImplicitUsings&gt;
- &lt;/PropertyGroup&gt;
-
-&lt;ItemGroup&gt;
-  &lt;PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="6.0.0" /&gt;
-  &lt;PackageReference Include="Microsoft.Extensions.Hosting" Version="6.0.0" /&gt;
-  &lt;PackageReference Include="Quartz" Version="3.3.3" /&gt;
-  &lt;PackageReference Include="Quartz.Extensions.Hosting" Version="3.3.3" /&gt;
-&lt;/ItemGroup&gt;
-  
-
-
-<p>The .NET 6 templates no longer use a Startup class, all this logic can now be implemented directly in the Program.cs file with no static main. The ConfigureServices logic can be implemented using a WebApplicationBuilder instance. The AddQuartz method is used to add the scheduling services. Two jobs are added, a concurrent job and a non concurrent job. Both jobs are triggered with a simple trigger every five seconds which runs forever. The AddQuartzHostedService method adds the service as a hosted service. The AddSignalR adds the SignalR services.</p>
-
-
-  using AspNetCoreQuartz;
-using AspNetCoreQuartz.QuartzServices;
-using Quartz;
-
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddRazorPages();
-
-builder.Services.AddSignalR();
-
-builder.Services.AddQuartz(q =&gt;
-{
-    q.UseMicrosoftDependencyInjectionJobFactory();
-
-    var conconcurrentJobKey = new JobKey("ConconcurrentJob");
-    q.AddJob&lt;ConconcurrentJob&gt;(opts =&gt; opts.WithIdentity(conconcurrentJobKey));
-    q.AddTrigger(opts =&gt; opts
-        .ForJob(conconcurrentJobKey)
-        .WithIdentity("ConconcurrentJob-trigger")
-        .WithSimpleSchedule(x =&gt; x
-            .WithIntervalInSeconds(5)
-            .RepeatForever()));
-
-    var nonConconcurrentJobKey = new JobKey("NonConconcurrentJob");
-    q.AddJob&lt;NonConconcurrentJob&gt;(opts =&gt; opts.WithIdentity(nonConconcurrentJobKey));
-    q.AddTrigger(opts =&gt; opts
-        .ForJob(nonConconcurrentJobKey)
-        .WithIdentity("NonConconcurrentJob-trigger")
-        .WithSimpleSchedule(x =&gt; x
-            .WithIntervalInSeconds(5)
-            .RepeatForever()));
-
-});
-
-builder.Services.AddQuartzHostedService(
-    q =&gt; q.WaitForJobsToComplete = true);
-  
-
-
-<p>The WebApplication instance is used to add the middleware like the Startup Configure method. The SignalR JobsHub endpoint is added to send the live messages of the running jobs to the UI in the client browser..</p>
-
-
-  var app = builder.Build();
-
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Error");
-    app.UseHsts();
-}
-
-app.UseHttpsRedirection();
-app.UseStaticFiles();
-
-app.UseRouting();
-
-app.UseAuthorization();
-
-app.UseEndpoints(endpoints =&gt;
-{
-    endpoints.MapHub&lt;JobsHub&gt;("/jobshub");
-});
-
-app.MapRazorPages();
-
-app.Run();
-  
-
-
-<p>The ConconcurrentJob implements the IJob interface and logs messages before and after a time delay. A SignalR client is used to send all the job information to any listening clients. A seven second sleep was added to simulate a slow running job. The jobs are triggered every 5 seconds, so this should result in no change in behavior as the jobs can run in parallel.</p>
-
-
-  using Microsoft.AspNetCore.SignalR;
-using Quartz;
-
-namespace AspNetCoreQuartz.QuartzServices
-{
-    public class ConconcurrentJob : IJob
-    {
-        private readonly ILogger&lt;ConconcurrentJob&gt; _logger;
-        private static int _counter = 0;
-        private readonly IHubContext&lt;JobsHub&gt; _hubContext;
-
-        public ConconcurrentJob(ILogger&lt;ConconcurrentJob&gt; logger, 
-            IHubContext&lt;JobsHub&gt; hubContext)
-        {
-            _logger = logger;
-            _hubContext = hubContext;
-        }
-
-        public async Task Execute(IJobExecutionContext context)
-        {
-            var count = _counter++;
-
-            var beginMessage = $"Conconcurrent Job BEGIN {count} {DateTime.UtcNow}";
-            await _hubContext.Clients.All.SendAsync("ConcurrentJobs", beginMessage);
-            _logger.LogInformation(beginMessage);
-
-            Thread.Sleep(7000);
-
-            var endMessage = $"Conconcurrent Job END {count} {DateTime.UtcNow}";
-            await _hubContext.Clients.All.SendAsync("ConcurrentJobs", endMessage);
-            _logger.LogInformation(endMessage);
-        }
-    }
-}
-  
-
-
-<p>The NonConconcurrentJob class is almost like the previous job, except the DisallowConcurrentExecution attribute is used to prevent concurrent running of the job. This means that even though the trigger is set to five seconds, each job must wait until the previous job finishes.</p>
-
-
-  [DisallowConcurrentExecution]
-public class NonConconcurrentJob : IJob
-{
-	private readonly ILogger&lt;NonConconcurrentJob&gt; _logger;
-	private static int _counter = 0;
-	private readonly IHubContext&lt;JobsHub&gt; _hubContext;
-
-	public NonConconcurrentJob(ILogger&lt;NonConconcurrentJob&gt; logger,
-		   IHubContext&lt;JobsHub&gt; hubContext)
-	{
-		_logger = logger;
-		_hubContext = hubContext;
-	}
-
-	public async Task Execute(IJobExecutionContext context)
-	{
-		var count = _counter++;
-
-		var beginMessage = $"NonConconcurrentJob Job BEGIN {count} {DateTime.UtcNow}";
-		await _hubContext.Clients.All.SendAsync("NonConcurrentJobs", beginMessage);
-		_logger.LogInformation(beginMessage);
-
-		Thread.Sleep(7000);
-
-		var endMessage = $"NonConconcurrentJob Job END {count} {DateTime.UtcNow}";
-		await _hubContext.Clients.All.SendAsync("NonConcurrentJobs", endMessage);
-		_logger.LogInformation(endMessage);
-	}
-}
-  
-
-
-<p>The JobsHub class implements the SignalR Hub and define methods for sending SignalR messages. Two messages are used, one for the concurrent job messages and one for the non concurrent job messages.</p>
-
-
-  public class JobsHub : Hub
-{
-	public Task SendConcurrentJobsMessage(string message)
-	{
-		return Clients.All.SendAsync("ConcurrentJobs",  message);
-	}
-
-	public Task SendNonConcurrentJobsMessage(string message)
-	{
-		return Clients.All.SendAsync("NonConcurrentJobs", message);
-	}
-
-}
-  
-
-
-<p>The microsoft signalr Javascript package is used to implement the client which listens for messages.</p>
-
-
-  {
-  "version": "1.0",
-  "defaultProvider": "cdnjs",
-  "libraries": [
-    {
-      "library": "microsoft-signalr@5.0.11",
-      "destination": "wwwroot/lib/microsoft-signalr/"
-    }
-  ]
-}
-  
-
-
-<p>The Index Razor Page view uses the SignalR Javascript file and displays messages by adding html elements.</p>
-
-
-  @page
-@model IndexModel
-@{
-    ViewData["Title"] = "Home page";
-}
-
-&lt;div class="container"&gt;
-    &lt;div class="row"&gt;
-        &lt;div class="col-6"&gt;
-            &lt;ul id="concurrentJobs"&gt;&lt;/ul&gt;
-        &lt;/div&gt;
-         &lt;div class="col-6"&gt;
-            &lt;ul id="nonConcurrentJobs"&gt;&lt;/ul&gt;
-        &lt;/div&gt;
-    &lt;/div&gt;
-&lt;/div&gt;
-
-&lt;script src="~/lib/microsoft-signalr/signalr.js"&gt;&lt;/script&gt;
-
-  
-
-
-<p>The SignalR client adds the two methods to listen to messages sent from the Quartz jobs.</p>
-
-
-  const connection = new signalR.HubConnectionBuilder()
-    .withUrl("/jobshub")
-    .configureLogging(signalR.LogLevel.Information)
-    .build();
-
-async function start() {
-    try {
-        await connection.start();
-        console.log("SignalR Connected.");
-    } catch (err) {
-        console.log(err);
-        setTimeout(start, 5000);
-    }
-};
-
-connection.onclose(async () =&gt; {
-    await start();
-});
-
-start();
-
-connection.on("ConcurrentJobs", function (message) {
-    var li = document.createElement("li");
-    document.getElementById("concurrentJobs").appendChild(li);
-    li.textContent = `${message}`;
-});
-
-connection.on("NonConcurrentJobs", function (message) {
-    var li = document.createElement("li");
-    document.getElementById("nonConcurrentJobs").appendChild(li);
-    li.textContent = `${message}`;
-});
-
-
-  
-
-
-<p>When the application is run and the hosted Quartz service runs the scheduled jobs, the concurrent jobs starts every five seconds as required and the non concurrent job runs every seven seconds due to the thread sleep.  Running concurrent or non concurrent jobs by using a single attribute definition is a really powerful feature of Quartz.NET.</p>
-
-
-
-
-
-
-
-<p>Quartz.NET provides great documentation and has a really simple API. By using SignalR, it would be really easy to implement a good monitoring UI.</p>
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://www.quartz-scheduler.net/">https://www.quartz-scheduler.net/</a></p>
-
-
-
-<p><a href="https://andrewlock.net/using-quartz-net-with-asp-net-core-and-worker-services/">https://andrewlock.net/using-quartz-net-with-asp-net-core-and-worker-services/</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/signalr/introduction">https://docs.microsoft.com/en-us/aspnet/core/signalr/introduction</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/11/aspnetcorequartz_signalr_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:17 &bull;
    3 months ago
 </div>
 
