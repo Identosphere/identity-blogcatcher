@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 8:42 PM March 13, 2022 (UTC)</sup>
+<sup>Last Update 1:59 AM March 14, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -747,8 +747,474 @@
 
 
  <h2 class='new-date'>
+  Monday, 14. March 2022
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Mar/14/scraping-web-pages-shot-scraper/#atom-everything'>Scraping web pages from the command-line with shot-scraper</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I've added a powerful new capability to my shot-scraper command line browser automation tool: you can now use it to load a web page in a headless browser, execute JavaScript to extract information and return that information back to the terminal as JSON. 
+ Among other things, this means you can construct Unix pipelines that incorporate a full headless web browser as part of their processing. 
+ It'
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2022/simonwillison-net.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I've added a powerful new capability to my <a href="https://github.com/simonw/shot-scraper">shot-scraper</a> command line browser automation tool: you can now use it to load a web page in a headless browser, execute JavaScript to extract information and return that information back to the terminal as JSON.</p>
+<p>Among other things, this means you can construct Unix pipelines that incorporate a full headless web browser as part of their processing.</p>
+<p>It's also a really neat web scraping tool.</p>
+ shot-scraper 
+<p>I <a href="https://simonwillison.net/2022/Mar/10/shot-scraper/">introduced shot-scraper</a> last Thursday. It's a Python utility that wraps <a href="https://playwright.dev/">Playwright</a>, providing both a command line interface and a YAML-driven configuration flow for automating the process of taking screenshots of web pages.</p>
+ <code>% pip install shot-scraper
+% shot-scraper https://simonwillison.net/ --height 800
+Screenshot of 'https://simonwillison.net/' written to 'simonwillison-net.png'
+</code> 
+<p></p>
+<p>Since Thursday <code>shot-scraper</code> has had <a href="https://github.com/simonw/shot-scraper/releases">a flurry of releases</a>, adding features like <a href="https://github.com/simonw/shot-scraper/blob/0.9/README.md#saving-a-web-page-to-pdf">PDF exports</a>, the ability to dump the Chromium <a href="https://github.com/simonw/shot-scraper/blob/0.9/README.md#dumping-out-an-accessibility-tree">accessibilty tree</a> and the ability to take screenshots of <a href="https://github.com/simonw/shot-scraper/blob/0.9/README.md#websites-that-need-authentication">authenticated web pages</a>. But the most exciting new feature landed today.</p>
+ Executing JavaScript and returning the result 
+<p><a href="https://github.com/simonw/shot-scraper/releases/tag/0.9">Release 0.9</a> takes the tool in a new direction. The following command will execute JavaScript on the page and return the resulting value:</p>
+ <code>% shot-scraper javascript simonwillison.net document.title
+"Simon Willison\u2019s Weblog"
+</code> 
+<p>Or you can return a JSON object:</p>
+ <code>% shot-scraper javascript https://datasette.io/ "({
+  title: document.title,
+  tagline: document.querySelector('.tagline').innerText
+})"
+{
+  "title": "Datasette: An open source multi-tool for exploring and publishing data",
+  "tagline": "An open source multi-tool for exploring and publishing data"
+}
+</code> 
+<p>Or if you want to use functions like <code>setTimeout()</code> - for example, if you want to insert a delay to allow an animation to finish before running the rest of your code - you can return a promise:</p>
+ <code>% shot-scraper javascript datasette.io "
+new Promise(done =&gt; setInterval(
+() =&gt; {
+    done({
+    title: document.title,
+    tagline: document.querySelector('.tagline').innerText
+    });
+}, 1000
+));"
+</code> 
+<p>Errors that occur in the JavaScript turn into an exit code of 1 returned by the tool - which means you can also use this to execute simple tests in a CI flow. This example will fail a GitHub Actions workflow if the extracted page title is not the expected value:</p>
+  - name: Test page title
+  run: |-
+    shot-scraper javascript datasette.io "
+      if (document.title != 'Datasette') {
+        throw 'Wrong title detected';
+      }"  
+ Using this to scrape a web page 
+<p>The most exciting use case for this new feature is web scraping. I'll illustrate that with an example.</p>
+<p>Posts from my blog occasionally show up on <a href="https://news.ycombinator.com/">Hacker News</a> - sometimes I spot them, sometimes I don't.</p>
+<p><a href="https://news.ycombinator.com/from?site=simonwillison.net">https://news.ycombinator.com/from?site=simonwillison.net</a> is a Hacker News page showing content from the specified domain. It's really useful, but it sadly isn't included in the official <a href="https://github.com/HackerNews/API">Hacker News API</a>.</p>
+<p></p>
+<p>So... let's write a scraper for it.</p>
+<p>I started out running the Firefox developer console against that page, trying to figure out the right JavaScript to extract the data I was interested in. I came up with this:</p>
+
+  Array.from(document.querySelectorAll('.itemlist .athing')).map(el =&gt; {
+  const title = el.querySelector('a.titlelink').innerText;
+  const points = parseInt(el.nextSibling.querySelector('.score').innerText);
+  const url = el.querySelector('a.titlelink').href;
+  const dt = el.nextSibling.querySelector('.age').title;
+  const submitter = el.nextSibling.querySelector('.hnuser').innerText;
+  const commentsUrl = el.nextSibling.querySelector('.subtext a:last-child').href;
+  const id = commentsUrl.split('?id=')[1];
+  const numComments = parseInt(
+    Array.from(
+      el.nextSibling.querySelectorAll('.subtext a[href^=item]')
+    ).slice(-1)[0].innerText.split()[0]
+  ) || 0;
+  return {id, title, url, dt, points, submitter, commentsUrl, numComments};
+})  
+
+<p>The great thing about modern JavaScript is that everything you could need to write a scraper is already there in the default environment.</p>
+<p>I'm using <code>document.querySelectorAll('.itemlist .athing')</code> to loop through each element that matches that selector.</p>
+<p>I wrap that with <code>Array.from(...)</code> so I can use the <code>.map()</code> method. Then for each element I can extract out the details that I need.</p>
+<p>The resulting array contains 30 items that look like this:</p>
+  [
+  {
+    "id": "30658310",
+    "title": "Track changes to CLI tools by recording their help output",
+    "url": "https://simonwillison.net/2022/Feb/2/help-scraping/",
+    "dt": "2022-03-13T05:36:13",
+    "submitter": "appwiz",
+    "commentsUrl": "https://news.ycombinator.com/item?id=30658310",
+    "numComments": 19
+  }
+]  
+ Running it with shot-scraper 
+<p>Now that I have a recipe for a scraper, I can run it in the terminal like this:</p>
+ <code>shot-scraper javascript \
+  "https://news.ycombinator.com/from?site=simonwillison.net" "
+Array.from(document.querySelectorAll('.itemlist .athing')).map(el =&gt; {
+  const title = el.querySelector('a.titlelink').innerText;
+  const points = parseInt(el.nextSibling.querySelector('.score').innerText);
+  const url = el.querySelector('a.titlelink').href;
+  const dt = el.nextSibling.querySelector('.age').title;
+  const submitter = el.nextSibling.querySelector('.hnuser').innerText;
+  const commentsUrl = el.nextSibling.querySelector('.subtext a:last-child').href;
+  const id = commentsUrl.split('?id=')[1];
+  const numComments = parseInt(
+    Array.from(
+      el.nextSibling.querySelectorAll('.subtext a[href^=item]')
+    ).slice(-1)[0].innerText.split()[0]
+  ) || 0;
+  return {id, title, url, dt, points, submitter, commentsUrl, numComments};
+})
+" &gt; simonwillison-net.json
+</code> 
+<p><code>simonwillison-net.json</code> is now a JSON file containing the scraped data.</p>
+ Running the scraper in GitHub Actions 
+<p>I want to keep track of changes to this data structure over time. My preferred technique for that is something I call <a href="https://simonwillison.net/2020/Oct/9/git-scraping/">Git scraping</a> - the core idea is to keep the data in a Git repository and commit an update any time it updates. This provides a cheap and robust history of changes over time.</p>
+<p>Running the scraper in GitHub Actions means I don't need to administrate my own server to keep this running.</p>
+<p>So I built exactly that, in the <a href="https://github.com/simonw/scrape-hacker-news-by-domain">simonw/scrape-hacker-news-by-domain</a> repository.</p>
+<p>The GitHub Actions workflow is in <a href="https://github.com/simonw/scrape-hacker-news-by-domain/blob/485841482a39869759e39f4d8dee21b9adc963d7/.github/workflows/scrape.yml">.github/workflows/scrape.yml</a>. It runs the above command once an hour, then pushes a commit back to the repository should the file have any changes since last time it ran.</p>
+<p>The <a href="https://github.com/simonw/scrape-hacker-news-by-domain/commits/main/simonwillison-net.json">commit history of simonwillison-net.json</a> will show me any time a new link from my site appears on Hacker News, or a comment is added.</p>
+<p>(Fun GitHub trick: add <code>.atom</code> to the end of that URL to get <a href="https://github.com/simonw/scrape-hacker-news-by-domain/commits/main/simonwillison-net.json.atom">an Atom feed of those commits</a>.)</p>
+<p>The whole scraper, from idea to finished implementation, took less than fifteen minutes to build and deploy.</p>
+<p>I can see myself using this technique a lot in the future.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2022/simonwillison-net.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:29 &bull;
+   32 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Sunday, 13. March 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/03/14/is-there-a.html'> Is there a drafts action to post to Apple Notes? 
+ Can’t see</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Is there a drafts action to post to Apple Notes? 
+ Can’t seem to find one. 😢 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Is there a drafts action to post to Apple Notes?</p>
+<p>Can’t seem to find one. 😢</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:54 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/03/14/even-his-letters.html'> Even his letters are beautiful. 
+</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Even his letters are beautiful. 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/5b9b80c1ae.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Even his letters are beautiful.</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/5b9b80c1ae.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:25 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/03/14/putin-and-trump.html'> Putin and Trump Have Convinced me I was Wrong 
+ Robert Reich</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Putin and Trump Have Convinced me I was Wrong 
+ Robert Reich enumerating his (our?) learnings. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://robertreich.org/post/678643824199876608">Putin and Trump Have Convinced me I was Wrong</a></p>
+<p>Robert Reich enumerating his (our?) learnings.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:17 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/03/14/ecommerce-fulfilment-services.html'> eCommerce Fulfilment Services in the UK - Bezos Fulfilment N</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   eCommerce Fulfilment Services in the UK - Bezos Fulfilment Network 
+ Wait … bezos.ai? With no Jeff? 
+ Let’s keep our eyes on this one. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://www.bezos.ai/">eCommerce Fulfilment Services in the UK - Bezos Fulfilment Network</a></p>
+<p>Wait … bezos.ai? With no Jeff?</p>
+<p>Let’s keep our eyes on this one.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:16 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -814,7 +1280,7 @@
 
 <div class='item-footer'>
    17:32 &bull;
-   3 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -890,7 +1356,7 @@
 
 <div class='item-footer'>
    23:32 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -958,7 +1424,7 @@
 
 <div class='item-footer'>
    23:28 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1696,7 +2162,7 @@ The post 東日本大震災の記憶ー2011年3月11日のツイート first app
 
 <div class='item-footer'>
    11:17 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2536,8 +3002,9 @@ The post 東日本大震災の記憶ー2011年3月11日のツイート first app
    note: summary goes first; than try content -->
 
    shot-scaper is a new tool that I’ve built to help automate the process of keeping screenshots up-to-date in my documentation. It also doubles as a scraping tool - hence the name - which I picked as a complement to my git scraping and help scraping techniques. 
+ Update 13th March 2022: The new shot-scraper javascript command can now be used to scrape web pages from the command line. 
  The problem 
- I like to include screenshots in documentation. I recently started writing end-user tutorials for Datasette, which are parti
+
    
   
   
@@ -2561,6 +3028,7 @@ The post 東日本大震災の記憶ー2011年3月11日のツイート first app
 <div class='wrap'>
 
   <p><a href="https://github.com/simonw/shot-scraper">shot-scaper</a> is a new tool that I’ve built to help automate the process of keeping screenshots up-to-date in my documentation. It also doubles as a scraping tool - hence the name - which I picked as a complement to my <a href="https://simonwillison.net/2020/Oct/9/git-scraping/">git scraping</a> and <a href="https://simonwillison.net/2022/Feb/2/help-scraping/">help scraping</a> techniques.</p>
+<p>Update 13th March 2022: The new <code>shot-scraper javascript</code> command can now be used to <a href="https://simonwillison.net/2022/Mar/14/scraping-web-pages-shot-scraper/">scrape web pages from the command line</a>.</p>
  The problem 
 <p>I like to include screenshots in documentation. I recently <a href="https://simonwillison.net/2022/Feb/27/datasette-tutorials/">started writing end-user tutorials</a> for Datasette, which are particularly image heavy (<a href="https://datasette.io/tutorials/explore">for example</a>).</p>
 <p>As software changes over time, screenshots get out-of-date. I don't like the idea of stale screenshots, but I also don't want to have to manually recreate them every time I make the tiniest tweak to the visual appearance of my software.</p>
@@ -5268,304 +5736,9 @@ def dash_decode(s: str) -&gt; str:
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/03/06/i-love-ghost.html'> I Love Ghost 
- A.K.A. 
- 
- “In praise of Ghost.” 
- </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I Love Ghost 
- A.K.A. 
- 
- “In praise of Ghost.” 
- 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://birchtree.me/blog/i-love-ghost/">I Love Ghost</a></p>
-<p>A.K.A.</p>
-<blockquote>
-<p>“In praise of Ghost.”</p>
-</blockquote>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:02 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/03/05/a-very-clever.html'> A very clever llustration by Victor Juhsz 
- Via Matt Taibi 
-</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   A very clever llustration by Victor Juhsz 
- Via Matt Taibi 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/4178b3fe1e.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>A very clever llustration by Victor Juhsz</p>
-<p>Via Matt Taibi</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/4178b3fe1e.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:47 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/03/05/i-should-see.html'> I should see it here … correct @pimoore ? 
-</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I should see it here … correct @pimoore ? 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/4e69f67c67.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I should see it here … correct <a href="https://micro.blog/pimoore">@pimoore</a> ?</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/4e69f67c67.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:03 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Friday, 04. March 2022
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/03/05/bill-in-washington.html'> Bill in Washington State Would Be First to Bar Uber and Lyft</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Bill in Washington State Would Be First to Bar Uber and Lyft Drivers from Being Classified As Employees. 
- … following the Californian decision and not the UK decision. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://themarkup.org/news/2022/03/04/bill-in-washington-state-would-be-first-to-bar-uber-and-lyft-drivers-from-being-classified-as-employees">Bill in Washington State Would Be First to Bar Uber and Lyft Drivers from Being Classified As Employees.</a></p>
-<p>… following the Californian decision and not the UK decision.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:47 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -8060,7 +8233,7 @@ open starred.db
 
 <div class='item-footer'>
    11:42 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8800,7 +8973,7 @@ datasette publish fly \
 
 <div class='item-footer'>
    21:43 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -10925,74 +11098,6 @@ public class DirectApiController : ControllerBase
 
 <div class='item-footer'>
    22:21 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Jan/30/mypyc/#atom-everything'>Mypyc</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Mypyc 
- Spotted this in the Black release notes: "Black is now compiled with mypyc for an overall 2x speed-up". Mypyc is a tool that compiles Python modules (written in a subset of Python) to C extensions - similar to Cython but using just Python syntax, taking advantage of type annotations to perform type checking and type inference. It's part of the mypy type checking project, which has been usi
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://mypyc.readthedocs.io/en/latest/introduction.html">Mypyc</a></p>
-<p>Spotted this in the Black release notes: "Black is now compiled with mypyc for an overall 2x speed-up". Mypyc is a tool that compiles Python modules (written in a subset of Python) to C extensions - similar to Cython but using just Python syntax, taking advantage of type annotations to perform type checking and type inference. It's part of the mypy type checking project, which has been using it since 2019 to gain a 4x performance improvement over regular Python.</p>
-
-    <p>Via <a href="https://black.readthedocs.io/en/stable/change_log.html#id1">Black release notes</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:31 &bull;
    1 months ago
 </div>
 
@@ -19550,7 +19655,7 @@ So they are really jumping into the unknown with both feet.</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
