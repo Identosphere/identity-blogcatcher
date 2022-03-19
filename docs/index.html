@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:55 AM March 19, 2022 (UTC)</sup>
+<sup>Last Update 5:42 AM March 19, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -756,8 +756,256 @@
 
 
 <h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Mar/19/weeknotes/#atom-everything'>Weeknotes: Tildes not dashes, and the big refactor</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   After last week's shot-scraper distractions with Playwright, this week I finally managed to make some concrete progress on the path towards Datasette 1.0. 
+ shot-scraper for scraping, and GitHub template repository hacks 
+ I did invest some time in shot-scraper this week, which I wrote about on this blog in detail earlier: 
+ 
+ 
+Scraping web pages from the command line with shot-scraper describes t
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>After last week's <a href="https://simonwillison.net/2022/Mar/12/weeknotes-playwright/">shot-scraper distractions with Playwright</a>, this week I finally managed to make some concrete progress on the path towards Datasette 1.0.</p>
+ shot-scraper for scraping, and GitHub template repository hacks 
+<p>I did invest some time in <a href="https://datasette.io/tools/shot-scraper">shot-scraper</a> this week, which I wrote about on this blog in detail earlier:</p>
+ 
+ 
+<a href="https://simonwillison.net/2022/Mar/14/scraping-web-pages-shot-scraper/">Scraping web pages from the command line with shot-scraper</a> describes the new <code>shot-scraper javascript URL script</code> command, which lets you fire up a web page in a headless browser, execute some custom JavaScript against it to extract information and return that information as JSON to the command-line. This is a really cool trick! It turns <code>shot-scraper</code> into more than just a screenshotting tool: it now doubles up as the command line scraping tool I've been wanting for years. 
+ 
+<a href="https://simonwillison.net/2022/Mar/14/shot-scraper-template/">Instantly create a GitHub repository to take screenshots of a web page</a> describes <a href="https://github.com/simonw/shot-scraper-template">shot-scraper-template</a> - a GitHub repository template I created that lets people easily create a new repository that takes screenshots of a web page using <code>shot-scraper</code> running in GitHub Actions. 
+ 
+<p>That GitHub repository trick really took off. Searching for <code>shot-scraper-template -user:simonw path:.github/workflows</code> on GitHub <a href="https://github.com/search?q=shot-scraper-template+-user%3Asimonw+path%3A.github%2Fworkflows&amp;type=code">now returns</a> 50 repositories that people other-than-me have created using the template!</p>
+<p>It also caused me to revisit my template repositories for generating <a href="https://github.com/simonw/click-app-template-repository">Python Click apps</a>, <a href="https://github.com/simonw/python-lib-template-repository">Python libraries</a> and <a href="https://github.com/simonw/datasette-plugin-template-repository">Datasette plugins</a>: all three of those now use a new pattern which avoids the user having to manually rename a folder in order to enable the GitHub Actions workflows - <a href="https://github.com/simonw/python-lib-template-repository/issues/2">details here</a>.</p>
+ The big refactor, finally under way 
+<p>The remaining work to do for Datasette 1.0 concerns stability. I want to make sure the JSON API and the plugin hooks are in a state where I can keep them stable until Datasette 2.0 - which with any luck won't ever need to happen.</p>
+<p>I intend 1.0 as a promise that Datasette is a rock-solid foundation on which people can build build their own APIs, sites and plugins.</p>
+<p>This also means I need to refactor some of the cruft. Work on the 1.0 API has been held up because it depends on some of the most complex code in the system, some of which has evolved in some pretty ugly ways over the past few years.</p>
+<p>The two most covoluted aspects of Datasette's codebase dealt with the following:</p>
+ 
+ Handling the difference between <code>/database/t1.json</code> where the table is called <code>t1</code> and <code>/database/t1.json</code> where the table is called <code>t1.json</code> (a valid SQLite table name) - and handling database tables with <code>/</code> as part of their name. I wrote more about that <a href="https://simonwillison.net/2022/Mar/5/dash-encoding/">when I described dash encoding</a>. 
+ 
+<a href="https://docs.datasette.io/en/0.60.2/performance.html#hashed-url-mode">Hashed URL mode</a> - an optional performance optimization where Datasette rewrites the URLs to a database to incorporate part of the SHA-256 hash of the database contents, so it can use far-future cache expire headers. 
+ 
+<p>This week, I solved both of these!</p>
+ Tilde encoding, not dash encoding 
+<p>In <a href="https://simonwillison.net/2022/Mar/5/dash-encoding/">Why I invented “dash encoding”, a new encoding scheme for URL paths</a> I confidently described a new approach to encoding values in a URL, based on the unfortunate fact that it turns out URL encoding in the path of a URL can't be used reliably due to long-standing unfixable bugs in a large number of widely used reverse proxies.</p>
+<p>My original dash encoding scheme worked like this:</p>
+ 
+ 
+<code>/foo/bar</code> encoded to <code>-/foo-/bar</code>
+ 
+ 
+<code>table.csv</code> encoded to <code>table-.csv</code>
+ 
+ 
+<code>foo-bar</code> encoded to <code>foo--bar</code>
+ 
+ 
+<p>Then I hit a huge problem with it: this encoding scheme does nothing special with the <code>%</code> character. But... it turns out the <code>%</code> character can't be relied on in a URL since there's a chance it may be mangled by one of the afore-mentioned misbehaving proxies.</p>
+<p>Using <code>-%</code> doesn't help because that still has an unsafe percent character in it.</p>
+<p>Then <a href="https://twitter.com/glyph/status/1500244937312329730">glyph suggested this</a>:</p>
+<blockquote>
+<p>Have you considered replacing % with some other character and then using percent-encoding?</p>
+</blockquote>
+<p>So I invented dash encoding v2, which worked exactly the same as URL percentage encoding but used the <code>-</code> character instead of the <code>%</code>.</p>
+ 
+ 
+<code>/foo/bar</code> encodes to <code>-2Ffoo-2Fbar</code>
+ 
+ 
+<code>-/db-/table.csv</code> encodes to <code>-2D-2Fdb-2D-2Ftable-2Ecsv</code>
+ 
+ 
+<p>I was pretty confident this would work... until I started rolling out the new Datasette <code>main</code> branch to some of my deployed Datasette instances. That's when I realized that <code>-</code> is a VERY common character in existing installations, and escaping it was actually pretty ugly.</p>
+<p>The <a href="https://datasette.io/">Datasette website</a> uses a database called <code>dogsheep-index</code> - this got renamed to <code>dogsheep-2Findex</code>, which broke the search page.</p>
+<p>More importantly, replacing <code>-</code> in a name with <code>-2F</code> is just really ugly. Surely I can do better than that?</p>
+<p>I consulted <a href="https://datatracker.ietf.org/doc/html/rfc3986#section-2.3">the URI RFC</a> and was delighted to find this list of unreserved characters:</p>
+ <code>unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"
+</code> 
+<p>And so <a href="https://github.com/simonw/datasette/issues/1657">Tilde encoding</a> was born! Same exact idea: percent encoding, but use a different character. In this case <code>~</code>.</p>
+ 
+ 
+<code>dogsheep-beta</code> encodes to <code>dogsheep-beta</code>
+ 
+ 
+<code>/foo/bar</code> encodes to <code>~2Ffoo~2Fbar</code>
+ 
+ 
+<code>-/db-/table.csv</code> encodes to <code>-~2Fdb-~2Ftable~2Ecsv</code>
+ 
+ 
+<p>This works great. It doesn't require encoding hyphens, so it results in prettier URLs. So it's now implemented on Datasette <code>main</code>, ready for the next release.</p>
+ Removing Hashed URL mode 
+<p>I wrote about this three years ago as <a href="https://simonwillison.net/2018/Oct/4/datasette-ideas/#Farfuture_cache_expiration">one of the interesting ideas in Datasette</a>. The key idea was inspired by CSS and JavaScript asset rewriting: if your database never changes, you can rewrite the JSON URLs to <code>/database-c9e67c4</code> and send far-future cache expiry headers with every response, caching them in both browsers and CDNs.</p>
+<p>I liked the idea so much I made Datasette do it by default!</p>
+<p>In <a href="https://simonwillison.net/2019/May/19/datasette-0-28/">Datasette 0.28 I changed my mind</a>. Datasette grew the option to serve  databases that could change while the server was running, at which point that optimization stopped making sense. I <a href="https://github.com/simonw/datasette/issues/418">made it an option</a>, controlled by a new <code>hash_urls</code> setting.</p>
+<p>A couple of years later, I realized I hadn't chosen to use that option myself in any of my own projects. I'd also really started to grate at the additional complexity the feature brought to the codebase.</p>
+<p>I set myself a task to reconsider it before 1.0. This week, I found what I think is the right solution: I extracted the functionality out into a separate plugin, <a href="https://datasette.io/plugins/datasette-hashed-urls">datasette-hashed-urls</a>.</p>
+<p>The key to building the plugin was realizing that, if the database is immutable, I can handle the URL rewriting simply by <a href="https://github.com/simonw/datasette-hashed-urls/blob/0.2/datasette_hashed_urls/__init__.py#L6-L19">renaming the database to include its hash</a> when the server first starts up.</p>
+<p>The rest of the plugin implementation then handles redirects, for if the database has changed its contents and the old hash URLs need to be redirected to the new one.</p>
+<p>Having built the plugin, I <a href="https://github.com/simonw/datasette/commit/d4f60c2388c01ddce1b16f95c16d310e037c9912">removed the implementation from core</a> in <a href="https://github.com/simonw/datasette/issues/1661">issue 1661</a>. This resulted in some sizable, satisfying code deletion, further convincing me that this was the right decision for the project.</p>
+ Creeping closer to 1.0 
+<p>If you want to follow the progress towards the first stable release,<a href="https://github.com/simonw/datasette/milestone/7">the Datasette 1.0 milestone</a> is the place to look.</p>
+<p>I'm determined to make significant progress this month, with the goal of shipping an alpha before March turns into April.</p>
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/datasette-hashed-urls">datasette-hashed-urls</a>: <a href="https://github.com/simonw/datasette-hashed-urls/releases/tag/0.2">0.2</a> - (<a href="https://github.com/simonw/datasette-hashed-urls/releases">2 releases total</a>) - 2022-03-16
+<br>Optimize Datasette performance behind a caching proxy 
+ 
+<a href="https://github.com/simonw/datasette-publish-vercel">datasette-publish-vercel</a>: <a href="https://github.com/simonw/datasette-publish-vercel/releases/tag/0.12.1">0.12.1</a> - (<a href="https://github.com/simonw/datasette-publish-vercel/releases">19 releases total</a>) - 2022-03-15
+<br>Datasette plugin for publishing data using Vercel 
+ 
+<a href="https://github.com/simonw/shot-scraper">shot-scraper</a>: <a href="https://github.com/simonw/shot-scraper/releases/tag/0.9">0.9</a> - (<a href="https://github.com/simonw/shot-scraper/releases">10 releases total</a>) - 2022-03-14
+<br>Tools for taking automated screenshots of websites 
+ 
+ TIL this week 
+ 
+ <a href="https://til.simonwillison.net/google-sheets/concatenate">Concatenating strings and newlines in Google Sheets</a> 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:53 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/03/19/linktree-the-only.html'> Linktree | The Only Link You’ll Ever Need 
+ … except haven’t</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Linktree | The Only Link You’ll Ever Need 
+ … except haven’t we seen these services before … About.me anyone? 
+ What’s different about LinkTree that warrants a $152 million investment - much less a $1.3 BILLION valuation! 
+ There are countless more alternatives. 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/02dad7ed39.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://linktr.ee/">Linktree | The Only Link You’ll Ever Need</a></p>
+<p>… except haven’t we seen these services before … <a href="https://about.me">About.me</a> anyone?</p>
+<p>What’s different about LinkTree that warrants a <a href="https://www.businessnewsaustralia.com/articles/link-in-bio-tech-linktree-the-latest-australian-unicorn-following--152-million-raise.html">$152 million investment - much less a $1.3 BILLION valuation</a>!</p>
+<p>There are countless more alternatives.</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/02dad7ed39.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:31 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -805,7 +1053,7 @@
 
 <div class='item-footer'>
    00:08 &bull;
-   2 hours ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -875,7 +1123,7 @@
 
 <div class='item-footer'>
    22:36 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -939,7 +1187,7 @@
 
 <div class='item-footer'>
    22:12 &bull;
-   4 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1004,7 +1252,7 @@
 
 <div class='item-footer'>
    21:42 &bull;
-   4 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1076,7 +1324,7 @@
 
 <div class='item-footer'>
    21:06 &bull;
-   5 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1149,7 +1397,7 @@
 
 <div class='item-footer'>
    19:39 &bull;
-   6 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1224,7 +1472,7 @@
 
 <div class='item-footer'>
    19:17 &bull;
-   7 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1300,7 +1548,7 @@
 
 <div class='item-footer'>
    02:56 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1376,7 +1624,7 @@
 
 <div class='item-footer'>
    02:55 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2162,7 +2410,7 @@ public class MsGraphService
 
 <div class='item-footer'>
    14:43 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3053,7 +3301,7 @@ on:
 
 <div class='item-footer'>
    16:52 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3188,7 +3436,7 @@ on:
 
 <div class='item-footer'>
    15:29 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3730,7 +3978,7 @@ Array.from(document.querySelectorAll('.itemlist .athing')).map(el =&gt; {
 
 <div class='item-footer'>
    17:32 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4320,7 +4568,7 @@ The post 東日本大震災の記憶ー2011年3月11日のツイート first app
 
 <div class='item-footer'>
    14:07 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4764,77 +5012,6 @@ The post 東日本大震災の記憶ー2011年3月11日のツイート first app
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/03/11/as-uk-government.html'> As UK Government Is Still Interested In Banning Tor, BBC Use</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   As UK Government Is Still Interested In Banning Tor, BBC Uses Tor To Get Around Russian Information Blockade 
- There are always two sides! 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.techdirt.com/2022/03/08/as-uk-government-is-still-interested-in-banning-tor-bbc-uses-tor-to-get-around-russian-information-blockade/">As UK Government Is Still Interested In Banning Tor, BBC Uses Tor To Get Around Russian Information Blockade</a></p>
-<p>There are always two sides!</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:58 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -5576,7 +5753,7 @@ Screenshot of 'https://www.example.com/' written to 'example.jpg'
 
 <div class='item-footer'>
    17:09 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6440,9 +6617,8 @@ a Theory and just reference them, at best, from social sites.</p>
    note: summary goes first; than try content -->
 
    Datasette now includes its own custom string encoding scheme, which I've called dash encoding. I really didn't want to have to invent something new here, but unfortunately I think this is the best solution to my very particular problem. Some notes on how dash encoding works and why I created it. 
- Table names and rows in URLs 
- I've put a lot of thought into the design of Datasette's URLs. 
- Datas
+
+ Update 18th March 2022: This turned out not to be the right idea for my project after all! I ended u
    
   
   
@@ -6466,6 +6642,9 @@ a Theory and just reference them, at best, from social sites.</p>
 <div class='wrap'>
 
   <p><a href="https://datasette.io/">Datasette</a> now includes its own custom string encoding scheme, which I've called dash encoding. I really didn't want to have to invent something new here, but unfortunately I think this is the best solution to my very particular problem. Some notes on how dash encoding works and why I created it.</p>
+
+<p>Update 18th March 2022: This turned out not to be the right idea for my project after all! I ended up settling on a <a href="https://simonwillison.net/2022/Mar/19/weeknotes/#tilde-encoding">Tilde encoding</a> scheme instead.</p>
+
  Table names and rows in URLs 
 <p>I've put a lot of thought into the design of Datasette's URLs.</p>
 <p>Datasette exposes relational databases tables, as both web pages and a JSON API.</p>
@@ -6673,7 +6852,7 @@ def dash_decode(s: str) -&gt; str:
 
 <div class='item-footer'>
    16:11 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7186,7 +7365,7 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    17:35 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7246,7 +7425,7 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    15:57 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7565,7 +7744,7 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    17:06 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7641,7 +7820,7 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    16:18 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10265,76 +10444,6 @@ datasette publish fly \
  <h2 class='new-date'>
   Monday, 07. February 2022
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Feb/7/sha256-algorithm-explained/#atom-everything'>Sha256 Algorithm Explained</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Sha256 Algorithm Explained 
- Absolutely beautiful interactive animated explanation by Domingo Martin of the SHA256 hashing algorithm. 
-
-     Via Hacker News 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://sha256algorithm.com/">Sha256 Algorithm Explained</a></p>
-<p>Absolutely beautiful interactive animated explanation by Domingo Martin of the SHA256 hashing algorithm.</p>
-
-    <p>Via <a href="https://news.ycombinator.com/item?id=30244534">Hacker News</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:27 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -22969,7 +23078,7 @@ Naming</p>
 
 <div class='item-footer'>
    03:55 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
