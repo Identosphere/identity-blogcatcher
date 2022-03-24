@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:42 AM March 24, 2022 (UTC)</sup>
+<sup>Last Update 10:45 AM March 24, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,438 @@
  <h2 class='new-date'>
   Thursday, 24. March 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/03/24/onboarding-new-users-in-an-asp-net-core-application-using-azure-b2c/'>Onboarding new users in an ASP.NET Core application using Azure B2C</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to onboard new users into your ASP.NET Core application using Azure B2C as the identity provider and the account management. The software has application specific persisted user data and this user data needs to be connected to the identity data from the corresponding user in Azure B2C. Code https://github.com/damienbod/azureb2c-fed-azuread User Case […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to onboard new users into your ASP.NET Core application using Azure B2C as the identity provider and the account management. The software has application specific persisted user data and this user data needs to be connected to the identity data from the corresponding user in Azure B2C. </p>
+
+
+
+<p>Code <a href="https://github.com/damienbod/azureb2c-fed-azuread">https://github.com/damienbod/azureb2c-fed-azuread</a></p>
+
+
+
+<p>User Case where user is created first in the application</p>
+
+
+
+<p>The users are created in the ASP.NET Core application from an administrator. Once the use is created, an email is sent to the new user. The user clicks the link in the application and signs up in Azure AD B2C. After the account has been created in Azure AD B2C, the user is redirected back to the application and the Azure B2C account gets connected to the persisted user in the database automatically persisting the Azure AD object identifier (oid) claim data. The account is activated in the application, the authorization definitions are created automatically and applied as defined by the administrator user in the first step.</p>
+
+
+
+<p>It is not possible to onboard a new user in Azure B2C like this using Microsoft Graph without managing passwords. You should never mail passwords to users. For the flow to work, the signin signup user flow can be used from Azure B2C. The link sent to the user requires authentication and contains a registration one time code. When the user clicks the link, authentication is required and so the user is automatically redirected to Azure B2C. After a successfully signup, the user is redirected back to the application and the registration code is used to connect the accounts. At no stage did the application administrator need to manage the user passwords from the accounts. Because default Azure B2C flows are used, it should be easy to applied the latest best practices supported by Azure B2C for user authentication, once this gets rolled out. FIDO2 is not supported by Azure AD B2C which is bad as this is the strongest MFA.</p>
+
+
+
+<p>The create user can be implemented using an ASP.NET Core Razor page. This Razor page requires authentication and an admin policy. The form sends a post request with the user data and if valid, the data is saved to the database using Entity Framework Core. A random registration code is generated and persisted and saved in the user entity. An email is created and the ConnectAccount URL is used with the registration code. This URL is emailed to the end user using Microsoft Graph. An office license is required for the email client to work but you can use any email service. The user now exists and should have mail in their inbox. (or spam) If you are implementing this in a production application, you will need to implement a resend email function and I would update the registration code with each email. </p>
+
+
+  public async Task&lt;IActionResult&gt; OnPostAsync()
+{
+	if (!ModelState.IsValid)
+	{
+		return Page();
+	}
+
+	if (!_userService.IsEmailValid(UserModel.Email))
+	{
+		ModelState.AddModelError("Email", "Email is invalid");
+		return Page();
+	}
+
+	var user = await _userService.CreateUser(new UserEntity
+	{
+		Email = UserModel.Email,
+		FirstName = UserModel.FirstName,
+		Surname = UserModel.Surname,
+		BirthDate = UserModel.BirthDate,
+		DisplayName = UserModel.DisplayName,
+		PreferredLanguage = UserModel.PreferredLanguage
+	});
+
+	await _userService.SendEmailInvite(user, Request.Host, false);
+
+	OnboardingRegistrationCode = user.OnboardingRegistrationCode;
+	return OnGet();
+}
+  
+
+
+<p>The SendEmailInvite method sends an email using the Microsoft Graph client.</p>
+
+
+  public async Task SendEmailInvite(UserEntity user, HostString host, bool updateCode)
+{
+	if (updateCode)
+	{
+		user.OnboardingRegistrationCode = GetRandomString();
+		await _userContext.SaveChangesAsync();
+	}
+
+	var accountUrl = $"https://{host}/ConnectAccount?code={user.OnboardingRegistrationCode}";
+	var header = $"{user.FirstName} {user.Surname} you are invited to signup";
+	var introText = "You have been invite to join the MyApp services. You can register and sign up here";
+	var endText = "Best regards, your MyApp support";
+	var body = $"Dear {user.FirstName} {user.Surname} \n\n{introText} \n\n{accountUrl} \n\n{endText}";
+	var message = _emailService.CreateStandardEmail(user.Email, header, body);
+
+	await _msGraphEmailService.SendEmailAsync(message);
+}
+  
+
+
+<p>The user service creates a user in the SQL database and generates the random code.</p>
+
+
+  public async Task&lt;UserEntity&gt; CreateUser(UserEntity userModel)
+{
+	userModel.OnboardingRegistrationCode = GetRandomString();
+
+	await _userContext.AddAsync(userModel);
+	await _userContext.SaveChangesAsync();
+
+	return userModel;
+}
+  
+
+
+<p>The create user ASP.NET Core Razor page just displays a simple form for adding the properties required by your business.</p>
+
+
+
+
+
+
+
+<p>The MsGraphEmailService class implements the Microsoft Graph email service. This client needs to authorize using an Azure tenant which has an office license for the sender account. The application permissions also need to be enabled for the Azure App registration used. This works fine as long as you do not send loads of emails, the amount of mails you can send is limited and you do not want to send many emails anyway. The Azure SDK ClientSecretCredential is used which setups the client credentials flow and uses an application scope from the Azure App registration. For more details, see this <a href="https://damienbod.com/2021/10/18/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph-application-permissions-part-2/">post</a>.</p>
+
+
+  using Azure.Identity;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Graph;
+using System.Threading.Tasks;
+
+namespace OnboardingAzureB2CCustomInvite.Services;
+
+public class MsGraphEmailService
+{
+    private readonly GraphServiceClient _graphServiceClient;
+    private readonly IConfiguration _configuration;
+
+    public MsGraphEmailService(IConfiguration configuration)
+    {
+        _configuration = configuration;
+        string[]? scopes = configuration.GetValue&lt;string&gt;("AzureAdEmailService:Scopes")?.Split(' ');
+        var tenantId = configuration.GetValue&lt;string&gt;("AzureAdEmailService:TenantId");
+
+        // Values from app registration
+        var clientId = configuration.GetValue&lt;string&gt;("AzureAdEmailService:ClientId");
+        var clientSecret = configuration.GetValue&lt;string&gt;("AzureAdEmailService:ClientSecret");
+
+        var options = new TokenCredentialOptions
+        {
+            AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+        };
+
+        // https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
+        var clientSecretCredential = new ClientSecretCredential(
+            tenantId, clientId, clientSecret, options);
+
+        _graphServiceClient = new GraphServiceClient(clientSecretCredential, scopes);
+    }
+
+    private async Task&lt;string&gt; GetUserIdAsync()
+    {
+        var meetingOrganizer = _configuration["AzureAdEmailService:EmailSender"];
+        var filter = $"startswith(userPrincipalName,'{meetingOrganizer}')";
+
+        var users = await _graphServiceClient.Users
+            .Request()
+            .Filter(filter)
+            .GetAsync();
+
+        return users.CurrentPage[0].Id;
+    }
+
+    public async Task SendEmailAsync(Message message)
+    {
+        var saveToSentItems = true;
+
+        var userId = await GetUserIdAsync();
+
+        await _graphServiceClient.Users[userId]
+            .SendMail(message, saveToSentItems)
+            .Request()
+            .PostAsync();
+    }
+}
+  
+
+
+<p>The email is sent as defined in the create user. The email is really simple and has the link to the ConnectAccount Razor page and the registration code. This is not a link direct to the Azure B2C signup as we want to automatically connect the user data from the application to the Azure B2C identity and assign the defined authorization. It is very easy to make a template for this email and translate it into the user language or add company information etc.</p>
+
+
+
+
+
+
+
+<p>When the end user opens the email and clicks the link, the user opens the connect account link with the registration code. This URL requires authentication and is automatically redirected to the Azure B2C signin signup flow. We need to use this user flow, because in some cases the user already exists in Azure B2C and not in the application and this user would just signin then.</p>
+
+
+
+
+
+
+
+<p>The ConnectAccount Razor page handles the GET requests and connects the authenticated identity with the user in the database if the registration code matches. Normally a GET should never change the state. This Razor page must be protected. If the registration code matches, the OID from the Azure B2C account is persisted and the registration code reset. The user account is set to active. If authorization is pre-defined for this user, then the authorization definitions can be created for the user as well. Once connected, the user can be redirected to the profile Razor page.</p>
+
+
+  [Authorize]
+public class ConnectAccountModel : PageModel
+{
+    private readonly UserService _userService;
+
+    public ConnectAccountModel(UserService userService)
+    {
+        _userService = userService;
+    }
+
+    [BindProperty]
+    public string? OnboardingRegistrationCode { get; set; } = string.Empty;
+
+    public async Task&lt;IActionResult&gt; OnGet([FromQuery] string code)
+    {
+        if (string.IsNullOrEmpty(code))
+        {
+            return Page();
+        }
+
+        var email = User.Claims.FirstOrDefault(c =&gt; c.Type == "emails")?.Value;
+        var oidClaimType = "http://schemas.microsoft.com/identity/claims/objectidentifier";
+        var oid = User.Claims.FirstOrDefault(t =&gt; t.Type == oidClaimType)?.Value;
+
+        if(oid == null)
+            return Page();
+
+        int id = await _userService.ConnectUserIfExistsAsync(
+            code, oid, true, email);
+
+        if(id &gt; 0)
+        {
+            return Redirect("/profile");
+        }
+
+        return Page();
+    }
+  
+
+
+<p>The profile page allows the user to update data which is controlled by the user. I do this in the application and do not user the Azure B2C profile because this is application specific. This is sensitive data and needs to be handled correctly. I display the OID, IsActive and the email here, but this data must not be updated in the profile page. This user data can only be managed by an application administrator. I also create and new user profile for a user, if the user does not exist but already has an Azure B2C account. This account can signin but will see nothing as the identity has no authorization to view anything. The authorization is set by an application administrator. By allowed this, existing Azure B2C accounts can be onboarded as well.</p>
+
+
+  [Authorize]
+public class ProfileModel : PageModel
+{
+    private readonly UserService _userService;
+
+    public ProfileModel(UserService userService)
+    {
+        _userService = userService;
+    }
+
+    [BindProperty]
+    public Profile Profile { get; set; } = new Profile();
+
+    [BindProperty]
+    public string? AzureOid { get; set; } = string.Empty;
+
+    [BindProperty]
+    public bool IsActive { get; set; }
+
+    [BindProperty]
+    public string? Email { get; set; }
+
+
+    public async Task&lt;IActionResult&gt; OnGetAsync()
+    {
+        var oidClaimType = "http://schemas.microsoft.com/identity/claims/objectidentifier";
+        var oid = User.Claims.FirstOrDefault(t =&gt; t.Type == oidClaimType)?.Value;
+        var email = User.Claims.FirstOrDefault(c =&gt; c.Type == "emails")?.Value;
+
+        UserEntity? userEntity = null;
+        if (oid != null)
+        {
+            userEntity = await _userService.FindUserWithOid(oid);
+
+            if (userEntity != null)
+            {
+                Profile.Surname = userEntity.Surname;
+                Profile.FirstName = userEntity.FirstName;
+                Profile.DisplayName = userEntity.DisplayName;
+                Profile.BirthDate  = userEntity.BirthDate;
+                Profile.PreferredLanguage = userEntity.PreferredLanguage;
+
+                IsActive = userEntity.IsActive;
+                AzureOid = userEntity.AzureOid;
+                Email = userEntity.Email;
+            }
+            else
+            {
+                IsActive = false;
+                AzureOid = oid;
+            }
+        }
+
+        return Page();
+    }
+
+    public async Task&lt;IActionResult&gt; OnPostAsync()
+    {
+        if (!ModelState.IsValid)
+        {
+            return Page();
+        }
+
+        var oidClaimType = "http://schemas.microsoft.com/identity/claims/objectidentifier";
+        var oid = User.Claims.FirstOrDefault(t =&gt; t.Type == oidClaimType)?.Value;
+        var email = User.Claims.FirstOrDefault(c =&gt; c.Type == "emails")?.Value;
+
+        UserEntity? userEntity = null;
+        if (oid != null)
+            userEntity = await _userService.FindUserWithOid(oid);
+        
+        if(userEntity == null)
+        {
+            userEntity = new UserEntity();
+
+            if (oid != null)
+                userEntity.AzureOid = oid;
+            if (email != null)
+                userEntity.Email = email;
+        }
+
+        userEntity.FirstName = Profile.FirstName;
+        userEntity.Surname = Profile.Surname;
+        userEntity.BirthDate = Profile.BirthDate;
+        userEntity.DisplayName = Profile.DisplayName;
+        userEntity.PreferredLanguage = Profile.PreferredLanguage;
+
+        await _userService.UpdateCreateProfile(userEntity);
+
+        return await OnGetAsync();
+    }
+}
+  
+
+
+<p>The Profile Razor page allows the user to update the profile data after authenticating using Azure B2C.</p>
+
+
+
+
+
+
+
+<p>Notes</p>
+
+
+
+<p>Onboarding and user registration in any software system needs to be robust and flexible. Because a separate identity provider is used, the application specific user data needs to be mapped to the identity profile data. The onboarding process needs to be flexible and user friendly. You also need to support account reset and account update processes, for example when a user changes email. Try to use a system which makes it easy to support, or force MFA for you users like FIDO2. At present, Azure B2C does not support strong MFA. It is not recommended to use SMS but even this is way better than only password.</p>
+
+
+
+<p>Links</p>
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2022/03/11/create-azure-b2c-users-with-microsoft-graph-and-asp-net-core/">Create Azure B2C users with Microsoft Graph and ASP.NET&nbsp;Core</a></blockquote>
+ 
+
+
+
+ 
+<a href="https://damienbod.com/2021/10/18/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph-application-permissions-part-2/">https://damienbod.com/2021/10/18/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph-application-permissions-part-2/</a>
+ 
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/overview">https://docs.microsoft.com/en-us/azure/active-directory-b2c/overview</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-azure-ad-single-tenant">https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-azure-ad-single-tenant</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/03/azureb2conboarding_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:38 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -934,7 +1366,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    01:53 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1010,7 +1442,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    00:14 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1085,7 +1517,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    23:09 &bull;
-   7 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1303,7 +1735,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    22:01 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1379,7 +1811,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    21:32 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1444,7 +1876,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    20:58 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1520,7 +1952,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    20:09 &bull;
-   10 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1588,7 +2020,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    10:21 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1620,11 +2052,11 @@ content-type: text/html; charset=utf-8
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   I wanted to write this post as a permanent test of applying ‘footnotes’ on my blog.[^1] 
+   I wanted to write this post as a permanent test of applying ‘footnotes’ on my blog. 
  Here in the time line it is almost certainly going to look weird if there isn’t a title - but the idea is to improve the reading experience on the site - and then of course explore what it might look like in an RSS feed. 
  Post Posting 
- The footnotes aren’t coming through hyper linked. YET! 
- Lorem ipsum dol
+ The footnotes aren’t coming through hyperlinked. YET! 
+ Lorem ipsum dolor si
    
   
   
@@ -1639,12 +2071,19 @@ content-type: text/html; charset=utf-8
  -->
 <div class='wrap'>
 
-<p>I wanted to write this post as a permanent test of applying ‘footnotes’ on my blog.[^1]</p>
+<p>I wanted to write this post as a permanent test of applying ‘footnotes’ on my blog.</p>
 <p>Here in the time line it is almost certainly going to look weird if there isn’t a title - but the idea is to improve the reading experience on the site - and then of course explore what it might look like in an RSS feed.</p>
  Post Posting 
-<p>The footnotes aren’t coming through hyper linked. YET!</p>
+<p>The footnotes aren’t coming through hyperlinked. YET!</p>
 <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse varius sollicitudin consequat. Etiam cursus blandit nisl accumsan fermentum. Phasellus faucibus velit non porttitor tincidunt. Ut quis erat ac nibh auctor tempus. Sed a metus sed dui pulvinar dapibus pulvinar et nisl.</p>
-Let me provide some context<p>see how that little inline drop box works? Might be useful - cant seem to do it inline?</p>
+
+
+Let me provide some context
+
+<p>
+see how that little inline drop box works? Might be useful - cant seem to do it inline?
+</p>
+
 <p>Sed consectetur, magna sit amet vestibulum dapibus, augue orci dignissim nulla, nec interdum ligula nibh at dui. In in dolor sit amet urna tempor pulvinar. In ut odio et ligula faucibus placerat. Proin pulvinar ex et sagittis molestie. Vestibulum dignissim faucibus diam, quis lacinia lacus mollis et. In fermentum ex quis consectetur semper. Nullam ut metus quam. Suspendisse potenti.</p>
  
  Blockquote Test 
@@ -1673,8 +2112,6 @@ Let me provide some context<p>see how that little inline drop box works? Might b
  Heading 4 
  Heading 5 
  Heading 6 
- Footnotes 
-<p>[^1] That’s <a href="https://john.philpin.com">this thing</a> you are reading.</p>
    
   
   
@@ -2397,7 +2834,7 @@ def pdf_to_text(filename):     pdf = PyPDF2.PdfFileReader(open(filename, “rb
 
 <div class='item-footer'>
    21:45 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2461,7 +2898,7 @@ def pdf_to_text(filename):     pdf = PyPDF2.PdfFileReader(open(filename, “rb
 
 <div class='item-footer'>
    18:10 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2746,7 +3183,7 @@ def pdf_to_text(filename):     pdf = PyPDF2.PdfFileReader(open(filename, “rb
 
 <div class='item-footer'>
    22:31 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2807,7 +3244,7 @@ def pdf_to_text(filename):     pdf = PyPDF2.PdfFileReader(open(filename, “rb
 
 <div class='item-footer'>
    19:31 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3192,7 +3629,7 @@ Scraping web pages from the command line with shot-scraper describes t
 
 <div class='item-footer'>
    22:36 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3256,7 +3693,7 @@ Scraping web pages from the command line with shot-scraper describes t
 
 <div class='item-footer'>
    22:12 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3321,7 +3758,7 @@ Scraping web pages from the command line with shot-scraper describes t
 
 <div class='item-footer'>
    21:42 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3393,7 +3830,7 @@ Scraping web pages from the command line with shot-scraper describes t
 
 <div class='item-footer'>
    21:06 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3466,7 +3903,7 @@ Scraping web pages from the command line with shot-scraper describes t
 
 <div class='item-footer'>
    19:39 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3541,7 +3978,7 @@ Scraping web pages from the command line with shot-scraper describes t
 
 <div class='item-footer'>
    19:17 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3826,7 +4263,7 @@ Scraping web pages from the command line with shot-scraper describes t
 
 <div class='item-footer'>
    21:18 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5267,7 +5704,7 @@ Array.from(document.querySelectorAll('.itemlist .athing')).map(el =&gt; {
 
 <div class='item-footer'>
    19:21 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5868,7 +6305,7 @@ The post 東日本大震災の記憶ー2011年3月11日のツイート first app
 
 <div class='item-footer'>
    20:12 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6162,7 +6599,7 @@ Screenshot of 'https://www.example.com/' written to 'example.jpg'
 
 <div class='item-footer'>
    19:19 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6336,7 +6773,7 @@ Screenshot of 'https://www.example.com/' written to 'example.jpg'
 
 <div class='item-footer'>
    21:13 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6690,7 +7127,7 @@ Screenshot of 'https://www.example.com/' written to 'example.jpg'
 
 <div class='item-footer'>
    21:42 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6928,7 +7365,7 @@ primary driver of revenue for “free” on-line services?</p>
 
 <div class='item-footer'>
    19:27 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7523,7 +7960,7 @@ def dash_decode(s: str) -&gt; str:
 
 <div class='item-footer'>
    21:50 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7679,7 +8116,7 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    21:28 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7758,7 +8195,7 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    18:50 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8327,7 +8764,7 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    20:30 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16613,897 +17050,6 @@ space.</p>
 
 <div class='item-footer'>
    04:56 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 20. December 2021
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2021/12/20/use-calendar-mailbox-settings-and-teams-presence-in-asp-net-core-hosted-blazor-wasm-with-microsoft-graph/'>Use calendar, mailbox settings and Teams presence in ASP.NET Core hosted Blazor WASM with Microsoft Graph</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to use Microsoft Graph with delegated permissions in a Blazor WASM ASP.NET Core hosted application. The application uses Microsoft.Identity.Web and the BFF architecture to authenticate against Azure AD. All security logic is implemented in the trusted backend. Microsoft Graph is used to access mailbox settings, teams presence and a users calendar. […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to use Microsoft Graph with delegated permissions in a Blazor WASM ASP.NET Core hosted application. The application uses Microsoft.Identity.Web and the BFF architecture to authenticate against Azure AD. All security logic is implemented in the trusted backend. Microsoft Graph is used to access mailbox settings, teams presence and a users calendar. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreBlazorMicrosoftGraph">https://github.com/damienbod/AspNetCoreBlazorMicrosoftGraph</a></p>
-
-
-
-<p>2022-01-15 Updated Calander and MailboxSettings to use application permissions.</p>
-
-
-
-<p>Use Case and setup</p>
-
-
-
-<p>A Blazor WASM UI hosted in ASP.NET Core is used to access any users mailbox settings, team presence or calendar data in the same tenant. The application uses Azure AD for authentication. <a href="https://blazorise.com">Blazorise</a> is used in the Blazor WASM UI client project. An authenticated user can enter the target email to view the required data. Delegated Microsoft Graph permissions are used to authorize the API calls.</p>
-
-
-
-
-
-
-
-<p>Setup Azure App registration</p>
-
-
-
-<p>The Azure App registration is setup to allow the Microsoft Graph delegated permissions to access the mailbox settings, the teams presence data and the calendar data. The mail permissions are also added if you would like to send emails using Microsoft Graph. The application is a trusted server rendered one and can keep a secret. Because of this, the app is authenticated using a secret or a certificate. You should always authenticate the application if possible. </p>
-
-
-
-
-
-
-
-<p>Implement the Blazor WASM ASP.NET Core Hosted authentication</p>
-
-
-
-<p>Only one application exists for the UI and the backend and so only one Azure app registration is used. All authentication is implemented in the trusted backend. The BFF security architecture is used.  Microsoft.Identity.Web is used in the the trusted backend to authenticate the application and the identity. No authentication is implemented in the Blazor WASM. This is a view of the server rendered application. The security architecture is more simple and no sensitive data is stored in the client browser. This is especially important since Azure AD does not support revocation, introspection or any way to invalidate the tokens on a logout. SPAs cannot fully logout in Azure AD or Azure B2C because the tokens cannot be invalidated. You should not be sharing the tokens in the untrusted zone due to this as this is hard to secure and you need to evaluate the risk of losing the tokens for your system.  Using cookies with same site protection and keeping the tokens in the trusted backend reduces these security risks. Here is a quick start for dotnet Blazor BFF using Azure AD: <a href="https://github.com/damienbod/Blazor.BFF.AzureAD.Template">Blazor.BFF.AzureAD.Template</a>.</p>
-
-
-
-
-
-
-
-<p>The ConfigureServices method is used to setup the services. You can do this in the program file as well. The AddAntiforgery method is used because cookies are used to access the API. Same site is also used to protect the cookies which should only work on the same domain and no sub domains or any other domain. The AddMicrosoftIdentityWebAppAuthentication method is used with a downstream API used for Microsoft Graph. Razor pages are used as the Blazor WASM is hosted in a Razor page and dynamic server data can be used to protect the application or also be used to add meta tags.</p>
-
-
-  public void ConfigureServices(IServiceCollection services)
-{
-   services.AddScoped&lt;MicrosoftGraphDelegatedClient&gt;();
-   services.AddScoped&lt;EmailService&gt;();
-   services.AddScoped&lt;TeamsService&gt;();
-
-   services.AddScoped&lt;MicrosoftGraphApplicationClient&gt;();
-   services.AddSingleton&lt;ApiTokenInMemoryClient&gt;();
-
-	services.AddAntiforgery(options =&gt;
-	{
-		options.HeaderName = "X-XSRF-TOKEN";
-		options.Cookie.Name = "__Host-X-XSRF-TOKEN";
-		options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict;
-		options.Cookie.SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.Always;
-	});
-
-	services.AddHttpClient();
-	services.AddOptions();
-
-	var scopes = Configuration.GetValue&lt;string&gt;("DownstreamApi:Scopes");
-	string[] initialScopes = scopes?.Split(' ');
-
-	services.AddMicrosoftIdentityWebAppAuthentication(Configuration)
-		.EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
-		.AddMicrosoftGraph("https://graph.microsoft.com/beta", scopes)
-		.AddInMemoryTokenCaches();
-
-	services.AddControllersWithViews(options =&gt;
-		options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
-
-	services.AddRazorPages().AddMvcOptions(options =&gt; { })
-		.AddMicrosoftIdentityUI();
-}
-  
-
-
-<p>The Configure method adds the middleware as required. The UseSecurityHeaders method adds all the required security headers which are possible for Blazor. The Razor page _Host is used as the fallback, not a static page.</p>
-
-
-  public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
-{
-	if (env.IsDevelopment())
-	{
-		app.UseDeveloperExceptionPage();
-		app.UseWebAssemblyDebugging();
-	}
-	else
-	{
-		app.UseExceptionHandler("/Error");
-	}
-
-	app.UseSecurityHeaders(
-		SecurityHeadersDefinitions.GetHeaderPolicyCollection(env.IsDevelopment(),
-			Configuration["AzureAd:Instance"]));
-
-	app.UseHttpsRedirection();
-	app.UseBlazorFrameworkFiles();
-	app.UseStaticFiles();
-
-	app.UseRouting();
-	app.UseAuthentication();
-	app.UseAuthorization();
-
-	app.UseEndpoints(endpoints =&gt;
-	{
-		endpoints.MapRazorPages();
-		endpoints.MapControllers();
-		endpoints.MapFallbackToPage("/_Host");
-	});
-}
-  
-
-
-<p>The security headers are implemented using the <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package. This adds everything which is possible for a production deployment. If you want to use hot reload you need to disable some of these policies. You must ensure that the CSS, script code is not implemented in a bad way, otherwise you leave you application open for attacks. A good dev environment should be as close as possible to the production deployment. I don’t use hot reload due to this. Due to Blazorise, the style policy allows inline style in the CSP protection. </p>
-
-
-  public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev, string idpHost)
-{
-	var policy = new HeaderPolicyCollection()
-		.AddFrameOptionsDeny()
-		.AddXssProtectionBlock()
-		.AddContentTypeOptionsNoSniff()
-		.AddReferrerPolicyStrictOriginWhenCrossOrigin()
-		.AddCrossOriginOpenerPolicy(builder =&gt;
-		{
-			builder.SameOrigin();
-		})
-		.AddCrossOriginResourcePolicy(builder =&gt;
-		{
-			builder.SameOrigin();
-		})
-		.AddCrossOriginEmbedderPolicy(builder =&gt; // remove for dev if using hot reload
-		{
-			builder.RequireCorp();
-		})
-		.AddContentSecurityPolicy(builder =&gt;
-		{
-			builder.AddObjectSrc().None();
-			builder.AddBlockAllMixedContent();
-			builder.AddImgSrc().Self().From("data:");
-			builder.AddFormAction().Self().From(idpHost);
-			builder.AddFontSrc().Self();
-			builder.AddStyleSrc().Self().UnsafeInline();
-			builder.AddBaseUri().Self();
-			builder.AddFrameAncestors().None();
-
-			// due to Blazor
-            builder.AddScriptSrc()
-                  .Self()
-                  .WithHash256("v8v3RKRPmN4odZ1CWM5gw80QKPCCWMcpNeOmimNL2AA=")
-                  .UnsafeEval();
-
-			// due to Blazor hot reload requires you to disable script and style CSP protection
-			// if using hot reload, DO NOT deploy an with an insecure CSP
-		})
-		.RemoveServerHeader()
-		.AddPermissionsPolicy(builder =&gt;
-		{
-			builder.AddAccelerometer().None();
-			builder.AddAutoplay().None();
-			builder.AddCamera().None();
-			builder.AddEncryptedMedia().None();
-			builder.AddFullscreen().All();
-			builder.AddGeolocation().None();
-			builder.AddGyroscope().None();
-			builder.AddMagnetometer().None();
-			builder.AddMicrophone().None();
-			builder.AddMidi().None();
-			builder.AddPayment().None();
-			builder.AddPictureInPicture().None();
-			builder.AddSyncXHR().None();
-			builder.AddUsb().None();
-		});
-
-	if (!isDev)
-	{
-		// maxage = one year in seconds
-		policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
-	}
-
-	return policy;
-}
-  
-
-
-<p>Microsoft Graph delegated client service</p>
-
-
-
-<p>The GraphServiceClient service can be used directly from the IoC because of how we setup the Microsoft.Identity.Web configuration in the Startup class to use Microsoft Graph and Azure AD. A persistent cache is required for this to work correctly. The GetUserIdAsync method is used to get the Id of the user behind the email address. An equals filter is used. This method is used in most of the services.</p>
-
-
-  private readonly GraphServiceClient _graphServiceClient;
-
-public MicrosoftGraphDelegatedClient(GraphServiceClient graphServiceClient)
-{
-	_graphServiceClient = graphServiceClient;
-}
-
-private async Task&lt;string&gt; GetUserIdAsync(string email)
-{
-	var filter = $"userPrincipalName eq '{email}'";
-	//var filter = $"startswith(userPrincipalName,'{email}')";
-
-	var users = await _graphServiceClient.Users
-		.Request()
-		.Filter(filter)
-		.GetAsync();
-
-	if(users.CurrentPage.Count == 0)
-	{
-		return string.Empty;
-	}
-	return users.CurrentPage[0].Id;
-}
-  
-
-
-<p>The delegated client GetGraphApiUser method uses an email to get the profile data of that user. This can be any email from your tenant. The users of the Microsoft Graph client is used.</p>
-
-
-  public async Task&lt;User&gt; GetGraphApiUser(string email)
-{
-	var id= await GetUserIdAsync(email);
-	if (string.IsNullOrEmpty(upn))
-		return null;
-
-	return await _graphServiceClient.Users[id]
-		.Request()
-		.GetAsync();
-}
-  
-
-
-<p>The MicrosoftGraphApplicationClient service is uses the Azure App registration application permissions with the client credentials flow. The MailboxSettings and the CalanderView use application permissions so that other users data can be used in the tenant.</p>
-
-
-
-<p>The GetUserMailboxSettings method is used to get the MailboxSettings for the given email. The Id for the user is requested, then the MailboxSettings settings are returned for the user. This only works, if the MailboxSettings.Read application permission is granted to the Azure App registration.</p>
-
-
-  public async Task&lt;MailboxSettings&gt; GetUserMailboxSettings(string email)
-{
-	var graphServiceClient = GetGraphClient();
-
-	var id = await GetUserIdAsync(email, graphServiceClient);
-	if (string.IsNullOrEmpty(id))
-		return null;
-
-	var user = await graphServiceClient.Users[id]
-		.Request()
-		.Select("MailboxSettings")
-		.GetAsync();
-
-	return user.MailboxSettings;
-}
-
-private async Task&lt;string&gt; GetUserIdAsync(string email, 
-	GraphServiceClient graphServiceClient)
-{
-	var filter = $"userPrincipalName eq '{email}'";
-	//var filter = $"startswith(userPrincipalName,'{email}')";
-
-	var users = await graphServiceClient.Users
-		.Request()
-		.Filter(filter)
-		.GetAsync();
-
-	if (users.CurrentPage.Count == 0)
-	{
-		return string.Empty;
-	}
-	return users.CurrentPage[0].Id;
-}
-  
-
-
-<p>The GetCalanderForUser returns the calendar for the given email. This returns a flat list of FilteredEvent items. Microsoft Graph returns a IUserCalendarViewCollectionPage which is a bit complicated for using if only requesting small amounts of data. This works well for large results which needs to be paged, streamed or whatever. The CalendarView is used with a ‘to’ and a ‘from’ datetime filter to request the calendar events. This uses application permissions and so the application client credentials client is used.</p>
-
-
-  public async Task&lt;List&lt;FilteredEvent&gt;&gt; GetCalanderForUser(string email, string from, string to)
-{
-
-	var userCalendarViewCollectionPages = await GetCalanderForUserUsingGraph(email, from, to);
-
-	var allEvents = new List&lt;FilteredEvent&gt;();
-
-	while (userCalendarViewCollectionPages != null &amp;&amp; userCalendarViewCollectionPages.Count &gt; 0)
-	{
-		foreach (var calenderEvent in userCalendarViewCollectionPages)
-		{
-			var filteredEvent = new FilteredEvent
-			{
-				ShowAs = calenderEvent.ShowAs,
-				Sensitivity = calenderEvent.Sensitivity,
-				Start = calenderEvent.Start,
-				End = calenderEvent.End,
-				Subject = calenderEvent.Subject,
-				IsAllDay = calenderEvent.IsAllDay,
-				Location = calenderEvent.Location
-			};
-			allEvents.Add(filteredEvent);
-		}
-
-		if (userCalendarViewCollectionPages.NextPageRequest == null)
-			break;
-	}
-
-	return allEvents;
-}
-
-private async Task&lt;IUserCalendarViewCollectionPage&gt; GetCalanderForUserUsingGraph(
-	string email, string from, string to)
-{
-	var graphServiceClient = GetGraphClient();
-
-	var id = await GetUserIdAsync(email, graphServiceClient);
-	if (string.IsNullOrEmpty(id))
-		return null;
-
-	var queryOptions = new List&lt;QueryOption&gt;()
-	{
-		new QueryOption("startDateTime", from),
-		new QueryOption("endDateTime", to)
-	};
-
-	var calendarView = await graphServiceClient.Users[id].CalendarView
-		.Request(queryOptions)
-		.Select("start,end,subject,location,sensitivity, showAs, isAllDay")
-		.GetAsync();
-
-	return calendarView;
-}
-  
-
-
-<p>The GetPresenceforEmail returns a teams presence list for the given email. This only works if the Presence.Read.All delegated permission is granted to the Azure App registration. Again Microsoft Graph returns a paged result which is not required in our use case. We only want this for a single email.</p>
-
-
-  public async Task&lt;List&lt;Presence&gt;&gt; GetPresenceforEmail(string email)
-{
-	var cloudCommunicationPages = await GetPresenceAsync(email);
-
-	var allPresenceItems = new List&lt;Presence&gt;();
-
-	while (cloudCommunicationPages != null &amp;&amp; cloudCommunicationPages.Count &gt; 0)
-	{
-		foreach (var presence in cloudCommunicationPages)
-		{
-			allPresenceItems.Add(presence);
-		}
-
-		if (cloudCommunicationPages.NextPageRequest == null)
-			break;
-	}
-
-	return allPresenceItems;
-}
-
-private async Task&lt;ICloudCommunicationsGetPresencesByUserIdCollectionPage&gt; GetPresenceAsync(string email)
-{
-	var id = await GetUserIdAsync(email);
-
-	var ids = new List&lt;string&gt;()
-	{
-		id
-	};
-
-	return await _graphServiceClient.Communications
-		.GetPresencesByUserId(ids)
-		.Request()
-		.PostAsync();
-}
-  
-
-
-<p>Blazor Server API</p>
-
-
-
-<p>The Blazor server host application implements an API which requires cookies and a correct anti-forgery token to access the protected resource.  This can only be accessed from the same domain. The used cookie has also same site protection and should only work for the exact same domain. All the Blazor WASM API calls use this API in for the Microsoft Graph data displays. The WASM application does not authenticate directly or use the Microsoft Graph service directly. The Microsoft Graph client is not exposed to the untrusted client browser.</p>
-
-
-  
-[ValidateAntiForgeryToken]
-[Authorize(AuthenticationSchemes = CookieAuthenticationDefaults.AuthenticationScheme)]
-[AuthorizeForScopes(Scopes = new string[] { "User.ReadBasic.All user.read" })]
-[ApiController]
-[Route("api/[controller]")]
-public class GraphApiCallsController : ControllerBase
-{
-	private MicrosoftGraphDelegatedClient _microsoftGraphDelegatedClient;
-	private MicrosoftGraphApplicationClient _microsoftGraphApplicationClient;
-	private readonly TeamsService _teamsService;
-	private readonly EmailService _emailService;
-
-	public GraphApiCallsController(MicrosoftGraphDelegatedClient microsoftGraphDelegatedClient,
-		MicrosoftGraphApplicationClient microsoftGraphApplicationClient,
-		TeamsService teamsService,
-		EmailService emailService)
-	{
-		_microsoftGraphDelegatedClient = microsoftGraphDelegatedClient;
-		_microsoftGraphApplicationClient = microsoftGraphApplicationClient;
-		_teamsService = teamsService;
-		_emailService = emailService;
-	}
-
-	[HttpGet("UserProfile")]
-	public async Task&lt;IEnumerable&lt;string&gt;&gt; UserProfile()
-	{
-		var userData = await _microsoftGraphDelegatedClient.GetGraphApiUser(User.Identity.Name);
-		return new List&lt;string&gt; { $"DisplayName: {userData.DisplayName}",
-			$"GivenName: {userData.GivenName}", $"Preferred Language: {userData.PreferredLanguage}" };
-	}
-
-	[HttpPost("MailboxSettings")]
-	public async Task&lt;IActionResult&gt; MailboxSettings([FromBody] string email)
-	{
-		if (string.IsNullOrEmpty(email))
-			return BadRequest("No email");
-		try
-		{
-			var mailbox = await _microsoftGraphApplicationClient.GetUserMailboxSettings(email);
-
-			if(mailbox == null)
-			{
-				return NotFound($"mailbox settings for {email} not found");
-			}
-			var result = new List&lt;MailboxSettingsData&gt; {
-				new MailboxSettingsData { Name = "User Email", Data = email },
-				new MailboxSettingsData { Name = "AutomaticRepliesSetting", Data = mailbox.AutomaticRepliesSetting.Status.ToString() },
-				new MailboxSettingsData { Name = "TimeZone", Data = mailbox.TimeZone },
-				new MailboxSettingsData { Name = "Language", Data = mailbox.Language.DisplayName }
-			};
-
-			return Ok(result);
-		}
-		catch (Exception ex)
-		{
-			return BadRequest(ex.Message);
-		}
-	}
-
-	[HttpPost("TeamsPresence")]
-	public async Task&lt;IActionResult&gt; PresencePost([FromBody] string email)
-	{
-		if (string.IsNullOrEmpty(email))
-			return BadRequest("No email");
-		try
-		{
-			var userPresence = await _microsoftGraphDelegatedClient.GetPresenceforEmail(email);
-
-			if (userPresence.Count == 0)
-			{
-				return NotFound(email);
-			}
-
-			var result = new List&lt;PresenceData&gt; {
-				new PresenceData { Name = "User Email", Data = email },
-				new PresenceData { Name = "Availability", Data = userPresence[0].Availability }
-			};
-
-			return Ok(result);
-		}
-		catch (Exception ex)
-		{
-			return BadRequest(ex.Message);
-		}
-	}
-
-	[HttpPost("UserCalendar")]
-	public async Task&lt;IEnumerable&lt;FilteredEventDto&gt;&gt; UserCalendar(UserCalendarDataModel userCalendarDataModel)
-	{
-		var userCalendar = await _microsoftGraphApplicationClient.GetCalanderForUser(
-			userCalendarDataModel.Email, 
-			userCalendarDataModel.From.Value.ToString("yyyy-MM-ddTHH:mm:ss.sssZ"),
-			userCalendarDataModel.To.Value.ToString("yyyy-MM-ddTHH:mm:ss.sssZ"));
-
-		return userCalendar.Select(l =&gt; new FilteredEventDto
-		{
-			IsAllDay = l.IsAllDay.GetValueOrDefault(),
-			Sensitivity = l.Sensitivity.ToString(),
-			Start = l.Start?.DateTime,
-			End = l.End?.DateTime,
-			ShowAs = l.ShowAs.Value.ToString(),
-			Subject=l.Subject
-		});
-	}
-
-	[HttpPost("CreateTeamsMeeting")]
-	public async Task&lt;TeamsMeetingCreated&gt; CreateTeamsMeeting(TeamsMeetingDataModel teamsMeetingDataModel)
-	{
-		var meeting = _teamsService.CreateTeamsMeeting(
-			teamsMeetingDataModel.MeetingName,
-			teamsMeetingDataModel.From.Value,
-			teamsMeetingDataModel.To.Value);
-
-		var attendees = teamsMeetingDataModel.Attendees.Split(';');
-		List&lt;string&gt; items = new();
-		items.AddRange(attendees);
-		var updatedMeeting = _teamsService.AddMeetingParticipants(
-		  meeting, items);
-
-		var createdMeeting = await _microsoftGraphDelegatedClient.CreateOnlineMeeting(updatedMeeting);
-
-		var teamsMeetingCreated = new TeamsMeetingCreated
-		{
-			Subject = createdMeeting.Subject,
-			JoinUrl = createdMeeting.JoinUrl,
-			Attendees = createdMeeting.Participants.Attendees.Select(c =&gt; c.Upn).ToList()
-		};
-
-		// send emails
-		foreach (var attendee in createdMeeting.Participants.Attendees)
-		{
-			var recipient = attendee.Upn.Trim();
-			var message = _emailService.CreateStandardEmail(recipient,
-				createdMeeting.Subject, createdMeeting.JoinUrl);
-
-			await _microsoftGraphDelegatedClient.SendEmailAsync(message);
-		}
-
-		teamsMeetingCreated.EmailSent = "Emails sent to all attendees, please check your mailbox";
-
-		return teamsMeetingCreated;
-	}
-}
-  
-
-
-<p>Blazor Calendar client</p>
-
-
-
-<p>The Blazor WASM client does not implement any security and does not require a Microsoft.Identity.Web client. I like Blazorize and the Nuget packages are added to the UI so that these components can be used. These are nice components but use inline css.</p>
-
-
-  &lt;ItemGroup&gt;
- &lt;PackageReference Include="blazored.sessionstorage" Version="2.2.0" /&gt;
- &lt;PackageReference Include="Blazorise" Version="0.9.5.2" /&gt;
- &lt;PackageReference Include="Blazorise.Components" Version="0.9.5.2" /&gt;
- &lt;PackageReference Include="Blazorise.DataGrid" Version="0.9.5.2" /&gt;
- &lt;PackageReference Include="Blazorise.Icons.FontAwesome" Version="0.9.5.2" /&gt;
- &lt;PackageReference Include="Blazorise.Icons.Material" Version="0.9.5.2" /&gt;
- &lt;PackageReference Include="Blazorise.Material" Version="0.9.5.2" /&gt;
- &lt;PackageReference Include="Blazorise.Sidebar" Version="0.9.5.2" /&gt;
- &lt;PackageReference Include="Blazorise.Snackbar" Version="0.9.5.2" /&gt;
- &lt;PackageReference Include="Blazorise.SpinKit" Version="0.9.5.2" /&gt;
- &lt;PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="6.0.1" /&gt;
- &lt;PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="6.0.1" PrivateAssets="all" /&gt;
- &lt;PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0" /&gt;
- &lt;PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="6.0.1" /&gt;
-&lt;/ItemGroup&gt;
-  
-
-
-<p>The Blazor WASM client is hosted in a Razor page. This makes it possible to add dynamic data. The anti-forgery token is added here as well as the security headers and the dynamic meta data if required.</p>
-
-
-  @page "/"
-@namespace AspNetCoreMicrosoftGraph.Pages
-@using AspNetCoreMicrosoftGraph.Client
-@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
-@{
-    Layout = null;
-}
-
-&lt;!DOCTYPE html&gt;
-&lt;html lang="en"&gt;
-&lt;head&gt;
-    &lt;link rel="apple-touch-icon" sizes="57x57" href="/apple-icon-57x57.png"&gt;
-    &lt;link rel="apple-touch-icon" sizes="60x60" href="/apple-icon-60x60.png"&gt;
-    &lt;link rel="apple-touch-icon" sizes="72x72" href="/apple-icon-72x72.png"&gt;
-    &lt;link rel="apple-touch-icon" sizes="76x76" href="/apple-icon-76x76.png"&gt;
-    &lt;link rel="apple-touch-icon" sizes="114x114" href="/apple-icon-114x114.png"&gt;
-    &lt;link rel="apple-touch-icon" sizes="120x120" href="/apple-icon-120x120.png"&gt;
-    &lt;link rel="apple-touch-icon" sizes="144x144" href="/apple-icon-144x144.png"&gt;
-    &lt;link rel="apple-touch-icon" sizes="152x152" href="/apple-icon-152x152.png"&gt;
-    &lt;link rel="apple-touch-icon" sizes="180x180" href="/apple-icon-180x180.png"&gt;
-    &lt;link rel="icon" type="image/png" sizes="192x192"  href="/android-icon-192x192.png"&gt;
-    &lt;link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png"&gt;
-    &lt;link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png"&gt;
-    &lt;link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"&gt;
-    &lt;link rel="manifest" href="/manifest.json"&gt;
-    &lt;meta name="msapplication-TileColor" content="#ffffff"&gt;
-    &lt;meta name="msapplication-TileImage" content="/ms-icon-144x144.png"&gt;
-    &lt;meta name="theme-color" content="#ffffff"&gt;
-    &lt;meta charset="utf-8" /&gt;
-    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /&gt;
-    &lt;title&gt;Blazor Graph&lt;/title&gt;
-    &lt;base href="~/" /&gt;
-    
-    &lt;link rel="stylesheet" href="/lib/font-awesome/css/all.min.css"&gt;
-
-    &lt;!-- Material CSS --&gt;
-    &lt;link href="css/material.min.css" rel="stylesheet"&gt;
-
-    &lt;!-- Add Material font (Roboto) and Material icon as needed --&gt;
-    &lt;link href="css/googlefontsroboto.css" rel="stylesheet"&gt;
-    &lt;link href="css/fonts.google.icons.css" rel="stylesheet"&gt;
-
-    &lt;link href="_content/Blazorise/blazorise.css" rel="stylesheet" /&gt;
-    &lt;link href="_content/Blazorise.Material/blazorise.material.css" rel="stylesheet" /&gt;
-    &lt;link href="_content/Blazorise.Icons.Material/blazorise.icons.material.css" rel="stylesheet" /&gt;
-
-    &lt;link href="_content/Blazorise.SpinKit/blazorise.spinkit.css" rel="stylesheet" /&gt;
-    &lt;link href="_content/Blazorise.Snackbar/blazorise.snackbar.css" rel="stylesheet" /&gt;
-
-    &lt;link href="css/app.css" rel="stylesheet" /&gt;
-    &lt;link href="AspNetCoreMicrosoftGraph.Client.styles.css" rel="stylesheet" /&gt;
-    &lt;link href="manifest.json" rel="manifest" /&gt;
-    &lt;link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" /&gt;
-&lt;/head&gt;
-&lt;body&gt;
-
-    &lt;div id="app"&gt;
-        &lt;!-- Spinner --&gt;
-        &lt;div class="spinner d-flex align-items-center justify-content-center spinner"&gt;
-            &lt;div class="spinner-border text-success" role="status"&gt;
-                &lt;span class="sr-only"&gt;Loading...&lt;/span&gt;
-            &lt;/div&gt;
-        &lt;/div&gt;
-    &lt;/div&gt;
-
-    &lt;div id="blazor-error-ui"&gt;
-        &lt;environment include="Staging,Production"&gt;
-            An error has occurred. This application may no longer respond until reloaded.
-        &lt;/environment&gt;
-        &lt;environment include="Development"&gt;
-            An unhandled exception has occurred. See browser dev tools for details.
-        &lt;/environment&gt;
-        &lt;a href="" class="reload"&gt;Reload&lt;/a&gt;
-        &lt;a class="dismiss"&gt;🗙&lt;/a&gt;
-    &lt;/div&gt;
-
-    &lt;script src="lib/jquery/jquery.slim.min.js"&gt;&lt;/script&gt;
-    &lt;script src="lib/popper.js/umd/popper.min.js"&gt;&lt;/script&gt;
-    &lt;script src="js/material.min.js"&gt;&lt;/script&gt;
-
-    @*&lt;script src="_content/Blazorise/blazorise.js"&gt;&lt;/script&gt;*@
-    &lt;script src="_content/Blazorise.Material/blazorise.material.js"&gt;&lt;/script&gt;
-
-    &lt;script src="lib/flatpickr/l10n/default.js"&gt;&lt;/script&gt;
-    &lt;script src="lib/flatpickr/l10n/de.js"&gt;&lt;/script&gt;
-    &lt;script src="lib/flatpickr/l10n/fr.js"&gt;&lt;/script&gt;
-    &lt;script src="lib/flatpickr/l10n/it.js"&gt;&lt;/script&gt;
-    &lt;script language="javascript"&gt;
-        flatpickr.localize(flatpickr.l10ns.default); /*set global*/
-    &lt;/script&gt;
-
-    &lt;script src="_framework/blazor.webassembly.js" &gt;&lt;/script&gt;
-    &lt;script src="antiForgeryToken.js" &gt;&lt;/script&gt;
-    @Html.AntiForgeryToken()
-&lt;/body&gt;
-&lt;/html&gt;
-  
-
-
-<p>The user calendar WASM view uses an input text field to enter any tenant email. This posts a request to the server API add returns the data which is displayed in the Blazorise Data Grid.</p>
-
-
-  @page "/usercalendar"
-@inject IHttpClientFactory HttpClientFactory
-@inject IJSRuntime JSRuntime
-
-&lt;h4&gt;Calendar Events&lt;/h4&gt;
-
-&lt;Validations StatusChanged="@OnStatusChanged"&gt;
-    &lt;Validation Validator="@ValidateEmail"  &gt;
-        &lt;TextEdit Placeholder="Enter email" @bind-Text="userCalendarDataModel.Email" &gt;
-            &lt;Feedback&gt;
-                &lt;ValidationNone&gt;Please enter the email.&lt;/ValidationNone&gt;
-                &lt;ValidationSuccess&gt;Email is good.&lt;/ValidationSuccess&gt;
-                &lt;ValidationError&gt;Enter valid email!&lt;/ValidationError&gt;
-            &lt;/Feedback&gt;
-        &lt;/TextEdit&gt;
-    &lt;/Validation&gt;
-
-    &lt;Field Horizontal="true"&gt;
-        &lt;FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop"&gt;From&lt;/FieldLabel&gt;
-        &lt;FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is10.OnDesktop"&gt;
-            &lt;DateEdit TValue="DateTime?" InputMode="DateInputMode.DateTime" @bind-Date="userCalendarDataModel.From" /&gt;
-        &lt;/FieldBody&gt;
-    &lt;/Field&gt;
-
-    &lt;Field Horizontal="true"&gt;
-        &lt;FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop"&gt;To&lt;/FieldLabel&gt;
-        &lt;FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is10.OnDesktop"&gt;
-            &lt;DateEdit TValue="DateTime?" InputMode="DateInputMode.DateTime" @bind-Date="userCalendarDataModel.To" /&gt;
-        &lt;/FieldBody&gt;
-    &lt;/Field&gt;
-
-    &lt;br /&gt;
-    &lt;Button Color="Color.Primary" Disabled="@saveDisabled" PreventDefaultOnSubmit="true" Clicked="@Submit"&gt;Get calendar events for user&lt;/Button&gt;
-&lt;/Validations&gt;
-
- &lt;br /&gt;&lt;br /&gt;
-
-@if (filteredEvents == null)
-{
-    &lt;p&gt;&lt;em&gt;@noDataResult&lt;/em&gt;&lt;/p&gt;
-}
-else
-{
-    &lt;DataGrid TItem="FilteredEventDto"
-              Data="@filteredEvents" Bordered="true"
-              @bind-SelectedRow="@selectedFilteredEvent" PageSize=15
-              Responsive&gt;
-        &lt;DataGridCommandColumn TItem="FilteredEventDto" /&gt;
-        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.Subject)" Caption="Subject" Sortable="true" /&gt;
-        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.Start)" Caption="Start" Editable="false" /&gt;
-        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.End)" Caption="End" Editable="false" /&gt;
-        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.Sensitivity)" Caption="Sensitivity" Editable="false"/&gt;
-        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.IsAllDay)" Caption="IsAllDay" Editable="false"/&gt;
-        &lt;DataGridColumn TItem="FilteredEventDto" Field="@nameof(FilteredEventDto.ShowAs)" Caption="ShowAs" Editable="false"/&gt;
-    &lt;/DataGrid&gt;
-}
-
-@code {
-    private List&lt;FilteredEventDto&gt; filteredEvents;
-    private UserCalendarDataModel userCalendarDataModel { get; set; } = new UserCalendarDataModel()
-    {
-        From = DateTime.UtcNow.AddDays(-7.0),
-        To = DateTime.UtcNow.AddDays(7.0)
-    };
-
-    private FilteredEventDto selectedFilteredEvent;
-    private string noDataResult { get; set; } = "no data";
-    bool saveDisabled = true;
-
-    Task OnStatusChanged( ValidationsStatusChangedEventArgs eventArgs )
-    {
-        saveDisabled = eventArgs.Status != ValidationStatus.Success;
-
-        return Task.CompletedTask;
-    }
-
-    void ValidateEmail( ValidatorEventArgs e )
-    {
-        var email = Convert.ToString( e.Value );
-
-        e.Status = string.IsNullOrEmpty( email ) ? ValidationStatus.None :
-             email.Contains( "@" ) ? ValidationStatus.Success : ValidationStatus.Error;
-    }
-
-    async Task Submit()
-    {
-        await PostData(userCalendarDataModel);
-    }
-
-    private async Task PostData(UserCalendarDataModel userCalendarDataModel)
-    {
-        var token = await JSRuntime.InvokeAsync&lt;string&gt;("getAntiForgeryToken");
-        var client = HttpClientFactory.CreateClient("default");
-        client.DefaultRequestHeaders.Add("X-XSRF-TOKEN", token);
-        var response = await client.PostAsJsonAsync&lt;UserCalendarDataModel&gt;("api/GraphApiCalls/UserCalendar", userCalendarDataModel);
-        if(response.IsSuccessStatusCode)
-        {
-            filteredEvents = await response.Content.ReadFromJsonAsync&lt;List&lt;FilteredEventDto&gt;&gt;();
-        }
-        else
-        {
-            var error = await response.Content.ReadAsStringAsync();
-            filteredEvents = null;
-            noDataResult = error;
-        }
-    }
-}
-  
-
-
-<p>Running the application, a user can sign-in and request calendar data, mailbox settings or teams presence of any user in the tenant.</p>
-
-
-
-
-
-
-
-<p>Using Graph together with Microsoft.Identity.Web works really well and can be implemented with little effort. By using the BFF and hosting the WASM in an ASP.NET Core application, less sensitive data needs to be exposed and it is possible to sign out without tokens possibly still existing in the untrusted zone after the logout. Blazor and Blazorise could be improved to support a better CSP and better security headers.</p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://blazorise.com/">https://blazorise.com/</a></p>
-
-
-
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/graph/api/user-get-mailboxsettings">https://docs.microsoft.com/en-us/graph/api/user-get-mailboxsettings</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/graph/api/presence-get">https://docs.microsoft.com/en-us/graph/api/presence-get</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security/content-security-policy">https://docs.microsoft.com/en-us/aspnet/core/blazor/security/content-security-policy</a></p>
-
-
-
-<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/12/blazorgraph_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:13 &bull;
    3 months ago
 </div>
 
