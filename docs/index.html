@@ -736,12 +736,643 @@
 
 </div>
 </div>
-<sup>Last Update 2:19 AM March 28, 2022 (UTC)</sup>
+<sup>Last Update 5:42 AM March 28, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 28. March 2022
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/03/28/implementing-oauth2-app-to-app-security-using-azure-ad-from-a-web-app/'>Implementing OAuth2 APP to APP security using Azure AD from a Web APP</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement an API service and client in separate ASP.NET Core applications which are secured using Azure application permissions implemented in an Azure App registration. The OAuth client credentials flow is used to get an access token to access the API. Microsoft.Identity.Web is used to implement the client credentials (CC) flow. […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement an API service and client in separate ASP.NET Core applications which are secured using Azure application permissions implemented in an Azure App registration. The OAuth client credentials flow is used to get an access token to access the API. Microsoft.Identity.Web is used to implement the client credentials (CC) flow.  Microsoft.Identity.Client can also be used to implement this flow, or any OAuth client implementation.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AzureADAuthRazorUiServiceApiCertificate/tree/main/BlazorWithApis">BlazorWithApis</a></p>
+
+
+
+<p>The OAuth client credentials flow can be used to access services, where no user is involved and the client is trusted. This flow is used in many shapes and forms in Azure. The client application requires some type of secret to get an access token to use the secured API. In Azure, there are different ways of implementing this which vary in different names and implementations. The main difference with most of these implementations is how the secret is acquired and where it is stored. A certificate can be used as the secret or an Azure App registration secret. This secret can be stored in Azure Key Vault. Managed identities provide another way of implementing app to app secured access between Azure services and can be used to acquire access tokens using the Azure SDK. Certificate authentication can also be used to secure this security flow. This can be a little bit confusing, but as a solution architect, you need to know when and where this should be used, and not.</p>
+
+
+
+<p>Delegated user access tokens or application client credential tokens</p>
+
+
+
+<p>As a general rule, always use delegated user access tokens and not application access tokens if possible. You can reduce the permissions per user to the max. To acquire a user delegated access token, an identity must login somewhere using a UI. A user interaction flow is required for this. The delegated user access token can be requested using a scope for the identity. In Azure AD, the On Behalf Flow OBO can also be used to acquire further delegated user access tokens for downstream APIs. This is not possible in Azure AD B2C.</p>
+
+
+
+<p>Scopes or Roles Permissions</p>
+
+
+
+<p>In Azure, scope permissions are used for delegated user access tokens, not application permissions. App Roles can be used for application and / or delegated access. Roles can only be defined in Azure AD App registrations and not Azure AD B2C App registrations. To define an Azure App registration with application App Roles, you need to use an Azure AD App registration. This is very Azure specific and nothing to do with security standards. You still request a scope when using delegated or application flows, but not scope permissions when using application OAuth client credentials. More information about this can be found in the Microsoft docs:</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/scenario-protected-web-api-verification-scope-app-roles?tabs=aspnetcore">Protected web API: Verify scopes and app roles</a></p>
+
+
+
+<p>By using application security permissions, you give the client application permissions for whatever is allowed in the service. No user is involved. This cannot be reduced for different users, only for different client applications.</p>
+
+
+
+<p>Azure App Registration setup</p>
+
+
+
+<p>The hardest part of implementing an API protected using application permissions is to know how and where to setup the Azure App registration. The Azure App registration needs to be created in an Azure AD app registration and not an Azure AD B2C tenant, even if you use this. The Azure App registration needs an application ID URI, make sure this is created.</p>
+
+
+
+
+
+
+
+<p>An Azure App Role can be created and can be validated in the access token. </p>
+
+
+
+
+
+
+
+<p>The app role is defined as an application type. I named the role access_as_application.</p>
+
+
+
+
+
+
+
+<p>The role can be added as a permission and admin consent can be given. This will be included in tokens issued for this Azure app registration.</p>
+
+
+
+
+
+
+
+<p>API setup</p>
+
+
+
+<p>The API is setup using the Microsoft.Identity.Web. The AddMicrosoftIdentityWebApiAuthentication adds the OAuth validation using the configuration from the app settings. I created an authorization policy to implement the authorization which is applied to the controller or as a global filter. I think this is the best way as it is the standard way in ASP.NET Core. You should avoid using the Azure claims directly in the business of the application. Microsoft.Identity.Web also provides some specific Azure helper methods which checks consent or validates the scope etc. It is important that only access tokens intended for this API should work and all other access tokens must be rejected. </p>
+
+
+  services.AddSingleton&lt;IAuthorizationHandler, HasServiceApiRoleHandler&gt;();
+
+services.AddMicrosoftIdentityWebApiAuthentication(Configuration);
+
+services.AddControllers();
+
+services.AddAuthorization(options =&gt;
+{
+	options.AddPolicy("ValidateAccessTokenPolicy", validateAccessTokenPolicy =&gt;
+	{
+		validateAccessTokenPolicy.Requirements.Add(new HasServiceApiRoleRequirement());
+
+		// Validate id of application for which the token was created
+		// In this case the UI application 
+		validateAccessTokenPolicy.RequireClaim("azp", "2b50a014-f353-4c10-aace-024f19a55569");
+
+		// only allow tokens which used "Private key JWT Client authentication"
+		// // https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens
+		// Indicates how the client was authenticated. For a public client, the value is "0". 
+		// If client ID and client secret are used, the value is "1". 
+		// If a client certificate was used for authentication, the value is "2".
+		validateAccessTokenPolicy.RequireClaim("azpacr", "1");
+	});
+});
+  
+
+
+<p>Using Microsoft.Identity.Web</p>
+
+
+
+<p>One way of implementing a client is to use Microsoft.Identity.Web. The client and user of the application uses the OpenID Connect Code flow and a secret with some Azure specifics and once authenticated, the application can request an application token using the ITokenAcquisition interface and the GetAccessTokenForAppAsync method. The scope definition uses the /.default value with the application ID URL from the Azure App registration. This uses the client credentials flow. If the correct parameters are used, an access token is returned and the token can be used to access the API.</p>
+
+
+  public class ServiceApiClientService
+{
+    private readonly IHttpClientFactory _clientFactory;
+    private readonly ITokenAcquisition _tokenAcquisition;
+
+    public ServiceApiClientService(
+        ITokenAcquisition tokenAcquisition,
+        IHttpClientFactory clientFactory)
+    {
+        _clientFactory = clientFactory;
+        _tokenAcquisition = tokenAcquisition;
+    }
+
+    public async Task&lt;IEnumerable&lt;string&gt;?&gt; GetApiDataAsync()
+    {
+        var client = _clientFactory.CreateClient();
+
+        // CC flow access_as_application" (App Role in Azure AD app registration)
+        var scope = "api://b178f3a5-7588-492a-924f-72d7887b7e48/.default"; 
+        var accessToken = await _tokenAcquisition.GetAccessTokenForAppAsync(scope);
+
+        client.BaseAddress = new Uri("https://localhost:44324");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await client.GetAsync("ApiForServiceData");
+
+        if (response.IsSuccessStatusCode)
+        {
+            var stream = await response.Content.ReadAsStreamAsync();
+
+            var payload = await JsonSerializer.DeserializeAsync&lt;List&lt;string&gt;&gt;(stream);
+
+            return payload;
+        }
+
+        throw new ApplicationException("oh no...");
+    }
+}
+  
+
+
+<p>Notes</p>
+
+
+
+<p>When using client applications and the client credentials flow, it is important to only share the secret or certificate with a trusted client. The client should implement this is a safe way so that it does not get stolen. If I own the client, I deploy the client to Azure (if possible) and use a Key Vault to persist the certificates or secrets. A managed identity is used to access the key vault. This way, no secret is stored in an unsecure way. Try to use delegated access tokens rather than application tokens. The delegated access token is issued to the user and the application and the authorization can be reduced. This can only be done if using a user interaction flow to authenticate. Azure App registrations use scopes for delegated access tokens and roles can be used for application permissions. With app to app flows, other ways also exist for securing this access.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/">https://docs.microsoft.com/en-us/azure/active-directory/develop/</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2">https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/4-Call-OwnApi-Pop">https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/4-Call-OwnApi-Pop</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/scenario-protected-web-api-verification-scope-app-roles?tabs=aspnetcore">https://docs.microsoft.com/en-us/azure/active-directory/develop/scenario-protected-web-api-verification-scope-app-roles?tabs=aspnetcore</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/03/azureapplicationsecurity_03.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:35 &bull;
+   11 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/03/28/this-service-is.html'> 
+ This service is not available at this time. 
+ 
+ 
+ Please t</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ This service is not available at this time. 
+ 
+ 
+ Please try again during our regular service hours (Eastern Time): 
+ 
+ It’s a WEBSITE people !!! 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<blockquote>
+<p>This service is not available at this time.</p>
+</blockquote>
+<blockquote>
+<p>Please try again during our regular service hours (Eastern Time):</p>
+</blockquote>
+<p>It’s a WEBSITE people !!!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:04 &bull;
+   43 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/03/28/general-petraeus-the.html'> General Petraeus : The Ukrainian Alamo 
+ Time Magazine : It’</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   General Petraeus : The Ukrainian Alamo 
+ Time Magazine : It’s Time to Correct the Myths About the Battle of Alamo 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>General Petraeus : <a href="https://www.businessinsider.com/mariupol-might-become-a-ukrainian-alamo-retired-us-general-says-2022-3">The Ukrainian Alamo</a></p>
+<p>Time Magazine : <a href="https://time.com/6072141/alamo-history-myths/">It’s Time to Correct the Myths About the Battle of Alamo</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:49 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Mar/28/datasette-auth0/#atom-everything'>Weeknotes: datasette-auth0</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Datasette 0.61, a Twitter Space and a new Datasette plugin for authenticating against Auth0. 
+ datasette-auth0 
+ I've been figuring out how best to integrate with Auth0 for account management and sign-in, for a project I'm working on with Natalie. 
+ I used Auth0 for VIAL with Vaccinate CA last year, following the Auth0 Django tutorial using Python Social Auth. 
+ This time I decided to try and do i
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2022/datasette-auth0.gif'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Datasette 0.61, a Twitter Space and a new Datasette plugin for authenticating against Auth0.</p>
+ datasette-auth0 
+<p>I've been figuring out how best to integrate with <a href="https://auth0.com/">Auth0</a> for account management and sign-in, for a project I'm working on with <a href="https://blog.natbat.net/">Natalie</a>.</p>
+<p>I used Auth0 for <a href="https://github.com/CAVaccineInventory/vial">VIAL</a> with Vaccinate CA last year, following the <a href="https://auth0.com/docs/quickstart/webapp/django/01-login">Auth0 Django tutorial</a> using <a href="https://python-social-auth.readthedocs.io/en/latest/">Python Social Auth</a>.</p>
+<p>This time I decided to try and do it from first principles rather than use a library, for reasons I discussed in <a href="https://twitter.com/simonw/status/1507847567454851076">this Twitter thread</a>.</p>
+<p>It turns out Auth0 is using regular OAuth 2, which can be implemented from scratch in just three steps:</p>
+ 
+ Generate a URL to a page on Auth0 that will display the login screen 
+ Implement a page that handles the redirect back from Auth0, which needs to exchange the code from the <code>?code=</code> parameter for an access token by POSTing it to an authenticated API endpoint 
+ Use that access token to retrieve the authenticated user's profile 
+ 
+<p>I wrote up the steps in this TIL: <a href="https://til.simonwillison.net/auth0/oauth-with-auth0">Simplest possible OAuth authentication with Auth0</a></p>
+<p>Since it turned out to be pretty straight-forward, I turned it into a new authentication plugin for Datasette: <a href="https://datasette.io/plugins/datasette-auth0">datasette-auth0</a>.</p>
+<p>You can try that out with the live demo at <a href="https://datasette-auth0-demo.datasette.io/">datasette-auth0-demo.datasette.io</a> - click on the top right menu icon and select "Sign in with Auth0".</p>
+<p></p>
+<p>The live demo is deployed automatically any time a push to the <code>main</code> branch passes its tests. I've implemented this pattern a few times now, so I wrote it up in another TIL: <a href="https://til.simonwillison.net/github-actions/deploy-live-demo-when-tests-pass">Deploying a live Datasette demo when the tests pass</a>.</p>
+ Datasette 0.61.0 (and 0.61.1) 
+<p>I wrote about these in <a href="https://simonwillison.net/2022/Mar/24/datasette-061/">the annotated weeknotes</a>. They were pretty significant releases, representing <a href="https://github.com/simonw/datasette/compare/0.60.2...0.61.1">86 commits</a> since 0.60.2 released back in January.</p>
+ New features as documentation 
+<p>Some of my favourite feature requests for my projects are ones that can be solved by documentation. I had a great example of that this week.</p>
+<p>In <a href="https://github.com/simonw/sqlite-utils/issues/420">#420: Transform command with shared context</a> Mehmet Sukan wanted a way to speed up the following operation using <code>sqlite-utils insert --convert</code> - described in <a href="https://simonwillison.net/2022/Jan/11/sqlite-utils/">What’s new in sqlite-utils 3.20 and 3.21</a>:</p>
+  cat items.json | jq '.data' | sqlite-utils insert listings.db listings - --convert '
+d = enchant.Dict("en_US")
+row["is_dictionary_word"] = d.check(row["name"])
+' --import=enchant --ignore  
+<p>The <code>--convert</code> option lets you specify Python code that will be executed against each inserted item. Mehmet's problem was that the <code>enchant.Dict("en_US")</code> operation is quite expensive, and it was being run every time around the loop.</p>
+<p>I started looking into ways to speed this up... and realized that there was already a mechanism for doing this, but it was undocumented and I hadn't previously realized it was even possible!</p>
+<p>The recipe that works looks like this:</p>
+  echo '[
+  {"name": "notaword"},
+  {"name": "word"}
+]' | python3 -m sqlite_utils insert listings.db listings - --convert '
+import enchant
+d = enchant.Dict("en_US")
+
+def convert(row):
+    global d
+    row["is_dictionary_word"] = d.check(row["name"])
+'  
+<p>The result:</p>
+  % sqlite-utils rows listings.db listings        
+[{"name": "notaword", "is_dictionary_word": 0},
+ {"name": "word", "is_dictionary_word": 1}]  
+<p>This takes advantage of a feature of the <code>sqlite-utils</code> Python snippet mechanism, which <a href="https://github.com/simonw/sqlite-utils/blob/95522ad919f96eb6cc8cd3cd30389b534680c717/sqlite_utils/utils.py#L308-L342">is implemented here</a>. It first attempts <code>exec()</code> against the provided code to see if it defined a <code>convert(value)</code> function - if that fails, it composes a function body (to cover simple expressions like <code>row["ok"] = True</code>).</p>
+<p>So I got to close the issue by <a href="https://sqlite-utils.datasette.io/en/latest/cli.html#using-a-convert-function-to-execute-initialization">adding some documentation</a> showing how to do this!</p>
+<p>Another, smaller example this week: when I figured out <a href="https://til.simonwillison.net/shot-scraper/readability">Extracting web page content using Readability.js and shot-scraper</a> I learned that Playwright can accept and execute <code>async () =&gt; {...}</code> functions, enabling this pattern:</p>
+  shot-scraper javascript https://simonwillison.net/2022/Mar/24/datasette-061/ "
+async () =&gt; {
+  const readability = await import('https://cdn.skypack.dev/@mozilla/readability');
+  return (new readability.Readability(document)).parse();
+}"  
+<p>So I <a href="https://github.com/simonw/shot-scraper/commit/8d103ae6121031ea7a8799fcac4d2d2dcf8525a2">added that pattern</a> to the <code>shot-scraper</code> documentation.</p>
+ SQLite Happy Hour Twitter Space 
+<p>I hosted my first Twitter Space. The recording and notes can be found in <a href="https://simonwillison.net/2022/Mar/23/sqlite-happy-hour/">SQLite Happy Hour—a Twitter Spaces conversation about three interesting projects building on SQLite</a>.</p>
+<p>I also learned how to download the audio of a Twitter Spaces in two different ways, as documented in my TIL on <a href="https://til.simonwillison.net/twitter/export-edit-twitter-spaces">Exporting and editing a Twitter Spaces recording</a>.</p>
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/datasette-auth0">datasette-auth0</a>: <a href="https://github.com/simonw/datasette-auth0/releases/tag/0.1a0">0.1</a> - 2022-03-27
+<br>Datasette plugin that authenticates users using Auth0 
+ 
+<a href="https://github.com/simonw/datasette-packages">datasette-packages</a>: <a href="https://github.com/simonw/datasette-packages/releases/tag/0.1.1">0.1.1</a> - (<a href="https://github.com/simonw/datasette-packages/releases">2 releases total</a>) - 2022-03-25
+<br>Show a list of currently installed Python packages 
+ 
+<a href="https://github.com/simonw/datasette-hashed-urls">datasette-hashed-urls</a>: <a href="https://github.com/simonw/datasette-hashed-urls/releases/tag/0.4">0.4</a> - (<a href="https://github.com/simonw/datasette-hashed-urls/releases">5 releases total</a>) - 2022-03-24
+<br>Optimize Datasette performance behind a caching proxy 
+ 
+<a href="https://github.com/simonw/datasette">datasette</a>: <a href="https://github.com/simonw/datasette/releases/tag/0.61.1">0.61.1</a> - (<a href="https://github.com/simonw/datasette/releases">110 releases total</a>) - 2022-03-23
+<br>An open source multi-tool for exploring and publishing data 
+ 
+<a href="https://github.com/simonw/datasette-publish-vercel">datasette-publish-vercel</a>: <a href="https://github.com/simonw/datasette-publish-vercel/releases/tag/0.13">0.13</a> - (<a href="https://github.com/simonw/datasette-publish-vercel/releases">20 releases total</a>) - 2022-03-20
+<br>Datasette plugin for publishing data using Vercel 
+ 
+ TIL this Weeknotes 
+ 
+ <a href="https://til.simonwillison.net/pytest/async-fixtures">Async fixtures with pytest-asyncio</a> 
+ <a href="https://til.simonwillison.net/sqlite/simple-recursive-cte">The simplest recursive CTE</a> 
+ <a href="https://til.simonwillison.net/sqlite/counting-vm-ops">Counting SQLite virtual machine operations</a> 
+ <a href="https://til.simonwillison.net/github-actions/npm-cache-with-npx-no-package">Using the GitHub Actions cache with npx and no package.json</a> 
+ <a href="https://til.simonwillison.net/git/rewrite-repo-specific-files">Rewriting a repo to contain the history of just specific files</a> 
+ <a href="https://til.simonwillison.net/twitter/export-edit-twitter-spaces">Exporting and editing a Twitter Spaces recording</a> 
+ <a href="https://til.simonwillison.net/shot-scraper/readability">Extracting web page content using Readability.js and shot-scraper</a> 
+ <a href="https://til.simonwillison.net/auth0/oauth-with-auth0">Simplest possible OAuth authentication with Auth0</a> 
+ <a href="https://til.simonwillison.net/github-actions/deploy-live-demo-when-tests-pass">Deploying a live Datasette demo when the tests pass</a> 
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2022/datasette-auth0.gif'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:40 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/03/28/mitch-mcconnell-african.html'> Mitch McConnell: African Americans vote as much as Americans</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Mitch McConnell: African Americans vote as much as Americans 
+ … back in January … and essentially just “(oops I) did it again”! 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://www.usatoday.com/story/news/politics/2022/01/20/mitch-mcconnell-african-americans-vote-much-americans/6601274001/">Mitch McConnell: African Americans vote as much as Americans</a></p>
+<p>… back in January … and essentially just “(oops I) did it again”!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:45 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -823,7 +1454,7 @@
 
 <div class='item-footer'>
    23:06 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -884,7 +1515,7 @@
 
 <div class='item-footer'>
    22:17 &bull;
-   4 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -960,7 +1591,7 @@
 
 <div class='item-footer'>
    21:20 &bull;
-   5 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1021,7 +1652,7 @@
 
 <div class='item-footer'>
    21:19 &bull;
-   5 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1109,7 +1740,7 @@
 
 <div class='item-footer'>
    21:16 &bull;
-   5 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1185,7 +1816,7 @@
 
 <div class='item-footer'>
    21:13 &bull;
-   5 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1271,7 +1902,7 @@
 
 <div class='item-footer'>
    21:07 &bull;
-   5 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1340,7 +1971,7 @@
 
 <div class='item-footer'>
    21:01 &bull;
-   5 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2524,7 +3155,7 @@
 
 <div class='item-footer'>
    16:32 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4265,77 +4896,6 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Suspendisse varius soll
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2022/03/23/how-an-ai.html'>How An AI Became My Code Writing Genie</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Read the article on Wired here …. (Paywall) 
- It’s not yet ready for prime time .. but still …. 
- 
- So, using Visual Studio Code, I wrote a plain ol’ comment describing the first step I needed done:  
- write a function that opens a pdf document and returns the text     
-For about four seconds, nothing happened. Then Copilot wrote this:     
-def pdf_to_text(filename):     pdf = PyPDF2.PdfFileReader
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.wired.com/story/openai-copilot-autocomplete-for-code/">Read the article on Wired here …. (Paywall)</a></p>
-<p>It’s not yet ready for prime time .. but still ….</p>
-<blockquote>
-<p>So, using Visual Studio Code, I wrote a plain ol’ comment describing the first step I needed done: <br>
- write a function that opens a pdf document and returns the text     
-For about four seconds, nothing happened. Then Copilot wrote this:     
-def pdf_to_text(filename):     pdf = PyPDF2.PdfFileReader(open(filename, “rb”))     text = “”     for i in range(pdf.getNumPages()):     text += pdf.getPage(i).extractText()     return text</p>
-</blockquote>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:32 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Monday, 21. March 2022
  </h2>
@@ -4482,7 +5042,7 @@ def pdf_to_text(filename):     pdf = PyPDF2.PdfFileReader(open(filename, “rb
 
 <div class='item-footer'>
    17:09 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4556,137 +5116,6 @@ def pdf_to_text(filename):     pdf = PyPDF2.PdfFileReader(open(filename, “rb
 
 <div class='item-footer'>
    14:37 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/03/21/another-way-of.html'> Another way of saying “People First” </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Another way of saying “People First” 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://flowchainsensei.wordpress.com/2022/03/14/quickie-people-or-finance/">Another way of saying “People First”</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:57 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/03/21/if-you-are.html'> If you are into this kind of thing - two great reads. 
- Are </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   If you are into this kind of thing - two great reads. 
- Are blockchain-based DAOs really a utopian revolution in the making? 
- The Man Behind Ethereum Is Worried About Crypto’s Future 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>If you are into this kind of thing - two great reads.</p>
-<p><a href="https://www.theguardian.com/commentisfree/2022/mar/12/dont-get-carried-away-in-the-rush-of-dao-idealism-blockchain-cryptofed">Are blockchain-based DAOs really a utopian revolution in the making?</a></p>
-<p><a href="https://time.com/6158182/vitalik-buterin-ethereum-profile/">The Man Behind Ethereum Is Worried About Crypto’s Future</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:43 &bull;
    7 days ago
 </div>
 
@@ -5612,7 +6041,7 @@ on:
 
 <div class='item-footer'>
    16:52 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5747,7 +6176,7 @@ on:
 
 <div class='item-footer'>
    15:29 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7234,7 +7663,7 @@ Screenshot of 'https://www.example.com/' written to 'example.jpg'
 
 <div class='item-footer'>
    17:09 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8330,7 +8759,7 @@ def dash_decode(s: str) -&gt; str:
 
 <div class='item-footer'>
    16:11 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8843,7 +9272,7 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    17:35 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8903,7 +9332,7 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    15:57 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11250,76 +11679,6 @@ datasette publish fly \
 
 <div class='item-footer'>
    07:19 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Saturday, 12. February 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Feb/12/running-c-unit-tests-with-pytest/#atom-everything'>Running C unit tests with pytest</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Running C unit tests with pytest 
- Brilliant, detailed tutorial by Gabriele Tornetta on testing C code using pytest, which also doubles up as a ctypes tutorial. There's a lot of depth here - in addition to exercising C code through ctypes, Gabriele shows how to run each test in a separate process so that segmentation faults don't fail the entire suite,  then adds code to run the compiler as part o
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://p403n1x87.github.io/running-c-unit-tests-with-pytest.html">Running C unit tests with pytest</a></p>
-<p>Brilliant, detailed tutorial by Gabriele Tornetta on testing C code using pytest, which also doubles up as a ctypes tutorial. There's a lot of depth here - in addition to exercising C code through ctypes, Gabriele shows how to run each test in a separate process so that segmentation faults don't fail the entire suite,  then adds code to run the compiler as part of the pytest run, and then shows how to use gdb trickery to generate more useful stack traces.</p>
-
-    <p>Via <a href="https://news.ycombinator.com/item?id=30301880">Hacker News</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   17:14 &bull;
    1 months ago
 </div>
 
@@ -16082,343 +16441,6 @@ The post 2022年のプライバシー標準 first appeared on @_Nat Zone.
 
 
  <h2 class='new-date'>
-  Monday, 03. January 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/01/03/secure-a-blazor-wasm-asp-net-core-hosted-app-using-bff-and-openiddict/'>Secure a Blazor WASM ASP.NET Core hosted APP using BFF and OpenIddict</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to implement authentication and secure a Blazor WASM application hosted in ASP.NET Core using the backend for frontend (BFF) security architecture to authenticate. All security is implemented in the backend and the Blazor WASM is a view of the ASP.NET Core application, no security is implemented in the public client. The […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to implement authentication and secure a Blazor WASM application hosted in ASP.NET Core using the backend for frontend (BFF) security architecture to authenticate. All security is implemented in the backend and the Blazor WASM is a view of the ASP.NET Core application, no security is implemented in the public client. The application is a trusted client and a secret is used to authenticate the application as well as the identity. The Blazor WASM UI can only use the hosted APIs on the same domain. </p>
-
-
-
-<p>Code <a href="https://github.com/damienbod/AspNetCoreOpeniddict">https://github.com/damienbod/AspNetCoreOpeniddict</a></p>
-
-
-
-<p>Setup</p>
-
-
-
-<p>The Blazor WASM and the ASP.NET Core host application is implemented as a single application and deployed as one. The server part implements the authentication using OpenID Connect. <a href="https://documentation.openiddict.com">OpenIddict</a> is used to implement the OpenID Connect server application. The code flow with PKCE and a user secret is used for authentication.</p>
-
-
-
-
-
-
-
-<p>Open ID Connect Server setup </p>
-
-
-
-<p>The OpenID Connect server is implemented using OpenIddict. The is standard implementation as like the documentation. The worker class implements the IHostService interface and is used to add the code flow client used by the Blazor ASP.NET Core application. PKCE is added as well as a client secret. </p>
-
-
-  static async Task RegisterApplicationsAsync(IServiceProvider provider)
-{
-	var manager = provider.GetRequiredService&lt;IOpenIddictApplicationManager&gt;();
-
-	// Blazor Hosted
-	if (await manager.FindByClientIdAsync("blazorcodeflowpkceclient") is null)
-	{
-		await manager.CreateAsync(new OpenIddictApplicationDescriptor
-		{
-			ClientId = "blazorcodeflowpkceclient",
-			ConsentType = ConsentTypes.Explicit,
-			DisplayName = "Blazor code PKCE",
-			DisplayNames =
-			{
-				[CultureInfo.GetCultureInfo("fr-FR")] = "Application cliente MVC"
-			},
-			PostLogoutRedirectUris =
-			{
-				new Uri("https://localhost:44348/signout-callback-oidc"),
-				new Uri("https://localhost:5001/signout-callback-oidc")
-			},
-			RedirectUris =
-			{
-				new Uri("https://localhost:44348/signin-oidc"),
-				new Uri("https://localhost:5001/signin-oidc")
-			},
-			ClientSecret = "codeflow_pkce_client_secret",
-			Permissions =
-			{
-				Permissions.Endpoints.Authorization,
-				Permissions.Endpoints.Logout,
-				Permissions.Endpoints.Token,
-				Permissions.Endpoints.Revocation,
-				Permissions.GrantTypes.AuthorizationCode,
-				Permissions.GrantTypes.RefreshToken,
-				Permissions.ResponseTypes.Code,
-				Permissions.Scopes.Email,
-				Permissions.Scopes.Profile,
-				Permissions.Scopes.Roles,
-				Permissions.Prefixes.Scope + "dataEventRecords"
-			},
-			Requirements =
-			{
-				Requirements.Features.ProofKeyForCodeExchange
-			}
-		});
-	}
-}
-  
-
-
-<p>Blazor client Application</p>
-
-
-
-<p>The client application was created using the <a href="https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template">Blazor.BFF.OpenIDConnect.Template</a> Nuget template package. The configuration is read from the app settings using the OpenIDConnectSettings section. You could add more configurations if required. This is otherwise a standard OpenID Connect client and will work with any OIDC compatible server. PKCE is required and also a secret to validate the application. The AddAntiforgery method is used so that API calls can be forced to validate anti-forgery token to protect against CSRF as well as the same site cookie protection.</p>
-
-
-  public void ConfigureServices(IServiceCollection services)
-{
-	services.AddAntiforgery(options =&gt;
-	{
-		options.HeaderName = "X-XSRF-TOKEN";
-		options.Cookie.Name = "__Host-X-XSRF-TOKEN";
-		options.Cookie.SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict;
-		options.Cookie.SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.Always;
-	});
-
-	services.AddHttpClient();
-	services.AddOptions();
-;
-	var openIDConnectSettings = Configuration.GetSection("OpenIDConnectSettings");
-
-	services.AddAuthentication(options =&gt;
-	{
-		options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-		options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
-	})
-   .AddCookie()
-   .AddOpenIdConnect(options =&gt;
-   {
-	   options.SignInScheme = "Cookies";
-	   options.Authority = openIDConnectSettings["Authority"];
-	   options.ClientId = openIDConnectSettings["ClientId"];
-	   options.ClientSecret = openIDConnectSettings["ClientSecret"];
-	   options.RequireHttpsMetadata = true;
-	   options.ResponseType = "code";
-	   options.UsePkce = true;
-	   options.Scope.Add("profile");
-	   options.Scope.Add("offline_access");
-	   options.SaveTokens = true;
-	   options.GetClaimsFromUserInfoEndpoint = true;
-	   //options.ClaimActions.MapUniqueJsonKey("preferred_username", "preferred_username");
-   });
-
-   services.AddControllersWithViews(options =&gt;
-		options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
-
-	services.AddRazorPages().AddMvcOptions(options =&gt;
-	{
-		//var policy = new AuthorizationPolicyBuilder()
-		//    .RequireAuthenticatedUser()
-		//    .Build();
-		//options.Filters.Add(new AuthorizeFilter(policy));
-	});
-}
-  
-
-
-<p>The OIDC configuration settings are read from the OpenIDConnectSettings section. This can be extended if further specific settings are required.</p>
-
-
-  "OpenIDConnectSettings": {
- "Authority": "https://localhost:44395",
- "ClientId": "blazorcodeflowpkceclient",
- "ClientSecret": "codeflow_pkce_client_secret"
-},
-  
-
-
-<p>The <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package is used to add security headers to the application to protect the session. The configuration is setup for Blazor.</p>
-
-
-  public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev, string idpHost)
-{
-	var policy = new HeaderPolicyCollection()
-		.AddFrameOptionsDeny()
-		.AddXssProtectionBlock()
-		.AddContentTypeOptionsNoSniff()
-		.AddReferrerPolicyStrictOriginWhenCrossOrigin()
-		.AddCrossOriginOpenerPolicy(builder =&gt;
-		{
-			builder.SameOrigin();
-		})
-		.AddCrossOriginResourcePolicy(builder =&gt;
-		{
-			builder.SameOrigin();
-		})
-		.AddCrossOriginEmbedderPolicy(builder =&gt; // remove for dev if using hot reload
-		{
-			builder.RequireCorp();
-		})
-		.AddContentSecurityPolicy(builder =&gt;
-		{
-			builder.AddObjectSrc().None();
-			builder.AddBlockAllMixedContent();
-			builder.AddImgSrc().Self().From("data:");
-			builder.AddFormAction().Self().From(idpHost);
-			builder.AddFontSrc().Self();
-			builder.AddStyleSrc().Self();
-			builder.AddBaseUri().Self();
-			builder.AddFrameAncestors().None();
-
-			// due to Blazor
-			builder.AddScriptSrc()
-				.Self()
-				.WithHash256("v8v3RKRPmN4odZ1CWM5gw80QKPCCWMcpNeOmimNL2AA=")
-				.UnsafeEval();
-
-			// disable script and style CSP protection if using Blazor hot reload
-			// if using hot reload, DO NOT deploy with an insecure CSP
-		})
-		.RemoveServerHeader()
-		.AddPermissionsPolicy(builder =&gt;
-		{
-			builder.AddAccelerometer().None();
-			builder.AddAutoplay().None();
-			builder.AddCamera().None();
-			builder.AddEncryptedMedia().None();
-			builder.AddFullscreen().All();
-			builder.AddGeolocation().None();
-			builder.AddGyroscope().None();
-			builder.AddMagnetometer().None();
-			builder.AddMicrophone().None();
-			builder.AddMidi().None();
-			builder.AddPayment().None();
-			builder.AddPictureInPicture().None();
-			builder.AddSyncXHR().None();
-			builder.AddUsb().None();
-		});
-
-	if (!isDev)
-	{
-		// maxage = one year in seconds
-		policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
-	}
-
-	return policy;
-}
-  
-
-
-<p>The APIs used by the Blazor UI are protected by the ValidateAntiForgeryToken and the Authorize attribute. You could add authorization as well if required. Cookies are used for this API with same site protection.</p>
-
-
-  [ValidateAntiForgeryToken]
-[Authorize(AuthenticationSchemes = CookieAuthenticationDefaults.AuthenticationScheme)]
-[ApiController]
-[Route("api/[controller]")]
-public class DirectApiController : ControllerBase
-{
-	[HttpGet]
-	public IEnumerable&lt;string&gt; Get()
-	{
-		return new List&lt;string&gt; { "some data", "more data", "loads of data" };
-	}
-}
-  
-
-
-<p>When the application is started, the user can sign-in and authenticate using OpenIddict. </p>
-
-
-
-
-
-
-
-<p>The setup keeps all the security implementation in the trusted backend. This setup can work against any OpenID Connect conform server. By having a trusted application, it is now possible to implement access to downstream APIs in a number of ways and possible to add further protections as required. The downstream API does not need to be public either. You should only use a downstream API if required. If a software architecture forces you to use APIs from separate domains, then a YARP reverse proxy can be used to access to API, or a service to service API call, ie trusted client with a trusted server, or an on behalf flow (OBO) flow can be used. </p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://documentation.openiddict.com/">https://documentation.openiddict.com/</a></p>
-
-
-
-<p><a href="https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template">https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template</a></p>
-
-
-
-<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
-
-
-
-<p><a href="https://github.com/openiddict">https://github.com/openiddict</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/12/blazorbffopenidconnect.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:59 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Sunday, 02. January 2022
  </h2>
 
@@ -17647,7 +17669,7 @@ The post 日本経済新聞にインタビューが掲載されました:「巨�
 
 <div class='item-footer'>
    04:39 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
