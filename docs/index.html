@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:42 AM April 04, 2022 (UTC)</sup>
+<sup>Last Update 10:46 AM April 04, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,263 @@
  <h2 class='new-date'>
   Monday, 04. April 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/04/04/implementing-oauth2-client-credentials-flow-app-to-app-security-using-azure-ad-non-interactive/'>Implementing OAuth2 Client credentials flow APP to APP security using Azure AD non interactive</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement the OAuth client credentials flow using the Microsoft.Identity.Client Nuget package and Azure AD to create an Azure App registration. The client application requires a secret which can be an Azure App registration or a certificate to request an access token. The token and only tokens created for this client […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement the OAuth client credentials flow using the Microsoft.Identity.Client Nuget package and Azure AD to create an Azure App registration. The client application requires a secret which can be an Azure App registration or a certificate to request an access token. The token and only tokens created for this client can be used to access the API.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AzureADAuthRazorUiServiceApiCertificate/tree/main/ClientCredentialsFlows">Azure Client credentials flows</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2022/03/28/implementing-oauth2-app-to-app-security-using-azure-ad-from-a-web-app/">Implementing OAuth2 APP to APP security using Azure AD from a Web APP</a>  APP to APP security using Azure AD from a daemon app  
+
+
+
+<p>Azure App registration setup</p>
+
+
+
+<p>The Azure App registration is setup as in this blog:</p>
+
+
+
+<p><a href="https://damienbod.com/2022/03/28/implementing-oauth2-app-to-app-security-using-azure-ad-from-a-web-app/">Implementing OAuth2 APP to APP security using Azure AD from a Web&nbsp;APP</a></p>
+
+
+
+<p>An Azure App registration was then created to request new access tokens. The access_as_application claim is validated in the API.</p>
+
+
+
+<p>API</p>
+
+
+
+<p>The service API is implemented to validate the access tokens. The azp claim is used to validate that the token was requested using the known client ID and the secret. It does not validate who sent the access token, just that this client ID and secret was used to request the access token. The client credentials flow should only be used by trusted clients. The azpacr is used to validate how the token was requested. This is a confidential client. Microsoft.Identity.Web is used to implement the API security.</p>
+
+
+  JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+IdentityModelEventSource.ShowPII = true;
+JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
+
+services.AddSingleton&lt;IAuthorizationHandler, HasServiceApiRoleHandler&gt;();
+
+services.AddMicrosoftIdentityWebApiAuthentication(Configuration);
+
+services.AddControllers();
+
+services.AddAuthorization(options =&gt;
+{
+	options.AddPolicy("ValidateAccessTokenPolicy", validateAccessTokenPolicy =&gt;
+	{
+		validateAccessTokenPolicy.Requirements.Add(new HasServiceApiRoleRequirement());
+
+		// Validate id of application for which the token was created
+		// In this case the CC client application 
+		validateAccessTokenPolicy.RequireClaim("azp", "b178f3a5-7588-492a-924f-72d7887b7e48");
+
+		// only allow tokens which used "Private key JWT Client authentication"
+		// // https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens
+		// Indicates how the client was authenticated. For a public client, the value is "0". 
+		// If client ID and client secret are used, the value is "1". 
+		// If a client certificate was used for authentication, the value is "2".
+		validateAccessTokenPolicy.RequireClaim("azpacr", "1");
+	});
+});
+  
+
+
+<p>Microsoft.Identity.Client OAuth Client credentials client</p>
+
+
+
+<p>A console application is used to implement the client credentials trusted application. A console application cannot be trusted unless it is deployed to a trusted host. It would be better to use a certificate to secure this and even better if this was not a console application but instead some server deployed Azure service which uses Key Vault to persist it’s secrets and managed identities to access the secret. The ConfidentialClientApplicationBuilder is used to create a new CC flow. The access token is used to access the API.</p>
+
+
+  using System.Net.Http.Headers;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Identity.Client;
+
+var builder = new ConfigurationBuilder()
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddUserSecrets("78cf2604-554c-4a6e-8846-3505f2c0697d")
+    .AddJsonFile("appsettings.json");
+
+var configuration = builder.Build();
+
+// 1. Client client credentials client
+var app = ConfidentialClientApplicationBuilder.Create(configuration["AzureADServiceApi:ClientId"])
+    .WithClientSecret(configuration["AzureADServiceApi:ClientSecret"])
+    .WithAuthority(configuration["AzureADServiceApi:Authority"])
+    .Build();
+
+var scopes = new[] { configuration["AzureADServiceApi:Scope"] };
+
+// 2. Get access token
+var authResult = await app.AcquireTokenForClient(scopes)   
+    .ExecuteAsync();
+
+if(authResult == null)
+{
+    Console.WriteLine("no auth result... ");
+}
+else
+{
+    Console.WriteLine(authResult.AccessToken);
+
+    // 3. Use access token to access token
+    var client = new HttpClient
+    {
+        BaseAddress = new Uri(configuration["AzureADServiceApi:ApiBaseAddress"])
+    };
+
+    client.DefaultRequestHeaders.Authorization 
+        = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+    client.DefaultRequestHeaders.Accept
+        .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+    var response = await client.GetAsync("ApiForServiceData");
+
+    if (response.IsSuccessStatusCode)
+    {
+        Console.WriteLine(await response.Content.ReadAsStringAsync());
+    }
+}
+  
+
+
+<p>The console application uses app settings to load the trusted client. The Scope is defined to use the application ID from the Azure App registration and the .default scope. Then any API definitions will be added to the access token. It is important to used V2 access tokens which can be defined in the manifest.</p>
+
+
+  {
+  "AzureADServiceApi": {
+    "ClientId": "b178f3a5-7588-492a-924f-72d7887b7e48",
+    // "ClientSecret": "--in-user-secrets--",
+    // Authority Guid = tenanant ID
+    "Authority": "https://login.microsoftonline.com/7ff95b15-dc21-4ba6-bc92-824856578fc1",
+    "ApiBaseAddress": "https://localhost:44324",
+    "Scope": "api://b178f3a5-7588-492a-924f-72d7887b7e48/.default"
+  }
+}
+  
+
+
+<p>The access tokens returned contains the claims with the azp, roles and azpacr claims. These claims as well as the standard claims values are used to authorize each request. Authorize attributes are used with a match scheme and authorization policy which uses the claims to validate. The Azure definitions are used in the policies and the policies are used in the application. You should not use the Azure definitions directly in the application. Avoid using Roles or RequiredScope directly in controllers or specific application parts. Map these in the IClaimsTransformation or the OnTokenValidated method.</p>
+
+
+    "iss": "https://login.microsoftonline.com/7ff95b15-dc21-4ba6-bc92-824856578fc1/v2.0",
+  "iat": 1648363449,
+  "nbf": 1648363449,
+  "exp": 1648367349,
+  "aio": "E2ZgYLh1abHAkpeHvuz/fjX9QMNZDgA=",
+  "azp": "b178f3a5-7588-492a-924f-72d7887b7e48",
+  "azpacr": "1",
+  "oid": "3952ce95-8b14-47b4-b3e6-2a5521d35ed1",
+  "rh": "0.AR8AFVv5fyHcpku8koJIVlePwaXzeLGIdSpJkk9y14h7fkgfAAA.",
+  "roles": [
+    "access_as_application",
+    "service-api"
+  ],
+  "sub": "3952ce95-8b14-47b4-b3e6-2a5521d35ed1",
+  "tid": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
+  "uti": "WDee3wGpJkeJGUMN5CDOAA",
+  "ver": "2.0"
+}
+  
+
+
+<p>Implementing the application permissions in this way makes is possible to secure any daemon application or application flow with no user with a server for any deployment. The client can be hosted in an ASP.NET Core application which authenticates using Azure B2C or a service with no user interaction. The client and the API work alone. It is important that the client can be trusted to secure the secret used to request the access tokens. </p>
+
+
+
+<p>Links:</p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/">https://docs.microsoft.com/en-us/azure/active-directory/develop/</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2">https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/4-Call-OwnApi-Pop">https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/4-Call-OwnApi-Pop</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/scenario-protected-web-api-verification-scope-app-roles?tabs=aspnetcore">https://docs.microsoft.com/en-us/azure/active-directory/develop/scenario-protected-web-api-verification-scope-app-roles?tabs=aspnetcore</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:55 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -813,7 +1070,7 @@
 
 <div class='item-footer'>
    02:59 &bull;
-   3 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -878,7 +1135,7 @@
 
 <div class='item-footer'>
    01:48 &bull;
-   4 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -948,7 +1205,7 @@
 
 <div class='item-footer'>
    20:33 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1026,7 +1283,7 @@
 
 <div class='item-footer'>
    20:31 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1094,7 +1351,7 @@
 
 <div class='item-footer'>
    20:27 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1165,7 +1422,7 @@
 
 <div class='item-footer'>
    20:26 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1233,7 +1490,7 @@
 
 <div class='item-footer'>
    20:21 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1306,7 +1563,7 @@
 
 <div class='item-footer'>
    18:30 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1378,7 +1635,7 @@
 
 <div class='item-footer'>
    18:30 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1452,7 +1709,7 @@
 
 <div class='item-footer'>
    16:35 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1739,7 +1996,7 @@
 
 <div class='item-footer'>
    15:42 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1799,7 +2056,7 @@
 
 <div class='item-footer'>
    14:58 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2152,7 +2409,7 @@ I am a Boomer<br>I am English<br>I am Male<br>I am Straight<br>I am White<br>Sin
 
 <div class='item-footer'>
    20:14 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2224,7 +2481,7 @@ I am a Boomer<br>I am English<br>I am Male<br>I am Straight<br>I am White<br>Sin
 
 <div class='item-footer'>
    19:29 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2284,7 +2541,7 @@ I am a Boomer<br>I am English<br>I am Male<br>I am Straight<br>I am White<br>Sin
 
 <div class='item-footer'>
    19:15 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2630,7 +2887,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    19:41 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2874,7 +3131,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    21:50 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2938,7 +3195,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    21:46 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3009,7 +3266,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    21:34 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3073,7 +3330,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    21:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3137,7 +3394,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    21:27 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3201,7 +3458,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    21:26 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3262,7 +3519,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    21:17 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3342,7 +3599,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    21:16 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3419,7 +3676,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    21:09 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3499,7 +3756,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    20:18 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3589,7 +3846,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    20:14 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3659,7 +3916,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    20:13 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4373,7 +4630,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    19:56 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5349,7 +5606,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    22:01 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5425,7 +5682,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    20:09 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6976,7 +7233,7 @@ Array.from(document.querySelectorAll('.itemlist .athing')).map(el =&gt; {
 
 <div class='item-footer'>
    19:21 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7577,7 +7834,7 @@ The post 東日本大震災の記憶ー2011年3月11日のツイート first app
 
 <div class='item-footer'>
    20:12 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7871,7 +8128,7 @@ Screenshot of 'https://www.example.com/' written to 'example.jpg'
 
 <div class='item-footer'>
    19:19 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8045,7 +8302,7 @@ Screenshot of 'https://www.example.com/' written to 'example.jpg'
 
 <div class='item-footer'>
    21:13 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8204,7 +8461,7 @@ Screenshot of 'https://www.example.com/' written to 'example.jpg'
 
 <div class='item-footer'>
    21:43 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8395,7 +8652,7 @@ Screenshot of 'https://www.example.com/' written to 'example.jpg'
 
 <div class='item-footer'>
    21:42 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8633,7 +8890,7 @@ primary driver of revenue for “free” on-line services?</p>
 
 <div class='item-footer'>
    19:27 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9245,7 +9502,7 @@ def dash_decode(s: str) -&gt; str:
 
 <div class='item-footer'>
    21:50 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15994,254 +16251,6 @@ That’s the UI for&nbsp; the Brother HL-L2305w laser printer, which you can get
 
 
  <h2 class='new-date'>
-  Monday, 10. January 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/01/10/comparing-the-backend-for-frontend-bff-security-architecture-with-an-spa-ui-using-a-public-api/'>Comparing the backend for frontend (BFF) security architecture with an SPA UI using a public API</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article compares the security architecture of an application implemented using a public UI SPA with a trusted API backend and the same solution implemented using the backend for frontend (BFF) security architecture. The main difference is that the first solution is separated into two applications, implemented and deployed as two where as the second […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article compares the security architecture of an application implemented using a public UI SPA with a trusted API backend and the same solution implemented using the backend for frontend (BFF) security architecture. The main difference is that the first solution is separated into two applications, implemented and deployed as two where as the second application is a single deployment and secured as a single application. The BFF has less risks and is a better security architecture but as always, no solution is perfect.</p>
-
-
-
-<p>Setup BFF </p>
-
-
-
-<p>The BFF solution is implemented and deployed as a single trusted application. All security is implemented in the trusted backend. The UI part of the application can only use the same domain APIs and cannot use APIs from separate domains. This architecture is the same as a standard ASP.NET Core Razor page UI confidential client. All APIs can be implemented in the same server part of the application. There is no requirement for downstream APIs. Due to this architecture, no sensitive data needs to be saved in the browser. This is effectively a trusted server rendered application. As with any server rendered application, this is protected using cookies with the required cookie protections and normally authenticates against an OIDC server using a trusted, confidential client with code flow and PKCE protection.  Because the application is trusted, further protections can be added as required for example MTLS, further OIDC FAPI requirements and so on. If downstream APIs are required, these APIs do not need to be exposed in the public zone (internet) and can be implemented using a trusted client and with token binding between the client and the server. The XSS protection can be improved using a better CSP and all front-channel cross-domain calls can be completely blocked. Dynamic data (ie nonces) can be used to produce the CSP. The UI can be hosted using a server rendered page and dynamic meta data and settings can easily be added for the UI without further architecture or DevOps flows. I always host the UI part in a BFF using a server rendered file. A big win with the BFF architecture, is that the access tokens and the refresh tokens are not stored publicly in the browser. When using SignalR, the secure same site HTTP only cookie can be used and no token for authorization is required in the URL. This is an improvement as long as CSRF protection is applied. Extra CSRF protection is required for all server requests because cookies are used (as well as same site). This can be implemented using anti-forgery tokens or forcing CORS preflight using a custom header. This must be enforced on the backend for all HTTP requests where required. Because only a single application needs to be deployed, DevOPs is simpler and reduces complexity, this is my experience after using this in production with Blazor. Reduced complexity is reduced costs.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>Setup SPA with public API</p>
-
-
-
-<p>An SPA page solution is deployed as a separate UI application and a separate public API application. Two security flows are used in this setup and are two completely separate applications, even though the API and UI are “business” tightly coupled. The best and most productive solutions with this setup are where the backend APIs are made specifically and optimized for the UI. The API must be public if the SPA is public. The SPA has no backend which can be used for security, tokens and sensitive data are stored in the browser and needs to be accessed using Javascript. As XSS is very hard to protect against, this will always have security risks. When using SPAs, as the access tokens are shared around the browser or added to URLs for web sockets, it is really important to revoke the tokens on a logout. The refresh token requires specific protections for usage in SPAs. Access tokens cannot be revoked and reference tokens with introspection used in the API is the preferred security solution. A logout is possible with introspection and reference tokens using the revocation endpoint. It is very hard to implement a SSO logout when using an SPA. This is because only the front-channel logout is possible in an SPA and not a back-channel logout as with a server rendered application. This setup has performance advantages compared to the BFF architecture when using downstream APIs. The APIs from different domains can be used directly. Implementing UIs with PWA requirements is easier to implement compared to the BFF architecture. CSRF attacks are easier to secure against using tokens but has more risk with an XSS attack due to sensitive data in the public client.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>Advantages using BFF</p>
-
-
-
-  Single trusted application instead of two apps, public untrusted UI + public trusted API (reduced attack surface)  Trusted client protected with a secret or certificate  No access/reference tokens in the browser  No refresh token in the browser  Web sockets security improved (<a href="https://docs.microsoft.com/en-us/aspnet/signalr/overview/getting-started/introduction-to-signalr">SignalR</a>), no access/reference token in the URL  Backchannel logout, SSO logout possible  Improved <a href="https://csp-evaluator.withgoogle.com/">CSP</a> and security headers (can use dynamic data and block all other domains) =&gt; possible for better protection against XSS (depends on UI tech stack)  Can use <a href="https://www.cloudflare.com/learning/access-management/what-is-mutual-tls/">MTLS</a>, <a href="https://fapi.openid.net/">OIDC FAPI</a>, client binding for all downstream API calls from trusted UI app, so much improved security possible for the downstream API calls.  No architecture requirement for public APIs outside same domain, downstream APIs can be deployed in a private trusted zone.  Easier to build, deploy (my experience so far), Easier for me means reduced costs.  Reduced maintenance due to reduced complexity. (This is my experience so far)  
-
-
-
-<p>Disadvantages using BFF</p>
-
-
-
-  Downstream APIs require redirect or second API call (<a href="https://microsoft.github.io/reverse-proxy/index.html">YARP</a>, <a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-on-behalf-of-flow">OBO</a>, •OAuth2 Resource Owner Credentials Flow, <a href="https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth">certificate auth</a> )  PWA support not out of the box  Performance worse if downstream APIs required (i.e an API call not on the same domain)  All UI API POST, DELETE, PATCH, PUT HTTP requests must use anti-forgery token or force CORS preflight as well as same site protection.  Cookies are hard to invalidate, requires extra logic (Is this required for a secure HTTP only same site cookie? low risk)  
-
-
-
-<p>Discussions</p>
-
-
-
-<p>I have had some excellent discussions on this topic and very valid points and arguments against some of points above. I would recommend reading these (link below) to get a bigger picture. Thanks <a href="https://twitter.com/kevin_chalet">kevin_chalet</a> for the great feedback and comments.</p>
-
-
-
-<p><a href="https://github.com/openiddict/openiddict-samples/issues/180">https://github.com/openiddict/openiddict-samples/issues/180</a></p>
-
-
-
-<p>Notes</p>
-
-
-
-<p>A lot of opinions exist with this setup and I am sure lots of people see this in a different way with very valid points. Others are following software tech religions which prevents them accessing, evaluating different solution architectures. Nothing is ever black or white. No one solution is best for everything and all solutions have problems, or future problems with any setup will always happen. I believe using the BFF architecture, I can increase the security for the solutions with less effort and reduce the security risks and costs, thus creating more value for my clients. I still use SPA with APIs and see this as a valuable and good security solution for some systems. The entry level for BFF architecture with some tech stacks is still very high.</p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://github.com/damienbod/Blazor.BFF.AzureAD.Template">https://github.com/damienbod/Blazor.BFF.AzureAD.Template</a></p>
-
-
-
-<p><a href="https://github.com/damienbod/Blazor.BFF.AzureB2C.Template">https://github.com/damienbod/Blazor.BFF.AzureB2C.Template</a></p>
-
-
-
-<p><a href="https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template">https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template</a></p>
-
-
-
-<p><a href="https://github.com/DuendeSoftware/BFF">https://github.com/DuendeSoftware/BFF</a></p>
-
-
-
-<p><a href="https://github.com/manfredsteyer/yarp-auth-proxy">https://github.com/manfredsteyer/yarp-auth-proxy</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/">https://docs.microsoft.com/en-us/aspnet/core/blazor/</a></p>
-
-
-
-<p><a href="https://docs.duendesoftware.com/identityserver/v5/bff/overview/">https://docs.duendesoftware.com/identityserver/v5/bff/overview/</a></p>
-
-
-
-<p><a href="https://github.com/berhir/BlazorWebAssemblyCookieAuth">https://github.com/berhir/BlazorWebAssemblyCookieAuth</a></p>
-
-
-
-<p><a href="https://github.com/manfredsteyer/yarp-auth-proxy">https://github.com/manfredsteyer/yarp-auth-proxy</a></p>
-
-
-
-<p><a href="https://fapi.openid.net/">OIDC FAPI</a></p>
-
-
-
-<p><a href="https://www.cloudflare.com/learning/access-management/what-is-mutual-tls/">https://www.cloudflare.com/learning/access-management/what-is-mutual-tls/</a></p>
-
-
-
-<p><a href="https://csp-evaluator.withgoogle.com/">https://csp-evaluator.withgoogle.com/</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/signalr/overview/getting-started/introduction-to-signalr">https://docs.microsoft.com/en-us/aspnet/signalr/overview/getting-started/introduction-to-signalr</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-on-behalf-of-flow">https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-on-behalf-of-flow</a></p>
-
-
-
-<p><a href="https://microsoft.github.io/reverse-proxy/index.html">https://microsoft.github.io/reverse-proxy/index.html</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth">https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth</a></p>
-
-
-
-<p><a href="https://github.com/openiddict/openiddict-samples/issues/180">https://github.com/openiddict/openiddict-samples/issues/180</a></p>
-
-
-
-<p><a href="https://www.w3.org/TR/CSP3/">https://www.w3.org/TR/CSP3/</a></p>
-
-
-
-<p><a href="https://content-security-policy.com/">https://content-security-policy.com/</a></p>
-
-
-
-<p><a href="https://csp.withgoogle.com/docs/strict-csp.html">https://csp.withgoogle.com/docs/strict-csp.html</a></p>
-
-
-
-<p><a href="https://github.com/manfredsteyer/angular-oauth2-oidc">https://github.com/manfredsteyer/angular-oauth2-oidc</a></p>
-
-
-
-<p><a href="https://github.com/damienbod/angular-auth-oidc-client">https://github.com/damienbod/angular-auth-oidc-client</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/msal-overview">https://docs.microsoft.com/en-us/azure/active-directory/develop/msal-overview</a></p>
-
-
-
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-
-
-
-<p><a href="https://github.com/damienbod/AspNetCoreOpeniddict">https://github.com/damienbod/AspNetCoreOpeniddict</a></p>
-
-
-
-<p><a href="https://github.com/openiddict/openiddict-samples">https://github.com/openiddict/openiddict-samples</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/01/blazorbffopenidconnect.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:52 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Friday, 07. January 2022
  </h2>
 
@@ -21200,7 +21209,7 @@ The post 【11月12日開催】金融・決済サービスにおける認証・A
 
 <div class='item-footer'>
    09:57 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
