@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:55 AM April 20, 2022 (UTC)</sup>
+<sup>Last Update 10:47 AM April 20, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,505 @@
  <h2 class='new-date'>
   Wednesday, 20. April 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/'>Implement Azure AD Continuous Access Evaluation in an ASP.NET Core Razor Page app using a Web API</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how Azure AD continuous access evaluation (CAE) can be used in an ASP.NET Core UI application to force MFA when using an administrator API from a separate ASP.NET Core application. Both applications are secured using Microsoft.Identity.Web. An ASP.NET Core Razor Page application is used to implement the UI application. The API is […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how Azure AD continuous access evaluation (CAE) can be used in an ASP.NET Core UI application to force MFA when using an administrator API from a separate ASP.NET Core application. Both applications are secured using Microsoft.Identity.Web. An ASP.NET Core Razor Page application is used to implement the UI application. The API is implemented with swagger open API and ASP.NET Core. An Azure AD conditional access authentication context is used to implement the MFA requirement. An Azure AD CAE policy is setup which requires the defines MFA and uses the context.</p>
+
+
+
+<p>Code <a href="https://github.com/damienbod/AspNetCoreAzureADCAE">https://github.com/damienbod/AspNetCoreAzureADCAE</a></p>
+
+
+
+<p>Continuous access evaluation (CAE) requires an Azure AD P2 license to use the authentication context.  If your applications are deployed to any other tenant type, this is will not work. </p>
+
+
+
+<p>Requirements</p>
+
+
+
+  Azure AD tenant with P2 license  Microsoft Graph   
+
+
+
+<p>Create a Conditional access Authentication Context</p>
+
+
+
+<p>A Continuous access evaluation (CAE) authentication context was created using Microsoft Graph and can be viewed in the portal. In this demo, like the Microsoft <a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app">sample</a> application, three authentication contexts are created using Microsoft Graph. The Policy.Read.ConditionalAccess Policy.ReadWrite.ConditionalAccess permissions are required to change the CAE authentication contexts.</p>
+
+
+
+<p>This is only needed to create the CAE authentication contexts. Once created, this can be used in the target applications. </p>
+
+
+  public async Task CreateAuthContextViaGraph(string acrKey, string acrValue)
+{
+	await _graphAuthContextAdmin.CreateAuthContextClassReferenceAsync(
+		acrKey, 
+		acrValue, 
+		$"A new Authentication Context Class Reference created at {DateTime.UtcNow}", 
+		true);
+}
+
+public async Task&lt;AuthenticationContextClassReference?&gt; 
+	CreateAuthContextClassReferenceAsync(
+		string id, 
+		string displayName, 
+		string description, 
+		bool IsAvailable)
+{
+	try
+	{
+		var acr = await _graphServiceClient
+			.Identity
+			.ConditionalAccess
+			.AuthenticationContextClassReferences
+			.Request()
+			.AddAsync(new AuthenticationContextClassReference
+			{
+				Id = id,
+				DisplayName = displayName,
+				Description = description,
+				IsAvailable = IsAvailable,
+				ODataType = null
+			});
+
+		return acr;
+	}
+	catch (ServiceException e)
+	{
+		_logger.LogWarning(
+		"We could not add a new ACR: {exception}",  e.Error.Message);
+
+		return null;
+	}
+}
+  
+
+
+<p>The created conditional access authentication context can be viewed in the portal in the Security blade of the Azure AD tenant. </p>
+
+
+
+
+
+
+
+<p>If you open the context, you can see the id used. This is used in the applications to check the MFA requirement.</p>
+
+
+
+
+
+
+
+<p>Create a CAE policy to use the context</p>
+
+
+
+<p>Now that a authentication context exists, a CAE policy can be created to use this. I created a policy to require MFA.</p>
+
+
+
+
+
+
+
+<p>Implement the API and use the CAE context</p>
+
+
+
+<p>The API application needs to validate if the access token contains the acrs claim with the c1 value. If CAE is activated and the claim is included in the token, then any policies which use this CAE authentication context must be fulfilled or no events have been received which inform the client that this access token is invalid. A lot of things need to be implemented correctly for this to work. If configured correctly, a MFA step up authentication is required to use the API. The API returns an unauthorized response as specified in the OpenID Connect signals and events specification, if the claim is missing from the access token. This is handled by the calling UI application.</p>
+
+
+  /// &lt;summary&gt;
+/// Claims challenges, claims requests, and client capabilities
+/// 
+/// https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge
+/// 
+/// Applications that use enhanced security features like Continuous Access Evaluation (CAE) 
+/// and Conditional Access authentication context must be prepared to handle claims challenges.
+/// &lt;/summary&gt;
+public class CAECliamsChallengeService
+{
+    private readonly IConfiguration _configuration;
+
+    public CAECliamsChallengeService(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+    /// &lt;summary&gt;
+    /// Retrieves the acrsValue from database for the request method.
+    /// Checks if the access token has acrs claim with acrsValue.
+    /// If does not exists then adds WWW-Authenticate and throws UnauthorizedAccessException exception.
+    /// &lt;/summary&gt;
+    public void CheckForRequiredAuthContext(string authContextId, HttpContext context)
+    {
+        if (!string.IsNullOrEmpty(authContextId))
+        {
+            string authenticationContextClassReferencesClaim = "acrs";
+
+            if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
+            {
+                throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
+            }
+
+            var acrsClaim = context.User.FindAll(authenticationContextClassReferencesClaim).FirstOrDefault(x =&gt; x.Value == authContextId);
+
+            if (acrsClaim?.Value != authContextId)
+            {
+                if (IsClientCapableofClaimsChallenge(context))
+                {
+                    string clientId = _configuration.GetSection("AzureAd").GetSection("ClientId").Value;
+                    var base64str = Convert.ToBase64String(Encoding.UTF8.GetBytes("{\"access_token\":{\"acrs\":{\"essential\":true,\"value\":\"" + authContextId + "\"}}}"));
+
+                    context.Response.Headers.Append("WWW-Authenticate", $"Bearer realm=\"\", authorization_uri=\"https://login.microsoftonline.com/common/oauth2/authorize\", client_id=\"" + clientId + "\", error=\"insufficient_claims\", claims=\"" + base64str + "\", cc_type=\"authcontext\"");
+                    context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+                    string message = string.Format(CultureInfo.InvariantCulture, "The presented access tokens had insufficient claims. Please request for claims requested in the WWW-Authentication header and try again.");
+                    context.Response.WriteAsync(message);
+                    context.Response.CompleteAsync();
+                    throw new UnauthorizedAccessException(message);
+                }
+                else
+                {
+                    throw new UnauthorizedAccessException("The caller does not meet the authentication  bar to carry our this operation. The service cannot allow this operation");
+                }
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Evaluates for the presence of the client capabilities claim (xms_cc) and accordingly returns a response if present.
+    /// &lt;/summary&gt;
+    public bool IsClientCapableofClaimsChallenge(HttpContext context)
+    {
+        string clientCapabilitiesClaim = "xms_cc";
+
+        if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
+        {
+            throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
+        }
+
+        var ccClaim = context.User.FindAll(clientCapabilitiesClaim).FirstOrDefault(x =&gt; x.Type == "xms_cc");
+
+        if (ccClaim != null &amp;&amp; ccClaim.Value == "cp1")
+        {
+            return true;
+        }
+
+        return false;
+    }
+}
+  
+
+
+<p>The API uses the CAE scoped service to validate the CAE authentication context and either the data is returned or an unauthorized exception is returned. The Authorize attribute is also used to validate the JWT bearer token and validate that the authentication policy is supported. You could probably implement middleware to check the CAE authentication context as well.</p>
+
+
+  [Authorize(Policy = "ValidateAccessTokenPolicy", AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[ApiController]
+[Route("[controller]")]
+public class ApiForUserDataController : ControllerBase
+{
+    private readonly CAECliamsChallengeService _caeCliamsChallengeService;
+
+    public ApiForUserDataController(CAECliamsChallengeService caeCliamsChallengeService)
+    {
+        _caeCliamsChallengeService = caeCliamsChallengeService;
+    }
+
+    [HttpGet]
+    public IEnumerable&lt;string&gt; Get()
+    {
+        // returns unauthorized exception with WWW-Authenticate header if CAE claim missing in access token
+        // handled in the caller client exception with challenge returned if not ok
+        _caeCliamsChallengeService.CheckForRequiredAuthContext(AuthContextId.C1, HttpContext);
+        return new List&lt;string&gt; { "admin API CAE protected data 1", "admin API CAE protected  data 2" };
+    }
+}
+  
+
+
+<p>The program file adds the services and secure the API using Microsoft.Identity.Web. A policy is created to used on the controllers.</p>
+
+
+  var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddScoped&lt;CAECliamsChallengeService&gt;();
+
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddMicrosoftIdentityWebApiAuthentication(builder.Configuration)
+    .EnableTokenAcquisitionToCallDownstreamApi()
+    .AddMicrosoftGraph(builder.Configuration.GetSection("GraphBeta"))
+    .AddDistributedTokenCaches();
+
+JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
+//IdentityModelEventSource.ShowPII = true;
+
+builder.Services.AddControllers(options =&gt;
+{
+    var policy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+    options.Filters.Add(new AuthorizeFilter(policy));
+});
+
+builder.Services.AddAuthorization(options =&gt;
+{
+    options.AddPolicy("ValidateAccessTokenPolicy", validateAccessTokenPolicy =&gt;
+    {
+        // Validate id of application for which the token was created
+        // In this case the UI application 
+        validateAccessTokenPolicy.RequireClaim("azp", builder.Configuration["AzpValidClientId"]);
+
+        // only allow tokens which used "Private key JWT Client authentication"
+        // // https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens
+        // Indicates how the client was authenticated. For a public client, the value is "0". 
+        // If client ID and client secret are used, the value is "1". 
+        // If a client certificate was used for authentication, the value is "2".
+        validateAccessTokenPolicy.RequireClaim("azpacr", "1");
+    });
+});
+  
+
+
+<p>The program file is used to setup the API ASP.NET Core API project like any Azure AD Microsoft.Identity.Web client.</p>
+
+
+    "AzureAd": {
+    "Instance": "https://login.microsoftonline.com/",
+    "Domain": "[Enter the domain of your tenant, e.g. contoso.onmicrosoft.com]",
+    "TenantId": "[Enter 'common', or 'organizations' or the Tenant Id (Obtained from the Azure portal. Select 'Endpoints' from the 'App registrations' blade and use the GUID in any of the URLs), e.g. da41245a5-11b3-996c-00a8-4d99re19f292]",
+    "ClientId": "[Enter the Client Id (Application ID obtained from the Azure portal), e.g. ba74781c2-53c2-442a-97c2-3d60re42f403]",
+    "ClientSecret": "[Copy the client secret added to the app from the Azure portal]",
+    "ClientCertificates": [
+    ],
+    // the following is required to handle Continuous Access Evaluation challenges
+    "ClientCapabilities": [ "cp1" ],
+    "CallbackPath": "/signin-oidc"
+  },
+  "AzpValidClientId": "7c839e15-096b-4abb-a869-df9e6b34027c",
+  "GraphBeta": {
+    "BaseUrl": "https://graph.microsoft.com/beta",
+    "Scopes": "Policy.Read.ConditionalAccess Policy.ReadWrite.ConditionalAccess"
+  },
+  
+
+
+<p>Now that the unauthorized exception is returned to the calling UI interactive client, this needs to be handled.</p>
+
+
+
+<p>Implement the ASP.NET Core Razor Page with step up MFA check</p>
+
+
+
+<p>The UI project implements a Web APP project. The Admin API scope is requested to access the admin API.</p>
+
+
+  builder.Services.AddDistributedMemoryCache();
+builder.Services.AddMicrosoftIdentityWebAppAuthentication(builder.Configuration, 
+       "AzureAd", 
+       subscribeToOpenIdConnectMiddlewareDiagnosticsEvents: true)
+    .EnableTokenAcquisitionToCallDownstreamApi(new[] { 
+       builder.Configuration.GetSection("AdminApi")["Scope"] })
+    .AddMicrosoftGraph(builder.Configuration.GetSection("GraphBeta"))
+    .AddDistributedTokenCaches();
+  
+
+
+<p>The app uses a scoped service to request data from the administrator API. Using the ITokenAcquisition interface, an access token is request for the API. If an unauthorized response is returned, then a WebApiMsalUiRequiredException exception is thrown with the response headers.</p>
+
+
+  public async Task&lt;IEnumerable&lt;string&gt;?&gt; GetApiDataAsync()
+{
+	var client = _clientFactory.CreateClient();
+
+	var scopes = new List&lt;string&gt; { _adminApiScope };
+	var accessToken = await _tokenAcquisition
+		.GetAccessTokenForUserAsync(scopes);
+
+	client.BaseAddress = new Uri(_adminApiBaseUrl);
+	client.DefaultRequestHeaders.Authorization = 
+		new AuthenticationHeaderValue("Bearer", accessToken);
+	client.DefaultRequestHeaders.Accept.Add(
+		new MediaTypeWithQualityHeaderValue("application/json"));
+
+	var response = await client.GetAsync("ApiForUserData");
+	if (response.IsSuccessStatusCode)
+	{
+		var stream = await response.Content.ReadAsStreamAsync();
+		var payload = await JsonSerializer
+			.DeserializeAsync&lt;List&lt;string&gt;&gt;(stream);
+
+		return payload;
+	}
+
+	// This exception can be used to handle a claims challenge
+	throw new WebApiMsalUiRequiredException(
+		$"Unexpected status code in the HttpResponseMessage: {response.StatusCode}.", 
+		response);
+}
+  
+
+
+<p>The ASP.NET Core Razor page is used to handled the WebApiMsalUiRequiredException exception. If this is returned, a new ClaimChallenge is created with the request for the authentication context. This is returned to the UI. If this response is returned, the user is redirected to authenticate again for the new scope which must fulfil the CAE policy using this.</p>
+
+
+  public async Task&lt;IActionResult&gt; OnGet()
+{
+	try
+	{
+		Data = await _userApiClientService.GetApiDataAsync();
+		return Page();
+	}
+	catch (WebApiMsalUiRequiredException hex)
+	{
+		// Challenges the user if exception is thrown from Web API.
+		try
+		{
+			var claimChallenge = WwwAuthenticateParameters
+				.GetClaimChallengeFromResponseHeaders(hex.Headers);
+
+			_consentHandler.ChallengeUser(
+				new string[] { "user.read" }, claimChallenge);
+
+			return Page();
+		}
+		catch (Exception ex)
+		{
+			_consentHandler.HandleException(ex);
+		}
+
+		_logger.LogInformation("{hexMessage}", hex.Message);
+	}
+
+	return Page();
+}
+  
+
+
+<p>MFA is configured in a policy using the CAE conditional access authentication context.</p>
+
+
+
+<p>Notes</p>
+
+
+
+<p>The application will only work with Azure AD and if the continuous access evaluation policies are implemented correctly by the Azure IT tenant admin. You cannot force this in the application, you can only use this. CAE authentication context only works with Azure AD and P2 licenses. If you deploy the application anywhere else, this will not work.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/ms-identity-ca-auth-context">https://github.com/Azure-Samples/ms-identity-ca-auth-context</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app">https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview">https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae">https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context">https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge">https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide">https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide</a></p>
+
+
+
+<p><a href="https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345">https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345</a></p>
+
+
+
+ 
+<blockquote><a href="https://openid.net/wg/sse/">Shared Signals and Events – A Secure Webhooks Framework</a></blockquote>
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/04/azuread_cae_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:01 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -815,7 +1314,7 @@
 
 <div class='item-footer'>
    02:41 &bull;
-   3 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -881,7 +1380,7 @@
 
 <div class='item-footer'>
    00:46 &bull;
-   5 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -960,7 +1459,7 @@
 
 <div class='item-footer'>
    00:17 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1048,7 +1547,7 @@
 
 <div class='item-footer'>
    23:25 &bull;
-   7 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1124,7 +1623,7 @@
 
 <div class='item-footer'>
    22:30 &bull;
-   7 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1187,7 +1686,7 @@
 
 <div class='item-footer'>
    20:24 &bull;
-   10 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1255,7 +1754,7 @@
 
 <div class='item-footer'>
    16:57 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1317,7 +1816,7 @@
 
 <div class='item-footer'>
    16:46 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1411,7 +1910,7 @@
 
 <div class='item-footer'>
    16:12 &bull;
-   14 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1830,7 +2329,7 @@
 
 <div class='item-footer'>
    15:31 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2866,7 +3365,7 @@ Can we redo it and get it right this time? I don’t doubt our technical and ind
 
 <div class='item-footer'>
    22:40 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3319,7 +3818,7 @@ Can we redo it and get it right this time? I don’t doubt our technical and ind
 
 <div class='item-footer'>
    20:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3395,7 +3894,7 @@ Can we redo it and get it right this time? I don’t doubt our technical and ind
 
 <div class='item-footer'>
    19:50 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3466,7 +3965,7 @@ Can we redo it and get it right this time? I don’t doubt our technical and ind
 
 <div class='item-footer'>
    18:20 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3603,7 +4102,7 @@ Can we redo it and get it right this time? I don’t doubt our technical and ind
 
 <div class='item-footer'>
    18:02 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3997,7 +4496,7 @@ Can we redo it and get it right this time? I don’t doubt our technical and ind
 
 <div class='item-footer'>
    21:14 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4343,7 +4842,7 @@ Can we redo it and get it right this time? I don’t doubt our technical and ind
 
 <div class='item-footer'>
    21:53 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4847,7 +5346,7 @@ shot-scraper https://www.pillarpointstewards.com/ -b firefox -a auth.json \
 
 <div class='item-footer'>
    20:26 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4919,7 +5418,7 @@ shot-scraper https://www.pillarpointstewards.com/ -b firefox -a auth.json \
 
 <div class='item-footer'>
    18:36 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6661,7 +7160,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    19:56 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7637,7 +8136,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    22:01 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7713,7 +8212,7 @@ content-type: text/html; charset=utf-8
 
 <div class='item-footer'>
    20:09 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16384,170 +16883,6 @@ You can use it to add a flat virtual background to your video, or you could use 
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/01/17/use-fido2-passwordless-authentication-with-azure-ad/'>Use FIDO2 passwordless authentication with Azure AD</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to implement FIDO2 passwordless authentication with Azure AD for users in an Azure tenant. FIDO2 provides one of the best user authentication methods and is a more secure authentication compared with other account authentication implementations such authenticator apps, SMS, email, password alone or SSI authentication. FIDO2 authentication protects against phishing. To […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to implement FIDO2 passwordless authentication with Azure AD for users in an Azure tenant. FIDO2 provides one of the best user authentication methods and is a more secure authentication compared with other account authentication implementations such authenticator apps, SMS, email, password alone or SSI authentication. FIDO2 authentication protects against phishing.</p>
-
-
-
-<p>To role out the FIDO2 authenitcation in Azure AD and setup up an account, I used the <a href="https://www.ftsafe.com/Products/FIDO/Bio">Feitian FIDO2 BioPass</a> K26 and K43 security keys. By using biometric security keys, you get an extra factor which is more secure than a pin. The biometric data never leaves the key. You should never share any biometric data anywhere or share on any shared server. </p>
-
-
-
-<p>I used the Feitian <a href="https://www.microsoft.com/en-us/p/biopass-fido2-manager/9p2zjpwk3pxw">BioPass FIDO2 Manager</a> to setup my security keys using my fingerprint. This is really easy to use and very user friendly.</p>
-
-
-
-
-
-
-
-<p>Setting up the Azure AD tenant</p>
-
-
-
-<p>The FIDO2 security key authentication method should be activated on the Azure AD tenant. Disable all other authentication methods unless required.  Also disable SMS authentication, this should not be used anymore. All users should be required to use MFA. </p>
-
-
-
-
-
-
-
-<p>Now that the Azure AD tenant can use FIDO2 authentication, an account can be setup for this. If you implement this for a company’s tenant, you would role this out using scripts and automate the process. You can sign in to your account at Microsofts <a href="https://myaccount.microsoft.com/">myaccount</a> website and use the security info menu to configure the Feitian FIDO2 keys.</p>
-
-
-
-<p><a href="https://myaccount.microsoft.com/">https://myaccount.microsoft.com/</a></p>
-
-
-
-
-
-
-
-<p>I added my two security keys using USB. I use at least two security keys for each account. You should use a FIDO2 key as a fallback for the first key. Do not use SMS fallback or some type of email, password recovery. Worst case, your IT admin can reset the account for you and issue you new FIDO2 keys.</p>
-
-
-
-<p><a href="https://mysignins.microsoft.com/security-info">https://mysignins.microsoft.com/security-info</a></p>
-
-
-
-
-
-
-
-<p>Using FIDO2 keys with Azure AD is really easy to setup and works great. I use FIDO2 everywhere which supports this and avoid other authentication methods. Some of the account popups for Azure AD is annoying trying to authenticate using password, SMS or email, I would prefer FIDO2 first for a better user experience. The Feitian BioPass FIDO2 security keys are excellent and I would recommend these.</p>
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://www.microsoft.com/en-us/p/biopass-fido2-manager/9p2zjpwk3pxw">https://www.microsoft.com/en-us/p/biopass-fido2-manager/9p2zjpwk3pxw</a></p>
-
-
-
-<p><a href="https://myaccount.microsoft.com/">https://myaccount.microsoft.com/</a></p>
-
-
-
-<p><a href="https://mysignins.microsoft.com/security-info">https://mysignins.microsoft.com/security-info</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/authentication/concept-authentication-methods">https://docs.microsoft.com/en-us/azure/active-directory/authentication/concept-authentication-methods</a></p>
-
-
-
-<p><a href="https://www.ftsafe.com/article/619.html">https://www.ftsafe.com/article/619.html</a></p>
-
-
-
-<p><a href="https://blog.workinghardinit.work/2021/09/30/configure-a-feitian-fido2-biopass-security-key/">Configure a FEITIAN FIDO2 BioPass security key</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/authentication/howto-authentication-passwordless-security-key">https://docs.microsoft.com/en-us/azure/active-directory/authentication/howto-authentication-passwordless-security-key</a></p>
-
-
-
-<p><a href="https://www.w3.org/TR/webauthn/">https://www.w3.org/TR/webauthn/</a></p>
-
-
-
- 
-<blockquote><a href="https://damienbod.com/2021/03/17/the-authentication-pyramid/">The authentication pyramid</a></blockquote>
- 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/01/fido2_aad_03.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:03 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Sunday, 16. January 2022
  </h2>
@@ -23744,7 +24079,7 @@ projects are working on.</p>
 
 <div class='item-footer'>
    06:50 &bull;
-   6 months ago
+   7 months ago
 </div>
 
 </div><!-- item-body -->
