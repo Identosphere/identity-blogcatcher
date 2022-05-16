@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 5:47 AM May 16, 2022 (UTC)</sup>
+<sup>Last Update 10:49 AM May 16, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,246 @@
  <h2 class='new-date'>
   Monday, 16. May 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/05/16/using-multiple-azure-b2c-user-flows-from-asp-net-core/'>Using multiple Azure B2C user flows from ASP.NET Core</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to use multiple Azure B2C user flows from a single ASP.NET Core application. Microsoft.Identity.Web is used to implement the authentication in the client. This is not so easy to implement with multiple schemes as the user flow policy is used in most client URLs and the Microsoft.Identity.Web package overrides an lot […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to use multiple Azure B2C user flows from a single ASP.NET Core application. Microsoft.Identity.Web is used to implement the authentication in the client. This is not so easy to implement with multiple schemes as the user flow policy is used in most client URLs and the Microsoft.Identity.Web package overrides an lot of the default settings. I solved this by implementing an account controller to handle the Azure B2C signup user flow initial request and set the Azure B2C policy. It can be useful to split the user flows in the client application, if the user of the application needs to be guided better.</p>
+
+
+
+<p>Code <a href="https://github.com/damienbod/azureb2c-fed-azuread">https://github.com/damienbod/azureb2c-fed-azuread</a></p>
+
+
+
+<p>The Azure B2C user flows can be implemented as simple user flows. I used a signup flow and a signin, signup flow.</p>
+
+
+
+
+
+
+
+<p>The AddMicrosoftIdentityWebAppAuthentication is used to implement a standard Azure B2C client. There is no need to implement a second scheme and override the default settings of the Microsoft.Identity.Web client because we use a controller to select the flow.</p>
+
+
+  string[]? initialScopes = Configuration.GetValue&lt;string&gt;(
+	"UserApiOne:ScopeForAccessToken")?.Split(' ');
+
+services.AddMicrosoftIdentityWebAppAuthentication(Configuration, "AzureAdB2C")
+	.EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
+	.AddInMemoryTokenCaches();
+
+services.Configure&lt;MicrosoftIdentityOptions&gt;(
+	OpenIdConnectDefaults.AuthenticationScheme, options =&gt;
+{
+	options.Events.OnTokenValidated = async context =&gt;
+	{
+		if (ApplicationServices != null &amp;&amp; context.Principal != null)
+		{
+			using var scope = ApplicationServices.CreateScope();
+			context.Principal = await scope.ServiceProvider
+				.GetRequiredService&lt;MsGraphClaimsTransformation&gt;()
+				.TransformAsync(context.Principal);
+		}
+	};
+});
+  
+
+
+<p>The AzureAdB2C app settings configures the sign in, sign up flow. The SignUpSignInPolicyId setting is used to configure the default user flow policy. </p>
+
+
+  "AzureAdB2C": {
+    "Instance": "https://b2cdamienbod.b2clogin.com",
+    "ClientId": "8cbb1bd3-c190-42d7-b44e-42b20499a8a1",
+    "Domain": "b2cdamienbod.onmicrosoft.com",
+    "SignUpSignInPolicyId": "B2C_1_signup_signin",
+    "TenantId": "f611d805-cf72-446f-9a7f-68f2746e4724",
+    "CallbackPath": "/signin-oidc",
+    "SignedOutCallbackPath ": "/signout-callback-oidc",
+    // "ClientSecret": "--use-secrets--"
+},
+  
+
+
+<p>The AccountSignUpController is used to set the policy of the flow we would like to use. The SignUpPolicy method just challenges the  Azure B2C OpenID Connect server with the correct policy.</p>
+
+
+  using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Microsoft.Identity.Web.UI.Areas.MicrosoftIdentity.Controllers;
+
+[AllowAnonymous]
+[Route("MicrosoftIdentity/[controller]/[action]")]
+public class AccountSignUpController : Controller
+{
+    [HttpGet("{scheme?}")]
+    public IActionResult SignUpPolicy(
+        [FromRoute] string scheme,
+        [FromQuery] string redirectUri)
+    {
+        scheme ??= OpenIdConnectDefaults.AuthenticationScheme;
+        string redirect;
+        if (!string.IsNullOrEmpty(redirectUri) &amp;&amp; Url.IsLocalUrl(redirectUri))
+        {
+            redirect = redirectUri;
+        }
+        else
+        {
+            redirect = Url.Content("~/")!;
+        }
+
+        scheme ??= OpenIdConnectDefaults.AuthenticationScheme;
+
+        var properties = new AuthenticationProperties 
+           { RedirectUri = redirect };
+        properties.Items[Constants.Policy] = "B2C_1_signup";
+        return Challenge(properties, scheme);
+    }
+}
+  
+
+
+<p>The Razor page opens a link to the new controller and challenges the OIDC server with the correct policy.</p>
+
+
+  &lt;li class="nav-item"&gt;
+	&lt;a class="nav-link text-dark" 
+href="/MicrosoftIdentity/AccountSignUp/SignUpPolicy"&gt;Sign Up&lt;/a&gt;
+&lt;/li&gt;
+  
+
+
+<p>With this approach, an ASP.NET Core application can be extended with multiple user flows and the UI can be improved for the end user as required.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/overview">https://docs.microsoft.com/en-us/azure/active-directory-b2c/overview</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-azure-ad-single-tenant">https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-azure-ad-single-tenant</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/microsoft-identity-web">https://docs.microsoft.com/en-us/azure/active-directory/develop/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-local">https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-local</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/">https://docs.microsoft.com/en-us/azure/active-directory/</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authentication/azure-ad-b2c">https://docs.microsoft.com/en-us/aspnet/core/security/authentication/azure-ad-b2c</a></p>
+
+
+
+<p><a href="https://github.com/azure-ad-b2c/azureadb2ccommunity.io">https://github.com/azure-ad-b2c/azureadb2ccommunity.io</a></p>
+
+
+
+<p><a href="https://github.com/azure-ad-b2c/samples">https://github.com/azure-ad-b2c/samples</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security/webassembly/graph-api">https://docs.microsoft.com/en-us/aspnet/core/blazor/security/webassembly/graph-api</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS#client-credentials-provider">https://docs.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS#client-credentials-provider</a></p>
+
+
+
+ 
+<a href="https://docs.microsoft.com/en-us/graph/api/user-post-users?view=graph-rest-1.0&amp;tabs=csharp">https://docs.microsoft.com/en-us/graph/api/user-post-users?view=graph-rest-1.0&amp;tabs=csharp</a>
+ 
+
+
+
+ 
+<a href="https://docs.microsoft.com/en-us/graph/api/invitation-post?view=graph-rest-1.0&amp;tabs=csharp">https://docs.microsoft.com/en-us/graph/api/invitation-post?view=graph-rest-1.0&amp;tabs=csharp</a>
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/05/azureb2c_flows_01.png?w=865'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:10 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -863,7 +1103,7 @@
 
 <div class='item-footer'>
    05:43 &bull;
-   7 minutes ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -929,7 +1169,7 @@
 
 <div class='item-footer'>
    04:24 &bull;
-   an hour ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -994,7 +1234,7 @@
 
 <div class='item-footer'>
    01:07 &bull;
-   5 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1066,7 +1306,7 @@
 
 <div class='item-footer'>
    00:14 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1127,7 +1367,7 @@
 
 <div class='item-footer'>
    00:04 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1223,7 +1463,7 @@
 
 <div class='item-footer'>
    23:49 &bull;
-   6 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1299,7 +1539,7 @@
 
 <div class='item-footer'>
    21:30 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1377,7 +1617,7 @@
 
 <div class='item-footer'>
    21:30 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1443,7 +1683,7 @@
 
 <div class='item-footer'>
    20:24 &bull;
-   9 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1509,7 +1749,7 @@
 
 <div class='item-footer'>
    14:27 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1961,7 +2201,7 @@
 
 <div class='item-footer'>
    20:14 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2031,7 +2271,7 @@
 
 <div class='item-footer'>
    18:17 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2540,7 +2780,7 @@ Do your own thing. Build what's right for you and your creation.</p>
 
 <div class='item-footer'>
    22:32 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2929,7 +3169,7 @@ Do your own thing. Build what's right for you and your creation.</p>
 
 <div class='item-footer'>
    22:53 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3003,7 +3243,7 @@ Do your own thing. Build what's right for you and your creation.</p>
 
 <div class='item-footer'>
    21:07 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3077,7 +3317,7 @@ Photo by <a href="https://unsplash.com/@v2osk?utm_source=medium&amp;utm_medium=r
 
 <div class='item-footer'>
    19:41 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3153,7 +3393,7 @@ Photo by <a href="https://unsplash.com/@v2osk?utm_source=medium&amp;utm_medium=r
 
 <div class='item-footer'>
    19:40 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3213,7 +3453,7 @@ Photo by <a href="https://unsplash.com/@v2osk?utm_source=medium&amp;utm_medium=r
 
 <div class='item-footer'>
    18:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3639,7 +3879,7 @@ Photo by <a href="https://unsplash.com/@v2osk?utm_source=medium&amp;utm_medium=r
 
 <div class='item-footer'>
    20:22 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3715,7 +3955,7 @@ Photo by <a href="https://unsplash.com/@v2osk?utm_source=medium&amp;utm_medium=r
 
 <div class='item-footer'>
    20:16 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4624,7 +4864,7 @@ The post Decentralized, Global, Human-Owned. 理想的なWeb3世界（もしあ�
 
 <div class='item-footer'>
    20:01 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4696,7 +4936,7 @@ The post Decentralized, Global, Human-Owned. 理想的なWeb3世界（もしあ�
 
 <div class='item-footer'>
    22:40 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5356,7 +5596,7 @@ pkill -f 'http.server 8529'
 
 <div class='item-footer'>
    18:07 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5558,7 +5798,7 @@ pkill -f 'http.server 8529'
 
 <div class='item-footer'>
    19:49 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5628,7 +5868,7 @@ pkill -f 'http.server 8529'
 
 <div class='item-footer'>
    18:43 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5886,7 +6126,7 @@ pkill -f 'http.server 8529'
 
 <div class='item-footer'>
    21:50 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6298,7 +6538,7 @@ if (footer) {
 
 <div class='item-footer'>
    19:01 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6450,7 +6690,7 @@ if (footer) {
 
 <div class='item-footer'>
    20:35 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6516,7 +6756,7 @@ if (footer) {
 
 <div class='item-footer'>
    19:16 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6578,7 +6818,7 @@ if (footer) {
 
 <div class='item-footer'>
    19:12 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6644,7 +6884,7 @@ if (footer) {
 
 <div class='item-footer'>
    19:04 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6936,7 +7176,7 @@ if (footer) {
 
 <div class='item-footer'>
    19:35 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7183,7 +7423,7 @@ def register_routes():
 
 <div class='item-footer'>
    21:33 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8234,7 +8474,7 @@ Can we redo it and get it right this time? I don’t doubt our technical and ind
 
 <div class='item-footer'>
    22:40 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15030,190 +15270,6 @@ public class DemoAdminController : ControllerBase
 
 
  <h2 class='new-date'>
-  Monday, 14. February 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/02/14/problems-with-online-user-authentication-when-using-self-sovereign-identity/'>Problems with online user authentication when using self sovereign identity</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Using self sovereign identity (SSI), there is no standardized solutions for solving online user authentication when using verifiable credentials and verifying the identity and user. All solutions result in further compromises and result in new problems. To understand the problems, we need to understand how this works. The following diagram shows the verifiable credential (VC) […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Using self sovereign identity (SSI), there is no standardized solutions for solving online user authentication when using verifiable credentials and verifying the identity and user. All solutions result in further compromises and result in new problems. To understand the problems, we need to understand how this works. The following diagram shows the verifiable credential (VC) relationship with Issuer, Holders (behind a software wallet) and the verifier. Trust between the actors and are you required to authenticate the user behind the wallet are key and important requirements for some systems. Verifiable credentials are not issued to a user but to a wallet representing the user.</p>
-
-
-
-
-
-
-
-<p>Image src: Verifiable Credentials Data Model 1.0&nbsp;<a href="https://www.w3.org/TR/vc-data-model/">specification</a>&nbsp;</p>
-
-
-
-<p>Use case definition: The user must be authenticated and verified by the “verifier” application using the verifiable credential. Is the user data in the verifiable credential the same user presenting it or a user, application allowed to use the VC on behalf of that person. So how can this be solved? </p>
-
-
-
-<p>Solution 1: User Authentication is on the wallet.</p>
-
-
-
-<p>The wallet application implements the authentication of the user and binds the user to all credentials issued to the wallet through the agents and then sent to verifier applications. With BBS+ verifiable credentials, it is possible to do this. The wallet is responsible for authentication of the user, but this is not standardized, and no wallet does this the same. If the wallet is responsible for user authentication, then applications only need to authorize the verifiable credentials and not authenticate the user behind the wallet and represented in the verifiable credential which is connected to the wallet. The VC is invalid if a different wallet sends this. So the verifier applications only validates that the sender of the VC has possession of the credential, nothing else and trusts that the wallet authenticates the user correctly and also trusts that the wallet prevents misuse. The verifier cannot validate if the application, person using the credential is allowed to use it. The verifier must trust that the wallet does this correctly. </p>
-
-
-
-<p>Problems with this solution:</p>
-
-
-
-  Wallet Software monopoly: If a state body pushes this solution, then it has effectively created a monopoly for the producer of the wallet software. This is because at present with existing wallets, the required authentication is specific to the application and the definition of how this is required and the hardware device used for the wallet. No standards exist for how a user is authenticated in the wallet and what level of initial user authentication is required. This could be improved by creating a new standard for wallets which can be used by the state body and the way the wallet must authenticate the users of the wallet. Then any wallet which fulfills the standard can be used for state created verifiable credentials.  Backup and recovery of wallets becomes really complicated because the user is connected to the software wallet. If I lose my wallet, or would like to switch the wallet, a safe secure standardized way would be required proving that the wallet has authenticated the same person as the initial wallet or a person of trust. All issued credentials would probably need to be re-issued. The user of the wallet and the wallet instance are tightly coupled.  Verifier authorization only, not authentication: The verifier does not authenticate the user behind the wallet, just accepts that it was done correctly. This creates a closed system between the verifier and the wallet even though it is distributed. The verifier is tightly coupled in the relationship if blindly trusting verifiable credentials from wallets which are not in its system scope. If the verifier needs to verify the identity, then FIDO2, OIDC, OAUTH2, PKI or existing online verifying flows could be used as a second factor.   Single point of failure: if the credential issuer VCs can no longer be trusted, then all verifiers using the credentials need to revoke everything created from the VC . This is not a problem if the verifier authenticated it’s users, identities directly.  
-
-
-
-<p>Solution 2: Use the OIDC SIOP standard to authenticate when issuing and verifying the verifiable credentials</p>
-
-
-
-<p><a href="https://openid.net/specs/openid-connect-self-issued-v2-1_0-07.html">https://openid.net/specs/openid-connect-self-issued-v2-1_0-07.html</a></p>
-
-
-
-<p><a href="https://openid.net/specs/openid-connect-4-verifiable-presentations-1_0-08.html">https://openid.net/specs/openid-connect-4-verifiable-presentations-1_0-08.html</a></p>
-
-
-
-<p>A second way of solving user authentication in SSI is to use OpenID Connect and SIOP. The credential issuer uses it’s own OpenID Connect server with pre-registered users where the person has been correctly identified. The credential issuer is responsible for identifying and authenticating the identity, ie the user plus the application. Each credential type which is issued requires a specific OpenID Connect client. When the user, using the SIOP agent from his or her wallet tries to add a new verifiable credential using SIOP, the user is required to authenticate using the identity provider (IDP). This can also be used when verifying credentials. By using this, any wallet which supports the SIOP agent with the correct verifiable credential type used can work. The strong authentication is not required on the wallet because this is part of the flows and the user does not need to be connected to the wallet. If the verifier does not authenticate the user or application sending the verifiable credentials, then strong authentication would still be required on the wallet.</p>
-
-
-
-<p>Problems with this solution:</p>
-
-
-
-  Requires an OIDC server: All credential issuers require an OpenID Connect server and a separate client per credential type.  Verifier authorization only, not authentication: Only proof of possession on the verifier. Verifiers need to start an SIOP verification and the verifier needs to trust the OIDC server used for the client. The OIDC server authenticates and not the verifier.   Single point of failure: if the credential issuer VCs can no longer be trusted, then all verifiers using the credentials need to revoke everything created from the VC . This is not a problem if the verifier authenticated it’s users directly.  
-
-
-
-<p>Solution 3: Verifiers authenticate the user correctly before trusting the verifiable credentials sent from an unspecific wallet.</p>
-
-
-
-<p>Another way of solving this is that all credential issuers and all verifiers authenticate the user behind a verifiable credential using their own process. This avoids the single point of failure. Each sign-in would require an extra step to authenticate, if using SSI for example a FIDO2 key or a PKI authentication or some OIDC flow can be used. SSI could be used as the first factor in the application authentication. This solution works really good but a lot of the advantages of SSI is lost. </p>
-
-
-
-<p>Problems with this solution:</p>
-
-
-
-  All applications require authentication. This is more effort if implementing a closed system, but all applications need to do this anyway, so it’s not really a disadvantage. If you control both the issuer and the verifier, then the verifier application could just do authorization of the verifiable credential.  SSI adds little value. Due to the fact that a second authentication method is used everywhere, this would also work without SSI, so why add SSI then in the first place.  
-
-
-
-<p>Summary</p>
-
-
-
-<p>User authentication is not an easy problem to solve and SSI at present does not solve this in a standard way. All existing solutions do something vendor specific or solve this in a closed system. As soon as inter-op is required, then the problems begin. It is important to solve this in a way which does not require a vendor specific solution or creates a monopoly for a vendor solution. At present, SSI solutions still have very little convergence. We have different ledgers which only work with specific agents. We have different agents, SIOP, DIDComm V1, V2 which are only supported by certain wallets. We have different verifiable credentials standards which do not work together. We have no authentication standards on the wallets, no standard for backup and recovery. It is still not clear how the trust register for credentials issuers will work, I as an application verifier need an easy way to validate the quality of the credential issuer otherwise how can I know if the credential was issued in a good way without doing my own security check. Guardianship will also complicate the user authentication process. </p>
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://github.com/swiss-ssi-group">https://github.com/swiss-ssi-group</a></p>
-
-
-
-<p><a href="https://github.com/e-id-admin">https://github.com/e-id-admin</a></p>
-
-
-
- 
-<p><a href="https://www.fim-rc.de/wp-content/uploads/2022/01/Whitepaper_Mythbusting_Self-Sovereign_Identity.pdf">Click to access Whitepaper_Mythbusting_Self-Sovereign_Identity.pdf</a></p>
- 
-
-
-
- 
-<blockquote><a href="https://damienbod.com/2021/10/11/challenges-to-self-sovereign-identity/">Challenges to Self Sovereign&nbsp;Identity</a></blockquote>
- 
-
-
-
-<p><a href="https://openid.net/specs/openid-connect-self-issued-v2-1_0-07.html">https://openid.net/specs/openid-connect-self-issued-v2-1_0-07.html</a></p>
-
-
-
-<p><a href="https://openid.net/specs/openid-connect-4-verifiable-presentations-1_0-08.html">https://openid.net/specs/openid-connect-4-verifiable-presentations-1_0-08.html</a></p>
-
-
-
-<p><a href="https://www.w3.org/TR/vc-data-model/">https://www.w3.org/TR/vc-data-model/</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2021/10/challenges_ssi_02.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:19 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Friday, 11. February 2022
  </h2>
 
@@ -17486,104 +17542,6 @@ You can use it to add a flat virtual background to your video, or you could use 
  <h2 class='new-date'>
   Tuesday, 11. January 2022
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.cloudidentity.com/blog'>Vittorio Bertocci - CloudIdentity</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.cloudidentity.com/blog/2022/01/11/remembering-kim-cameron/'>Remembering Kim Cameron</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Kim might no longer update his blog, nudge identity products toward his vision or give inspiring, generous talks to audiences large and small, but his influence looms large in the identity industry – an industry Kim changed forever. A lot has been written about Kim’s legacy to the industry already, by people who...
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<a href="https://www.cloudidentity.com/blog/wp-content/uploads/2022/01/pasted-image-0.png"></a>
-
-
-
-<p>Kim might no longer update his blog, nudge identity products toward his vision or give inspiring, generous talks to audiences large and small, but his influence looms large in the identity industry – an industry Kim changed forever. A lot has been written about Kim’s legacy to the industry already, by people who write far better than yours truly, hence I won’t attempt that here.</p>
-
-
-
-<p>I owe a huge debt of gratitude to Kim: I don’t know where I’d be or what I’d be doing if it wouldn’t have been for his ideas and direct sponsorship. That’s something I have firsthand experience on, so I can honor his memory by writing about that.</p>
-
-
-
-<p>Back in 2005, still in Italy, I was one of the few Microsoft employees with hands-on, customer deployment experience in WS-STAR, the suite of protocols behind the SOA revolution. That earned me a job offer in Redmond, to evangelize the .NET stack (WCF, workflow, CardSpace) to Fortune 500 companies. That CardSpace thing was puzzling. There was nothing like it, it was ultra hard to develop for, and few people appeared to understand what it was for. One day I had face time with Kim. He introduced me to his <a href="https://www.identityblog.com/stories/2005/05/13/TheLawsOfIdentity.pdf">Laws of Identity</a>, and that changed everything. Suddenly the technology I was working on had a higher purpose, something directly connected to the rights and wellbeing of everyone- and a mission, making user centric identity viable and adopted. I gave myself to the mission with abandon, and Kim helped in every step of the way:</p>
-
-
-
-  He invested time in developing me professionally, sharing his master negotiator and genuinely compassionate view of people to counter my abrasive personality back then  He looped me in important conversations, inside and outside the company- conversations way above my pay grade or actual experience at that point. He introduced me to all sorts of key people, and helped me understand what was going on. Perhaps the most salient example is the initiative he led to bring together the different identity products Microsoft had in the late 2000s (and culminating in <a href="https://www.cloudidentity.com/blog/2008/10/28/identity-pdc08-roadmap-session-with-kim-cameron-himself-yours-truly/">a joint presentation we delivered at PDC2008</a>). The company back then was a very different place, and his steely determination coupled with incredible consensus building skills forever changed my perception of what’s possible and how to influence complex, sometimes adversarial organizations.&nbsp;  He really taught me to believe in myself and in a mission. That’s thanks to his encouragement that I approached Joan Murray (then acquisition editor at Addison Wesley) on the expo floor of some event, pitching to her a book that the world absolutely needs about cardspace and user centric identity, and once accepted finding the energy to learn everything (putting together a ToC, recruiting coauthors, writing in English…) as an evenings and weekends project. Kim generously wrote the foreword for us, and <a href="https://www.identityblog.com/?p=927">relentlessly promoted the book</a>.<br>His sponsorship continued even after the CardSpace project, promoting <a href="https://www.identityblog.com/?p=1160">my other books</a> and activities (like those <a href="https://www.identityblog.com/?p=1095">U-prove videos now lost in time</a>).&nbsp;  
-
-
-
-<p>Those are just the ones top of mind. I am sure that if”d dig in his or my blog, I’d find countless more. It’s been a huge privilege to work so closely with Kim, and especially to benefit from his mentorship and friendship. I never, ever took that privilege for granted. Although Kim always seemed to operate under the assumption that everyone had something of value to contribute, and talking with him made you feel heard, he wasn’t shy in calling out trolls or people who in his view would <a href="https://www.identityblog.com/?p=853">stifle community efforts</a>.</p>
-
-
-
-<p>When the user centric identity effort substantially failed to gain traction in actual products, with the identity industry incorporating some important innovations (hello, claims) but generally rejecting many of the key tenets I held so dear, something broke inside me. I became disillusioned with pure principled views, and moved toward a stricter Job to be done, user cases driven stance.</p>
-
-
-
-<p>That, <a href="https://www.identityblog.com/?p=1190">Kim’s temporary retirement from Microsoft</a> and eventually my move to Auth0 made my interactions with Kim less frequent. It was always nice to run into him at conferences; we kept backchanneling whenever industry news called for coordinated responses; and he reached out to me once to discuss SSI, but we never had a chance to do so. As cliche’ as it might be, I now deeply regret not having reached out more myself.<br>Last time I heard from him, it was during a <a href="https://twitter.com/vibronet/status/1452848874339454979?s=20">reunion of the CardSpace team</a>. It was a joyous occasion, seeing so many people that for a time all worked to realize his vision, and touched in various degrees by his influence. His health didn’t allow him to attend in person, but he called in – we passed the phone around, exchanging pleasantries without knowing we were saying our goodbyes. I remember his “hello Vittorio” as I picked up the phone from Mike- his cordial, even sweet tone as he put his usual care in pronouncing my name just right- right there to show the kindness this giant used with us all.&nbsp;</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.cloudidentity.com/blog/wp-content/uploads/2022/01/pasted-image-0.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:47 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -27416,6 +27374,201 @@ where email ~*
 
 <div class='item-footer'>
    17:53 &bull;
+   8 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
+  Saturday, 04. September 2021
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://reb00ted.org/'>reb00ted</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://reb00ted.org/tech/20210905-context-free-apps/'>Today's apps: context-free computing at its finest</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Prompted by this exchange on Twitter: 
+  Functionality attached to the context-defining data object. Instead of an “app” silo. Now here’s a thought. :-) — Johannes Ernst (@Johannes_Ernst) September 4, 2021  
+ Let me unpack this a bit. Let’s say that I’d like to send a message to
+some guy, let’s call him Tom for this example. 
+ The messaging app vendors go like: “Oh yes, we’ll make it super-easy fo
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Prompted by this exchange on Twitter:</p>
+<blockquote><p>Functionality attached to the context-defining data object. Instead of an “app” silo. Now here’s a thought. :-)</p>— Johannes Ernst (@Johannes_Ernst) <a href="https://twitter.com/Johannes_Ernst/status/1434044253835980803?ref_src=twsrc%5Etfw">September 4, 2021</a></blockquote> 
+<p>Let me unpack this a bit. Let’s say that I’d like to send a message to
+some guy, let’s call him Tom for this example.</p>
+<p>The messaging app vendors go like: “Oh yes, we’ll make it super-easy for
+him (Johannes) to send a message to Tom, so we give him an extra short
+handle (say @tom) so he doesn’t need to type much, and also add a ‘reply’
+button to previous messages so he won’t even have to type that.”</p>
+<p>Which is myopic, because it completely misunderstands or ignores the context
+of the user. The user doesn’t think that way, at least most of the time.</p>
+<p>As a user, I think the pattern is this:</p>
+<blockquote>
+<p>“I need to tell (person) about (news) related to
+(common context), how do I best do that (i.e. which app)?”</p>
+</blockquote>
+<p>Three concepts and a sub-concept:</p>
+ 
+ 
+<p>Who do I want to tell. In Joshua’s example: the person(s) I’m about to meet
+with.</p>
+ 
+ 
+<p>What’s the news I want to tell them. Here it is “I am running late”.</p>
+ 
+ But this news only makes sense in the common context of “we agreed to meet
+today”. If the receiver doesn’t have that context, they will receive
+my message and it will be pointless and bewildering to them. 
+ 
+ 
+ 
+<p>What’s the best way of conveying that news. It might be a text, a phone call,
+or pretty much anything. This item is the least important in this entire
+scenario, as long as the receiver gets the message.</p>
+ 
+ 
+<p>So thre are two primary “entry” points for this scenario:</p>
+ 
+ 
+<p>It starts with a person. The user thinks “Tom, I need to tell Tom that I’ll
+be late”, and the frantically tries to find a way of contacting them while
+hurring in the subway or driving really fast. (We have all been there.)</p>
+ 
+ 
+<p>It starts with the shared context object. The user looks at the calendar and
+thinks “Oh darn, this meeting, it’s now, I’ll be late, I need to tell them”.
+(They might not even remember who exactly will be in the meeting, but then likely
+the calender event has that info.)</p>
+ 
+ 
+<p>The entry point is almost never: “how convenient, I have all people I’m about
+to meet with in the current window of the messaging app, they all know what
+whatever I’m going to type into that window next is about the meeting, and
+I can just simply say that I’ll be late.”</p>
+<p>So … if we were to put the user, and their experience, at the center of
+messaging, messaging wouldn’t be an app. (Well, it might also be an app,
+but mostly it wouldn’t.)</p>
+<p>Instead, the messaging would be a “system service” attached to the context
+objects in which I’d like to message. In Joshua’s example that is:</p>
+ 
+ 
+<p>the person I’m about to meet with (but this only works if there is a
+single person; if there are a dozen this does not work).</p>
+ 
+ 
+<p>the shared context about which I am conveying the news: here, the
+(hopefully shared) calendar event. Joshua’s original point.</p>
+ 
+ 
+<p>Now in my experience, this is just an example for a more general pattern. For example:</p>
+ 
+ 
+<p>meeting notes. In which meeting any meeting notes were taken is
+of course supremely important. Which is why most meeting minutes start
+with a title, a date/time and a list of attendees. Instead, they should be
+attached to the calendar event, just like the message thread. (Yes,
+including collaborative editing.)</p>
+<p>And by “attached” I don’t mean: there’s a URL somewhere in the calendar
+dialog form that leads to a Google Doc. No, I mean that the calendar can
+show them, and insert the to-do-items from the meeting, and future meetings
+from that document, and the other way around: that when you look at
+the meeting notes, I can see the calendar event, and find out it is
+a biweekly meeting, and the notes for the other meetings are over there.</p>
+ 
+ 
+<p>projects. Software development is the worst offender, as far as I
+know. If you and I and half a dozen other people work on a project to
+implement functionality X, that is our primary shared context. All
+communication and data creation should occur in that context. But instead
+we have our code in Github, our bugs in Confluence, our APIs … test
+cases … screen mockups … video calls … chats … in a gazillion
+different places, and one of these days I’m sure somebody is going to
+prove that half of software budgets in many places are consumed by context
+switching between tools that blissfully ignore that the user thinks not
+like a vendor does. (And the other half by trying to make the so-called
+“integrations” between services work.)</p>
+ 
+ 
+<p>There are many more examples. (In a previous life, I ran around with the
+concept of “situational computing” – which takes context-aware computing
+to something much more dynamic and extreme; needless to say it was decades
+before its time. But now with AR/VR-stuff coming, it will probably become
+part of the mainstream soon.)</p>
+<p>The 100 dollar question is of course: if this is the right thing for users, why aren’t apps doing that?</p>
+<p>Joshua brought up <a href="https://en.wikipedia.org/wiki/OpenDoc">OpenDoc</a> in a subsequent
+post. Yep, there is a similarity here, and apps don’t do this kind of thing for
+the same reason OpenDoc failed. (It didn’t fail because it was slow as molasses
+and Steve Jobs hated it.)</p>
+<p>OpenDoc failed because it would have disintermediated big and powerful
+companies such as Adobe, who would have had to sell 100 little OpenDoc
+components, instead of one gigantic monolith containing those 100 components
+as a take-it-or-leave-it package at “enterprise” pricing. No adoption by
+Adobe, Adobe feeling Apple proactively attacked their business model, it
+would have killed Apple right afterwards.</p>
+<p>But having OpenDoc would have sooo much better for users. We would have gotten
+much more innovation, and yes, lower prices. But software vendors, like all
+businesses, primarily do what is right for them, not their customers.</p>
+<p>Which is why we get <a href="https://indieweb.org/silo">silos</a> everwhere we look.</p>
+<p>If we wanted to change that situation, about OpenDoc-like things, or
+messaging attached, in context, to things like calendar events, we have
+to change the economic situation in which the important vendors find
+themselves.</p>
+<p>Plus of course the entire technology stack, because if all you know is
+how to ship an <code>int main(argv, argc)</code> on your operating system, something
+componentized and pluggable and user-centric and context-centric is never
+able to emerge, even if you want to.</p>
+<p>(*) The title is meant to be sarcastically, in case you weren’t sure.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   00:00 &bull;
    8 months ago
 </div>
 
