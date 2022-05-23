@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 10:49 AM May 23, 2022 (UTC)</sup>
+<sup>Last Update 3:51 PM May 23, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -749,6 +749,144 @@
  <h2 class='new-date'>
   Monday, 23. May 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/May/23/bundling-binary-tools-in-python-wheels/#atom-everything'>Bundling binary tools in Python wheels</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I spotted a new (to me) pattern which I think is pretty interesting: projects are bundling compiled binary applications as part of their Python packaging wheels. I think it’s really neat. 
+ pip install ziglang 
+ Zig is a new programming language that sits somewhere near Rust: Wikipedia calls it an "imperative, general-purpose, statically typed, compiled system programming language". 
+ One of its m
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I spotted a new (to me) pattern which I think is pretty interesting: projects are bundling compiled binary applications as part of their Python packaging wheels. I think it’s really neat.</p>
+ pip install ziglang 
+<p><a href="https://ziglang.org/">Zig</a> is a new programming language that sits somewhere near Rust: Wikipedia <a href="https://en.wikipedia.org/wiki/Zig_(programming_language)">calls it</a> an "imperative, general-purpose, statically typed, compiled system programming language".</p>
+<p>One of its most notable features is that it bundles its own C/C++ compiler, as a “hermetic” compiler - it’s completely standalone, unaffected by the system that it is operating within. I learned about this usage of the word hermetic this morning from <a href="https://jakstys.lt/2022/how-uber-uses-zig/">How Uber Uses Zig</a> by Motiejus Jakštys.</p>
+<p>The concept reminds me of Gregory Szorc's <a href="https://github.com/indygreg/python-build-standalone">python-build-standalone</a>, which provides redistributable Python builds and was key to getting <a href="https://simonwillison.net/2021/Sep/8/datasette-desktop/">my Datasette Desktop Electron application</a> working with its own hermetic build of Python.</p>
+<p>One of the options provided for installing Zig (and its bundled toolchain) is <a href="https://github.com/ziglang/zig-pypi/blob/main/README.pypi.md">to use pip</a>:</p>
+  % pip install ziglang
+...
+% python -m ziglang cc --help
+OVERVIEW: clang LLVM compiler
+
+USAGE: zig [options] file...
+
+OPTIONS:
+  -###                    Print (but do not run) the commands to run for this compilation
+  --amdgpu-arch-tool=&lt;value&gt;
+                          Tool used for detecting AMD GPU arch in the system.
+...  
+<p>This means you can now <code>pip install</code> a full C compiler for your current platform!</p>
+<p>The way this works is really simple. The <code>ziglang</code> package that you install has two key files: A <code>zig</code> binary (155MB on my system) containing the full Zig compiled implementation, and a <code>__main__.py</code> module containing the following:</p>
+ import os, sys, subprocess
+sys.exit(subprocess.call([
+    os.path.join(os.path.dirname(__file__), "zig"),
+    *sys.argv[1:]
+])) 
+<p>The package also bundles <code>lib</code> and <code>doc</code> folders with supporting files used by Zig itself, unrelated to Python.</p>
+<p>The Zig project then bundles and ships eight different Python wheels targetting different platforms. <a href="https://github.com/ziglang/zig-pypi/blob/de14cf728fa35c014821f62a4fa9abd9f4bb560e/make_wheels.py#L115-L124">Here's their code</a> that does that, which lists the platforms that are supported:</p>
+ for zig_platform, python_platform in {
+    'windows-i386':   'win32',
+    'windows-x86_64': 'win_amd64',
+    'macos-x86_64':   'macosx_10_9_x86_64',
+    'macos-aarch64':  'macosx_11_0_arm64',
+    'linux-i386':     'manylinux_2_12_i686.manylinux2010_i686',
+    'linux-x86_64':   'manylinux_2_12_x86_64.manylinux2010_x86_64',
+    'linux-armv7a':   'manylinux_2_17_armv7l.manylinux2014_armv7l',
+    'linux-aarch64':  'manylinux_2_17_aarch64.manylinux2014_aarch64',
+}.items():
+    # Build the wheel here... 
+<p>They <a href="https://github.com/ziglang/zig-pypi/blob/main/README.pypi.md#usage">suggest</a> that if you want to run their tools from a Python program you do so like this, to ensure your script can find the installed binary:</p>
+ import sys, subprocess
+
+subprocess.call([sys.executable, "-m", "ziglang"]) 
+<p>I find this whole approach pretty fascinating. I really love the idea that I can add a full C/C++ compiler as a dependency to any of my Python projects, and thanks to Python wheels I'll automatically get a binary excutable compiled for my current platform.</p>
+ Playwright Python 
+<p>I spotted another example of this pattern recently in <a href="https://playwright.dev/python/docs/intro">Playwright Python</a>. Playwright is Microsoft's open source browser automation and testing framework - a kind of modern Selenium. I used it recently to build my <a href="https://shot-scraper.datasette.io/">shot-scraper</a> screenshot automation tool.</p>
+<p>Playwright provides a full-featured API for controlling headless (and headful) browser instances, with implementations in Node.js, Python, Java and .NET.</p>
+<p>I was intrigued as to how they had developed such a sophisticated API for four different platforms/languages at once, providing full equivalence for all of their features across all four.</p>
+<p>So I dug around in their Python package (from <code>pip install playwright</code>) and found this:</p>
+<p><code>77M ./venv/lib/python3.10/site-packages/playwright/driver/node</code></p>
+<p>That's a full copy of the Node.js binary!</p>
+ <code>% ./venv/lib/python3.10/site-packages/playwright/driver/node --version
+v16.13.0
+</code> 
+<p>Playwright Python works by providing a Python layer on top of the existing JavaScript API library. It runs a Node.js process which does the actual work, the Python library just communicates with the JavaScript for you.</p>
+<p>As with Zed, the Playwright team offer <a href="https://pypi.org/project/playwright/#files">seven pre-compiled wheels</a> for different platforms. The list today is:</p>
+ 
+ <code>playwright-1.22.0-py3-none-win_amd64.whl</code> 
+ <code>playwright-1.22.0-py3-none-win32.whl</code> 
+ <code>playwright-1.22.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl</code> 
+ <code>playwright-1.22.0-py3-none-manylinux1_x86_64.whl</code> 
+ <code>playwright-1.22.0-py3-none-macosx_11_0_universal2.whl</code> 
+ <code>playwright-1.22.0-py3-none-macosx_11_0_arm64.whl</code> 
+ <code>playwright-1.22.0-py3-none-macosx_10_13_x86_64.whl</code> 
+ 
+<p>I wish I could say "you can now <code>pip install</code> a browser!" but Playwright doesn't actually bundle the browsers themselves - you need to run <code>python -m playwright install</code> to download those separately.</p>
+<p>Pretty fascinating example of the same pattern though!</p>
+ pip install a SQLite database 
+<p>It's not quite the same thing, since it's not packaging an executable, but the one project I have that fits this mould if you squint a little is my <a href="https://datasette.io/plugins/datasette-basemap">datasette-basemap</a> plugin.</p>
+<p>It's a Datasette plugin which bundles a 23MB SQLite database file containing OpenStreetMap tiles for the first seven zoom levels of their world map - 5,461 tile images total.</p>
+<p>I built it so that people could use my <a href="https://datasette.io/plugins/datasette-cluster-map">datasette-cluster-map</a> and <a href="https://datasette.io/plugins/datasette-leaflet-geojson">datasette-leaflet-geojson</a> entirely standalone, without needing to load tiles from a central tile server.</p>
+<p>You can <a href="https://datasette-tiles-demo.datasette.io/-/tiles/basemap">play with a demo here</a>. I wrote more about that project in <a href="https://simonwillison.net/2021/Feb/4/datasette-tiles/">Serving map tiles from SQLite with MBTiles and datasette-tiles</a>. It's pretty fun to be able to run <code>pip install datasette-basemap</code> to install a full map of the world.</p>
+<p>Seen any other interesting examples of <code>pip install</code> being (ab)used in this way? Ping them to me <a href="https://twitter.com/simonw/status/1528754782311047168">on Twitter</a>.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:06 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -1271,7 +1409,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    05:37 &bull;
-   5 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1350,7 +1488,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    02:37 &bull;
-   8 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1431,7 +1569,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    02:24 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1497,7 +1635,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    01:35 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1558,7 +1696,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    01:29 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1622,7 +1760,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    01:26 &bull;
-   9 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1699,7 +1837,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    01:23 &bull;
-   10 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1760,7 +1898,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    00:05 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1823,7 +1961,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    00:02 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1908,7 +2046,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    23:56 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1969,7 +2107,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    23:52 &bull;
-   11 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2032,7 +2170,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    23:13 &bull;
-   12 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2096,7 +2234,7 @@ public ActionResult Login(string? returnUrl, string? claimsChallenge)
 
 <div class='item-footer'>
    23:12 &bull;
-   12 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2194,7 +2332,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    21:39 &bull;
-   13 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2270,7 +2408,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    20:08 &bull;
-   15 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2342,7 +2480,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    17:36 &bull;
-   17 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2412,7 +2550,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    17:36 &bull;
-   17 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2482,7 +2620,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    17:36 &bull;
-   17 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2554,7 +2692,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    15:39 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -3296,7 +3434,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    21:45 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3495,7 +3633,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    02:32 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3564,7 +3702,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    01:20 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3645,7 +3783,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    01:11 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4111,7 +4249,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    03:42 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4190,7 +4328,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    03:38 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4494,7 +4632,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    23:02 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6206,7 +6344,7 @@ The post Decentralized, Global, Human-Owned. 理想的なWeb3世界（もしあ�
 
 <div class='item-footer'>
    22:56 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7096,7 +7234,7 @@ pkill -f 'http.server 8529'
 
 <div class='item-footer'>
    00:51 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8054,7 +8192,7 @@ if (footer) {
 
 <div class='item-footer'>
    01:16 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8540,7 +8678,7 @@ if (footer) {
 
 <div class='item-footer'>
    02:57 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9373,74 +9511,6 @@ builder.Services.AddMicrosoftIdentityWebAppAuthentication(builder.Configuration,
  <h2 class='new-date'>
   Tuesday, 19. April 2022
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Apr/19/glue-code-to-quickly-copy-data-from-one-postgres-table-to-anothe/#atom-everything'>Glue code to quickly copy data from one Postgres table to another</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Glue code to quickly copy data from one Postgres table to another 
- The Python script that Retool used to migrate 4TB of data between two PostgreSQL databases. I find the structure of this script really interesting - it uses Python to spin up a queue full of ID ranges to be transferred and then starts some threads, but then each thread shells out to a command that runs "psql COPY (SELECT ...) TO S
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://gist.github.com/peterwj/0614bf6b6fe339a3cbd42eb93dc5b37a">Glue code to quickly copy data from one Postgres table to another</a></p>
-<p>The Python script that Retool used to migrate 4TB of data between two PostgreSQL databases. I find the structure of this script really interesting - it uses Python to spin up a queue full of ID ranges to be transferred and then starts some threads, but then each thread shells out to a command that runs "psql COPY (SELECT ...) TO STDOUT" and pipes the result to "psql COPY xxx FROM STDIN". Clearly this works really well ("saturate the database's hardware capacity" according to a comment on HN), and neatly sidesteps any issues with Python's GIL.</p>
-
-    <p>Via <a href="https://retool.com/blog/how-we-upgraded-postgresql-database/">How Retool upgraded our 4 TB main application PostgreSQL database</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:57 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
