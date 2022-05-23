@@ -736,7 +736,7 @@
 
 </div>
 </div>
-<sup>Last Update 2:34 AM May 23, 2022 (UTC)</sup>
+<sup>Last Update 5:47 AM May 23, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -756,8 +756,616 @@
 
 
 <h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/05/23/implement-azure-ad-continuous-access-evaluation-cae-step-up-with-asp-net-core-blazor-using-a-web-api/'>Implement Azure AD Continuous Access Evaluation (CAE) step up with ASP.NET Core Blazor using a Web API</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement Azure AD Continuous Access Evaluation (CAE) in a Blazor application which uses a Web API. The API requires an Azure AD conditional access authentication context. In the example code, MFA is required to use the external API. If a user requests data from the API using the required access […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement Azure AD Continuous Access Evaluation (CAE) in a Blazor application which uses a Web API. The API requires an Azure AD conditional access authentication context. In the example code, MFA is required to use the external API. If a user requests data from the API using the required access token without the required acr claim, an unauthorized response is returned with the missing claims. The Blazor application returns the claims challenge to the WASM application and the application authenticates again with the step up claims challenge. If the user has authenticated using MFA, the authentication is successful and the data from the API can be retrieved.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreAzureADCAE">https://github.com/damienbod/AspNetCoreAzureADCAE</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">Implement Azure AD Continuous Access Evaluation in an ASP.NET Core Razor Page app using a Web&nbsp;API</a>  Implement Azure AD Continuous Access Evaluation (CAE) step up with ASP.NET Core Blazor using a Web API  
+
+
+
+<p>Steps to implement </p>
+
+
+
+  Create an authentication context in Azure for the tenant (using Microsoft Graph).  Add a CAE policy which uses the authentication context.  Implement the CAE Azure AD authentication context authorization in the API.  Implement the Blazor backend to handle the CAE unauthorized responses correctly.  Implement an authentication challenge using the claims challenge in the Blazor WASM.  
+
+
+
+<p>Setup overview</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>Creating a Conditional access Authentication Context</p>
+
+
+
+<p>A continuous access evaluation (CAE) authentication context was created using Microsoft Graph and a policy was created to use this. See the previous <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">blog</a> for details on setting this up.</p>
+
+
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>External API setup</p>
+
+
+
+<p>The external API is setup to validate Azure AD JWT Bearer access tokens and to validate that the required continuous access evaluation (CAE) policy is fulfilled. The CAE policy uses the authentication context required for this API. If the user is authorized, the correct claims need to be presented in the access token.</p>
+
+
+  [Authorize(Policy = "ValidateAccessTokenPolicy", 
+AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[ApiController]
+[Route("[controller]")]
+public class ApiForUserDataController : ControllerBase
+{
+    private readonly CAEClaimsChallengeService _caeClaimsChallengeService;
+
+    public ApiForUserDataController(
+		CAEClaimsChallengeService caeClaimsChallengeService)
+    {
+        _caeClaimsChallengeService = caeClaimsChallengeService;
+    }
+
+    [HttpGet]
+    public IEnumerable&lt;string&gt; Get()
+    {
+        // returns unauthorized exception with WWW-Authenticate header 
+        // if CAE claim missing in access token
+        // handled in the caller client exception with challenge returned 
+        // if not ok
+        _caeClaimsChallengeService
+			.CheckForRequiredAuthContext(AuthContextId.C1, HttpContext);
+		
+        return new List&lt;string&gt; 
+		{ 
+			"admin API CAE protected data 1", 
+			"admin API CAE protected data 2" 
+		};
+    }
+}
+  
+
+
+<p>The CaeClaimsChallengeService class implements the CAE requirement to use the API. If the user access token has insufficient claims, an unauthorized response is returned to the application requesting data from the API. The WWW-Authenticate header is set with the correct data as defined in the OpenID Connect signals and events specification.</p>
+
+
+  using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using System;
+using System.Globalization;
+using System.Linq;
+using System.Net;
+using System.Text;
+
+namespace AdminCaeMfaRequiredApi;
+
+/// &lt;summary&gt;
+/// Claims challenges, claims requests, and client capabilities
+/// 
+/// https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge
+/// 
+/// Applications that use enhanced security features like Continuous Access Evaluation (CAE) 
+/// and Conditional Access authentication context must be prepared to handle claims challenges.
+/// &lt;/summary&gt;
+public class CaeClaimsChallengeService
+{
+    private readonly IConfiguration _configuration;
+
+    public CaeClaimsChallengeService(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+    /// &lt;summary&gt;
+    /// Retrieves the acrsValue from database for the request method.
+    /// Checks if the access token has acrs claim with acrsValue.
+    /// If does not exists then adds WWW-Authenticate and throws UnauthorizedAccessException exception.
+    /// &lt;/summary&gt;
+    public void CheckForRequiredAuthContext(string authContextId, HttpContext context)
+    {
+        if (!string.IsNullOrEmpty(authContextId))
+        {
+            string authenticationContextClassReferencesClaim = "acrs";
+
+            if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
+            {
+                throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
+            }
+
+            var acrsClaim = context.User.FindAll(authenticationContextClassReferencesClaim).FirstOrDefault(x =&gt; x.Value == authContextId);
+
+            if (acrsClaim?.Value != authContextId)
+            {
+                if (IsClientCapableofClaimsChallenge(context))
+                {
+                    string clientId = _configuration.GetSection("AzureAd").GetSection("ClientId").Value;
+                    var base64str = Convert.ToBase64String(Encoding.UTF8.GetBytes("{\"access_token\":{\"acrs\":{\"essential\":true,\"value\":\"" + authContextId + "\"}}}"));
+
+                    context.Response.Headers.Append("WWW-Authenticate", $"Bearer realm=\"\", authorization_uri=\"https://login.microsoftonline.com/common/oauth2/authorize\", client_id=\"" + clientId + "\", error=\"insufficient_claims\", claims=\"" + base64str + "\", cc_type=\"authcontext\"");
+                    context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+                    string message = string.Format(CultureInfo.InvariantCulture, "The presented access tokens had insufficient claims. Please request for claims requested in the WWW-Authentication header and try again.");
+                    context.Response.WriteAsync(message);
+                    context.Response.CompleteAsync();
+                    throw new UnauthorizedAccessException(message);
+                }
+                else
+                {
+                    throw new UnauthorizedAccessException("The caller does not meet the authentication  bar to carry our this operation. The service cannot allow this operation");
+                }
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Evaluates for the presence of the client capabilities claim (xms_cc) and accordingly returns a response if present.
+    /// &lt;/summary&gt;
+    public bool IsClientCapableofClaimsChallenge(HttpContext context)
+    {
+        string clientCapabilitiesClaim = "xms_cc";
+
+        if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
+        {
+            throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
+        }
+
+        var ccClaim = context.User.FindAll(clientCapabilitiesClaim).FirstOrDefault(x =&gt; x.Type == "xms_cc");
+
+        if (ccClaim != null &amp;&amp; ccClaim.Value == "cp1")
+        {
+            return true;
+        }
+
+        return false;
+    }
+}
+  
+
+
+<p>The API can be used by any application and user which presents the correct access token including the claims required by the CAE.</p>
+
+
+
+<p>Using Continuous Access Evaluation (CAE) in an ASP.NET Core hosted Blazor application.</p>
+
+
+
+<p>The Blazor application is authenticated using MSAL and the backend for frontend (BFF) architecture. The Blazor application administrator page uses data from the CAE protected API. The Blazor ASP.NET Core hosted WASM application is protected using a MSAL confidential client.</p>
+
+
+  services.AddMicrosoftIdentityWebAppAuthentication(
+	Configuration, 
+	"AzureAd", 
+	subscribeToOpenIdConnectMiddlewareDiagnosticsEvents: true)
+	.EnableTokenAcquisitionToCallDownstreamApi(
+		new[]
+		{ 
+			"api://7c839e15-096b-4abb-a869-df9e6b34027c/access_as_user" 
+		})
+	.AddMicrosoftGraph(
+		Configuration.GetSection("GraphBeta"))
+	.AddDistributedTokenCaches();
+  
+
+
+<p>The AdminApiClientService class is used to request data from the external API. The http client uses an Azure AD user delegated access token. If the API returns an unauthorized response, a WebApiMsalUiRequiredException is created with the WWW-Authenticate header payload.</p>
+
+
+  public class AdminApiClientService
+{
+    private readonly IHttpClientFactory _clientFactory;
+    private readonly ITokenAcquisition _tokenAcquisition;
+
+    public AdminApiClientService(
+        ITokenAcquisition tokenAcquisition,
+        IHttpClientFactory clientFactory)
+    {
+        _clientFactory = clientFactory;
+        _tokenAcquisition = tokenAcquisition;
+    }
+
+    public async Task&lt;IEnumerable&lt;string&gt;?&gt; GetApiDataAsync()
+    {
+        var client = _clientFactory.CreateClient();
+
+        var scopes = new List&lt;string&gt; 
+		{ 
+			"api://7c839e15-096b-4abb-a869-df9e6b34027c/access_as_user" 
+		};
+		
+        var accessToken = await _tokenAcquisition
+			.GetAccessTokenForUserAsync(scopes);
+
+        client.BaseAddress = new Uri("https://localhost:44395");
+        client.DefaultRequestHeaders.Authorization 
+			= new AuthenticationHeaderValue("Bearer", accessToken);
+			
+        client.DefaultRequestHeaders.Accept
+			.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await client.GetAsync("ApiForUserData");
+		
+        if (response.IsSuccessStatusCode)
+        {
+            var stream = await response.Content.ReadAsStreamAsync();
+            var payload = await JsonSerializer.DeserializeAsync&lt;List&lt;string&gt;&gt;(stream);
+
+            return payload;
+        }
+
+        throw new WebApiMsalUiRequiredException(
+			$"Unexpected status code in the HttpResponseMessage: {response.StatusCode}.", response);
+    }
+}
+  
+
+
+<p>The AdminApiCallsController implements the API used by the Blazor WASM client. This is protected using cookies. The controller would return an unauthorized response with the claims challenge, if the WebApiMsalUiRequiredException is thrown.</p>
+
+
+  public class AdminApiCallsController : ControllerBase
+{
+    private readonly AdminApiClientService _userApiClientService;
+   
+    public AdminApiCallsController(
+		AdminApiClientService userApiClientService)
+    {
+        _userApiClientService = userApiClientService;
+    }
+
+    [HttpGet]
+    public async Task&lt;IActionResult&gt; Get()
+    {
+        try
+        {
+            return Ok(await _userApiClientService.GetApiDataAsync());
+        }
+        catch (WebApiMsalUiRequiredException hex)
+        {
+            var claimChallenge = WwwAuthenticateParameters
+				.GetClaimChallengeFromResponseHeaders(hex.Headers);
+            return Unauthorized(claimChallenge);
+        }
+    }
+}
+  
+
+
+<p>In the Blazor WASM client, an AuthorizedHandler is implemented to handle the unauthorized response from the API. If the “acr” claim is returned, the CAE step method is called.</p>
+
+
+  public class AuthorizedHandler : DelegatingHandler
+{
+    private readonly HostAuthenticationStateProvider _authenticationStateProvider;
+
+    public AuthorizedHandler(
+		HostAuthenticationStateProvider authenticationStateProvider)
+    {
+        _authenticationStateProvider = authenticationStateProvider;
+    }
+
+    protected override async Task&lt;HttpResponseMessage&gt; SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        var authState = await _authenticationStateProvider
+			.GetAuthenticationStateAsync();
+        HttpResponseMessage responseMessage;
+        if (authState.User.Identity!= null &amp;&amp; 
+			!authState.User.Identity.IsAuthenticated)
+        {
+            // if user is not authenticated, 
+			// immediately set response status to 401 Unauthorized
+            responseMessage = new HttpResponseMessage(
+				HttpStatusCode.Unauthorized);
+        }
+        else
+        {
+            responseMessage = await base.SendAsync(
+				request, cancellationToken);
+        }
+
+        if (responseMessage.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            var content = await responseMessage.Content.ReadAsStringAsync();
+
+            // if server returned 401 Unauthorized, redirect to login page
+            if (content != null &amp;&amp; content.Contains("acr")) // CAE
+            {
+                _authenticationStateProvider.CaeStepUp(content);
+            }
+            else // standard
+            {
+                _authenticationStateProvider.SignIn();
+            }
+        }
+
+        return responseMessage;
+    }
+}
+  
+
+
+<p>The CaeStepUp method is implemented in the Blazor WASM client and creates a claims challenge with the defined claims challenge and the URL of the WASM client page for the redirect.</p>
+
+
+  public void CaeStepUp(string claimsChallenge, string? customReturnUrl = null)
+{
+	var returnUrl = customReturnUrl != null 
+		? _navigation.ToAbsoluteUri(customReturnUrl).ToString() : null;
+		
+	var encodedReturnUrl = 
+		Uri.EscapeDataString(returnUrl ?? _navigation.Uri);
+	var logInUrl = _navigation.ToAbsoluteUri(
+		$"{LogInPath}?claimsChallenge={claimsChallenge}&amp;returnUrl={encodedReturnUrl}");
+		
+	_navigation.NavigateTo(logInUrl.ToString(), true);
+}
+  
+
+
+<p>The account login sends a challenge to Azure AD to request the claims for the CAE. </p>
+
+
+  [HttpGet("Login")]
+public ActionResult Login(string? returnUrl, string? claimsChallenge)
+{
+	//var claims = "{\"access_token\":{\"acrs\":{\"essential\":true,\"value\":\"c1\"}}}";
+	var redirectUri = !string.IsNullOrEmpty(returnUrl) ? returnUrl : "/";
+
+	var properties = new AuthenticationProperties { RedirectUri = redirectUri };
+
+	if(claimsChallenge != null)
+	{
+		string jsonString = claimsChallenge.Replace("\\", "")
+			.Trim(new char[1] { '"' });
+
+		properties.Items["claims"] = jsonString;
+	}
+
+	return Challenge(properties);
+}
+  
+
+
+<p>The Microsoft.Identity.Web client package requires the cp1 ClientCapabilities.</p>
+
+
+  "AzureAd": {
+ "Instance": "https://login.microsoftonline.com/",
+ "Domain": "[Enter the domain of your tenant, e.g. contoso.onmicrosoft.com]",
+ "TenantId": "[Enter 'common', or 'organizations' or the Tenant Id (Obtained from the Azure portal. Select 'Endpoints' from the 'App registrations' blade and use the GUID in any of the URLs), e.g. da41245a5-11b3-996c-00a8-4d99re19f292]",
+ "ClientId": "[Enter the Client Id (Application ID obtained from the Azure portal), e.g. ba74781c2-53c2-442a-97c2-3d60re42f403]",
+ "ClientSecret": "[Copy the client secret added to the app from the Azure portal]",
+ "ClientCertificates": [
+ ],
+ // the following is required to handle Continuous Access Evaluation challenges
+ "ClientCapabilities": [ "cp1" ],
+ "CallbackPath": "/signin-oidc"
+},
+  
+
+
+<p>To test both the Blazor server application and the API can be started and the CAE claims are required to use the API.</p>
+
+
+
+
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://github.com/damienbod/Blazor.BFF.AzureAD.Template">https://github.com/damienbod/Blazor.BFF.AzureAD.Template</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/ms-identity-ca-auth-context">https://github.com/Azure-Samples/ms-identity-ca-auth-context</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app">https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview">https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae">https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context">https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge">https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide">https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide</a></p>
+
+
+
+<p><a href="https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345">https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345</a></p>
+
+
+
+ 
+<blockquote><a href="https://openid.net/wg/sse/">Shared Signals and Events – A Secure Webhooks Framework</a></blockquote>
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/05/caesetup_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:37 &bull;
+   14 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/05/23/coming-to-the.html'> 📚 Coming to the end of my Rebus … so got another ‘tome’ line</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   📚 Coming to the end of my Rebus … so got another ‘tome’ lined up. It is nearly 1,000 pages long - which I think is a great reason for reading it digitally - but I won’t. 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/ae383baf07.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>📚 Coming to the end of my Rebus … so got another ‘tome’ lined up. It is nearly 1,000 pages long - which I think is a great reason for reading it digitally - but I won’t.</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/ae383baf07.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:37 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -823,7 +1431,7 @@
 
 <div class='item-footer'>
    02:24 &bull;
-   14 minutes ago
+   3 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -889,7 +1497,7 @@
 
 <div class='item-footer'>
    01:35 &bull;
-   an hour ago
+   4 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -924,7 +1532,7 @@
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   A London Inheritance has been part of my RSS feed for as long as I can remember. I dont read all the posts - but I always scroll through the photos on all the posts. If you have any interest in London and how it came to be - it is a superb site. 
+   A London Inheritance has been part of my RSS feed for as long as I can remember. I don't read all the posts - but I always scroll through the photos on all the posts. If you have any interest in London and how it came to be - it is a superb site. 
    
   
   
@@ -939,7 +1547,7 @@
  -->
 <div class='wrap'>
 
-<p><a href="https://alondoninheritance.com/about/">A London Inheritance</a> has been part of my RSS feed for as long as I can remember. I dont read all the posts - but I always scroll through the photos on all the posts. If you have any interest in London and how it came to be - it is a superb site.</p>
+<p><a href="https://alondoninheritance.com/about/">A London Inheritance</a> has been part of my RSS feed for as long as I can remember. I don't read all the posts - but I always scroll through the photos on all the posts. If you have any interest in London and how it came to be - it is a superb site.</p>
    
   
   
@@ -950,7 +1558,7 @@
 
 <div class='item-footer'>
    01:29 &bull;
-   an hour ago
+   4 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1014,7 +1622,7 @@
 
 <div class='item-footer'>
    01:26 &bull;
-   an hour ago
+   4 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1050,8 +1658,8 @@
    note: summary goes first; than try content -->
 
    Margaritaville’s First Cruise Ship Now Sailing Out of Florida 
- … and all good - but interested to see that even in their promotional photography they clearly aren’t sure what the correct masking advice is. 
-
+ … and all good - but interested to see that even in their promotional photography they clearly aren’t sure what the correct masking protocol is. 
+  
    
   
   
@@ -1073,8 +1681,8 @@
 <div class='wrap'>
 
 <p><a href="https://www.businessinsider.com/photos-see-margaritavilles-first-cruise-ship-sailing-out-of-florida-2022-5">Margaritaville’s First Cruise Ship Now Sailing Out of Florida</a></p>
-<p>… and all good - but interested to see that even in their promotional photography they clearly aren’t sure what the correct masking advice is.</p>
-
+<p>… and all good - but interested to see that even in their promotional photography they clearly aren’t sure what the correct masking protocol is.</p>
+<p></p>
    
   
   
@@ -1091,7 +1699,7 @@
 
 <div class='item-footer'>
    01:23 &bull;
-   an hour ago
+   4 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1152,7 +1760,7 @@
 
 <div class='item-footer'>
    00:05 &bull;
-   3 hours ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1215,7 +1823,7 @@
 
 <div class='item-footer'>
    00:02 &bull;
-   3 hours ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1300,7 +1908,7 @@
 
 <div class='item-footer'>
    23:56 &bull;
-   3 hours ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1361,7 +1969,7 @@
 
 <div class='item-footer'>
    23:52 &bull;
-   3 hours ago
+   6 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1424,7 +2032,7 @@
 
 <div class='item-footer'>
    23:13 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1488,7 +2096,7 @@
 
 <div class='item-footer'>
    23:12 &bull;
-   3 hours ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1586,7 +2194,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    21:39 &bull;
-   5 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1662,7 +2270,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    20:08 &bull;
-   7 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1734,7 +2342,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    17:36 &bull;
-   9 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1804,7 +2412,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    17:36 &bull;
-   9 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1874,7 +2482,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    17:36 &bull;
-   9 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1946,7 +2554,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    15:39 &bull;
-   11 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2034,7 +2642,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    06:01 &bull;
-   21 hours ago
+   24 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2109,7 +2717,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    05:57 &bull;
-   21 hours ago
+   24 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2201,7 +2809,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    05:14 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2276,7 +2884,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    05:02 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2339,7 +2947,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    04:56 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2406,7 +3014,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    04:49 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2472,7 +3080,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    02:50 &bull;
-   24 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2536,7 +3144,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    02:47 &bull;
-   24 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -3248,7 +3856,7 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    16:46 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3582,71 +4190,6 @@ Woven by Fritz Riedl (Austrian, 1923-2012)
 
 <div class='item-footer'>
    03:38 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/05/20/adding-indx-to.html'> Adding ‘INDX’ to ‘Matter’ and ‘Reader/Readwise’ as an app th</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Adding ‘INDX’ to ‘Matter’ and ‘Reader/Readwise’ as an app that curates your information flow - and allows you to learn … or something like that. 
- It’s ‘FREE’ - so … 
- I might not be able to hold my breath for too long. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Adding ‘<a href="https://www.getindx.com">INDX</a>’ to ‘Matter’ and ‘Reader/Readwise’ as an app that curates your information flow - and allows you to learn … or something like that.</p>
-<p>It’s ‘FREE’ - so …</p>
-<p>I might not be able to hold my breath for too long.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:35 &bull;
    3 days ago
 </div>
 
@@ -6261,7 +6804,7 @@ pkill -f 'http.server 8529'
 
 <div class='item-footer'>
    15:16 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6339,7 +6882,7 @@ pkill -f 'http.server 8529'
 
 <div class='item-footer'>
    14:58 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7261,7 +7804,7 @@ jobs:
 
 <div class='item-footer'>
    17:18 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7843,7 +8386,7 @@ if (footer) {
 
 <div class='item-footer'>
    15:39 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8244,7 +8787,7 @@ def register_routes():
 
 <div class='item-footer'>
    15:07 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14478,474 +15021,6 @@ Anyone can improve it</p></blockquote>
 
 <div class='item-footer'>
    06:34 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 21. February 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/02/21/implementing-authorization-in-blazor-asp-net-core-applications-using-azure-ad-security-groups/'>Implementing authorization in Blazor ASP.NET Core applications using Azure AD security groups</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to implement authorization in an ASP.NET Core Blazor application using Azure AD security groups as the data source for the authorization definitions. Policies and claims are used in the application which decouples the descriptions from the Azure AD security groups and the application specific authorization requirements. With this setup, it is […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to implement authorization in an ASP.NET Core Blazor application using Azure AD security groups as the data source for the authorization definitions. Policies and claims are used in the application which decouples the descriptions from the Azure AD security groups and the application specific authorization requirements. With this setup, it is easy to support any complex authorization requirement and IT admins can manager the accounts independently in Azure. This solution will work for Azure AD B2C or can easily be adapted to use data from your database instead of Azure AD security groups if required.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AzureADAuthRazorUiServiceApiCertificate/tree/main/BlazorBff">https://github.com/damienbod/AzureADAuthRazorUiServiceApiCertificate/tree/main/BlazorBff</a></p>
-
-
-
-<p>Setup the AAD security groups</p>
-
-
-
-<p>Before we start using the Azure AD security groups, the groups need to be created. I use Powershell to create the security groups. This is really simple using the Powershell AZ module with AD. For this demo, just two groups are created, one for users and one for admins. The script can be run from your Powershell console. You are required to authenticate before running the script and the groups are added if you have the rights. In DevOps, you could use a managed identity and the client credentials flow. </p>
-
-
-  # https://theitbros.com/install-azure-powershell/
-#
-# https://docs.microsoft.com/en-us/powershell/module/az.accounts/connect-azaccount?view=azps-7.1.0
-# 
-# Connect-AzAccount -Tenant "--tenantId--"
-# AZ LOGIN --tenant "--tenantId--"
-
-$tenantId = "--tenantId--"
-$gpAdmins = "demo-admins"
-$gpUsers = "demo-users"
-
-function testParams {
-
-	if (!$tenantId) 
-	{ 
-		Write-Host "tenantId is null"
-		exit 1
-	}
-}
-
-testParams
-
-function CreateGroup([string]$name) {
-    Write-Host " - Create new group"
-    $group = az ad group create --display-name $name --mail-nickname $name
-
-    $gpObjectId = ($group | ConvertFrom-Json).objectId
-    Write-Host " $gpObjectId $name"
-}
-
-Write-Host "Creating groups"
-
-##################################
-### Create groups
-##################################
-
-CreateGroup $gpAdmins
-CreateGroup $gpUsers
-
-#az ad group list --display-name $groupName
-
-return
-  
-
-
-<p>Once created, the new security groups should be visible in the Azure portal. You need to add group members or user members to the groups.</p>
-
-
-
-
-
-
-
-<p>That’s all the configuration required to setup the security groups. Now the groups can be used in the applications.</p>
-
-
-
-<p>Define the authorization policies</p>
-
-
-
-<p>We do not use the security groups directly in the applications because this can change a lot or maybe the application is deployed to different host environments. The security groups are really just descriptions about the identity. How you use this, is application specific and depends on the solution business requirements which tend to change a lot. In the applications, shared authorization policies are defined and only used in the Blazor WASM and the Blazor server part. The definitions have nothing to do with the security groups, the groups get mapped to application claims. A Policies class definition was created for all the policies in the shared Blazor project because this is defined once, but used in the server project and the client project. The code was built based on the excellent <a href="https://chrissainty.com/securing-your-blazor-apps-configuring-policy-based-authorization-with-blazor/">blog</a> from Chris Sainty. The claims definition for the authorization check have nothing to do with the Azure security groups, this logic is application specific and sometimes the applications need to apply different authorization logic how the security groups are used in different applications inside the same solution.</p>
-
-
-  using Microsoft.AspNetCore.Authorization;
-
-namespace BlazorAzureADWithApis.Shared.Authorization
-{
-    public static class Policies
-    {
-        public const string DemoAdminsIdentifier = "demo-admins";
-        public const string DemoAdminsValue = "1";
-
-        public const string DemoUsersIdentifier = "demo-users";
-        public const string DemoUsersValue = "1";
-
-        public static AuthorizationPolicy DemoAdminsPolicy()
-        {
-            return new AuthorizationPolicyBuilder()
-                .RequireAuthenticatedUser()
-                .RequireClaim(DemoAdminsIdentifier, DemoAdminsValue)
-                .Build();
-        }
-
-        public static AuthorizationPolicy DemoUsersPolicy()
-        {
-            return new AuthorizationPolicyBuilder()
-                .RequireAuthenticatedUser()
-                .RequireClaim(DemoUsersIdentifier, DemoUsersValue)
-                .Build();
-        }
-    }
-}
-  
-
-
-<p>Add the authorization to the WASM and the server project</p>
-
-
-
-<p>The policy definitions can now be added to the Blazor Server project and the Blazor WASM project. The AddAuthorization extension method is used to add the authorization to the Blazor server. The policy names can be anything you want.</p>
-
-
-  services.AddAuthorization(options =&gt;
-{
-   // By default, all incoming requests will be authorized according to the default policy
-   options.FallbackPolicy = options.DefaultPolicy;
-   options.AddPolicy("DemoAdmins", Policies.DemoAdminsPolicy());
-   options.AddPolicy("DemoUsers", Policies.DemoUsersPolicy());
-});
-  
-
-
-<p>The AddAuthorizationCore method is used to add the authorization policies to the Blazor WASM client project.</p>
-
-
-  var builder = WebAssemblyHostBuilder.CreateDefault(args);
-builder.Services.AddOptions();
-builder.Services.AddAuthorizationCore(options =&gt;
-{
-	options.AddPolicy("DemoAdmins", Policies.DemoAdminsPolicy());
-	options.AddPolicy("DemoUsers", Policies.DemoUsersPolicy());
-});
-  
-
-
-<p>Now the application policies, claims are defined. Next job is to connect the Azure security definitions to the application authorization claims used for the authorization policies.</p>
-
-
-
-<p>Link the security groups from Azure to the app authorization</p>
-
-
-
-<p>This can be done using the IClaimsTransformation interface which gets called after a successful authentication. An application Microsoft Graph client is used to request the Azure AD security groups. The IDs of the Azure security groups are mapped to the application claims. Any logic can be added here which is application specific. If a hierarchical authorization system is required, this could be mapped here. </p>
-
-
-  public class GraphApiClaimsTransformation : IClaimsTransformation
-{
-	private readonly MsGraphApplicationService _msGraphApplicationService;
-
-	public GraphApiClaimsTransformation(MsGraphApplicationService msGraphApplicationService)
-	{
-		_msGraphApplicationService = msGraphApplicationService;
-	}
-
-	public async Task&lt;ClaimsPrincipal&gt; TransformAsync(ClaimsPrincipal principal)
-	{
-		ClaimsIdentity claimsIdentity = new();
-		var groupClaimType = "group";
-		if (!principal.HasClaim(claim =&gt; claim.Type == groupClaimType))
-		{
-			var objectidentifierClaimType = "http://schemas.microsoft.com/identity/claims/objectidentifier";
-			var objectIdentifier = principal
-				.Claims.FirstOrDefault(t =&gt; t.Type == objectidentifierClaimType);
-
-			var groupIds = await _msGraphApplicationService
-				.GetGraphUserMemberGroups(objectIdentifier.Value);
-
-			foreach (var groupId in groupIds.ToList())
-			{
-				var claim = GetGroupClaim(groupId);
-				if (claim != null) claimsIdentity.AddClaim(claim);
-			}
-		}
-
-		principal.AddIdentity(claimsIdentity);
-		return principal;
-	}
-
-    private Claim GetGroupClaim(string groupId)
-	{
-		Dictionary&lt;string, Claim&gt; mappings = new Dictionary&lt;string, Claim&gt;() {
-			{ "1d9fba7e-b98a-45ec-b576-7ee77366cf10",
-				new Claim(Policies.DemoUsersIdentifier, Policies.DemoUsersValue)},
-
-			{ "be30f1dd-39c9-457b-ab22-55f5b67fb566",
-				new Claim(Policies.DemoAdminsIdentifier, Policies.DemoAdminsValue)},
-		};
-
-		if (mappings.ContainsKey(groupId))
-		{
-			return mappings[groupId];
-		}
-
-		return null;
-	}
-}
-  
-
-
-<p>The MsGraphApplicationService class is used to implement the Microsoft Graph requests. This uses application permissions with a ClientSecretCredential. I use secrets which are read from an Azure Key vault. You need to implement rotation for this or make it last forever and update the secrets in the DevOps builds every time you deploy. My secrets are only defined in Azure and used from the Azure Key Vault. You could use certificates but this adds no extra security unless you need to use the secret/certificate outside of Azure or in app settings somewhere. The GetMemberGroups method is used to get the groups for the authenticated user using the object identifier.</p>
-
-
-  public class MsGraphApplicationService
-{
-	private readonly IConfiguration _configuration;
-
-	public MsGraphApplicationService(IConfiguration configuration)
-	{
-		_configuration = configuration;
-	}
-
-	public async Task&lt;IUserAppRoleAssignmentsCollectionPage&gt; 
-		GetGraphUserAppRoles(string objectIdentifier)
-	{
-		var graphServiceClient = GetGraphClient();
-
-		return await graphServiceClient.Users[objectIdentifier]
-				.AppRoleAssignments
-				.Request()
-				.GetAsync();
-	}
-
-	public async Task&lt;IDirectoryObjectGetMemberGroupsCollectionPage&gt; 
-		GetGraphUserMemberGroups(string objectIdentifier)
-	{
-		var securityEnabledOnly = true;
-
-		var graphServiceClient = GetGraphClient();
-
-		return await graphServiceClient.Users[objectIdentifier]
-			.GetMemberGroups(securityEnabledOnly)
-			.Request().PostAsync();
-	}
-
-	private GraphServiceClient GetGraphClient()
-	{
-		string[] scopes = new[] { "https://graph.microsoft.com/.default" };
-		var tenantId = _configuration["AzureAd:TenantId"];
-
-		// Values from app registration
-		var clientId = _configuration.GetValue&lt;string&gt;("AzureAd:ClientId");
-		var clientSecret = _configuration.GetValue&lt;string&gt;("AzureAd:ClientSecret");
-
-		var options = new TokenCredentialOptions
-		{
-			AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
-		};
-
-		// https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
-		var clientSecretCredential = new ClientSecretCredential(
-			tenantId, clientId, clientSecret, options);
-
-		return new GraphServiceClient(clientSecretCredential, scopes);
-	}
-}
-  
-
-
-<p>The security groups are mapped to the application claims and policies. The policies can be applied in the application.</p>
-
-
-
-<p>Use the Policies in the Server</p>
-
-
-
-<p>The Blazor server applications implements secure APIs for the Blazor WASM. The Authorize attribute is used with the policy definition. Now the user must be authorized using our definition to get data from this API. We also use cookies because the Blazor application is secured using the BFF architecture which has improved security compared to using tokens in the untrusted SPA. </p>
-
-
-  [ValidateAntiForgeryToken]
-[Authorize(Policy= "DemoAdmins", 
-	AuthenticationSchemes = CookieAuthenticationDefaults.AuthenticationScheme)]
-[ApiController]
-[Route("api/[controller]")]
-public class DemoAdminController : ControllerBase
-{
-	[HttpGet]
-	public IEnumerable&lt;string&gt; Get()
-	{
-		return new List&lt;string&gt; 
-		{ 
-		  "admin data", 
-		  "secret admin record", 
-		  "loads of admin data" 
-		};
-	}
-}
-  
-
-
-<p>Use the policies in the WASM</p>
-
-
-
-<p>The Blazor WASM application can also use the authorization policies. This is not really authorization but only usability because you cannot implement authorization in an untrusted application which you have no control of once it’s running. We would like to hide the components and menus which cannot be used, if you are not authorized. I use an AuthorizeView with a policy definition for this.</p>
-
-
-  &lt;div class="@NavMenuCssClass" @onclick="ToggleNavMenu"&gt;
-    &lt;ul class="nav flex-column"&gt;
-        &lt;AuthorizeView Policy="DemoAdmins"&gt;
-            &lt;Authorized&gt;
-                 &lt;li class="nav-item px-3"&gt;
-                    &lt;NavLink class="nav-link" href="demoadmin"&gt;
-                        &lt;span class="oi oi-list-rich" aria-hidden="true"&gt;&lt;/span&gt; DemoAdmin
-                    &lt;/NavLink&gt;
-                &lt;/li&gt;
-            &lt;/Authorized&gt;
-        &lt;/AuthorizeView&gt;
-
-        &lt;AuthorizeView Policy="DemoUsers"&gt;
-            &lt;Authorized&gt;
-                 &lt;li class="nav-item px-3"&gt;
-                    &lt;NavLink class="nav-link" href="demouser"&gt;
-                        &lt;span class="oi oi-list-rich" aria-hidden="true"&gt;&lt;/span&gt; DemoUser
-                    &lt;/NavLink&gt;
-                &lt;/li&gt;
-            &lt;/Authorized&gt;
-        &lt;/AuthorizeView&gt;
-
-        &lt;AuthorizeView&gt;
-            &lt;Authorized&gt;
-                &lt;li class="nav-item px-3"&gt;
-                    &lt;NavLink class="nav-link" href="graphprofile"&gt;
-                        &lt;span class="oi oi-list-rich" aria-hidden="true"&gt;&lt;/span&gt; Graph Profile
-                    &lt;/NavLink&gt;
-                &lt;/li&gt;
-                &lt;li class="nav-item px-3"&gt;
-                    &lt;NavLink class="nav-link" href="" Match="NavLinkMatch.All"&gt;
-                        &lt;span class="oi oi-home" aria-hidden="true"&gt;&lt;/span&gt; Home
-                    &lt;/NavLink&gt;
-                &lt;/li&gt;
-            &lt;/Authorized&gt;
-            &lt;NotAuthorized&gt;
-                &lt;li class="nav-item px-3"&gt;
-                    &lt;p style="color:white"&gt;Please sign in&lt;/p&gt;
-                &lt;/li&gt;
-            &lt;/NotAuthorized&gt;
-        &lt;/AuthorizeView&gt;
-        
-    &lt;/ul&gt;
-&lt;/div&gt;
-  
-
-
-<p>The Blazor UI pages should also use an Authorize attribute. This prevents an unhandled exception. You could add logic which forces you to login then with the permissions required or just display an error page. This depends on the UI strategy.</p>
-
-
-  @page "/demoadmin"
-@using Microsoft.AspNetCore.Authorization
-@inject IHttpClientFactory HttpClientFactory
-@inject IJSRuntime JSRuntime
-@attribute [Authorize(Policy ="DemoAdmins")]
-
-&lt;h1&gt;Demo Admin&lt;/h1&gt;
-  
-
-
-<p>When the application is started, you will only see what you allowed to see and more important, only be able to get data for what you are authorized.</p>
-
-
-
-
-
-
-
-<p>If you open a page where you have no access rights:</p>
-
-
-
-
-
-
-
-<p>Notes:</p>
-
-
-
-<p>This solution is very flexible and can work with any source of identity definitions, not just Azure security groups. I could very easily switch to a database. One problem with this, is that with a lot of authorization definitions, the size of the cookie might get to big and you would need to switch from using claims in the policies definitions to using a cache database or something. This would also be easy to adapt because the claims are only mapped in the policies and the IClaimsTransformation implementation. Only the policies are used in the application logic.</p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://chrissainty.com/securing-your-blazor-apps-configuring-policy-based-authorization-with-blazor/">https://chrissainty.com/securing-your-blazor-apps-configuring-policy-based-authorization-with-blazor/</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security">https://docs.microsoft.com/en-us/aspnet/core/blazor/security</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/02/blazor_authz_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:09 &bull;
    3 months ago
 </div>
 
