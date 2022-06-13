@@ -736,12 +736,245 @@
 
 </div>
 </div>
-<sup>Last Update 2:41 AM June 13, 2022 (UTC)</sup>
+<sup>Last Update 9:42 AM June 13, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 13. June 2022
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/06/13/force-mfa-in-blazor-using-azure-ad-and-continuous-access/'>Force MFA in Blazor using Azure AD and Continuous Access</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to force MFA from your application using Azure AD and a continuous access auth context. When producing software which can be deployed to multiple tenants, instead of hoping IT admins configure this correctly in their tenants, you can now force this from the application. Many tenants do not force MFA. Code: […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to force MFA from your application using Azure AD and a continuous access auth context. When producing software which can be deployed to multiple tenants, instead of hoping IT admins configure this correctly in their tenants, you can now force this from the application. Many tenants do not force MFA. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreAzureADCAE">https://github.com/damienbod/AspNetCoreAzureADCAE</a></p>
+
+
+
+<p>Blogs in this series</p>
+
+
+
+  <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web&nbsp;API</a>  <a href="https://damienbod.com/2022/05/23/implement-azure-ad-continuous-access-evaluation-cae-step-up-with-asp-net-core-blazor-using-a-web-api/">Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API</a>  <a href="https://damienbod.com/2022/05/30/implement-azure-ad-continuous-access-evaluation-cae-standalone-with-blazor-asp-net-core/">Implement Azure AD Continuous Access (CA) standalone with Blazor ASP.NET Core</a>  Force MFA in Blazor using Azure AD and Continuous Access  
+
+
+
+<p>Steps to implement </p>
+
+
+
+  Create an authentication context in Azure for the tenant (using Microsoft Graph).  Add a CA policy which uses the authentication context.  Implement an authentication challenge using the claims challenge in the Blazor WASM.  
+
+
+
+<p>Creating a conditional access authentication context</p>
+
+
+
+<p>A continuous access (CA) authentication context was created using Microsoft Graph and a policy was created to use this. See the first <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">blog</a> in this series for details on setting this up.</p>
+
+
+
+
+
+
+
+<p>Force MFA in the Blazor application</p>
+
+
+
+<p>Now that the continuous access (CA) authentication context is setup and a policy is created requiring MFA, the application can check that the required acrs with the correct value is present in the id_token. We do this is two places, in the login of the account controller and in the OpenID Connect event sending the authorize request. The account controller Login method can be used to set the claims parameter with the required acrs value. By requesting this, the Azure AD policy auth context is forced. </p>
+
+
+  [HttpGet("Login")]
+public ActionResult Login(string? returnUrl, 
+	string? claimsChallenge)
+{
+  // var claims = 
+  //  "{\"access_token\":{\"acrs\":{\"essential\":true,\"value\":\"c1\"}}}";
+  // var claims = 
+  //  "{\"id_token\":{\"acrs\":{\"essential\":true,\"value\":\"c1\"}}}";
+  var redirectUri = !string.IsNullOrEmpty(returnUrl) ? returnUrl : "/";
+
+  var properties = new AuthenticationProperties { RedirectUri = redirectUri };
+
+  if(claimsChallenge != null) 
+  {
+	string jsonString = claimsChallenge.Replace("\\", "")
+		.Trim(new char[1] { '"' });
+
+	properties.Items["claims"] = jsonString;
+  }
+  else
+  {
+	// lets force MFA using CAE for all sign in requests.
+	properties.Items["claims"] 
+	  = "{\"id_token\":{\"acrs\":{\"essential\":true,\"value\":\"c1\"}}}";
+  }
+
+  return Challenge(properties);
+}
+  
+
+
+<p>In the application an ASP.NET Core authorization policy can be implemented to force the MFA. All requests require a claim type acrs with the value c1, which we created in the Azure tenant using Microsoft Graph.</p>
+
+
+  services.AddMicrosoftIdentityWebAppAuthentication(configuration)
+    .EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
+    .AddMicrosoftGraph("https://graph.microsoft.com/v1.0", scopes)
+    .AddInMemoryTokenCaches();
+
+services.AddAuthorization(options =&gt;
+{
+    options.AddPolicy("ca-mfa", policy =&gt;
+    {
+        policy.RequireClaim("acrs", AuthContextId.C1);
+    });
+});
+  
+
+
+<p>By using the account controller login method, only the login request forces the auth context. If the context needs to be forced everywhere, then a middleware using the OnRedirectToIdentityProvider event can be used to add the extra request parameter on every OIDC authorize request. The OnRedirectToIdentityProvider event can be used to add this to all requests, which has not already added the claims parameter. You could also only use this without the login implementation in the account controller.</p>
+
+
+  services.AddRazorPages().AddMvcOptions(options =&gt;
+{
+    var policy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .RequireClaim("acrs", AuthContextId.C1)
+        .Build();
+    options.Filters.Add(new AuthorizeFilter(policy));
+}).AddMicrosoftIdentityUI();
+
+services.Configure&lt;MicrosoftIdentityOptions&gt;(OpenIdConnectDefaults.AuthenticationScheme, options =&gt;
+{
+    options.Events.OnRedirectToIdentityProvider = context =&gt;
+    {
+        if(!context.ProtocolMessage.Parameters.ContainsKey("claims"))
+        {
+            context.ProtocolMessage.SetParameter(
+            "claims",
+            "{\"id_token\":{\"acrs\":{\"essential\":true,\"value\":\"c1\"}}}");
+        }
+
+        return Task.FromResult(0);
+    };
+});
+  
+
+
+<p>Now all requests require the auth context which is used to require the CA MFA policy.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://github.com/damienbod/Blazor.BFF.AzureAD.Template">https://github.com/damienbod/Blazor.BFF.AzureAD.Template</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/ms-identity-ca-auth-context">https://github.com/Azure-Samples/ms-identity-ca-auth-context</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app">https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview">https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae">https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context">https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge">https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide">https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide</a></p>
+
+
+
+<p><a href="https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345">https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/06/image.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:08 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -993,7 +1226,7 @@
 
 <div class='item-footer'>
    22:59 &bull;
-   4 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1090,7 +1323,7 @@ The post 紛争下のアイデンティティ〜ウクライナ侵略をうけ�
 
 <div class='item-footer'>
    15:08 &bull;
-   12 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1166,7 +1399,7 @@ The post 紛争下のアイデンティティ〜ウクライナ侵略をうけ�
 
 <div class='item-footer'>
    14:31 &bull;
-   12 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1364,7 +1597,7 @@ load();
 
 <div class='item-footer'>
    05:49 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1956,7 +2189,7 @@ load();
 
 <div class='item-footer'>
    14:40 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2362,7 +2595,7 @@ load();
 
 <div class='item-footer'>
    17:53 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2431,7 +2664,7 @@ load();
 
 <div class='item-footer'>
    16:30 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2503,7 +2736,7 @@ load();
 
 <div class='item-footer'>
    16:16 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2581,7 +2814,7 @@ load();
 
 <div class='item-footer'>
    17:53 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2650,7 +2883,7 @@ load();
 
 <div class='item-footer'>
    15:11 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2970,7 +3203,7 @@ took my breath away.</p>
 
 <div class='item-footer'>
    18:09 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3034,7 +3267,7 @@ took my breath away.</p>
 
 <div class='item-footer'>
    17:58 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3098,7 +3331,7 @@ took my breath away.</p>
 
 <div class='item-footer'>
    15:37 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3160,7 +3393,7 @@ took my breath away.</p>
 
 <div class='item-footer'>
    14:57 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3748,7 +3981,7 @@ Timeshare and Fractional Ownership Differences
 
 <div class='item-footer'>
    20:54 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4233,7 +4466,7 @@ MEF CONNECTS Personal Data &amp; Identity 2022 Wordcloud<p></p>
 
 <div class='item-footer'>
    20:34 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4388,7 +4621,7 @@ with open('slideshow.html', 'w') as f:
 
 <div class='item-footer'>
    19:29 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4510,7 +4743,7 @@ with open('slideshow.html', 'w') as f:
 
 <div class='item-footer'>
    17:28 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4791,7 +5024,7 @@ with open('slideshow.html', 'w') as f:
 
 <div class='item-footer'>
    21:07 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4866,7 +5099,7 @@ with open('slideshow.html', 'w') as f:
 
 <div class='item-footer'>
    19:39 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5291,7 +5524,7 @@ with open('slideshow.html', 'w') as f:
 
 <div class='item-footer'>
    19:48 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5480,7 +5713,7 @@ with open('slideshow.html', 'w') as f:
 
 <div class='item-footer'>
    16:11 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5545,7 +5778,7 @@ with open('slideshow.html', 'w') as f:
 
 
 
-  <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web&nbsp;API</a>  <a href="https://damienbod.com/2022/05/23/implement-azure-ad-continuous-access-evaluation-cae-step-up-with-asp-net-core-blazor-using-a-web-api/">Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API</a>  Implement Azure AD Continuous Access (CA) standalone with Blazor ASP.NET Core  
+  <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web&nbsp;API</a>  <a href="https://damienbod.com/2022/05/23/implement-azure-ad-continuous-access-evaluation-cae-step-up-with-asp-net-core-blazor-using-a-web-api/">Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API</a>  Implement Azure AD Continuous Access (CA) standalone with Blazor ASP.NET Core  <a href="https://damienbod.com/2022/06/13/force-mfa-in-blazor-using-azure-ad-and-continuous-access/">Force MFA in Blazor using Azure AD and Continuous Access</a>  
 
 
 
@@ -6044,7 +6277,7 @@ public class AccountController : ControllerBase
 
 <div class='item-footer'>
    18:30 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6114,7 +6347,7 @@ public class AccountController : ControllerBase
 
 <div class='item-footer'>
    15:20 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6280,7 +6513,7 @@ public class AccountController : ControllerBase
 
 <div class='item-footer'>
    21:11 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6691,7 +6924,7 @@ v16.13.0
 
 <div class='item-footer'>
    15:06 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6756,7 +6989,7 @@ v16.13.0
 
 
 
-  <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web&nbsp;API</a>  Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API  <a href="https://damienbod.com/2022/05/30/implement-azure-ad-continuous-access-evaluation-cae-standalone-with-blazor-asp-net-core/">Implement Azure AD Continuous Access (CA) standalone with Blazor ASP.NET Core</a>  
+  <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web&nbsp;API</a>  Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API  <a href="https://damienbod.com/2022/05/30/implement-azure-ad-continuous-access-evaluation-cae-standalone-with-blazor-asp-net-core/">Implement Azure AD Continuous Access (CA) standalone with Blazor ASP.NET Core</a>  <a href="https://damienbod.com/2022/06/13/force-mfa-in-blazor-using-azure-ad-and-continuous-access/">Force MFA in Blazor using Azure AD and Continuous Access</a>  
 
 
 
@@ -7324,7 +7557,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    21:39 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7746,7 +7979,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    17:56 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7986,7 +8219,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    21:14 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8113,7 +8346,7 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    18:03 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8622,7 +8855,7 @@ href="/MicrosoftIdentity/AccountSignUp/SignUpPolicy"&gt;Sign Up&lt;/a&gt;
 
 <div class='item-footer'>
    21:30 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8688,7 +8921,7 @@ href="/MicrosoftIdentity/AccountSignUp/SignUpPolicy"&gt;Sign Up&lt;/a&gt;
 
 <div class='item-footer'>
    20:24 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11085,7 +11318,7 @@ pkill -f 'http.server 8529'
 
 
 
-  Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web&nbsp;API  <a href="https://damienbod.com/2022/05/23/implement-azure-ad-continuous-access-evaluation-cae-step-up-with-asp-net-core-blazor-using-a-web-api/">Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API</a>  <a href="https://damienbod.com/2022/05/30/implement-azure-ad-continuous-access-evaluation-cae-standalone-with-blazor-asp-net-core/">Implement Azure AD Continuous Access (CA) standalone with Blazor ASP.NET Core</a>  
+  Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web&nbsp;API  <a href="https://damienbod.com/2022/05/23/implement-azure-ad-continuous-access-evaluation-cae-step-up-with-asp-net-core-blazor-using-a-web-api/">Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API</a>  <a href="https://damienbod.com/2022/05/30/implement-azure-ad-continuous-access-evaluation-cae-standalone-with-blazor-asp-net-core/">Implement Azure AD Continuous Access (CA) standalone with Blazor ASP.NET Core</a>  <a href="https://damienbod.com/2022/06/13/force-mfa-in-blazor-using-azure-ad-and-continuous-access/">Force MFA in Blazor using Azure AD and Continuous Access</a>  
 
 
 
@@ -13887,440 +14120,6 @@ services.AddAuthorization(options =&gt;
 
 <div class='item-footer'>
    19:56 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Thursday, 24. March 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/03/24/onboarding-new-users-in-an-asp-net-core-application-using-azure-b2c/'>Onboarding new users in an ASP.NET Core application using Azure B2C</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to onboard new users into your ASP.NET Core application using Azure B2C as the identity provider and the account management. The software has application specific persisted user data and this user data needs to be connected to the identity data from the corresponding user in Azure B2C. Code https://github.com/damienbod/azureb2c-fed-azuread User Case […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to onboard new users into your ASP.NET Core application using Azure B2C as the identity provider and the account management. The software has application specific persisted user data and this user data needs to be connected to the identity data from the corresponding user in Azure B2C. </p>
-
-
-
-<p>Code <a href="https://github.com/damienbod/azureb2c-fed-azuread">https://github.com/damienbod/azureb2c-fed-azuread</a></p>
-
-
-
-<p>User Case where user is created first in the application</p>
-
-
-
-<p>The users are created in the ASP.NET Core application from an administrator. Once the use is created, an email is sent to the new user. The user clicks the link in the application and signs up in Azure AD B2C. After the account has been created in Azure AD B2C, the user is redirected back to the application and the Azure B2C account gets connected to the persisted user in the database automatically persisting the Azure AD object identifier (oid) claim data. The account is activated in the application, the authorization definitions are created automatically and applied as defined by the administrator user in the first step.</p>
-
-
-
-<p>It is not possible to onboard a new user in Azure B2C like this using Microsoft Graph without managing passwords. You should never mail passwords to users. For the flow to work, the signin signup user flow can be used from Azure B2C. The link sent to the user requires authentication and contains a registration one time code. When the user clicks the link, authentication is required and so the user is automatically redirected to Azure B2C. After a successfully signup, the user is redirected back to the application and the registration code is used to connect the accounts. At no stage did the application administrator need to manage the user passwords from the accounts. Because default Azure B2C flows are used, it should be easy to applied the latest best practices supported by Azure B2C for user authentication, once this gets rolled out. FIDO2 is not supported by Azure AD B2C which is bad as this is the strongest MFA.</p>
-
-
-
-<p>The create user can be implemented using an ASP.NET Core Razor page. This Razor page requires authentication and an admin policy. The form sends a post request with the user data and if valid, the data is saved to the database using Entity Framework Core. A random registration code is generated and persisted and saved in the user entity. An email is created and the ConnectAccount URL is used with the registration code. This URL is emailed to the end user using Microsoft Graph. An office license is required for the email client to work but you can use any email service. The user now exists and should have mail in their inbox. (or spam) If you are implementing this in a production application, you will need to implement a resend email function and I would update the registration code with each email. </p>
-
-
-  public async Task&lt;IActionResult&gt; OnPostAsync()
-{
-	if (!ModelState.IsValid)
-	{
-		return Page();
-	}
-
-	if (!_userService.IsEmailValid(UserModel.Email))
-	{
-		ModelState.AddModelError("Email", "Email is invalid");
-		return Page();
-	}
-
-	var user = await _userService.CreateUser(new UserEntity
-	{
-		Email = UserModel.Email,
-		FirstName = UserModel.FirstName,
-		Surname = UserModel.Surname,
-		BirthDate = UserModel.BirthDate,
-		DisplayName = UserModel.DisplayName,
-		PreferredLanguage = UserModel.PreferredLanguage
-	});
-
-	await _userService.SendEmailInvite(user, Request.Host, false);
-
-	OnboardingRegistrationCode = user.OnboardingRegistrationCode;
-	return OnGet();
-}
-  
-
-
-<p>The SendEmailInvite method sends an email using the Microsoft Graph client.</p>
-
-
-  public async Task SendEmailInvite(UserEntity user, HostString host, bool updateCode)
-{
-	if (updateCode)
-	{
-		user.OnboardingRegistrationCode = GetRandomString();
-		await _userContext.SaveChangesAsync();
-	}
-
-	var accountUrl = $"https://{host}/ConnectAccount?code={user.OnboardingRegistrationCode}";
-	var header = $"{user.FirstName} {user.Surname} you are invited to signup";
-	var introText = "You have been invite to join the MyApp services. You can register and sign up here";
-	var endText = "Best regards, your MyApp support";
-	var body = $"Dear {user.FirstName} {user.Surname} \n\n{introText} \n\n{accountUrl} \n\n{endText}";
-	var message = _emailService.CreateStandardEmail(user.Email, header, body);
-
-	await _msGraphEmailService.SendEmailAsync(message);
-}
-  
-
-
-<p>The user service creates a user in the SQL database and generates the random code.</p>
-
-
-  public async Task&lt;UserEntity&gt; CreateUser(UserEntity userModel)
-{
-	userModel.OnboardingRegistrationCode = GetRandomString();
-
-	await _userContext.AddAsync(userModel);
-	await _userContext.SaveChangesAsync();
-
-	return userModel;
-}
-  
-
-
-<p>The create user ASP.NET Core Razor page just displays a simple form for adding the properties required by your business.</p>
-
-
-
-
-
-
-
-<p>The MsGraphEmailService class implements the Microsoft Graph email service. This client needs to authorize using an Azure tenant which has an office license for the sender account. The application permissions also need to be enabled for the Azure App registration used. This works fine as long as you do not send loads of emails, the amount of mails you can send is limited and you do not want to send many emails anyway. The Azure SDK ClientSecretCredential is used which setups the client credentials flow and uses an application scope from the Azure App registration. For more details, see this <a href="https://damienbod.com/2021/10/18/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph-application-permissions-part-2/">post</a>.</p>
-
-
-  using Azure.Identity;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Graph;
-using System.Threading.Tasks;
-
-namespace OnboardingAzureB2CCustomInvite.Services;
-
-public class MsGraphEmailService
-{
-    private readonly GraphServiceClient _graphServiceClient;
-    private readonly IConfiguration _configuration;
-
-    public MsGraphEmailService(IConfiguration configuration)
-    {
-        _configuration = configuration;
-        string[]? scopes = configuration.GetValue&lt;string&gt;("AzureAdEmailService:Scopes")?.Split(' ');
-        var tenantId = configuration.GetValue&lt;string&gt;("AzureAdEmailService:TenantId");
-
-        // Values from app registration
-        var clientId = configuration.GetValue&lt;string&gt;("AzureAdEmailService:ClientId");
-        var clientSecret = configuration.GetValue&lt;string&gt;("AzureAdEmailService:ClientSecret");
-
-        var options = new TokenCredentialOptions
-        {
-            AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
-        };
-
-        // https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
-        var clientSecretCredential = new ClientSecretCredential(
-            tenantId, clientId, clientSecret, options);
-
-        _graphServiceClient = new GraphServiceClient(clientSecretCredential, scopes);
-    }
-
-    private async Task&lt;string&gt; GetUserIdAsync()
-    {
-        var meetingOrganizer = _configuration["AzureAdEmailService:EmailSender"];
-        var filter = $"startswith(userPrincipalName,'{meetingOrganizer}')";
-
-        var users = await _graphServiceClient.Users
-            .Request()
-            .Filter(filter)
-            .GetAsync();
-
-        return users.CurrentPage[0].Id;
-    }
-
-    public async Task SendEmailAsync(Message message)
-    {
-        var saveToSentItems = true;
-
-        var userId = await GetUserIdAsync();
-
-        await _graphServiceClient.Users[userId]
-            .SendMail(message, saveToSentItems)
-            .Request()
-            .PostAsync();
-    }
-}
-  
-
-
-<p>The email is sent as defined in the create user. The email is really simple and has the link to the ConnectAccount Razor page and the registration code. This is not a link direct to the Azure B2C signup as we want to automatically connect the user data from the application to the Azure B2C identity and assign the defined authorization. It is very easy to make a template for this email and translate it into the user language or add company information etc.</p>
-
-
-
-
-
-
-
-<p>When the end user opens the email and clicks the link, the user opens the connect account link with the registration code. This URL requires authentication and is automatically redirected to the Azure B2C signin signup flow. We need to use this user flow, because in some cases the user already exists in Azure B2C and not in the application and this user would just signin then.</p>
-
-
-
-
-
-
-
-<p>The ConnectAccount Razor page handles the GET requests and connects the authenticated identity with the user in the database if the registration code matches. Normally a GET should never change the state. This Razor page must be protected. If the registration code matches, the OID from the Azure B2C account is persisted and the registration code reset. The user account is set to active. If authorization is pre-defined for this user, then the authorization definitions can be created for the user as well. Once connected, the user can be redirected to the profile Razor page.</p>
-
-
-  [Authorize]
-public class ConnectAccountModel : PageModel
-{
-    private readonly UserService _userService;
-
-    public ConnectAccountModel(UserService userService)
-    {
-        _userService = userService;
-    }
-
-    [BindProperty]
-    public string? OnboardingRegistrationCode { get; set; } = string.Empty;
-
-    public async Task&lt;IActionResult&gt; OnGet([FromQuery] string code)
-    {
-        if (string.IsNullOrEmpty(code))
-        {
-            return Page();
-        }
-
-        var email = User.Claims.FirstOrDefault(c =&gt; c.Type == "emails")?.Value;
-        var oidClaimType = "http://schemas.microsoft.com/identity/claims/objectidentifier";
-        var oid = User.Claims.FirstOrDefault(t =&gt; t.Type == oidClaimType)?.Value;
-
-        if(oid == null)
-            return Page();
-
-        int id = await _userService.ConnectUserIfExistsAsync(
-            code, oid, true, email);
-
-        if(id &gt; 0)
-        {
-            return Redirect("/profile");
-        }
-
-        return Page();
-    }
-  
-
-
-<p>The profile page allows the user to update data which is controlled by the user. I do this in the application and do not user the Azure B2C profile because this is application specific. This is sensitive data and needs to be handled correctly. I display the OID, IsActive and the email here, but this data must not be updated in the profile page. This user data can only be managed by an application administrator. I also create and new user profile for a user, if the user does not exist but already has an Azure B2C account. This account can signin but will see nothing as the identity has no authorization to view anything. The authorization is set by an application administrator. By allowed this, existing Azure B2C accounts can be onboarded as well.</p>
-
-
-  [Authorize]
-public class ProfileModel : PageModel
-{
-    private readonly UserService _userService;
-
-    public ProfileModel(UserService userService)
-    {
-        _userService = userService;
-    }
-
-    [BindProperty]
-    public Profile Profile { get; set; } = new Profile();
-
-    [BindProperty]
-    public string? AzureOid { get; set; } = string.Empty;
-
-    [BindProperty]
-    public bool IsActive { get; set; }
-
-    [BindProperty]
-    public string? Email { get; set; }
-
-
-    public async Task&lt;IActionResult&gt; OnGetAsync()
-    {
-        var oidClaimType = "http://schemas.microsoft.com/identity/claims/objectidentifier";
-        var oid = User.Claims.FirstOrDefault(t =&gt; t.Type == oidClaimType)?.Value;
-        var email = User.Claims.FirstOrDefault(c =&gt; c.Type == "emails")?.Value;
-
-        UserEntity? userEntity = null;
-        if (oid != null)
-        {
-            userEntity = await _userService.FindUserWithOid(oid);
-
-            if (userEntity != null)
-            {
-                Profile.Surname = userEntity.Surname;
-                Profile.FirstName = userEntity.FirstName;
-                Profile.DisplayName = userEntity.DisplayName;
-                Profile.BirthDate  = userEntity.BirthDate;
-                Profile.PreferredLanguage = userEntity.PreferredLanguage;
-
-                IsActive = userEntity.IsActive;
-                AzureOid = userEntity.AzureOid;
-                Email = userEntity.Email;
-            }
-            else
-            {
-                IsActive = false;
-                AzureOid = oid;
-            }
-        }
-
-        return Page();
-    }
-
-    public async Task&lt;IActionResult&gt; OnPostAsync()
-    {
-        if (!ModelState.IsValid)
-        {
-            return Page();
-        }
-
-        var oidClaimType = "http://schemas.microsoft.com/identity/claims/objectidentifier";
-        var oid = User.Claims.FirstOrDefault(t =&gt; t.Type == oidClaimType)?.Value;
-        var email = User.Claims.FirstOrDefault(c =&gt; c.Type == "emails")?.Value;
-
-        UserEntity? userEntity = null;
-        if (oid != null)
-            userEntity = await _userService.FindUserWithOid(oid);
-        
-        if(userEntity == null)
-        {
-            userEntity = new UserEntity();
-
-            if (oid != null)
-                userEntity.AzureOid = oid;
-            if (email != null)
-                userEntity.Email = email;
-        }
-
-        userEntity.FirstName = Profile.FirstName;
-        userEntity.Surname = Profile.Surname;
-        userEntity.BirthDate = Profile.BirthDate;
-        userEntity.DisplayName = Profile.DisplayName;
-        userEntity.PreferredLanguage = Profile.PreferredLanguage;
-
-        await _userService.UpdateCreateProfile(userEntity);
-
-        return await OnGetAsync();
-    }
-}
-  
-
-
-<p>The Profile Razor page allows the user to update the profile data after authenticating using Azure B2C.</p>
-
-
-
-
-
-
-
-<p>Notes</p>
-
-
-
-<p>Onboarding and user registration in any software system needs to be robust and flexible. Because a separate identity provider is used, the application specific user data needs to be mapped to the identity profile data. The onboarding process needs to be flexible and user friendly. You also need to support account reset and account update processes, for example when a user changes email. Try to use a system which makes it easy to support, or force MFA for you users like FIDO2. At present, Azure B2C does not support strong MFA. It is not recommended to use SMS but even this is way better than only password.</p>
-
-
-
-<p>Links</p>
-
-
-
- 
-<blockquote><a href="https://damienbod.com/2022/03/11/create-azure-b2c-users-with-microsoft-graph-and-asp-net-core/">Create Azure B2C users with Microsoft Graph and ASP.NET&nbsp;Core</a></blockquote>
- 
-
-
-
- 
-<a href="https://damienbod.com/2021/10/18/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph-application-permissions-part-2/">https://damienbod.com/2021/10/18/creating-microsoft-teams-meetings-in-asp-net-core-using-microsoft-graph-application-permissions-part-2/</a>
- 
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/overview">https://docs.microsoft.com/en-us/azure/active-directory-b2c/overview</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-azure-ad-single-tenant">https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-azure-ad-single-tenant</a></p>
-
-
-
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/03/azureb2conboarding_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:38 &bull;
    3 months ago
 </div>
 
@@ -26022,7 +25821,7 @@ The post ワクチンパスポートパブリックコメント要請に対す�
 
 <div class='item-footer'>
    08:00 &bull;
-   8 months ago
+   9 months ago
 </div>
 
 </div><!-- item-body -->
