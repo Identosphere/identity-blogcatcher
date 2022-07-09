@@ -14,6 +14,7 @@ build:
 	pluto b organizations.ini -t orgsfeed -o docs/organizations
 	pluto b companies.ini -t companies -o docs/companies
 	pluto b media.ini -t media -o docs/media
+	pluto b web3.ini -t web3 -o docs/web3
 	git commit -a -m "build feeds"
 	git pull
 	git push
