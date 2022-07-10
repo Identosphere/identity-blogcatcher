@@ -21,7 +21,7 @@ build:
 
 try:
 	rm try.db
-	pluto b try.ini -t planetid -o try
+	pluto --verbose b try.ini -t planetid -o try
 
 test:
 	pluto m planetid.ini -t planetid -o test
