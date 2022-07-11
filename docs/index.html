@@ -701,7 +701,7 @@
 
 </div>
 </div>
-<sup>Last Update 2:44 AM July 11, 2022 (UTC)</sup>
+<sup>Last Update 9:46 AM July 11, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -714,6 +714,662 @@
  <h2 class='new-date'>
   Monday, 11. July 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/07/11/invite-external-users-to-azure-ad-using-microsoft-graph-and-asp-net-core/'>Invite external users to Azure AD using Microsoft Graph and ASP.NET Core</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how to invite new Azure AD external guest users and assign the users to Azure AD groups using an ASP.NET Core APP Connector to import or update existing users from an external IAM and synchronize the users in Azure AD. The authorization can be implemented using Azure AD groups and can be […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how to invite new Azure AD external guest users and assign the users to Azure AD groups using an ASP.NET Core APP Connector to import or update existing users from an external IAM and synchronize the users in Azure AD. The authorization can be implemented using Azure AD groups and can be imported or used in the ASP.NET Core API. </p>
+
+
+
+<p>Setup</p>
+
+
+
+<p>The APP Connector or the IAM connector is implemented using ASP.NET Core and Microsoft Graph. Two Azure APP registrations are used, one the for the external application and a second for the Microsoft Graph access. Both applications use an application client and can be run as background services, console applications or whatever. Only the APP Connector has access to the Microsoft Graph API and the graph application permissions are allowed only for this client. This way, the Microsoft Graph client can be controlled as a lot of privileges are required to add, update and delete users or add and remove group assignments. We only allow the client explicit imports or updates for guest users. The APP Connector sends invites to the new external guest users and the users can then authentication using an email code. The correct groups are then assigned to the user depending on the API payload. With this, it is possible to keep external user accounting and manage the external identities in AAD without having to migrate the users. One unsolved problem with this solution is single sign on (SSO). It would be possible to achieve this, if all the external users came from the same domain and the external IAM system supported SAML. AAD does not support OpenID Connect for this.</p>
+
+
+
+
+
+
+
+<p>Microsoft Graph client</p>
+
+
+
+<p>A confidential client is used to get an application access token for the Microsoft Graph API calls. The .default scope is used to request the access token using the OAuth client credentials flow. The Azure SDK ClientSecretCredential is used to authorize the client.</p>
+
+
+  public MsGraphService(IConfiguration configuration,
+	IOptions&lt;GroupsConfiguration&gt; groups,
+	ILogger&lt;MsGraphService&gt; logger)
+{
+	_groups = groups.Value;
+	_logger = logger;
+	string[]? scopes = configuration.GetValue&lt;string&gt;
+		("AadGraph:Scopes")?.Split(' ');
+		
+	var tenantId = configuration.GetValue&lt;string&gt;
+		("AadGraph:TenantId");
+
+	// Values from app registration
+	var clientId = configuration.GetValue&lt;string&gt;
+		("AadGraph:ClientId");
+		
+	var clientSecret = configuration.GetValue&lt;string&gt;
+		("AadGraph:ClientSecret");
+
+	_federatedDomainDomain = configuration.GetValue&lt;string&gt;
+		("FederatedDomain");
+
+	var options = new TokenCredentialOptions
+	{
+		AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+	};
+
+// https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
+	var clientSecretCredential = new ClientSecretCredential(
+		tenantId, clientId, clientSecret, options);
+
+	_graphServiceClient = new GraphServiceClient(
+		clientSecretCredential, scopes);
+}
+  
+
+
+<p>The following permissions were added to the Azure App registration for the Graph requests. See the Microsoft Graph documentation to see what permissions are required for what API request. All permissions are application permissions as an application access token was requested. No user is involved. </p>
+
+
+
+  Directory.Read.All  Directory.ReadWrite.All  Group.Read.All  Group.ReadWrite.All  // if role assignments are used in the Azure AD group<br>RoleManagement.ReadWrite.Directory  User.Read.All  User.ReadWrite.All  
+
+
+
+<p></p>
+
+
+
+<p>ASP.NET Core application client</p>
+
+
+
+<p>The external identity system also uses the client credentials to access the APP Connector API, this time using an access token from the second Azure App registration. This is separated from the Azure App registration used for the Microsoft Graph requests. The scopes is defined to use the “.default” value which requires no consent.</p>
+
+
+  // 1. Client client credentials client
+var app = ConfidentialClientApplicationBuilder
+    .Create(configuration["AzureAd:ClientId"])
+    .WithClientSecret(configuration["AzureAd:ClientSecret"])
+    .WithAuthority(configuration["AzureAd:Authority"])
+    .Build();
+
+var scopes = new[] { configuration["AzureAd:Scope"] };
+
+// 2. Get access token
+var authResult = await app.AcquireTokenForClient(scopes)   
+    .ExecuteAsync();
+  
+
+
+<p></p>
+
+
+
+<p>Implement the user invite</p>
+
+
+
+<p>I decided to invite the users from the external identity providers in the Azure AD as guest users. At present, the default authentication sends a code to the user email which can be used to sign-in. You could create new AAD users, or even a federated AAD user. Single sign on will only work for google, facebook or a SAML domain federation where users come from the same domain. I wish for an OpenID Connect external authentication button in my sign-in UI where I can decide which users and from what domain authenticate in my AAD. This is where AAD is really lagging behind other identity providers. </p>
+
+
+  /// &lt;summary&gt;
+/// Graph invitations only works for Azure AD, not Azure B2C
+/// &lt;/summary&gt;
+public async Task&lt;Invitation?&gt; InviteUser(UserModel userModel, string redirectUrl)
+{
+	var invitation = new Invitation
+	{
+		InvitedUserEmailAddress = userModel.Email,
+		InvitedUser = new User
+		{
+			GivenName = userModel.FirstName,
+			Surname = userModel.LastName,
+			DisplayName = $"{userModel.FirstName} {userModel.LastName}",
+			Mail = userModel.Email,
+			UserType = "Guest", // Member
+			OtherMails = new List&lt;string&gt; { userModel.Email },
+			Identities = new List&lt;ObjectIdentity&gt;
+			{
+				new ObjectIdentity
+				{
+					SignInType = "federated",
+					Issuer = _federatedDomainDomain,
+					IssuerAssignedId = userModel.Email
+				},
+			},
+			PasswordPolicies = "DisablePasswordExpiration"
+		},
+		SendInvitationMessage = true,
+		InviteRedirectUrl = redirectUrl,
+		InvitedUserType = "guest" // default is guest,member
+	};
+
+	var invite = await _graphServiceClient.Invitations
+		.Request()
+		.AddAsync(invitation);
+
+	return invite;
+}
+  
+
+
+<p></p>
+
+
+
+<p>Adding, Removing AAD users and groups</p>
+
+
+
+<p>Once the users exist in the AAD tenant, you can assign the users to groups, remove assignments, remove users or update users. If a user is disabled in the external IAM system, you cannot disable the user in the AAD with an application permission, you can only delete the user. You can assign security groups or M365  groups to the AAD guest user. With this, the AAD IT admin can manage guest users and assign the group of guests to any AAD application.</p>
+
+
+  public async Task AddRemoveGroupMembership(string userId,
+	List&lt;string&gt;? accessRolesPermissions, List&lt;string&gt; 
+	currentGroupIds, 
+	string groudId,
+	string groupType)
+{
+	if (accessRolesPermissions != null &amp;&amp;
+		accessRolesPermissions.Any(g =&gt; g.Contains(groupType)))
+	{
+		await AddGroupMembership(userId, groudId, currentGroupIds);
+	}
+	else
+	{
+		await RemoveGroupMembership(userId, groudId, currentGroupIds);
+	}
+}
+
+private async Task AddGroupMembership(string userId, string groupId, List&lt;string&gt; currentGroupIds)
+{
+	if (!currentGroupIds.Contains(groupId))
+	{
+		// add group
+		await AddUserToGroup(userId, groupId);
+		currentGroupIds.Add(groupId);
+	}
+}
+
+private async Task RemoveGroupMembership(string userId, string groupId,List&lt;string&gt; currentGroupIds)
+{
+	if (currentGroupIds.Contains(groupId))
+	{
+		// remove group
+		await RemoveUserFromGroup(userId, groupId);
+		currentGroupIds.Remove(groupId);
+	}
+}
+
+public async Task&lt;User?&gt; UserExistsAsync(string email)
+{
+	var users = await _graphServiceClient.Users
+		.Request()
+		.Filter($"mail eq '{email}'")
+		.GetAsync();
+
+	if (users.CurrentPage.Count == 0) 
+		return null;
+
+	return users.CurrentPage[0];
+}
+
+public async Task DeleteUserAsync(string userId)
+{
+	await _graphServiceClient.Users[userId]
+	   .Request()
+	   .DeleteAsync();
+}
+
+public async Task&lt;User&gt; UpdateUserAsync(User user)
+{
+	return await _graphServiceClient.Users[user.Id]
+	   .Request()
+	   .UpdateAsync(user);
+}
+
+public async Task&lt;User&gt; GetGraphUser(string userId)
+{
+	return await _graphServiceClient.Users[userId]
+		.Request()
+		.GetAsync();
+}
+
+public async Task&lt;IDirectoryObjectGetMemberGroupsCollectionPage&gt; 
+	GetGraphUserMemberGroups(string userId)
+{
+	var securityEnabledOnly = false;
+
+	return await _graphServiceClient.Users[userId]
+		.GetMemberGroups(securityEnabledOnly)
+		.Request()
+		.PostAsync();
+}
+
+private async Task RemoveUserFromGroup(string userId, string groupId)
+{
+	try
+	{
+		await _graphServiceClient.Groups[groupId]
+			.Members[userId]
+			.Reference
+			.Request()
+			.DeleteAsync();
+	}
+	catch (Exception ex)
+	{
+		_logger.LogError(ex, "{Error} RemoveUserFromGroup", ex.Message);
+	}
+}
+
+private async Task AddUserToGroup(string userId, string groupId)
+{
+	try
+	{
+		var directoryObject = new DirectoryObject
+		{
+			Id = userId
+		};
+
+		await _graphServiceClient.Groups[groupId]
+			.Members
+			.References
+			.Request()
+			.AddAsync(directoryObject);
+	}
+	catch (Exception ex)
+	{
+		_logger.LogError(ex, "{Error} AddUserToGroup", ex.Message);
+	}
+}
+  
+
+
+<p></p>
+
+
+
+<p>Create a new guest user with group assignments</p>
+
+
+
+<p>I created a service which then creates a user and assigns the defined groups to the user using the Graph services defined above. You cannot select users or groups after creating them for n-seconds. It is important to use the request result from the create requests, otherwise you will have to implement the follow up tasks in a worker process or poll the graph API until the get returns the updated user or group.</p>
+
+
+  public async Task&lt;(UserModel? UserModel, string Error)&gt; 
+	CreateUserAsync(UserModel userModel)
+{
+	var emailValid = _msGraphService.IsEmailValid(userModel.Email);
+	if (!emailValid)
+	{
+		return (null, "Email is not valid");
+	}
+
+	var user = await _msGraphService.UserExistsAsync(userModel.Email);
+	if (user != null)
+	{
+		return (null, "User with this email already exists in AAD tenant");
+	}
+
+	var result = await _msGraphService.InviteUser(userModel,
+						_configuration["InviteUserRedirctUrl"]);
+
+	if (result != null)
+	{
+		await AssignmentGroupsAsync(
+			result.InvitedUser.Id, 
+			userModel.AccessRolesPermissions, 
+			new List&lt;string&gt;());
+	}
+
+	return (userModel, string.Empty);
+}
+  
+
+
+<p>The UpdateAssignmentGroupsAsync and the AssignmentGroupsAsync maps the API definition to the configured Azure AD group and removes or adds the group as defined. </p>
+
+
+  private async Task UpdateAssignmentGroupsAsync(string userId, List&lt;string&gt;? accessRolesPermissions)
+{
+	var currentGroupIds = await _msGraphService.GetGraphUserMemberGroups(userId);
+	var currentGroupIdsList = currentGroupIds.ToList();
+	await AssignmentGroupsAsync(userId, accessRolesPermissions, currentGroupIdsList);
+}
+
+private async Task AssignmentGroupsAsync(string userId,
+	List&lt;string&gt;? accessRolesPermissions, List&lt;string&gt; currentGroupIds)
+{
+	await _msGraphService.AddRemoveGroupMembership(userId, 
+		accessRolesPermissions, currentGroupIds, _groups.UserWorkspace, Consts.USER_WORKSPACE);
+	await _msGraphService.AddRemoveGroupMembership(userId, 
+		accessRolesPermissions, currentGroupIds, _groups.AdminWorkshop, Consts.ADMIN_WORKSPACE);
+}
+  
+
+
+<p>The service method can then be made public in a Web API which requires the AAD application access token. This access token will only work for the API. The graph API access token is never made public. The Graph API access token has a lot of permissions.</p>
+
+
+  [HttpPost("Create")]
+[ProducesResponseType(StatusCodes.Status201Created, 
+	Type = typeof(UserModel))]
+[ProducesResponseType(StatusCodes.Status400BadRequest)]
+[SwaggerOperation(OperationId = "Create-AAD-guest-Post", 
+	Summary = "Creates an Azure AD guest user with assigned groups")]
+public async Task&lt;ActionResult&lt;UserModel&gt;&gt; CreateUserAsync(
+	[FromBody] UserModel userModel)
+{
+	var result = await _userGroupManagememtService
+		.CreateUserAsync(userModel);
+
+	if (result.UserModel == null)
+		return BadRequest(result.Error);
+
+	return Created(nameof(UserModel), result.UserModel);
+}
+  
+
+
+<p></p>
+
+
+
+<p>Update or delete a guest User with group assignments</p>
+
+
+
+<p>The UpdateDeleteUserAsync method deletes the AAD user, if the user is not active in the external identity system. If the user is still active, the AAD user gets updated. This will not take effect until the next authentication of the user or you could implement a policy to force a re-authentication. This depends upon the use case, it is not such a good experience, if the user id forced to update during a session, unless of course permissions were removed. The user gets assigned or removed from groups depending on the external authentication authorization definitions.</p>
+
+
+  public async Task&lt;(CreateUpdateResult? Result, string Error)&gt; 
+	§UpdateDeleteUserAsync(UserUpdateModel userModel)
+{
+	var emailValid = _msGraphService.IsEmailValid(userModel.Email);
+	if (!emailValid)
+	{
+		return (null, "Email is not valid");
+	}
+
+	var user = await _msGraphService.UserExistsAsync(userModel.Email);
+	if (user == null)
+	{
+		return (null, "User with this email does not exist");
+	}
+
+	if (userModel.IsActive)
+	{
+		user.GivenName = userModel.FirstName;
+		user.Surname = userModel.LastName;
+		user.DisplayName = $"{userModel.FirstName} {userModel.LastName}";
+
+		await _msGraphService.UpdateUserAsync(user);
+
+		await UpdateAssignmentGroupsAsync(user.Id, 
+			userModel.AccessRolesPermissions);
+
+		return (new CreateUpdateResult
+		{
+			Succeeded = true,
+			Reason = $"{userModel.Email} {userModel.Username} updated"
+		}, string.Empty);
+	}
+	else // not active, remove
+	{
+		await UpdateAssignmentGroupsAsync(user.Id, null);
+
+		await _msGraphService.DeleteUserAsync(user.Id);
+
+		return (new CreateUpdateResult
+		{
+			Succeeded = true,
+			Reason = $"{userModel.Email} {userModel.Username} removed"
+		}, string.Empty);
+	}
+}
+  
+
+
+<p>The service implementation method can be made public in a secure Web API. This is not a update but a API service which updates or deletes a user and also assigns or removes groups for this user. I used a HTTP POST for this.</p>
+
+
+  [HttpPost("UpdateUser")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(CreateUpdateResult))]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [SwaggerOperation(OperationId = "Update-AAD-guest-Post", Summary = "Updates or deletes an Azure AD guest user and assigned groups")]
+    public async Task&lt;ActionResult&lt;CreateUpdateResult&gt;&gt; UpdateUserAsync([FromBody] UserUpdateModel userModel)
+    {
+        var update = await _userGroupManagememtService
+            .UpdateUserAsync(userModel);
+
+        if (update.Result == null)
+            return BadRequest(update.Error);
+
+        return Ok(update.Result);
+    }
+  
+
+
+<p></p>
+
+
+
+<p>Testing the API using a Console application</p>
+
+
+
+<p>Any trusted application can be used to implement the client. The client application must be a trusted application because a secret is required to access the web API. If you use a non trusted client, then a UI authentication user flow with delegated permissions must be used. The Graph API access is not made public to this client either way. </p>
+
+
+
+<p></p>
+
+
+
+<p>I implemented a test client in .NET Core. Any API call could look something like this:</p>
+
+
+  static async Task&lt;HttpResponseMessage&gt; CreateUser(IConfigurationRoot configuration, 
+    AuthenticationResult authResult)
+{
+    var client = new HttpClient
+    {
+        BaseAddress = new Uri(configuration["AzureAd:ApiBaseAddress"])
+    };
+
+    client.DefaultRequestHeaders.Authorization
+        = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+    client.DefaultRequestHeaders.Accept
+        .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+    var response = await client.PostAsJsonAsync("AadUsers/Create",
+        new UserModel
+        {
+            Username = "paddy@test.com",
+            Email = "paddy@test.com",
+            FirstName = "Paddy",
+            LastName = "Murphy",
+            AccessRolesPermissions = new List&lt;string&gt; { "UserWorkspace" }
+        });
+
+    return response;
+}
+  
+
+
+<p></p>
+
+
+
+<p>Notes</p>
+
+
+
+<p>One problem with this system is that the user does not have a single sign on. Azure AD does not support this for multiple domains. It is a real pity that you cannot define an external identity provider in Azure AD which is then displayed in the Azure AD sign-in UI. To make Single Sign on with federation work in Azure AD, you must use Azure AD as the main accounting database. If all your external users have the same domain, then you could setup an SAML federation for this domain. If the users from the external domain have different domains, Azure AD does not support this. This is a big problem if you cannot migrate existing identity providers and the accounting to AAD and you require applications which require an AAD authentication.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/external-identities/what-is-b2b">https://docs.microsoft.com/en-us/azure/active-directory/external-identities/what-is-b2b</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/external-identities/redemption-experience">https://docs.microsoft.com/en-us/azure/active-directory/external-identities/redemption-experience</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/07/identity_connector_aad_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:59 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://medium.com/@benwerd'>Werdmüller on Medium</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://benwerd.medium.com/my-indieweb-real-estate-website-71f92e96372d?source=rss-3b16402f5b9d------2'>My indieweb real estate website</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+      How I rolled my own website to sell my home.  Continue reading on Medium »  
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/0*RE4aZAyAXYthogMn.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   <p><a href="https://benwerd.medium.com/my-indieweb-real-estate-website-71f92e96372d?source=rss-3b16402f5b9d------2"></a></p><p>How I rolled my own website to sell my home.</p><p><a href="https://benwerd.medium.com/my-indieweb-real-estate-website-71f92e96372d?source=rss-3b16402f5b9d------2">Continue reading on Medium »</a></p> 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*RE4aZAyAXYthogMn.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:19 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -764,7 +1420,7 @@
 <div class='wrap'>
 
    
-<p></p><p>A little earlier this year, <a href="https://werd.io/2022/my-indieweb-real-estate-website-part-one">I mentioned that I was building an indieweb real estate website</a>.</p><p>Preparing a home for sale is more difficult than I’d accounted for. Digging our worldly possessions out of it, and then ensuring that the house was in the best shape it could be, took a lot of time. And in the meantime, a lot of life happened.</p><p>Our family home in Santa Rosa is finally going on the market this week. And, although I’ll likely keep working on it, <a href="https://5405spainave.com">I have my indieweb website ready to go</a>.</p><p>When I initially brought up the idea, I set myself two main restrictions. I said it needed to be online in two weeks, and I blew through that by months. But I also said:</p><blockquote><p>It needs to get an A for SEO, site performance, and security.</p></blockquote><p>It does. Here are its core web vitals <a href="https://web.dev/measure/?url=https%3A%2F%2F5405spainave.com">via web.dev</a>:</p><p></p><p>And its security rating <a href="https://observatory.mozilla.org/analyze/5405spainave.com">via Mozilla Observatory</a>:</p><p></p><p>It helped that I hand-rolled the site.</p><p>You might note that performance remains at 97/100, while the other metrics are at 100. There is still a Cumulative Layout Shift at 0.14 seconds, which is almost certainly because there are a lot of images on the page which have dynamic heights and widths depending on the viewport. There’s more I can do there to make those images a predictable size.</p><p>There are a handful of non-obvious things I had to do. Both MLS and land parcels have a numeric identifier. If you view this on a phone, the mobile browser tries to intelligently turn those into phone numbers, creating unnecessary links. I didn’t want to link out to a third-party site for MLS or land parcels, but it turns out you can suppress automatic phone number linking with the following meta tag:</p><p><code>&lt;meta name="format-detection" content="telephone=no"&gt;</code></p><p>Each image is loaded from <a href="https://developer.mozilla.org/en-US/docs/Learn/HTML/Multimedia_and_embedding/Responsive_images">an image set</a>; I hand-resized them for various reasonable viewport sizes. I also created independently-cropped images for Twitter and Facebook.</p><p>To get the highest security rating possible, I made sure there was no inline code (no inline stylesheets or JS), and created <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP">a Content Security Policy</a> that I apply via <a href="https://httpd.apache.org/docs/2.4/howto/htaccess.html">an .htaccess file</a>.</p><p>Finally, I said:</p><blockquote><p>It’ll be a hand-rolled static site. No frameworks for the HTML, JS, or CSS, and no pre-set templates: just me, a text editor, and some design tools.</p></blockquote><p>And that’s what I did. I wrote the HTML and CSS from scratch in <a href="https://code.visualstudio.com/">VS Code</a>, making liberal use of <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/Media_Queries/Using_media_queries">media queries</a> and <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Grid_Layout">CSS grids</a>. And I had a lot of fun doing it.</p><p>My full code (which is really simple!) <a href="https://github.com/benwerd/5405spain">is available on GitHub</a>, but the most existing way to take a look <a href="https://www.5405spainave.com/">is to view the website itself at 5405spainave.com</a>.</p><p>And if you want <a href="https://www.5405spainave.com/">a beautiful wine country home in Santa Rosa, California</a>, you know who to talk to.</p><p>*</p><p>Some other ideas that came up:</p><p>What about video or virtual reality? We didn’t have a professionally-produced video of the home. We do have professionally-taken photographs, which I’ve used liberally. I took some of the others (eg of wineries and Bodega Bay), and the rest came from <a href="https://unsplash.com/">Unsplash</a>.</p><p>What if we accepted crypto for the home? It’s too difficult to do; agents, escrow, legal frameworks are not set up for this. Also, at least one member of our family makes a particular kind of face whenever crypto is mentioned. It had occurred to me that we could push the selling price for crypto sales a little higher: eg, sure, we’ll take your ETH or BTC, but the dollar equivalent will be $2M. (If you would like to give us two million dollars for our home, please do get in touch.)</p><p>What about a blog or regularly-updated content? Home sales in California are incredibly short. We could have written a blog about getting the home ready, but honestly, it was already a stressful enough process. We anticipate a very short sales window for the home itself, so we didn’t do it. I’ll likely add more narrative description in the <a href="https://5405spainave.com/our-experiences.html">our experience page</a>.</p> 
+<p></p><p>A little earlier this year, <a href="https://werd.io/2022/my-indieweb-real-estate-website-part-one">I mentioned that I was building an indieweb real estate website</a>.</p><p>Preparing a home for sale is more difficult than I’d accounted for. Digging our worldly possessions out of it, and then ensuring that the house was in the best shape it could be, took a lot of time. And in the meantime, a lot of life happened.</p><p>Our family home in Santa Rosa is finally going on the market this week. And, although I’ll likely keep working on it, <a href="https://5405spainave.com">I have my indieweb website ready to go</a>.</p><p>When I initially brought up the idea, I set myself two main restrictions. I said it needed to be online in two weeks, and I blew through that by months. But I also said:</p><blockquote><p>It needs to get an A for SEO, site performance, and security.</p></blockquote><p>It does. Here are its core web vitals <a href="https://web.dev/measure/?url=https%3A%2F%2F5405spainave.com">via web.dev</a>:</p><p></p><p>And its security rating <a href="https://observatory.mozilla.org/analyze/5405spainave.com">via Mozilla Observatory</a>:</p><p></p><p>It helped that I hand-rolled the site.</p><p>You might note that performance remains at 97/100, while the other metrics are at 100. There is still a Cumulative Layout Shift at 0.14 seconds, which is almost certainly because there are a lot of images on the page which have dynamic heights and widths depending on the viewport. There’s more I can do there to make those images a predictable size.</p><p>There are a handful of non-obvious things I had to do. For example, both MLS and land parcels have a numeric identifier. If you view this on a phone, the mobile browser tries to intelligently turn those into phone numbers, creating unnecessary links. I didn’t want to link out to a third-party site for MLS or land parcels, but it turns out you can suppress automatic phone number linking with the following meta tag:</p><p><code>&lt;meta name="format-detection" content="telephone=no"&gt;</code></p><p>Each image is loaded from <a href="https://developer.mozilla.org/en-US/docs/Learn/HTML/Multimedia_and_embedding/Responsive_images">an image set</a>; I hand-resized them for various reasonable viewport sizes. I also created independently-cropped images for Twitter and Facebook.</p><p>To get the highest security rating possible, I made sure there was no inline code (no inline stylesheets or JS), and created <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP">a Content Security Policy</a> that I apply via <a href="https://httpd.apache.org/docs/2.4/howto/htaccess.html">an .htaccess file</a>.</p><p>Finally, I said:</p><blockquote><p>It’ll be a hand-rolled static site. No frameworks for the HTML, JS, or CSS, and no pre-set templates: just me, a text editor, and some design tools.</p></blockquote><p>And that’s what I did. I wrote the HTML and CSS from scratch in <a href="https://code.visualstudio.com/">VS Code</a>, making liberal use of <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/Media_Queries/Using_media_queries">media queries</a> and <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Grid_Layout">CSS grids</a>. And I had a lot of fun doing it.</p><p>My full code (which is really simple!) <a href="https://github.com/benwerd/5405spain">is available on GitHub</a>, but the most exciting way to take a look <a href="https://www.5405spainave.com/">is to view the website itself at 5405spainave.com</a>.</p><p>And if you want <a href="https://www.5405spainave.com/">a beautiful wine country home in Santa Rosa, California</a>, you know who to talk to.</p><p>*</p><p>Some other ideas that came up:</p><p>What about video or virtual reality? We didn’t have a professionally-produced video of the home. We do have professionally-taken photographs, which I’ve used liberally. I took some of the others (eg of wineries and Bodega Bay), and the rest came from <a href="https://unsplash.com/">Unsplash</a>.</p><p>What if we accepted crypto for the home? It’s too difficult to do; agents, escrow, legal frameworks are not set up for this. Also, at least one member of our family makes a particular kind of face whenever crypto is mentioned. It had occurred to me that we could push the selling price for crypto sales a little higher: eg, sure, we’ll take your ETH or BTC, but the dollar equivalent will be $2M. (If you would like to give us two million dollars for our home, please do get in touch.)</p><p>What about a blog or regularly-updated content? Home sales in California are incredibly short. We could have written a blog about getting the home ready, but honestly, it was already a stressful enough process. We anticipate a very short sales window for the home itself, so we didn’t do it. I’ll likely add more narrative description in the <a href="https://5405spainave.com/our-experiences.html">our experience page</a>.</p><p>And analytics? The site doesn’t set any cookies or collect any analytics on the front end. However, I do push it through <a href="https://www.cloudflare.com/">Cloudflare’s CDN</a>, which gives me some simple stats to gauge success.</p><p>It’s a very simple website. Yes. <a href="https://5405spainave.com">And often, that’s all you need.</a></p> 
    
   
   
@@ -781,7 +1437,7 @@
 
 <div class='item-footer'>
    02:19 &bull;
-   27 minutes ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -853,7 +1509,7 @@
 
 <div class='item-footer'>
    04:33 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1192,7 +1848,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    15:19 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1323,7 +1979,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    20:31 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2236,7 +2892,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    17:38 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2298,7 +2954,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    17:31 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2360,7 +3016,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    17:24 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2426,7 +3082,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    17:16 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2590,7 +3246,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    15:49 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2956,7 +3612,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    15:24 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3890,7 +4546,7 @@ app.UseEndpoints(endpoints =&gt;
 
 <div class='item-footer'>
    20:05 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3956,7 +4612,7 @@ app.UseEndpoints(endpoints =&gt;
 
 <div class='item-footer'>
    18:32 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4185,7 +4841,7 @@ structure of governance are found to be lacking, here is a new canvas for you!</
 
 <div class='item-footer'>
    15:46 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4649,7 +5305,7 @@ Populating pages table  [####--------------------------------]   13%  00:00:34
 
 <div class='item-footer'>
    21:40 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4715,7 +5371,7 @@ Populating pages table  [####--------------------------------]   13%  00:00:34
 
 <div class='item-footer'>
    17:11 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4797,7 +5453,7 @@ Populating pages table  [####--------------------------------]   13%  00:00:34
 
 <div class='item-footer'>
    19:58 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4865,7 +5521,7 @@ Populating pages table  [####--------------------------------]   13%  00:00:34
 
 <div class='item-footer'>
    18:22 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4972,7 +5628,7 @@ Network of networks, given first in my presentation at EIC 2021 Keynote
 
 <div class='item-footer'>
    18:06 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5036,7 +5692,7 @@ Network of networks, given first in my presentation at EIC 2021 Keynote
 
 <div class='item-footer'>
    15:01 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5469,7 +6125,7 @@ You've used OAuth if you've ever used any kind of social login like Login with A
 
 <div class='item-footer'>
    16:48 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5711,7 +6367,7 @@ You've used OAuth if you've ever used any kind of social login like Login with A
 
 <div class='item-footer'>
    18:05 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5838,7 +6494,7 @@ You've used OAuth if you've ever used any kind of social login like Login with A
 
 <div class='item-footer'>
    16:07 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6002,7 +6658,7 @@ I sound my barbaric yawp over the roofs of the world.</p></blockquote>
 
 <div class='item-footer'>
    18:51 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6183,7 +6839,7 @@ order by
 
 <div class='item-footer'>
    21:20 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6245,7 +6901,7 @@ order by
 
 <div class='item-footer'>
    18:07 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6323,7 +6979,7 @@ order by
 
 <div class='item-footer'>
    15:50 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6395,7 +7051,7 @@ order by
 
 <div class='item-footer'>
    18:08 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6473,7 +7129,7 @@ order by
 
 <div class='item-footer'>
    16:51 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6549,7 +7205,7 @@ order by
 
 <div class='item-footer'>
    16:04 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6807,7 +7463,7 @@ sql LIKE '%VIRTUAL TABLE%USING FTS%content=%searchable%'
 
 <div class='item-footer'>
    21:21 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6934,7 +7590,7 @@ sql LIKE '%VIRTUAL TABLE%USING FTS%content=%searchable%'
 
 <div class='item-footer'>
    20:22 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7352,7 +8008,7 @@ was your’s truly working on again? :-)</p>
 
 <div class='item-footer'>
    19:40 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8246,7 +8902,7 @@ The post 紛争下のアイデンティティ〜ウクライナ侵略をうけ�
 
 <div class='item-footer'>
    15:08 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15213,263 +15869,6 @@ as well call it Web3 – is different. And it is totally exciting! Because
  <h2 class='new-date'>
   Monday, 04. April 2022
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/04/04/implementing-oauth2-client-credentials-flow-app-to-app-security-using-azure-ad-non-interactive/'>Implementing OAuth2 Client credentials flow APP to APP security using Azure AD non interactive</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to implement the OAuth client credentials flow using the Microsoft.Identity.Client Nuget package and Azure AD to create an Azure App registration. The client application requires a secret which can be an Azure App registration or a certificate to request an access token. The token and only tokens created for this client […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to implement the OAuth client credentials flow using the Microsoft.Identity.Client Nuget package and Azure AD to create an Azure App registration. The client application requires a secret which can be an Azure App registration or a certificate to request an access token. The token and only tokens created for this client can be used to access the API.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AzureADAuthRazorUiServiceApiCertificate/tree/main/ClientCredentialsFlows">Azure Client credentials flows</a></p>
-
-
-
-<p>Blogs in this series</p>
-
-
-
-  <a href="https://damienbod.com/2022/03/28/implementing-oauth2-app-to-app-security-using-azure-ad-from-a-web-app/">Implementing OAuth2 APP to APP security using Azure AD from a Web APP</a>  APP to APP security using Azure AD from a daemon app  
-
-
-
-<p>Azure App registration setup</p>
-
-
-
-<p>The Azure App registration is setup as in this blog:</p>
-
-
-
-<p><a href="https://damienbod.com/2022/03/28/implementing-oauth2-app-to-app-security-using-azure-ad-from-a-web-app/">Implementing OAuth2 APP to APP security using Azure AD from a Web&nbsp;APP</a></p>
-
-
-
-<p>An Azure App registration was then created to request new access tokens. The access_as_application claim is validated in the API.</p>
-
-
-
-<p>API</p>
-
-
-
-<p>The service API is implemented to validate the access tokens. The azp claim is used to validate that the token was requested using the known client ID and the secret. It does not validate who sent the access token, just that this client ID and secret was used to request the access token. The client credentials flow should only be used by trusted clients. The azpacr is used to validate how the token was requested. This is a confidential client. Microsoft.Identity.Web is used to implement the API security.</p>
-
-
-  JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-IdentityModelEventSource.ShowPII = true;
-JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
-
-services.AddSingleton&lt;IAuthorizationHandler, HasServiceApiRoleHandler&gt;();
-
-services.AddMicrosoftIdentityWebApiAuthentication(Configuration);
-
-services.AddControllers();
-
-services.AddAuthorization(options =&gt;
-{
-	options.AddPolicy("ValidateAccessTokenPolicy", validateAccessTokenPolicy =&gt;
-	{
-		validateAccessTokenPolicy.Requirements.Add(new HasServiceApiRoleRequirement());
-
-		// Validate id of application for which the token was created
-		// In this case the CC client application 
-		validateAccessTokenPolicy.RequireClaim("azp", "b178f3a5-7588-492a-924f-72d7887b7e48");
-
-		// only allow tokens which used "Private key JWT Client authentication"
-		// // https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens
-		// Indicates how the client was authenticated. For a public client, the value is "0". 
-		// If client ID and client secret are used, the value is "1". 
-		// If a client certificate was used for authentication, the value is "2".
-		validateAccessTokenPolicy.RequireClaim("azpacr", "1");
-	});
-});
-  
-
-
-<p>Microsoft.Identity.Client OAuth Client credentials client</p>
-
-
-
-<p>A console application is used to implement the client credentials trusted application. A console application cannot be trusted unless it is deployed to a trusted host. It would be better to use a certificate to secure this and even better if this was not a console application but instead some server deployed Azure service which uses Key Vault to persist it’s secrets and managed identities to access the secret. The ConfidentialClientApplicationBuilder is used to create a new CC flow. The access token is used to access the API.</p>
-
-
-  using System.Net.Http.Headers;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Identity.Client;
-
-var builder = new ConfigurationBuilder()
-    .SetBasePath(Directory.GetCurrentDirectory())
-    .AddUserSecrets("78cf2604-554c-4a6e-8846-3505f2c0697d")
-    .AddJsonFile("appsettings.json");
-
-var configuration = builder.Build();
-
-// 1. Client client credentials client
-var app = ConfidentialClientApplicationBuilder.Create(configuration["AzureADServiceApi:ClientId"])
-    .WithClientSecret(configuration["AzureADServiceApi:ClientSecret"])
-    .WithAuthority(configuration["AzureADServiceApi:Authority"])
-    .Build();
-
-var scopes = new[] { configuration["AzureADServiceApi:Scope"] };
-
-// 2. Get access token
-var authResult = await app.AcquireTokenForClient(scopes)   
-    .ExecuteAsync();
-
-if(authResult == null)
-{
-    Console.WriteLine("no auth result... ");
-}
-else
-{
-    Console.WriteLine(authResult.AccessToken);
-
-    // 3. Use access token to access token
-    var client = new HttpClient
-    {
-        BaseAddress = new Uri(configuration["AzureADServiceApi:ApiBaseAddress"])
-    };
-
-    client.DefaultRequestHeaders.Authorization 
-        = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
-    client.DefaultRequestHeaders.Accept
-        .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-    var response = await client.GetAsync("ApiForServiceData");
-
-    if (response.IsSuccessStatusCode)
-    {
-        Console.WriteLine(await response.Content.ReadAsStringAsync());
-    }
-}
-  
-
-
-<p>The console application uses app settings to load the trusted client. The Scope is defined to use the application ID from the Azure App registration and the .default scope. Then any API definitions will be added to the access token. It is important to used V2 access tokens which can be defined in the manifest.</p>
-
-
-  {
-  "AzureADServiceApi": {
-    "ClientId": "b178f3a5-7588-492a-924f-72d7887b7e48",
-    // "ClientSecret": "--in-user-secrets--",
-    // Authority Guid = tenanant ID
-    "Authority": "https://login.microsoftonline.com/7ff95b15-dc21-4ba6-bc92-824856578fc1",
-    "ApiBaseAddress": "https://localhost:44324",
-    "Scope": "api://b178f3a5-7588-492a-924f-72d7887b7e48/.default"
-  }
-}
-  
-
-
-<p>The access tokens returned contains the claims with the azp, roles and azpacr claims. These claims as well as the standard claims values are used to authorize each request. Authorize attributes are used with a match scheme and authorization policy which uses the claims to validate. The Azure definitions are used in the policies and the policies are used in the application. You should not use the Azure definitions directly in the application. Avoid using Roles or RequiredScope directly in controllers or specific application parts. Map these in the IClaimsTransformation or the OnTokenValidated method.</p>
-
-
-    "iss": "https://login.microsoftonline.com/7ff95b15-dc21-4ba6-bc92-824856578fc1/v2.0",
-  "iat": 1648363449,
-  "nbf": 1648363449,
-  "exp": 1648367349,
-  "aio": "E2ZgYLh1abHAkpeHvuz/fjX9QMNZDgA=",
-  "azp": "b178f3a5-7588-492a-924f-72d7887b7e48",
-  "azpacr": "1",
-  "oid": "3952ce95-8b14-47b4-b3e6-2a5521d35ed1",
-  "rh": "0.AR8AFVv5fyHcpku8koJIVlePwaXzeLGIdSpJkk9y14h7fkgfAAA.",
-  "roles": [
-    "access_as_application",
-    "service-api"
-  ],
-  "sub": "3952ce95-8b14-47b4-b3e6-2a5521d35ed1",
-  "tid": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
-  "uti": "WDee3wGpJkeJGUMN5CDOAA",
-  "ver": "2.0"
-}
-  
-
-
-<p>Implementing the application permissions in this way makes is possible to secure any daemon application or application flow with no user with a server for any deployment. The client can be hosted in an ASP.NET Core application which authenticates using Azure B2C or a service with no user interaction. The client and the API work alone. It is important that the client can be trusted to secure the secret used to request the access tokens. </p>
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/">https://docs.microsoft.com/en-us/azure/active-directory/develop/</a></p>
-
-
-
-<p><a href="https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2">https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2</a></p>
-
-
-
-<p><a href="https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/4-Call-OwnApi-Pop">https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/4-Call-OwnApi-Pop</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/scenario-protected-web-api-verification-scope-app-roles?tabs=aspnetcore">https://docs.microsoft.com/en-us/azure/active-directory/develop/scenario-protected-web-api-verification-scope-app-roles?tabs=aspnetcore</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:55 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -25507,82 +25906,6 @@ The post 【11月12日開催】金融・決済サービスにおける認証・A
 
 <div class='item-footer'>
    23:53 &bull;
-   9 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://medium.com/@benwerd'>Werdmüller on Medium</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://benwerd.medium.com/checking-in-checking-out-8a8064b592ea?source=rss-3b16402f5b9d------2'>Checking in, checking out</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-      A short story about the future of work  Continue reading on Medium »  
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/2600/1*cOvGChemcFOVFZmRk5-KmA.jpeg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   <p><a href="https://benwerd.medium.com/checking-in-checking-out-8a8064b592ea?source=rss-3b16402f5b9d------2"></a></p><p>A short story about the future of work</p><p><a href="https://benwerd.medium.com/checking-in-checking-out-8a8064b592ea?source=rss-3b16402f5b9d------2">Continue reading on Medium »</a></p> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/2600/1*cOvGChemcFOVFZmRk5-KmA.jpeg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:21 &bull;
    9 months ago
 </div>
 
