@@ -701,7 +701,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:47 PM July 11, 2022 (UTC)</sup>
+<sup>Last Update 3:00 AM July 12, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -714,6 +714,175 @@
  <h2 class='new-date'>
   Monday, 11. July 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Jul/11/sqlite-comprehend/#atom-everything'>sqlite-comprehend: run AWS entity extraction against content in a SQLite database</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I built a new tool this week: sqlite-comprehend, which passes text from a SQLite database through the AWS Comprehend entity extraction service and stores the returned entities. 
+ I created this as a complement to my s3-ocr tool, which uses AWS Textract service to perform OCR against every PDF file in an S3 bucket. 
+ Short version: given a database table full of text, run the following: 
+ % pip ins
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I built a new tool this week: <a href="https://datasette.io/tools/sqlite-comprehend">sqlite-comprehend</a>, which passes text from a SQLite database through the <a href="https://aws.amazon.com/comprehend/">AWS Comprehend</a> entity extraction service and stores the returned entities.</p>
+<p>I created this as a complement to my <a href="https://simonwillison.net/2022/Jun/30/s3-ocr/">s3-ocr tool</a>, which uses <a href="https://aws.amazon.com/textract/">AWS Textract</a> service to perform OCR against every PDF file in an S3 bucket.</p>
+<p>Short version: given a database table full of text, run the following:</p>
+ <code>% pip install sqlite-comprehend
+% sqlite-comprehend entities myblog.db blog_entry body --strip-tags
+  [###---------------------------------]    9%  00:01:02
+</code> 
+<p>This will churn through every piece of text in the <code>body</code> column of the <code>blog_entry</code> table in the <code>myblog.db</code> SQLite database, strip any HTML tags (the <code>--strip-tags</code> option), submit it to AWS Comprehend, and store the extracted entities in the following tables:</p>
+ 
+ 
+<a href="https://datasette.simonwillison.net/simonwillisonblog/comprehend_entities">comprehend_entities</a> - the extracted entities, classified by type 
+ 
+<a href="https://datasette.simonwillison.net/simonwillisonblog/blog_entry_comprehend_entities">blog_entry_comprehend_entities</a> - a table relating entities to the entries that they appear in 
+ 
+<a href="https://datasette.simonwillison.net/simonwillisonblog/comprehend_entity_types">comprehend_entity_types</a> - a small lookup table of entity types 
+ 
+<p>The above table names link to a live demo produced by running the tool against all of the content in my blog.</p>
+<p>Here are <a href="https://datasette.simonwillison.net/simonwillisonblog/blog_entry_comprehend_entities?entity=47&amp;_sort_desc=rowid">225 mentions</a> that Comprehend classified as the organization called "Mozilla".</p>
+<p>The tool tracks which rows have been processed already (in the <a href="https://datasette.simonwillison.net/simonwillisonblog/blog_entry_comprehend_entities_done">blog_entry_comprehend_entities_done</a> table), so you can run it multiple times and it will only process newly added rows.</p>
+<p>AWS Comprehend <a href="https://aws.amazon.com/comprehend/pricing/">pricing</a> starts at $0.0001 per hundred characters. <code>sqlite-comprehend</code> only submits the first 5,000 characters of each row.</p>
+ How the demo works 
+<p>My live demo for this tool uses a new <a href="https://datasette.io/">Datasette</a> instance at <a href="https://datasette.simonwillison.net/">datasette.simonwillison.net</a>. It hosts a complete copy of the data from my blog - data that lives in a Django/PostgreSQL database on Heroku, but is now mirrored to a SQLite database hosted by Datasette.</p>
+<p>The demo runs out of my <a href="https://github.com/simonw/simonwillisonblog-backup">simonwillisonblog-backup</a> GitHub repository.</p>
+<p>A couple of years ago I realized that I'm no longer happy having any content I care about not stored in a Git repository. I want to track my changes! I also want really robust backups: GitHub mirror their repos to three different regions around the world, and having data in a Git repository makes mirroring it somewhere else as easy as running a <code>git pull</code>.</p>
+<p>So I created <code>simonwillisonblog-backup</code> using a couple of my other tools: <a href="https://datasette.io/tools/db-to-sqlite">db-to-sqlite</a>, which converts a PostgreSQL database to a SQLite database, and <a href="https://datasette.io/tools/sqlite-diffable">sqlite-diffable</a>, which dumps out a SQLite database as a "diffable" directory of newline-delimited JSON files.</p>
+<p>Here's the simplest version of that pattern:</p>
+  db-to-sqlite \
+    'postgresql+psycopg2://user:pass@hostname:5432/dbname' \
+    simonwillisonblog.db --all  
+<p>This connects to PostgreSQL, loops thrlough all of the database tables and converts them all to SQLite tables stored in <code>simonwillisonblog.db</code>.</p>
+  sqlite-diffable dump simonwillisonblog.db simonwillisonblog --all  
+<p>This converts that SQLite database into a directory of JSON files. Each table gets two files: <code>table.metadata.json</code> containing the table's name, columns and schema and <code>table.ndjson</code> containing a newline-separated list of JSON arrays representing every row in that table.</p>
+<p>You can see these files for my blog's database in the <a href="https://github.com/simonw/simonwillisonblog-backup/tree/main/simonwillisonblog">simonwillisonblog</a> folder.</p>
+<p>(My actual script is <a href="https://github.com/simonw/simonwillisonblog-backup/blob/30fc957b5b6711c9a9cd3e427b709f59fd5b9c56/.github/workflows/backup.yml#L36-L67">a little more complex</a>, because I backup only selected tables and then run extra code to redact some of the fields.)</p>
+<p>Since I set this up it's captured <a href="https://github.com/simonw/simonwillisonblog-backup/commits/main">over 600 changes</a> I've applied to my blog's database, all made the regular Django admin interface.</p>
+<p>This morning I <a href="https://github.com/simonw/simonwillisonblog-backup/compare/bab595ae7cb0802b9dbc12ef29864bee75081be5...30fc957b5b6711c9a9cd3e427b709f59fd5b9c56#diff-5876767d72a925ae5674ea64687a681f6a5a935fea020c62d168c7a172ccd2c6">extended the script</a> to run <code>sqlite-comprehend</code> against my blog entries and deploy the resulting data using Datasette.</p>
+<p>The concise version of the new script looks like this:</p>
+ <code>wget -q https://datasette.simonwillison.net/simonwillisonblog.db
+</code> 
+<p>This retrieves the previous version of the database. I do this to avoid being charged by AWS Comprehend for running entity extraction against rows I have already processed.</p>
+ <code>sqlite-diffable load simonwillisonblog.db simonwillisonblog --replace
+</code> 
+<p>This creates the <code>simonwillisonblog.db</code> database by loading in the JSON from the <code>simonwillisonblog/</code> folder. I do it this way mainly to exercise theh new <a href="https://github.com/simonw/sqlite-diffable/issues/3">sqlite-diffable load</a> command I just added to that tool.</p>
+<p>The <code>--replace</code> option ensures that any tables that already exist are replaced by a fresh copy (while leaving my existing comprehend entity extraction data intact).</p>
+ <code>sqlite-comprehend entities simonwillisonblog.db blog_entry title body --strip-tags
+</code> 
+<p>This runs <code>sqlite-comprehend</code> against the blog entries that have not yet been processed.</p>
+ <code>set +e
+sqlite-utils enable-fts simonwillisonblog.db blog_series title summary --create-triggers --tokenize porter 2&gt;/dev/null
+sqlite-utils enable-fts simonwillisonblog.db blog_tag tag --create-triggers --tokenize porter 2&gt;/dev/null
+sqlite-utils enable-fts simonwillisonblog.db blog_quotation quotation source --create-triggers --tokenize porter 2&gt;/dev/null
+sqlite-utils enable-fts simonwillisonblog.db blog_entry title body --create-triggers --tokenize porter 2&gt;/dev/null
+sqlite-utils enable-fts simonwillisonblog.db blog_blogmark link_title via_title commentary --create-triggers --tokenize porter 2&gt;/dev/null
+set -e
+</code> 
+<p>This configures SQLite full-text search against each of those tables, using <a href="https://til.simonwillison.net/bash/ignore-errors">this pattern</a> to supress any errors that occur if the FTS tables already exist.</p>
+<p>Setting up FTS in this way means I can use the <a href="https://datasette.io/plugins/datasette-search-all">datasette-search-all plugin</a> to run searches like <a href="https://datasette.simonwillison.net/-/search?q=s3">this one for aws</a> across all of those tables at once.</p>
+ <code>datasette publish cloudrun simonwillisonblog.db \
+-m metadata.yml \
+--service simonwillisonblog \
+--install datasette-block-robots \
+--install datasette-graphql \
+--install datasette-search-all
+</code> 
+<p>This uses the using <a href="https://docs.datasette.io/en/stable/publish.html">datasette publish</a> command to deploy the <a href="https://datasette.simonwillison.net/">datasette.simonwillison.net</a> site to Google Cloud Run.</p>
+<p>I'm adding two more plugins here: <a href="https://datasette.io/plugins/datasette-block-robots">datasette-block-robots</a> to avoid search engine crawlers indexing a duplicate copy of my blog's content, and <a href="https://datasette.io/plugins/datasette-graphql">datasette-graphql</a> to enable GraphQL queries against my data.</p>
+<p>Here's <a href="https://datasette.simonwillison.net/graphql/simonwillisonblog?query=%7B%0A%20%20blog_entry(%0A%20%20%20%20sort_desc%3A%20id%0A%20%20%20%20where%3A%20%22id%20in%20(select%20entry_id%20from%20blog_entry_tags%20where%20tag_id%20in%20(select%20id%20from%20blog_tag%20where%20tag%20%3D%20%27datasette%27))%22%2C%0A%20%20)%20%7B%0A%20%20%20%20totalCount%0A%20%20%20%20pageInfo%20%7B%0A%20%20%20%20%20%20hasNextPage%0A%20%20%20%20%20%20endCursor%0A%20%20%20%20%7D%0A%20%20%20%20nodes%20%7B%0A%20%20%20%20%20%20id%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20created%0A%20%20%20%20%20%20body%0A%20%20%20%20%20%20blog_entry_tags_list%20%7B%0A%20%20%20%20%20%20%20%20nodes%20%7B%0A%20%20%20%20%20%20%20%20%20%20tag_id%20%7B%0A%20%20%20%20%20%20%20%20%20%20%20%20tag%0A%20%20%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D">an example GraphQL query</a> that returns my most recent blog entries that are tagged with <code>datasette</code>.</p>
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/sqlite-comprehend">sqlite-comprehend</a>: <a href="https://github.com/simonw/sqlite-comprehend/releases/tag/0.2.1">0.2.1</a> - (<a href="https://github.com/simonw/sqlite-comprehend/releases">4 releases total</a>) - 2022-07-11
+<br>Tools for running data in a SQLite database through AWS Comprehend 
+ 
+<a href="https://github.com/simonw/sqlite-diffable">sqlite-diffable</a>: <a href="https://github.com/simonw/sqlite-diffable/releases/tag/0.4">0.4</a> - (<a href="https://github.com/simonw/sqlite-diffable/releases">5 releases total</a>) - 2022-07-11
+<br>Tools for dumping/loading a SQLite database to diffable directory structure 
+ 
+<a href="https://github.com/simonw/datasette-redirect-to-https">datasette-redirect-to-https</a>: <a href="https://github.com/simonw/datasette-redirect-to-https/releases/tag/0.2">0.2</a> - (<a href="https://github.com/simonw/datasette-redirect-to-https/releases">2 releases total</a>) - 2022-07-04
+<br>Datasette plugin that redirects all non-https requests to https 
+ 
+<a href="https://github.com/simonw/datasette-unsafe-expose-env">datasette-unsafe-expose-env</a>: <a href="https://github.com/simonw/datasette-unsafe-expose-env/releases/tag/0.1.1">0.1.1</a> - (<a href="https://github.com/simonw/datasette-unsafe-expose-env/releases">2 releases total</a>) - 2022-07-03
+<br>Datasette plugin to expose some environment variables at /-/env for debugging 
+ 
+<a href="https://github.com/simonw/datasette-expose-env">datasette-expose-env</a>: <a href="https://github.com/simonw/datasette-expose-env/releases/tag/0.1">0.1</a> - 2022-07-03
+<br>Datasette plugin to expose selected environment variables at /-/env for debugging 
+ 
+<a href="https://github.com/simonw/datasette-upload-csvs">datasette-upload-csvs</a>: <a href="https://github.com/simonw/datasette-upload-csvs/releases/tag/0.7.2">0.7.2</a> - (<a href="https://github.com/simonw/datasette-upload-csvs/releases">10 releases total</a>) - 2022-07-03
+<br>Datasette plugin for uploading CSV files and converting them to database tables 
+ 
+<a href="https://github.com/simonw/datasette-packages">datasette-packages</a>: <a href="https://github.com/simonw/datasette-packages/releases/tag/0.2">0.2</a> - (<a href="https://github.com/simonw/datasette-packages/releases">3 releases total</a>) - 2022-07-03
+<br>Show a list of currently installed Python packages 
+ 
+<a href="https://github.com/simonw/datasette-graphql">datasette-graphql</a>: <a href="https://github.com/simonw/datasette-graphql/releases/tag/2.1">2.1</a> - (<a href="https://github.com/simonw/datasette-graphql/releases">35 releases total</a>) - 2022-07-03
+<br>Datasette plugin providing an automatic GraphQL API for your SQLite databases 
+ 
+<a href="https://github.com/simonw/datasette-edit-schema">datasette-edit-schema</a>: <a href="https://github.com/simonw/datasette-edit-schema/releases/tag/0.5">0.5</a> - (<a href="https://github.com/simonw/datasette-edit-schema/releases">9 releases total</a>) - 2022-07-01
+<br>Datasette plugin for modifying table schemas 
+ 
+ TIL this week 
+ 
+ <a href="https://til.simonwillison.net/zsh/argument-heredoc">Passing command arguments using heredoc syntax</a> 
+ <a href="https://til.simonwillison.net/github/reporting-bugs">Reporting bugs in GitHub to GitHub</a> 
+ <a href="https://til.simonwillison.net/github-actions/conditionally-run-a-second-job">Conditionally running a second job in a GitHub Actions workflow</a> 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:31 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -1283,7 +1452,7 @@ public async Task&lt;ActionResult&lt;UserModel&gt;&gt; CreateUserAsync(
 
 <div class='item-footer'>
    06:59 &bull;
-   12 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1359,7 +1528,7 @@ public async Task&lt;ActionResult&lt;UserModel&gt;&gt; CreateUserAsync(
 
 <div class='item-footer'>
    02:19 &bull;
-   17 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1437,7 +1606,7 @@ public async Task&lt;ActionResult&lt;UserModel&gt;&gt; CreateUserAsync(
 
 <div class='item-footer'>
    02:19 &bull;
-   17 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1509,7 +1678,7 @@ public async Task&lt;ActionResult&lt;UserModel&gt;&gt; CreateUserAsync(
 
 <div class='item-footer'>
    04:33 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1587,7 +1756,7 @@ public async Task&lt;ActionResult&lt;UserModel&gt;&gt; CreateUserAsync(
 
 <div class='item-footer'>
    01:32 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2053,7 +2222,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    14:32 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2129,7 +2298,7 @@ This is saying that this sum is less than or equal to the product of the sums of
 
 <div class='item-footer'>
    11:31 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5557,8 +5726,7 @@ Populating pages table  [####--------------------------------]   13%  00:00:34
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   金曜日の朝、前日夜のIdentiverse伝統のハ… 
-The post Global Identity GAINs Global Interoperability first appeared on @_Nat Zone.
+  金曜日の朝、前日夜のIdentiverse伝統のハ…
    
   
   
@@ -5611,7 +5779,7 @@ Network of networks, given first in my presentation at EIC 2021 Keynote
 
 
 
-<p>(写真提供：Brian Campbell)</p>The post <a href="https://www.sakimura.org/2022/06/4948/">Global Identity GAINs Global Interoperability</a> first appeared on <a href="https://www.sakimura.org">@_Nat Zone</a>.
+<p>(写真提供：Brian Campbell)</p>
    
   
   
@@ -5692,7 +5860,7 @@ Network of networks, given first in my presentation at EIC 2021 Keynote
 
 <div class='item-footer'>
    15:01 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5758,7 +5926,7 @@ Network of networks, given first in my presentation at EIC 2021 Keynote
 
 <div class='item-footer'>
    14:26 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6057,7 +6225,7 @@ You've used OAuth if you've ever used any kind of social login like Login with A
 
 <div class='item-footer'>
    14:12 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6570,7 +6738,7 @@ You've used OAuth if you've ever used any kind of social login like Login with A
 
 <div class='item-footer'>
    14:10 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7765,7 +7933,7 @@ DAO that could be on that scale.) Get in touch!</p>
 
 <div class='item-footer'>
    13:25 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8090,7 +8258,7 @@ was your’s truly working on again? :-)</p>
 
 <div class='item-footer'>
    13:38 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8202,7 +8370,7 @@ was your’s truly working on again? :-)</p>
 
 <div class='item-footer'>
    10:23 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8841,8 +9009,7 @@ services.Configure&lt;MicrosoftIdentityOptions&gt;(OpenIdConnectDefaults.Authent
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   来る6月21日に、米国コロラド州デンバー近郊で行わ… 
-The post 紛争下のアイデンティティ〜ウクライナ侵略をうけて first appeared on @_Nat Zone.
+  来る6月21日に、米国コロラド州デンバー近郊で行わ…
    
   
   
@@ -8891,7 +9058,7 @@ The post 紛争下のアイデンティティ〜ウクライナ侵略をうけ�
 
 
 
-<p>Identiverseにお越しの折には、ぜひご参加ください。</p>The post <a href="https://www.sakimura.org/2022/06/4936/">紛争下のアイデンティティ〜ウクライナ侵略をうけて</a> first appeared on <a href="https://www.sakimura.org">@_Nat Zone</a>.
+<p>Identiverseにお越しの折には、ぜひご参加ください。</p>
    
   
   
@@ -11472,153 +11639,6 @@ public class AccountController : ControllerBase
 
 
  <h2 class='new-date'>
-  Thursday, 26. May 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/May/26/weeknotes-building-datasette-cloud/#atom-everything'>Weeknotes: Building Datasette Cloud on Fly Machines, Furo for documentation</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Hosting provider Fly released Fly Machines this week. I got an early preview and I've been working with it for a few days - it's a fascinating new piece of technology. I'm using it to get my hosting service for Datasette ready for wider release. 
- Datasette Cloud 
- Datasette Cloud is the name I've given my forthcoming hosted SaaS version of Datasette. I'm building it for two reasons: 
- 
- This is a
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2022/shot-scraper-docs.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>Hosting provider Fly released <a href="https://fly.io/blog/fly-machines/">Fly Machines</a> this week. I got an early preview and I've been working with it for a few days - it's a fascinating new piece of technology. I'm using it to get my hosting service for Datasette ready for wider release.</p>
- Datasette Cloud 
-<p>Datasette Cloud is the name I've given my forthcoming hosted SaaS version of Datasette. I'm building it for two reasons:</p>
- 
- This is an obvious step towards building a sustainable business model for my open source project. It's a reasonably well-trodden path at this point: plenty of projects have demonstrated that offering paid hosting for an open source project can build a valuable business. <a href="https://gitlab.com/">GitLab</a> are an especially good example of this model. 
- There are plenty of people who could benefit from Datasette, but the friction involved in hosting it prevents them from taking advantage of the software. I've tried to make it <a href="https://docs.datasette.io/en/stable/deploying.html">as easy to host</a> as possible, but without a SaaS hosted version I'm failing to deliver value to the people that I most want the software to help. 
- 
-<p>My previous alpha was built directly on Docker, running everything on a single large VPS. Obviously it needed to scale beyond one machine, and I started experimenting with Kubernetes to make this happen.</p>
-<p>I also want to allow users to run their own plugins, without risk of malicious code causing problems for other accounts. Docker and Kubernetes containers don't offer the isolation that I need to feel comfortable doing this, so I started researching <a href="https://firecracker-microvm.github.io/">Firecracker</a> - constructed by AWS to power Lambda and Fargate, so very much designed with potentially malicious code in mind.</p>
-<p>Spinning up Firecracker on a Kubernetes cluster is no small lift!</p>
-<p>And then I heard about <a href="https://fly.io/blog/fly-machines/">Fly Machines</a>. And it looks like it's exactly what I need to get this project to the next milestone.</p>
- Fly Machines 
-<p>Fly's core offering allows you to run Docker containers in regions around the world, compiled (automatically by Fly) to Firecracker containers with geo-load-balancing so users automatically get routed to an instance running near them.</p>
-<p>Their new Fly Machines product gives you a new way to run containers there: you get full control over when containers are created, updated, started, stopped and destroyed. It's the exact level of control I need to build Datasette Cloud.</p>
-<p>It also implements scale-to-zero: you can stop a container, and Fly will automatically start it back up again for you (generally in less than a second) when fresh traffic comes in.</p>
-<p>(I had built my own version of this for my Datasette Cloud alpha, but the spin up time took more like 10s and involved showing the user a custom progress bar to help them see what was going on.)</p>
-<p>Being able to programatically start and stop Firecracker containers was exactly what I'd been trying to piece together using Kubernetes - and the ability to control which global region they go in (with the potential for <a href="https://tip.litestream.io/guides/read-replica/">Litestream replication</a> between regions in the future) is a feature I hadn't expected to be able to offer for years.</p>
-<p>So I spent most of this week on a proof of concept. I've successfully demonstrated that the Fly Machines product has almost exactly the features that I need to ship Datasette Cloud on Fly Machines - and I've confirmed that the gaps I need to fill are on Fly's near-term roadmap.</p>
-<p>I don't have anything to demonstrate publicly just yet, but I do have <a href="https://til.simonwillison.net/fly">several new TILs</a>.</p>
-<p>If this sounds interesting to you or your organization and you'd like to try it out, drop me an email at <code>swillison</code> @ Google's email service.</p>
- The Furo theme for Sphinx 
-<p>My <a href="https://github.com/simonw/shot-scraper">shot-scraper</a> automated screenshot tool's README had got a little too long, so I decided to upgrade it to <a href="https://shot-scraper.datasette.io/">a full documentation website</a>.</p>
-<p>I chose to use <a href="https://myst-parser.readthedocs.io/">MyST</a> and <a href="https://www.sphinx-doc.org/">Sphinx</a> for this, hosted on <a href="https://www.readthedocs.org/">Read The Docs</a>.</p>
-<p>MyST adds Markdown syntax to Sphinx, which is easier to remember (and for people to contribute to) than reStructuredText.</p>
-<p>After putting the site live, Adam Johnson <a href="https://twitter.com/AdamChainz/status/1527666472193081345">suggested</a> I take a look at the <a href="https://github.com/pradyunsg/furo">Furo theme</a>. I'd previously found Sphinx themes hard to navigate because they had so much differing functionality, but a personal recommendation turned out to be exactly what I needed.</p>
-<p>Furo is really nice - it fixed a slight rendering complaint I had about nested lists in the theme I was using, and since it doesn't use web fonts it dropped the bytes transferred for a page of documentation by more than half!</p>
-<p>I switched <code>shot-scraper</code> over to Furo, and liked it so much that I switched over <a href="https://docs.datasette.io/en/latest/">Datasette</a> and <a href="https://sqlite-utils.datasette.io/en/latest/">sqlite-utils</a> too.</p>
-<p>Here's what the <code>shot-scraper</code> documentation looks like now:</p>
-<p></p>
-<p>Screenshot taken using <code>shot-scraper</code> itself, like this:</p>
- <code>shot-scraper \
-  https://shot-scraper.datasette.io/en/latest/ \
-  --retina --height 1200
-</code> 
-<p>Full details of those theme migrations (including more comparative screenshots) can be found in these issues:</p>
- 
- <a href="https://github.com/simonw/shot-scraper/issues/77">shot-scraper: Switch to Furo theme #77</a> 
- <a href="https://github.com/simonw/datasette/issues/1746">datasette: Switch documentation theme to Furo #1746</a> 
- <a href="https://github.com/simonw/sqlite-utils/issues/435">sqlite-utils:  Switch to Furo documentation theme #435</a> 
- 
- Releases this week 
- 
- 
-<a href="https://github.com/simonw/datasette-unsafe-expose-env">datasette-unsafe-expose-env</a>: <a href="https://github.com/simonw/datasette-unsafe-expose-env/releases/tag/0.1">0.1</a> - 2022-05-25
-<br>Datasette plugin to expose some environment variables at /-/env for debugging 
- 
-<a href="https://github.com/simonw/shot-scraper">shot-scraper</a>: <a href="https://github.com/simonw/shot-scraper/releases/tag/0.14.1">0.14.1</a> - (<a href="https://github.com/simonw/shot-scraper/releases">16 releases total</a>) - 2022-05-22
-<br>A comand-line utility for taking automated screenshots of websites 
- 
-<a href="https://github.com/simonw/google-calendar-to-sqlite">google-calendar-to-sqlite</a>: <a href="https://github.com/simonw/google-calendar-to-sqlite/releases/tag/0.1a0">0.1a0</a> - 2022-05-21
-<br>Create a SQLite database containing your data from Google Calendar 
- 
-<a href="https://github.com/simonw/datasette-upload-dbs">datasette-upload-dbs</a>: <a href="https://github.com/simonw/datasette-upload-dbs/releases/tag/0.1.1">0.1.1</a> - (<a href="https://github.com/simonw/datasette-upload-dbs/releases">2 releases total</a>) - 2022-05-17
-<br>Upload SQLite database files to Datasette 
- 
-<a href="https://github.com/simonw/datasette-insert">datasette-insert</a>: <a href="https://github.com/simonw/datasette-insert/releases/tag/0.7">0.7</a> - (<a href="https://github.com/simonw/datasette-insert/releases">7 releases total</a>) - 2022-05-16
-<br>Datasette plugin for inserting and updating data 
- 
- TIL this week 
- 
- <a href="https://til.simonwillison.net/github-actions/job-summaries">GitHub Actions job summaries</a> 
- <a href="https://til.simonwillison.net/github-actions/oxipng">Optimizing PNGs in GitHub Actions using Oxipng</a> 
- <a href="https://til.simonwillison.net/fly/fly-docker-registry">Using the Fly Docker registry</a> 
- <a href="https://til.simonwillison.net/fly/fly-logs-to-s3">Writing Fly logs to S3</a> 
- <a href="https://til.simonwillison.net/fly/wildcard-dns-ssl">Wildcard DNS and SSL on Fly</a> 
- 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2022/shot-scraper-docs.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:35 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Monday, 23. May 2022
  </h2>
 
@@ -13241,8 +13261,7 @@ Photo by <a href="https://unsplash.com/@v2osk?utm_source=medium&amp;utm_medium=r
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   Keynote Panel at the Euro… 
-The post Decentralized, Global, Human-Owned. 理想的なweb3世界（もしあれば）においてIDMが果たす役割 first appeared on @_Nat Zone.
+  Keynote Panel at the Euro…
    
   
   
@@ -13283,7 +13302,7 @@ The post Decentralized, Global, Human-Owned. 理想的なweb3世界（もしあ�
 
 
 
-<p></p>The post <a href="https://www.sakimura.org/2022/05/4934/">Decentralized, Global, Human-Owned. 理想的なweb3世界（もしあれば）においてIDMが果たす役割</a> first appeared on <a href="https://www.sakimura.org">@_Nat Zone</a>.
+<p></p>
    
   
   
@@ -16827,8 +16846,7 @@ range of setups under that term today.</p>
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   今日で東関東大震災から11年。記憶が薄れないように… 
-The post 東日本大震災の記憶ー2011年3月11日のツイート first appeared on @_Nat Zone.
+  今日で東関東大震災から11年。記憶が薄れないように…
    
   
   
@@ -16865,7 +16883,7 @@ The post 東日本大震災の記憶ー2011年3月11日のツイート first app
 
 
 
-  Big Earthquake in Japan right now. posted at <a href="https://twitter.com/_nat_en/status/46086605773090817">14:54:37</a>  Earthquake Intensity in Japan. <a href="http://ow.ly/i/921g">ow.ly/i/921g</a> posted at <a href="https://twitter.com/_nat_en/status/46087765741416448">14:59:14</a>  All the trains in Tokyo are stopped. posted at <a href="https://twitter.com/_nat_en/status/46090107731718144">15:08:32</a>  Still Shaking. posted at <a href="https://twitter.com/_nat_en/status/46090175524253697">15:08:48</a>  It is one of the biggest shake that Japan had. <a href="https://twitter.com/shita">@shita</a> posted at <a href="https://twitter.com/_nat_en/status/46091403348029440">15:13:41</a>  Tsunami 10m H. posted at <a href="https://twitter.com/_nat_en/status/46094642541903872">15:26:33</a>  90min past the shake and it is still shaking in Tokyo. posted at <a href="https://twitter.com/_nat_en/status/46109558774575104">16:25:50</a>  Earthquake in Japan. Richter Scale 8.4. posted at <a href="https://twitter.com/_nat_en/status/46118529048645632">17:01:28</a>  another shake coming in a minute. posted at <a href="https://twitter.com/_nat_en/status/46129245612802048">17:44:03</a>  Well, it is 8.8. RT <a href="https://twitter.com/judico">@judico</a>: OMG, 7.9 in Japan. Be safe <a href="https://twitter.com/_nat_en">@_nat_en</a>! <a href="https://twitter.com/hashtag/earthquakes?src=hash">#earthquakes</a> posted at <a href="https://twitter.com/_nat_en/status/46130416779927553">17:48:43</a>  Fukushima Nuclear Power Plant’s cooling system not working. Emergency state announced. 1740JST <a href="https://twitter.com/hashtag/earthquakes?src=hash">#earthquakes</a> posted at <a href="https://twitter.com/_nat_en/status/46130966321831937">17:50:54</a>  Now it is corrected to be 8.8. RT <a href="https://twitter.com/domcat">@domcat</a>: Earthquake in Japan. Richter Scale 8.4. (via <a href="https://twitter.com/_nat_en">@_nat_en</a>) posted at <a href="https://twitter.com/_nat_en/status/46131858223792128">17:54:26</a>  Finally could get in touch with my daughter. posted at <a href="https://twitter.com/_nat_en/status/46141470301896705">18:32:38</a>  <a href="https://twitter.com/rachelmarbus">@rachelmarbus</a> Thanks! posted at <a href="https://twitter.com/_nat_en/status/46142487118622720">18:36:40</a>  Fukushima Nuclear Power Plant – If we can re-install power for the cooling system within 8 hours, it will be ok. <a href="https://twitter.com/hashtag/earthquakes?src=hash">#earthquakes</a> posted at <a href="https://twitter.com/_nat_en/status/46143200603275265">18:39:30</a>  <a href="https://twitter.com/helena_arellano">@helena_arellano</a> We still have 7 hours to install power for the cooling system. posted at <a href="https://twitter.com/_nat_en/status/46156518005018624">19:32:26</a>  Tsunami is approaching Hawaii now. posted at <a href="https://twitter.com/_nat_en/status/46199094372347904">22:21:37</a>  English Earthquake Information site for the evacuation center etc. Plz RT. <a href="http://ht.ly/4cqam">ht.ly/4cqam</a> posted at <a href="https://twitter.com/_nat_en/status/46201291550097408">22:30:20</a>  According to the Miyagi Policy, 200-300 bodies found in the Arahama beach. posted at <a href="https://twitter.com/_nat_en/status/46204478344527872">22:43:00</a>  The post <a href="https://www.sakimura.org/2022/03/4923/">東日本大震災の記憶ー2011年3月11日のツイート</a> first appeared on <a href="https://www.sakimura.org">@_Nat Zone</a>.
+  Big Earthquake in Japan right now. posted at <a href="https://twitter.com/_nat_en/status/46086605773090817">14:54:37</a>  Earthquake Intensity in Japan. <a href="http://ow.ly/i/921g">ow.ly/i/921g</a> posted at <a href="https://twitter.com/_nat_en/status/46087765741416448">14:59:14</a>  All the trains in Tokyo are stopped. posted at <a href="https://twitter.com/_nat_en/status/46090107731718144">15:08:32</a>  Still Shaking. posted at <a href="https://twitter.com/_nat_en/status/46090175524253697">15:08:48</a>  It is one of the biggest shake that Japan had. <a href="https://twitter.com/shita">@shita</a> posted at <a href="https://twitter.com/_nat_en/status/46091403348029440">15:13:41</a>  Tsunami 10m H. posted at <a href="https://twitter.com/_nat_en/status/46094642541903872">15:26:33</a>  90min past the shake and it is still shaking in Tokyo. posted at <a href="https://twitter.com/_nat_en/status/46109558774575104">16:25:50</a>  Earthquake in Japan. Richter Scale 8.4. posted at <a href="https://twitter.com/_nat_en/status/46118529048645632">17:01:28</a>  another shake coming in a minute. posted at <a href="https://twitter.com/_nat_en/status/46129245612802048">17:44:03</a>  Well, it is 8.8. RT <a href="https://twitter.com/judico">@judico</a>: OMG, 7.9 in Japan. Be safe <a href="https://twitter.com/_nat_en">@_nat_en</a>! <a href="https://twitter.com/hashtag/earthquakes?src=hash">#earthquakes</a> posted at <a href="https://twitter.com/_nat_en/status/46130416779927553">17:48:43</a>  Fukushima Nuclear Power Plant’s cooling system not working. Emergency state announced. 1740JST <a href="https://twitter.com/hashtag/earthquakes?src=hash">#earthquakes</a> posted at <a href="https://twitter.com/_nat_en/status/46130966321831937">17:50:54</a>  Now it is corrected to be 8.8. RT <a href="https://twitter.com/domcat">@domcat</a>: Earthquake in Japan. Richter Scale 8.4. (via <a href="https://twitter.com/_nat_en">@_nat_en</a>) posted at <a href="https://twitter.com/_nat_en/status/46131858223792128">17:54:26</a>  Finally could get in touch with my daughter. posted at <a href="https://twitter.com/_nat_en/status/46141470301896705">18:32:38</a>  <a href="https://twitter.com/rachelmarbus">@rachelmarbus</a> Thanks! posted at <a href="https://twitter.com/_nat_en/status/46142487118622720">18:36:40</a>  Fukushima Nuclear Power Plant – If we can re-install power for the cooling system within 8 hours, it will be ok. <a href="https://twitter.com/hashtag/earthquakes?src=hash">#earthquakes</a> posted at <a href="https://twitter.com/_nat_en/status/46143200603275265">18:39:30</a>  <a href="https://twitter.com/helena_arellano">@helena_arellano</a> We still have 7 hours to install power for the cooling system. posted at <a href="https://twitter.com/_nat_en/status/46156518005018624">19:32:26</a>  Tsunami is approaching Hawaii now. posted at <a href="https://twitter.com/_nat_en/status/46199094372347904">22:21:37</a>  English Earthquake Information site for the evacuation center etc. Plz RT. <a href="http://ht.ly/4cqam">ht.ly/4cqam</a> posted at <a href="https://twitter.com/_nat_en/status/46201291550097408">22:30:20</a>  According to the Miyagi Policy, 200-300 bodies found in the Arahama beach. posted at <a href="https://twitter.com/_nat_en/status/46204478344527872">22:43:00</a>  
    
   
   
@@ -21170,8 +21188,7 @@ discussions should ver much be dominating the public sphere.</p>
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   今年もgihyoの新春特集に書かせていただきました… 
-The post 2022年のプライバシー標準 first appeared on @_Nat Zone.
+  今年もgihyoの新春特集に書かせていただきました…
    
   
   
@@ -21200,7 +21217,7 @@ The post 2022年のプライバシー標準 first appeared on @_Nat Zone.
 
 
 
-<p>記事はこちらから参照できます→ <a href="https://gihyo.jp/lifestyle/column/newyear/2022/privacy-standards?page=1">https://gihyo.jp/lifestyle/column/newyear/2022/privacy-standards?page=1</a></p>The post <a href="https://www.sakimura.org/2022/01/4920/">2022年のプライバシー標準</a> first appeared on <a href="https://www.sakimura.org">@_Nat Zone</a>.
+<p>記事はこちらから参照できます→ <a href="https://gihyo.jp/lifestyle/column/newyear/2022/privacy-standards?page=1">https://gihyo.jp/lifestyle/column/newyear/2022/privacy-standards?page=1</a></p>
    
   
   
@@ -22024,8 +22041,7 @@ space.</p>
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   2021年12月14日の日本経済新聞朝刊（16面）… 
-The post 日本経済新聞にインタビューが掲載されました:「巨大ITと国際規格策定」 first appeared on @_Nat Zone.
+  2021年12月14日の日本経済新聞朝刊（16面）…
    
   
   
@@ -22078,7 +22094,7 @@ The post 日本経済新聞にインタビューが掲載されました:「巨�
 
 
 
-<p>アンケートによると、平日夜が濃厚です。Twitter上でアナウンスします（ここにも書くかも）ので、<a href="https://twitter.com/_nat" title="https://twitter.com/_nat">@_nat</a> をフォローして少々お待ち下さい。</p>The post <a href="https://www.sakimura.org/2021/12/4886/">日本経済新聞にインタビューが掲載されました:「巨大ITと国際規格策定」</a> first appeared on <a href="https://www.sakimura.org">@_Nat Zone</a>.
+<p>アンケートによると、平日夜が濃厚です。Twitter上でアナウンスします（ここにも書くかも）ので、<a href="https://twitter.com/_nat" title="https://twitter.com/_nat">@_nat</a> をフォローして少々お待ち下さい。</p>
    
   
   
@@ -23577,7 +23593,7 @@ So they are really jumping into the unknown with both feet.</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   7 months ago
+   8 months ago
 </div>
 
 </div><!-- item-body -->
@@ -25219,8 +25235,7 @@ Photo by <a href="https://unsplash.com/@lemonvlad?utm_source=unsplash&amp;utm_me
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   ～オープンバンキングからGAINまで～ 来る11月… 
-The post 【11月12日開催】金融・決済サービスにおける認証・API認可・同意取得プロセスの最新動向 first appeared on @_Nat Zone.
+  ～オープンバンキングからGAINまで～ 来る11月…
    
   
   
@@ -25281,7 +25296,7 @@ The post 【11月12日開催】金融・決済サービスにおける認証・A
 
 
 
-<p></p>The post <a href="https://www.sakimura.org/2021/10/4870/">【11月12日開催】金融・決済サービスにおける認証・API認可・同意取得プロセスの最新動向</a> first appeared on <a href="https://www.sakimura.org">@_Nat Zone</a>.
+<p></p>
    
   
   
@@ -26503,8 +26518,7 @@ the Customer.
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   テーマはデジタルアイデンティティなのですが、対談が… 
-The post IT批評でクロサカタツヤさんと対談しました first appeared on @_Nat Zone.
+  テーマはデジタルアイデンティティなのですが、対談が…
    
   
   
@@ -26585,7 +26599,7 @@ The post IT批評でクロサカタツヤさんと対談しました first appea
 
 
 
-<p><a href="https://it-hihyou.com/recommended/id%e3%81%af%e7%ac%ac%e5%9b%9b%e6%ac%a1%e7%94%a3%e6%a5%ad%e9%9d%a9%e5%91%bd%e3%82%92%e6%8e%a8%e9%80%b2%e3%81%99%e3%82%8b%e3%82%ad%e3%83%a3%e3%83%94%e3%82%bf%e3%83%ab%e3%81%a7%e3%81%82%e3%82%8b%e5%b4%8e/#f">アイデンティティーは第四次産業革命を推進するキャピタルである</a></p>The post <a href="https://www.sakimura.org/2021/10/4872/">IT批評でクロサカタツヤさんと対談しました</a> first appeared on <a href="https://www.sakimura.org">@_Nat Zone</a>.
+<p><a href="https://it-hihyou.com/recommended/id%e3%81%af%e7%ac%ac%e5%9b%9b%e6%ac%a1%e7%94%a3%e6%a5%ad%e9%9d%a9%e5%91%bd%e3%82%92%e6%8e%a8%e9%80%b2%e3%81%99%e3%82%8b%e3%82%ad%e3%83%a3%e3%83%94%e3%82%bf%e3%83%ab%e3%81%a7%e3%81%82%e3%82%8b%e5%b4%8e/#f">アイデンティティーは第四次産業革命を推進するキャピタルである</a></p>
    
   
   
