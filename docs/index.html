@@ -701,7 +701,7 @@
 
 </div>
 </div>
-<sup>Last Update 3:12 AM August 02, 2022 (UTC)</sup>
+<sup>Last Update 9:41 AM August 02, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -714,6 +714,915 @@
  <h2 class='new-date'>
   Tuesday, 02. August 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/08/02/workarounds-to-disable-azure-ad-user-using-microsoft-graph-and-an-application-scope/'>Workarounds to disable Azure AD user using Microsoft Graph and an application scope</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  It is not possible to disable an Azure AD user using Microsoft Graph with an application scope. This is only possible using a delegated scope. This article explores some of the workarounds to address this problem. If using an application which has no user, an application scope is used to authorize the client. Using a […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>It is not possible to disable an Azure AD user using Microsoft Graph with an application scope. This is only possible using a delegated scope. This article explores some of the workarounds to address this problem. If using an application which has no user, an application scope is used to authorize the client. Using a delegated scope requires a user and a web authentication requesting the required scope and a user consent.</p>
+
+
+
+Image: <a href="https://docs.microsoft.com/en-us/graph/overview">https://docs.microsoft.com/en-us/graph/overview</a>
+
+
+
+<p>Microsoft Graph with an application scope can be used to update, change, edit user accounts in an Azure AD tenant. The MsGraphService class is used to implement the Graph client using OAuth client credentials. This requires a user secret or a client certificate. The client uses the default scope and no consent is required or can be used because no user is involved. </p>
+
+
+  public MsGraphService(IConfiguration configuration,
+	ILogger&lt;MsGraphService&gt; logger)
+{
+	_groups = configuration.GetSection("Groups").Get&lt;List&lt;GroupsConfiguration&gt;&gt;();
+	_logger = logger;
+	string[]? scopes = configuration.GetValue&lt;string&gt;("AadGraph:Scopes")?.Split(' ');
+	var tenantId = configuration.GetValue&lt;string&gt;("AadGraph:TenantId");
+
+	// Values from app registration
+	var clientId = configuration.GetValue&lt;string&gt;("AadGraph:ClientId");
+	var clientSecret = configuration.GetValue&lt;string&gt;("AadGraph:ClientSecret");
+
+	_federatedDomainDomain = configuration.GetValue&lt;string&gt;("FederatedDomain");
+
+	var options = new TokenCredentialOptions
+	{
+		AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+	};
+
+	// https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
+	var clientSecretCredential = new ClientSecretCredential(
+		tenantId, clientId, clientSecret, options);
+
+	_graphServiceClient = new GraphServiceClient(clientSecretCredential, scopes);
+}
+  
+
+
+<p>Option 1 Delete User</p>
+
+
+
+<p>It it not possible to disable the user but the user can be deleted which is strange as deleting a user should require more rights in my opinion. </p>
+
+
+
+<p>Disadvantages</p>
+
+
+
+  User is deleted and would need to add the account again if the user account is “reactivated”  
+
+
+
+<p>The user can be deleted using the following code:</p>
+
+
+  public async Task DeleteUserAsync(string userId)
+{
+	await _graphServiceClient.Users[userId]
+	   .Request()
+	   .DeleteAsync();
+}
+  
+
+
+<p>Deleting a user is normally not an option because a user might and probably does have access to further applications. After deleting a user the user cannot be reactivated, but must sign up again.</p>
+
+
+
+<p>Option 2 Remove Security groups for user</p>
+
+
+
+<p>Another option instead of deleting the user is to use group memberships for access to different Azure services. When access to different services need to be removed or disabled, the user can be removed from the groups which are required to access service X or whatever. This will only work if groups are used to control the access to the different services in AAD or  Office etc. The following code checks if the user has access to the explicit groups and removes the memberships if required. This works well and does not change the user settings for further services in Azure AD, or office which are outside the scope.</p>
+
+
+  public async Task RemoveUserFromAllGroupMemberships(string userId)
+{
+	var currentGroupIds = await GetGraphUserMemberGroups(userId);
+	var currentGroupIdsList = currentGroupIds.ToList();
+
+	// Only delete specific groups we defined in this app.
+	foreach (var group in _groups)
+	{
+		if(currentGroupIdsList.Contains(group.GroupId))
+		// remove group
+		await RemoveUserFromGroup(userId, group.GroupId);
+		currentGroupIds.Remove(group.GroupId);
+	}
+}
+  
+
+
+<p>The group membership for the user is deleted. </p>
+
+
+  private async Task RemoveUserFromGroup(string userId, string groupId)
+{
+	try
+	{
+		await _graphServiceClient.Groups[groupId]
+			.Members[userId]
+			.Reference
+			.Request()
+			.DeleteAsync();
+	}
+	catch (Exception ex)
+	{
+		_logger.LogError(ex, "{Error} RemoveUserFromGroup", ex.Message);
+	}
+}
+  
+
+
+<p>Disadvantages</p>
+
+
+
+  Applications must use security groups for access control  
+
+
+
+<p>For this to work, the groups must be used to force the authorization. This requires some IT management.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/api/user-delete">https://docs.microsoft.com/en-us/graph/api/user-delete</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/api/resources/groups-overview">https://docs.microsoft.com/en-us/graph/api/resources/groups-overview</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/fundamentals/users-default-permissions#compare-member-and-guest-default-permissions">https://docs.microsoft.com/en-us/azure/active-directory/fundamentals/users-default-permissions#compare-member-and-guest-default-permissions</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/graph/overview">https://docs.microsoft.com/en-us/graph/overview</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/07/microsoft_graph_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:56 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/a-little-bit.html'> A little bit of menu reorganizing on the microblog … I would</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   A little bit of menu reorganizing on the microblog … I would have so much time on my hands if I stopped tinkering! 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>A little bit of menu reorganizing on the microblog … I would have so much time on my hands if I stopped tinkering!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:40 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/the-antilibrary-why.html'> The Antilibrary: Why Unread Books Are The Most Important - m</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The Antilibrary: Why Unread Books Are The Most Important - makes me feel better about this 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://fs.blog/the-antilibrary/">The Antilibrary: Why Unread Books Are The Most Important -</a> makes me feel better about <a href="https://john.philpin.com/bookshelf/">this</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:38 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/in-the-last.html'> In the last  📚Reader’s Republic, I said England (not the UK)</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   In the last  📚Reader’s Republic, I said England (not the UK) suffers from many things, not least of which is an identity crisis. 
+ I just stumbled across this. 
+ Tolkien’s Writings Were a Mythology for the History of England 
+ (Yes I need to get the RR notes published, sorry!) 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>In the last  📚Reader’s Republic, I said England (not the UK) suffers from many things, not least of which is an identity crisis.</p>
+<p>I just stumbled across this.</p>
+<p><a href="http://www.todayifoundout.com/index.php/2022/06/how-tolkiens-writings-were-a-mythology-for-the-history-of-england/">Tolkien’s Writings Were a Mythology for the History of England</a></p>
+<p>(Yes I need to get the RR notes published, sorry!)</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:36 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/musks-antics-are.html'> Musk’s antics are turning Tesla customers against Tesla 
+ Ma</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Musk’s antics are turning Tesla customers against Tesla 
+ Maybe the world is about to get better? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://www.aljazeera.com/economy/2022/8/1/musks-antics-turn-tesla-owners-new-buyers-against-it">Musk’s antics are turning Tesla customers against Tesla</a></p>
+<p>Maybe the world is about to get better?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:30 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/the-bluestocking-vol.html'> The Bluestocking, vol 244 
+ 
+ “I don’t know about you, but m</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The Bluestocking, vol 244 
+ 
+ “I don’t know about you, but my enjoyment of the Tory leadership election has increased a thousandfold since I realised that Rishi Sunak reminds me of Niles Crane.” 
+ 
+ 💬 Helen Lewis 
+ ROTFLMAO - is that still a thing? 
+ It should be! 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://helenlewis.substack.com/p/the-bluestocking-vol-244">The Bluestocking, vol 244</a></p>
+<blockquote>
+<p>“I don’t know about you, but my enjoyment of the Tory leadership election has increased a thousandfold since I realised that Rishi Sunak reminds me of Niles Crane.”</p>
+</blockquote>
+<p>💬 Helen Lewis</p>
+<p>ROTFLMAO - is that still a thing?</p>
+<p>It should be!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:23 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/instagram-walks-back.html'> Instagram walks back its changes. 
+ 
+ “Users serve Instagram</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Instagram walks back its changes. 
+ 
+ “Users serve Instagram, not the other way around.” 
+ 
+ 💬 Casey Newton 
+ 
+ “Like all of them.” 
+ 
+ 💬 John Philpin 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://www.platformer.news/p/-instagram-walks-back-its-changes">Instagram walks back its changes.</a></p>
+<blockquote>
+<p>“Users serve Instagram, not the other way around.”</p>
+</blockquote>
+<p>💬 Casey Newton</p>
+<blockquote>
+<p>“Like all of them.”</p>
+</blockquote>
+<p>💬 John Philpin</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:21 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/stowe-boyd-preferably.html'> Stowe Boyd : Preferably Paradoxical  
+ 
+ “Quiet Quitting” 
+ </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Stowe Boyd : Preferably Paradoxical  
+ 
+ “Quiet Quitting” 
+ 
+ A new term to me - but  yes. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Stowe Boyd : <a href="https://www.workfutures.io/p/preferably-paradoxical">Preferably Paradoxical </a></p>
+<blockquote>
+<p>“Quiet Quitting”</p>
+</blockquote>
+<p>A new term to me - but  yes.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:20 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/on-a-recent.html'> On a recent CoreInt @danielpunkass riffed on Mars Edit 5. 
+ </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   On a recent CoreInt @danielpunkass riffed on Mars Edit 5. 
+ @manton raised iOS towards the end of the show. 
+ I was thinking iOS as soon as I heard V5. 
+ I think not offering an iOS solution when Mars Edit 5 gets released would be crazy. 
+ What do you all think? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>On a recent CoreInt <a href="https://micro.blog/danielpunkass">@danielpunkass</a> riffed on Mars Edit 5.</p>
+<p><a href="https://micro.blog/manton">@manton</a> raised iOS towards the end of the show.</p>
+<p>I was thinking iOS as soon as I heard V5.</p>
+<p>I think not offering an iOS solution when Mars Edit 5 gets released would be crazy.</p>
+<p>What do you all think?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:18 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/the-end-of.html'> The End of Social Media. 
+ 
+ “Why friend graphs can‘t compet</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The End of Social Media. 
+ 
+ “Why friend graphs can‘t compete in an algorithmic world.” 
+ 
+ Clearly they aren’t micro bloggers! 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://every.to/p/the-end-of-social-media">The End of Social Media.</a></p>
+<blockquote>
+<p>“Why friend graphs can‘t compete in an algorithmic world.”</p>
+</blockquote>
+<p>Clearly they aren’t micro bloggers!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:12 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/02/wrong-road-real.html'> Wrong Road — Real Life 
+ 
+ “Our individualistic transportati</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Wrong Road — Real Life 
+ 
+ “Our individualistic transportation network reflects American capitalism’s fundamental and perpetually renewed dependence on speculation, financialization, and rapacious consumerism.” 
+ 
+ Strong words! 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://reallifemag.com/wrong-road/">Wrong Road — Real Life</a></p>
+<blockquote>
+<p>“Our individualistic transportation network reflects American capitalism’s fundamental and perpetually renewed dependence on speculation, financialization, and rapacious consumerism.”</p>
+</blockquote>
+<p>Strong words!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:11 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -767,7 +1676,7 @@
 
 <div class='item-footer'>
    01:14 &bull;
-   2 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -837,7 +1746,7 @@
 
 <div class='item-footer'>
    23:40 &bull;
-   4 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -903,7 +1812,7 @@
 
 <div class='item-footer'>
    18:39 &bull;
-   9 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -979,7 +1888,7 @@
 
 <div class='item-footer'>
    18:07 &bull;
-   9 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1057,7 +1966,7 @@
 
 <div class='item-footer'>
    18:07 &bull;
-   9 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1134,7 +2043,7 @@
 
 <div class='item-footer'>
    16:36 &bull;
-   11 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1219,7 +2128,7 @@
 
 <div class='item-footer'>
    06:34 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1287,7 +2196,7 @@
 
 <div class='item-footer'>
    04:40 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1574,7 +2483,7 @@
 
 <div class='item-footer'>
    15:18 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1602,7 +2511,7 @@
 
   
     
-    <a href='https://john.philpin.com/2022/07/31/if-you-are.html'> If you are OZ or Kiwi oriented, you might want to weigh in o</a>
+    <a href='https://john.philpin.com/2022/07/31/if-you-are.html'> If you are OZ or Kiwi-oriented, you might want to weigh in o</a>
   
 
 </h3>
@@ -1613,8 +2522,8 @@
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   If you are OZ or Kiwi oriented, you might want to weigh in on a LinkedIN post I dropped in today. 
- Herehttps://www.linkedin.com/posts/johnphilpin_it-just-occurred-to-me-activity-6959372988899094529-iLak) 
+   If you are OZ or Kiwi-oriented, you might want to weigh in on a LinkedIn post I dropped in today. 
+ Here 
  It’s an attempt at humour. 
    
   
@@ -1630,8 +2539,8 @@
  -->
 <div class='wrap'>
 
-<p>If you are OZ or Kiwi oriented, you might want to weigh in on a LinkedIN post I dropped in today.</p>
-<p><a>Here</a><a href="https://www.linkedin.com/posts/johnphilpin_it-just-occurred-to-me-activity-6959372988899094529-iLak">https://www.linkedin.com/posts/johnphilpin_it-just-occurred-to-me-activity-6959372988899094529-iLak</a>)</p>
+<p>If you are OZ or Kiwi-oriented, you might want to weigh in on a LinkedIn post I dropped in today.</p>
+<p><a href="https://www.linkedin.com/posts/johnphilpin_it-just-occurred-to-me-activity-6959372988899094529-iLak">Here</a></p>
 <p>It’s an attempt at humour.</p>
    
   
@@ -1643,7 +2552,7 @@
 
 <div class='item-footer'>
    10:44 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1676,10 +2585,11 @@
    note: summary goes first; than try content -->
 
    But I don’t always take good advice … 
+ &nbsp; 
  
  Keep your feed under control. Don’t subscribe to too many feeds and periodically go through the list and remove the ones that don’t provide value to your life. 
  Avoid feeds that are too busy. Don’t subscribe to feeds that push content out on a daily basis.
-Disable all notifications from your RSS reader. Unread messages counter, email notifications, push n
+Disable all notifications from your RSS reader. Unread messages counter, email notification
    
   
   
@@ -1695,6 +2605,7 @@ Disable all notifications from your RSS reader. Unread messages counter, email n
 <div class='wrap'>
 
 <p>But I don’t always take good advice …</p>
+<p>&nbsp;</p>
  
  Keep your feed under control. Don’t subscribe to too many feeds and periodically go through the list and remove the ones that don’t provide value to your life. 
  Avoid feeds that are too busy. Don’t subscribe to feeds that push content out on a daily basis.
@@ -1989,7 +2900,7 @@ Disable all notifications from your RSS reader. Unread messages counter, email n
 
 <div class='item-footer'>
    19:51 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2053,7 +2964,7 @@ Disable all notifications from your RSS reader. Unread messages counter, email n
 
 <div class='item-footer'>
    19:18 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2254,7 +3165,7 @@ docker run -it multiarch/ubuntu-core:s390x-focal /bin/bash
 
 <div class='item-footer'>
    19:02 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2339,7 +3250,7 @@ docker run -it multiarch/ubuntu-core:s390x-focal /bin/bash
 
 <div class='item-footer'>
    18:10 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2557,7 +3468,7 @@ end
 
 <div class='item-footer'>
    21:09 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3301,7 +4212,7 @@ end
 
 <div class='item-footer'>
    17:55 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3397,7 +4308,7 @@ end
 
 <div class='item-footer'>
    15:51 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3473,7 +4384,7 @@ end
 
 <div class='item-footer'>
    15:50 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3700,217 +4611,6 @@ end
 
 
 <h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/27/algorithmic-nonsense-step.html'> Algorithmic nonsense. 
- 
- Step 1: move away from as many soc</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Algorithmic nonsense. 
- 
- Step 1: move away from as many social as you can
-Step 2: move as much content as you can on an RSS reader 
- 
- YES! 
- BUT … 
- ’Content’ won’t be on my RSS reader. 
- Articles, interesting posts, podcasts, useful links, et al, absolutely. 
- But ’content’ … nah. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://manuelmoreale.com/thoughts/algorithmic-nonsense">Algorithmic nonsense.</a></p>
-<blockquote>
-<p>Step 1: move away from as many social as you can
-Step 2: move as much content as you can on an RSS reader</p>
-</blockquote>
-<p>YES!</p>
-<p>BUT …</p>
-<p><a href="https://words.philpin.com/owning-your-own-work">’Content’</a> won’t be on my RSS reader.</p>
-<p>Articles, interesting posts, podcasts, useful links, et al, absolutely.</p>
-<p>But <a href="https://words.philpin.com/owning-your-own-work">’content’</a> … nah.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:43 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/27/after-five-years.html'> After five years in prison for a Ponzi scheme and a lifetime</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   After five years in prison for a Ponzi scheme and a lifetime ban from the pharmaceutical industry, Martin Shkreli announces his new venture: a web3 drug discovery platform 
- Filed in the ‘What Could Possibly Go Wrong’ bucket 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://web3isgoinggreat.com/single/martin-shkreli-druglike">After five years in prison for a Ponzi scheme and a lifetime ban from the pharmaceutical industry, Martin Shkreli announces his new venture: a web3 drug discovery platform</a></p>
-<p>Filed in the ‘What Could Possibly Go Wrong’ bucket</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:36 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/27/damien-hirst-to.html'> Damien Hirst to burn thousands of his paintings to show art </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Damien Hirst to burn thousands of his paintings to show art as ‘currency’. 
- AFTER he sold them … he’s not that dumb! 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.theguardian.com/artanddesign/2022/jul/26/damien-hirst-to-burn-thousands-of-his-paintings-to-show-art-as-currency">Damien Hirst to burn thousands of his paintings to show art as ‘currency’.</a></p>
-<p>AFTER he sold them … he’s not that dumb!</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:36 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='http://simonwillison.net'>Simon Willison</a>
 </h4>
 
@@ -3959,7 +4659,7 @@ Step 2: move as much content as you can on an RSS reader</p>
 
 <div class='item-footer'>
    20:43 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4025,7 +4725,7 @@ Step 2: move as much content as you can on an RSS reader</p>
 
 <div class='item-footer'>
    19:49 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4194,138 +4894,6 @@ Step 2: move as much content as you can on an RSS reader</p>
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/26/trumps-authoritarian-plans.html'> Trump’s Authoritarian Plans for a Second Term Should Scare t</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Trump’s Authoritarian Plans for a Second Term Should Scare the Crap Out of You 
- They were right. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.vanityfair.com/news/2022/07/donald-trump-second-term-purge-plans">Trump’s Authoritarian Plans for a Second Term Should Scare the Crap Out of You</a></p>
-<p>They were right.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:45 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/26/just-discovered-that.html'> Just discovered that I can write my own logic in Text Soap. </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Just discovered that I can write my own logic in Text Soap. How long has that been there? 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Just discovered that I can write my own logic in Text Soap. How long has that been there?</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:08 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.sakimura.org'>@_Nat Zone</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -4807,211 +5375,6 @@ but probably lots of other places, too.</p>
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/26/preparing-for-this.html'> Preparing for this week’s newsletter 
- 
- “Like all states wi</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Preparing for this week’s newsletter 
- 
- “Like all states with broad-based income taxes, New York has asserted the right to tax nonresident income earned within its borders. But unlike most other jurisdictions with significant cross-border commuter flows—such as Illinois and Indiana or Virginia and Maryland—New York has never given nonresidents a tax pass in the form of ‘reciprocity’ with their ho
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Preparing for this week’s newsletter</p>
-<blockquote>
-<p>“Like all states with broad-based income taxes, New York has asserted the right to tax nonresident income earned within its borders. But unlike most other jurisdictions with significant cross-border commuter flows—such as Illinois and Indiana or Virginia and Maryland—New York has never given nonresidents a tax pass in the form of ‘reciprocity’ with their home states.”</p>
-</blockquote>
-<p><a href="https://www.city-journal.org/html/albanys-tristate-tax-haul-15342.html">Read More</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:05 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/26/good-company-the.html'> Good Company. 
- The United States and Eritrea are the only t</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Good Company. 
- The United States and Eritrea are the only two countries that tax their non-resident citizens on worldwide income. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Good Company.</p>
-<p>The United States and Eritrea are the only two countries that tax their non-resident citizens on worldwide income.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:00 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/26/reducing-the-bottom.html'> 
- “Reducing the bottom line is a great way to create the ill</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- “Reducing the bottom line is a great way to create the illusion of top-line growth.” 
- 
- 💬 Douglas Rushkoff 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<blockquote>
-<p>“Reducing the bottom line is a great way to create the illusion of top-line growth.”</p>
-</blockquote>
-<p>💬 Douglas Rushkoff</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:32 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Sunday, 24. July 2022
  </h2>
@@ -5138,7 +5501,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    21:03 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5198,161 +5561,6 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    20:59 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/24/oh-florida-florida.html'> Oh Florida, Florida, Florida ….. 
-</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Oh Florida, Florida, Florida ….. 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/5e777b3b65.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Oh Florida, Florida, Florida …..</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/5e777b3b65.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:50 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/07/24/first-time-into.html'> First time into the triple digits - I know I will be pushed </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   First time into the triple digits - I know I will be pushed back out tomorrow. 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/b4b4dfca4b.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>First time into the triple digits - I know I will be pushed back out tomorrow.</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/b4b4dfca4b.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:49 &bull;
    9 days ago
 </div>
 
@@ -5421,7 +5629,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    15:52 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5809,7 +6017,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    16:34 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5939,7 +6147,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    20:40 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6252,7 +6460,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    16:23 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6517,7 +6725,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    18:32 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6585,7 +6793,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    16:26 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6651,7 +6859,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    15:41 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6853,7 +7061,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    18:51 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6927,7 +7135,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    17:08 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7098,7 +7306,7 @@ set -e
 
 <div class='item-footer'>
    21:31 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8110,7 +8318,7 @@ export default defineConfig({
 
 <div class='item-footer'>
    15:19 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8176,7 +8384,7 @@ export default defineConfig({
 
 <div class='item-footer'>
    20:31 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8394,7 +8602,7 @@ export default defineConfig({
 
 <div class='item-footer'>
    17:38 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8456,7 +8664,7 @@ export default defineConfig({
 
 <div class='item-footer'>
    17:31 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8620,7 +8828,7 @@ export default defineConfig({
 
 <div class='item-footer'>
    15:49 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8771,7 +8979,7 @@ export default defineConfig({
 
 <div class='item-footer'>
    15:24 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15713,523 +15921,6 @@ Photo by <a href="https://unsplash.com/@v2osk?utm_source=medium&amp;utm_medium=r
 
 
  <h2 class='new-date'>
-  Wednesday, 20. April 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/'>Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web API</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how Azure AD continuous access (CA) can be used in an ASP.NET Core UI application to force MFA when using an administrator API from a separate ASP.NET Core application. Both applications are secured using Microsoft.Identity.Web. An ASP.NET Core Razor Page application is used to implement the UI application. The API is implemented […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how Azure AD continuous access (CA) can be used in an ASP.NET Core UI application to force MFA when using an administrator API from a separate ASP.NET Core application. Both applications are secured using Microsoft.Identity.Web. An ASP.NET Core Razor Page application is used to implement the UI application. The API is implemented with swagger open API and ASP.NET Core. An Azure AD conditional access authentication context is used to implement the MFA requirement. An Azure AD CAE policy is setup which requires the defines MFA and uses the context.</p>
-
-
-
-<p>Code <a href="https://github.com/damienbod/AspNetCoreAzureADCAE">https://github.com/damienbod/AspNetCoreAzureADCAE</a></p>
-
-
-
-<p>History</p>
-
-
-
-<p>2022-05-25 Update info about AAD license requirements.</p>
-
-
-
-<p>Blogs in this series</p>
-
-
-
-  Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web&nbsp;API  <a href="https://damienbod.com/2022/05/23/implement-azure-ad-continuous-access-evaluation-cae-step-up-with-asp-net-core-blazor-using-a-web-api/">Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API</a>  <a href="https://damienbod.com/2022/05/30/implement-azure-ad-continuous-access-evaluation-cae-standalone-with-blazor-asp-net-core/">Implement Azure AD Continuous Access (CA) standalone with Blazor ASP.NET Core</a>  <a href="https://damienbod.com/2022/06/13/force-mfa-in-blazor-using-azure-ad-and-continuous-access/">Force MFA in Blazor using Azure AD and Continuous Access</a>  
-
-
-
-<p>CAE is available to everyone , including free tenants.<br>CA Auth Context requires AAD P1, as its dependent on the CA feature, which is only available to AAD P1 and above.</p>
-
-
-
-<p>Requirements</p>
-
-
-
-  Azure AD tenant with P1 license for CA Auth Context  Microsoft Graph   
-
-
-
-<p>Create a Conditional access Authentication Context</p>
-
-
-
-<p>A Continuous access evaluation (CAE) authentication context was created using Microsoft Graph and can be viewed in the portal. In this demo, like the Microsoft <a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app">sample</a> application, three authentication contexts are created using Microsoft Graph. The Policy.Read.ConditionalAccess Policy.ReadWrite.ConditionalAccess permissions are required to change the CAE authentication contexts.</p>
-
-
-
-<p>This is only needed to create the CA authentication contexts. Once created, this can be used in the target applications. </p>
-
-
-  public async Task CreateAuthContextViaGraph(string acrKey, string acrValue)
-{
-	await _graphAuthContextAdmin.CreateAuthContextClassReferenceAsync(
-		acrKey, 
-		acrValue, 
-		$"A new Authentication Context Class Reference created at {DateTime.UtcNow}", 
-		true);
-}
-
-public async Task&lt;AuthenticationContextClassReference?&gt; 
-	CreateAuthContextClassReferenceAsync(
-		string id, 
-		string displayName, 
-		string description, 
-		bool IsAvailable)
-{
-	try
-	{
-		var acr = await _graphServiceClient
-			.Identity
-			.ConditionalAccess
-			.AuthenticationContextClassReferences
-			.Request()
-			.AddAsync(new AuthenticationContextClassReference
-			{
-				Id = id,
-				DisplayName = displayName,
-				Description = description,
-				IsAvailable = IsAvailable,
-				ODataType = null
-			});
-
-		return acr;
-	}
-	catch (ServiceException e)
-	{
-		_logger.LogWarning(
-		"We could not add a new ACR: {exception}",  e.Error.Message);
-
-		return null;
-	}
-}
-  
-
-
-<p>The created conditional access authentication context can be viewed in the portal in the Security blade of the Azure AD tenant. </p>
-
-
-
-
-
-
-
-<p>If you open the context, you can see the id used. This is used in the applications to check the MFA requirement.</p>
-
-
-
-
-
-
-
-<p>Create a CAE policy to use the context</p>
-
-
-
-<p>Now that a authentication context exists, a CAE policy can be created to use this. I created a policy to require MFA.</p>
-
-
-
-
-
-
-
-<p>Implement the API and use the CAE context</p>
-
-
-
-<p>The API application needs to validate if the access token contains the acrs claim with the c1 value. If CAE is activated and the claim is included in the token, then any policies which use this CAE authentication context must be fulfilled or no events have been received which inform the client that this access token is invalid. A lot of things need to be implemented correctly for this to work. If configured correctly, a MFA step up authentication is required to use the API. The API returns an unauthorized response as specified in the OpenID Connect signals and events specification, if the claim is missing from the access token. This is handled by the calling UI application.</p>
-
-
-  /// &lt;summary&gt;
-/// Claims challenges, claims requests, and client capabilities
-/// 
-/// https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge
-/// 
-/// Applications that use enhanced security features like Continuous Access Evaluation (CAE) 
-/// and Conditional Access authentication context must be prepared to handle claims challenges.
-/// &lt;/summary&gt;
-public class CaeClaimsChallengeService
-{
-    private readonly IConfiguration _configuration;
-
-    public CaeClaimsChallengeService(IConfiguration configuration)
-    {
-        _configuration = configuration;
-    }
-    /// &lt;summary&gt;
-    /// Retrieves the acrsValue from database for the request method.
-    /// Checks if the access token has acrs claim with acrsValue.
-    /// If does not exists then adds WWW-Authenticate and throws UnauthorizedAccessException exception.
-    /// &lt;/summary&gt;
-    public void CheckForRequiredAuthContext(string authContextId, HttpContext context)
-    {
-        if (!string.IsNullOrEmpty(authContextId))
-        {
-            string authenticationContextClassReferencesClaim = "acrs";
-
-            if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
-            {
-                throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
-            }
-
-            var acrsClaim = context.User.FindAll(authenticationContextClassReferencesClaim).FirstOrDefault(x =&gt; x.Value == authContextId);
-
-            if (acrsClaim?.Value != authContextId)
-            {
-                if (IsClientCapableofClaimsChallenge(context))
-                {
-                    string clientId = _configuration.GetSection("AzureAd").GetSection("ClientId").Value;
-                    var base64str = Convert.ToBase64String(Encoding.UTF8.GetBytes("{\"access_token\":{\"acrs\":{\"essential\":true,\"value\":\"" + authContextId + "\"}}}"));
-
-                    context.Response.Headers.Append("WWW-Authenticate", $"Bearer realm=\"\", authorization_uri=\"https://login.microsoftonline.com/common/oauth2/authorize\", client_id=\"" + clientId + "\", error=\"insufficient_claims\", claims=\"" + base64str + "\", cc_type=\"authcontext\"");
-                    context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-                    string message = string.Format(CultureInfo.InvariantCulture, "The presented access tokens had insufficient claims. Please request for claims requested in the WWW-Authentication header and try again.");
-                    context.Response.WriteAsync(message);
-                    context.Response.CompleteAsync();
-                    throw new UnauthorizedAccessException(message);
-                }
-                else
-                {
-                    throw new UnauthorizedAccessException("The caller does not meet the authentication  bar to carry our this operation. The service cannot allow this operation");
-                }
-            }
-        }
-    }
-
-    /// &lt;summary&gt;
-    /// Evaluates for the presence of the client capabilities claim (xms_cc) and accordingly returns a response if present.
-    /// &lt;/summary&gt;
-    public bool IsClientCapableofClaimsChallenge(HttpContext context)
-    {
-        string clientCapabilitiesClaim = "xms_cc";
-
-        if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
-        {
-            throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
-        }
-
-        var ccClaim = context.User.FindAll(clientCapabilitiesClaim).FirstOrDefault(x =&gt; x.Type == "xms_cc");
-
-        if (ccClaim != null &amp;&amp; ccClaim.Value == "cp1")
-        {
-            return true;
-        }
-
-        return false;
-    }
-}
-  
-
-
-<p>The API uses the CAE scoped service to validate the CAE authentication context and either the data is returned or an unauthorized exception is returned. The Authorize attribute is also used to validate the JWT bearer token and validate that the authentication policy is supported. You could probably implement middleware to check the CAE authentication context as well.</p>
-
-
-  [Authorize(Policy = "ValidateAccessTokenPolicy", AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-[ApiController]
-[Route("[controller]")]
-public class ApiForUserDataController : ControllerBase
-{
-    private readonly CaeClaimsChallengeService _caeClaimsChallengeService;
-
-    public ApiForUserDataController(CaeClaimsChallengeService caeClaimsChallengeService)
-    {
-        _caeClaimsChallengeService = caeClaimsChallengeService;
-    }
-
-    [HttpGet]
-    public IEnumerable&lt;string&gt; Get()
-    {
-        // returns unauthorized exception with WWW-Authenticate header if CAE claim missing in access token
-        // handled in the caller client exception with challenge returned if not ok
-        _caeClaimsChallengeService.CheckForRequiredAuthContext(AuthContextId.C1, HttpContext);
-        return new List&lt;string&gt; { "admin API CAE protected data 1", "admin API CAE protected  data 2" };
-    }
-}
-  
-
-
-<p>The program file adds the services and secure the API using Microsoft.Identity.Web. A policy is created to used on the controllers.</p>
-
-
-  var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddScoped&lt;CaeClaimsChallengeService&gt;();
-
-builder.Services.AddDistributedMemoryCache();
-builder.Services.AddMicrosoftIdentityWebApiAuthentication(builder.Configuration)
-    .EnableTokenAcquisitionToCallDownstreamApi()
-    .AddMicrosoftGraph(builder.Configuration.GetSection("GraphBeta"))
-    .AddDistributedTokenCaches();
-
-JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
-//IdentityModelEventSource.ShowPII = true;
-
-builder.Services.AddControllers(options =&gt;
-{
-    var policy = new AuthorizationPolicyBuilder()
-        .RequireAuthenticatedUser()
-        .Build();
-    options.Filters.Add(new AuthorizeFilter(policy));
-});
-
-builder.Services.AddAuthorization(options =&gt;
-{
-    options.AddPolicy("ValidateAccessTokenPolicy", validateAccessTokenPolicy =&gt;
-    {
-        // Validate id of application for which the token was created
-        // In this case the UI application 
-        validateAccessTokenPolicy.RequireClaim("azp", builder.Configuration["AzpValidClientId"]);
-
-        // only allow tokens which used "Private key JWT Client authentication"
-        // // https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens
-        // Indicates how the client was authenticated. For a public client, the value is "0". 
-        // If client ID and client secret are used, the value is "1". 
-        // If a client certificate was used for authentication, the value is "2".
-        validateAccessTokenPolicy.RequireClaim("azpacr", "1");
-    });
-});
-  
-
-
-<p>The program file is used to setup the API ASP.NET Core API project like any Azure AD Microsoft.Identity.Web client.</p>
-
-
-    "AzureAd": {
-    "Instance": "https://login.microsoftonline.com/",
-    "Domain": "[Enter the domain of your tenant, e.g. contoso.onmicrosoft.com]",
-    "TenantId": "[Enter 'common', or 'organizations' or the Tenant Id (Obtained from the Azure portal. Select 'Endpoints' from the 'App registrations' blade and use the GUID in any of the URLs), e.g. da41245a5-11b3-996c-00a8-4d99re19f292]",
-    "ClientId": "[Enter the Client Id (Application ID obtained from the Azure portal), e.g. ba74781c2-53c2-442a-97c2-3d60re42f403]",
-    "ClientSecret": "[Copy the client secret added to the app from the Azure portal]",
-    "ClientCertificates": [
-    ],
-    // the following is required to handle Continuous Access Evaluation challenges
-    "ClientCapabilities": [ "cp1" ],
-    "CallbackPath": "/signin-oidc"
-  },
-  "AzpValidClientId": "7c839e15-096b-4abb-a869-df9e6b34027c",
-  "GraphBeta": {
-    "BaseUrl": "https://graph.microsoft.com/beta",
-    "Scopes": "Policy.Read.ConditionalAccess Policy.ReadWrite.ConditionalAccess"
-  },
-  
-
-
-<p>Now that the unauthorized exception is returned to the calling UI interactive client, this needs to be handled.</p>
-
-
-
-<p>Implement the ASP.NET Core Razor Page with step up MFA check</p>
-
-
-
-<p>The UI project implements a Web APP project. The Admin API scope is requested to access the admin API.</p>
-
-
-  builder.Services.AddDistributedMemoryCache();
-builder.Services.AddMicrosoftIdentityWebAppAuthentication(builder.Configuration, 
-       "AzureAd", 
-       subscribeToOpenIdConnectMiddlewareDiagnosticsEvents: true)
-    .EnableTokenAcquisitionToCallDownstreamApi(new[] { 
-       builder.Configuration.GetSection("AdminApi")["Scope"] })
-    .AddMicrosoftGraph(builder.Configuration.GetSection("GraphBeta"))
-    .AddDistributedTokenCaches();
-  
-
-
-<p>The app uses a scoped service to request data from the administrator API. Using the ITokenAcquisition interface, an access token is request for the API. If an unauthorized response is returned, then a WebApiMsalUiRequiredException exception is thrown with the response headers.</p>
-
-
-  public async Task&lt;IEnumerable&lt;string&gt;?&gt; GetApiDataAsync()
-{
-	var client = _clientFactory.CreateClient();
-
-	var scopes = new List&lt;string&gt; { _adminApiScope };
-	var accessToken = await _tokenAcquisition
-		.GetAccessTokenForUserAsync(scopes);
-
-	client.BaseAddress = new Uri(_adminApiBaseUrl);
-	client.DefaultRequestHeaders.Authorization = 
-		new AuthenticationHeaderValue("Bearer", accessToken);
-	client.DefaultRequestHeaders.Accept.Add(
-		new MediaTypeWithQualityHeaderValue("application/json"));
-
-	var response = await client.GetAsync("ApiForUserData");
-	if (response.IsSuccessStatusCode)
-	{
-		var stream = await response.Content.ReadAsStreamAsync();
-		var payload = await JsonSerializer
-			.DeserializeAsync&lt;List&lt;string&gt;&gt;(stream);
-
-		return payload;
-	}
-
-	// This exception can be used to handle a claims challenge
-	throw new WebApiMsalUiRequiredException(
-		$"Unexpected status code in the HttpResponseMessage: {response.StatusCode}.", 
-		response);
-}
-  
-
-
-<p>The ASP.NET Core Razor page is used to handled the WebApiMsalUiRequiredException exception. If this is returned, a new ClaimChallenge is created with the request for the authentication context. This is returned to the UI. If this response is returned, the user is redirected to authenticate again for the new scope which must fulfil the CAE policy using this.</p>
-
-
-  public async Task&lt;IActionResult&gt; OnGet()
-{
-	try
-	{
-		Data = await _userApiClientService.GetApiDataAsync();
-		return Page();
-	}
-	catch (WebApiMsalUiRequiredException hex)
-	{
-		// Challenges the user if exception is thrown from Web API.
-		try
-		{
-			var claimChallenge = WwwAuthenticateParameters
-				.GetClaimChallengeFromResponseHeaders(hex.Headers);
-
-			_consentHandler.ChallengeUser(
-				new string[] { "user.read" }, claimChallenge);
-
-			return Page();
-		}
-		catch (Exception ex)
-		{
-			_consentHandler.HandleException(ex);
-		}
-
-		_logger.LogInformation("{hexMessage}", hex.Message);
-	}
-
-	return Page();
-}
-  
-
-
-<p>MFA is configured in a policy using the CAE conditional access authentication context.</p>
-
-
-
-<p>Notes</p>
-
-
-
-<p>The application will only work with Azure AD and if the continuous access evaluation policies are implemented correctly by the Azure IT tenant admin. You cannot force this in the application, you can only use this. </p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://github.com/Azure-Samples/ms-identity-ca-auth-context">https://github.com/Azure-Samples/ms-identity-ca-auth-context</a></p>
-
-
-
-<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app">https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview">https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview</a></p>
-
-
-
-<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae">https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context">https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge">https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide">https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide</a></p>
-
-
-
-<p><a href="https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345">https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345</a></p>
-
-
-
- 
-<blockquote><a href="https://openid.net/wg/sse/">Shared Signals and Events – A Secure Webhooks Framework</a></blockquote>
- 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/04/azuread_cae_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:01 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Tuesday, 19. April 2022
  </h2>
 
@@ -19008,7 +18699,7 @@ exported them again and imported them into my new <a href="https://app.thestoryg
 
 <div class='item-footer'>
    05:06 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
