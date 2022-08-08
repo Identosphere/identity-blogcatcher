@@ -701,7 +701,7 @@
 
 </div>
 </div>
-<sup>Last Update 2:42 AM August 08, 2022 (UTC)</sup>
+<sup>Last Update 9:42 AM August 08, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -714,6 +714,424 @@
  <h2 class='new-date'>
   Monday, 08. August 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/08/08/debug-logging-microsoft-identity-client-and-the-msal-oauth-client-credentials-flow/'>Debug Logging Microsoft.Identity.Client and the MSAL OAuth client credentials flow</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how to add debug logging to the Microsoft.Identity.Client MSAL client which is used to implement an OAuth2 client credentials flow using a client assertion. The client uses the MSAL nuget package. PII logging was activated and the HttpClient was replaced to log all HTTP requests and responses from the MSAL package. Code: […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how to add debug logging to the Microsoft.Identity.Client MSAL client which is used to implement an OAuth2 client credentials flow using a client assertion. The client uses the MSAL nuget package. PII logging was activated and the HttpClient was replaced to log all HTTP requests and responses from the MSAL package.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AzureADAuthRazorUiServiceApiCertificate/tree/main/ConfidentialClientCredentialsCertificate">ConfidentialClientCredentialsCertificate </a></p>
+
+
+
+<p>The  Microsoft.Identity.Client is used to implement the client credentials flow. A known certificate is used to implement the client authentication using a client assertion in the token request. The IConfidentialClientApplication uses a standard client implementation with two extra extension methods, one to add the PII logging and a second to replace the HttpClient used for the MSAL requests and responses. The certificate is read from Azure Vault using the Azure SDK and managed identities on a deployed instance.</p>
+
+
+  // Use Key Vault to get certificate
+var azureServiceTokenProvider = new AzureServiceTokenProvider();
+
+// Get the certificate from Key Vault
+var identifier = _configuration["CallApi:ClientCertificates:0:KeyVaultCertificateName"];
+var cert = await GetCertificateAsync(identifier);
+
+var scope = _configuration["CallApi:ScopeForAccessToken"];
+var authority = $"{_configuration["CallApi:Instance"]}{_configuration["CallApi:TenantId"]}";
+
+// client credentials flows, get access token
+IConfidentialClientApplication app = ConfidentialClientApplicationBuilder
+		.Create(_configuration["CallApi:ClientId"])
+		.WithAuthority(new Uri(authority))
+		.WithHttpClientFactory(new MsalHttpClientFactoryLogger(_logger))
+		.WithCertificate(cert)
+		.WithLogging(MyLoggingMethod, Microsoft.Identity.Client.LogLevel.Verbose,
+			enablePiiLogging: true, enableDefaultPlatformLogging: true)
+		.Build();
+
+var accessToken = await app.AcquireTokenForClient(new[] { scope }).ExecuteAsync();
+
+  
+
+
+<p>The GetCertificateAsync loads the certificate from an Azure key vault. This is slow in local development and you could replace this with an host installed certificate for development.</p>
+
+
+  private async Task&lt;X509Certificate2&gt; GetCertificateAsync(string identitifier)
+{
+	var vaultBaseUrl = _configuration["CallApi:ClientCertificates:0:KeyVaultUrl"];
+	var secretClient = new SecretClient(vaultUri: new Uri(vaultBaseUrl), credential: new DefaultAzureCredential());
+
+	// Create a new secret using the secret client.
+	var secretName = identitifier;
+	//var secretVersion = "";
+	KeyVaultSecret secret = await secretClient.GetSecretAsync(secretName);
+
+	var privateKeyBytes = Convert.FromBase64String(secret.Value);
+
+	var certificateWithPrivateKey = new X509Certificate2(privateKeyBytes,
+		string.Empty, X509KeyStorageFlags.MachineKeySet);
+
+	return certificateWithPrivateKey;
+}
+  
+
+
+<p></p>
+
+
+
+<p>WithLogging </p>
+
+
+
+<p>The WithLogging is used to add the PII logging and to change the log level. You should never do this on a production deployment and all the PII data would get logged and saved to the logging persistence. This includes access tokens from all users or application clients using the client package. This is great for development, if you need to see why an access token does not work with an API and check the claims inside the access token. The MyLoggingMethod method is used in the WithLogging extension method.</p>
+
+
+  void MyLoggingMethod(Microsoft.Identity.Client.LogLevel level, string message, bool containsPii)
+{
+	_logger.LogInformation("MSAL {level} {containsPii} {message}", level, containsPii, message);
+}
+  
+
+
+<p>The WithLogging can be used as follows:</p>
+
+
+  .WithLogging(MyLoggingMethod, Microsoft.Identity.Client.LogLevel.Verbose,
+			enablePiiLogging: true, enableDefaultPlatformLogging: true)
+  
+
+
+<p>Now all logs will be logged for this client.</p>
+
+
+
+<p>WithHttpClientFactory</p>
+
+
+
+<p>I would also like to see how the MSAL package implements the OAuth client credentials flow and see what is sent in the requests and the corresponding responses. I replaced the MsalHttpClientFactory with my MsalHttpClientFactoryLogger inplementation and logged everything. </p>
+
+
+  .WithHttpClientFactory(new MsalHttpClientFactoryLogger(_logger))
+  
+
+
+<p>To implement this, I used an implementation of the DelegatingHandler. This logs all and the full HTTP requests and responses for the MSAL client.</p>
+
+
+  using Microsoft.Extensions.Logging;
+using System.Net.Http;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ServiceApi.HttpLogger;
+
+public class MsalLoggingHandler : DelegatingHandler
+{
+    private ILogger _logger;
+
+    public MsalLoggingHandler(HttpMessageHandler innerHandler, ILogger logger)
+        : base(innerHandler)
+    {
+        _logger = logger;
+    }
+
+    protected override async Task&lt;HttpResponseMessage&gt; SendAsync(
+		HttpRequestMessage request, 
+		CancellationToken cancellationToken)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("MSAL Request: {request}");
+        builder.AppendLine(request.ToString());
+        if (request.Content != null)
+        {
+            builder.AppendLine();
+            builder.AppendLine(await request.Content.ReadAsStringAsync());
+        }
+
+        HttpResponseMessage response = await base.SendAsync(request, cancellationToken);
+
+        builder.AppendLine();
+        builder.AppendLine("MSAL Response: {response}");
+        builder.AppendLine(response.ToString());
+        if (response.Content != null)
+        {
+            builder.AppendLine();
+            builder.AppendLine(await response.Content.ReadAsStringAsync());
+        }
+
+        _logger.LogDebug(builder.ToString());
+
+        return response;
+    }
+}
+  
+
+
+<p>The message handler is used in the IMsalHttpClientFactory implementation. I pass the default ILogger into the method and use this to log. In the source code, Serilog is used.</p>
+
+
+
+<p>Do not use this in production as everything gets logged and persisted to the server. This is good to see how the client is implemented.</p>
+
+
+  using Microsoft.Extensions.Logging;
+using Microsoft.Identity.Client;
+using System.Net.Http;
+
+namespace ServiceApi.HttpLogger;
+
+public class MsalHttpClientFactoryLogger : IMsalHttpClientFactory
+{
+    private static HttpClient _httpClient;
+
+    public MsalHttpClientFactoryLogger(ILogger logger)
+    {
+        if (_httpClient == null)
+        {
+            _httpClient = new HttpClient(new MsalLoggingHandler(new HttpClientHandler(), logger));
+        }
+    }
+
+    public HttpClient GetHttpClient()
+    {
+        return _httpClient;
+    }
+}
+  
+
+
+<p>OAuth client credentials with client assertion</p>
+
+
+
+<p>I ran the extra logging then with an OAuth2 client credentials flow using client authentication client assertions. </p>
+
+
+
+<p>The discovery endpoint is called first from the MSAL client for the Azure App registration used to configure the client. This returns all the well known endpoints.</p>
+
+
+  MSAL Request: {request}
+
+Method: GET, RequestUri: 'https://login.microsoftonline.com/common/discovery/instance?api-version=1.1&amp;authorization_endpoint=https%3A%2F%2Flogin.microsoftonline.com%2F7ff95b15-dc21-4ba6-bc92-824856578fc1%2Foauth2%2Fv2.0%2Fauthorize'
+
+MSAL Response: {response}
+{
+	"tenant_discovery_endpoint": "https://login.microsoftonline.com/7ff95b15-dc21-4ba6-bc92-824856578fc1/v2.0/.well-known/openid-configuration",
+
+  
+
+
+<p>The token is requested using a client_assertion parameter with a signed JWT token using the client certificate created for this application. Only this client knows the private key and the public key was uploaded to the Azure App registration. See the following link for the spec details:</p>
+
+
+
+<p> <a href="https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication">https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication</a> </p>
+
+
+
+<p>If the JWT has the correct claims and is signed by the correct certificate, an access token is returned for the application confidential client. This request can only be sent and created for an application in possession of the private certificate key. This is more secure then the same OAuth flow using client secrets as any client can send a token request once the secret is shared. Using the client assertion and a signed JWT request, we can achieve a better client authentication. The request cannot be used twice and the correct implementation enforces this by validating the jti claim in the signed JWT. The token must only be used once.</p>
+
+
+  2022-08-03 20:09:40.364 +02:00 [DBG] MSAL Request: {request}
+Method: POST, RequestUri: 'https://login.microsoftonline.com/7ff95b15-dc21-4ba6-bc92-824856578fc1/oauth2/v2.0/token', Version: 1.1, Content: System.Net.Http.StreamContent, Headers:
+{
+  Content-Type: application/x-www-form-urlencoded
+}
+
+client_id=b178f3a5-7588-492a-924f-72d7887b7e48
+&amp;client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
+&amp;client_assertion=eyJhbGciOiJSUzI1...
+&amp;scope=api%3A%2F%2Fb178f3a5-7588-492a-924f-72d7887b7e48%2F.default
+&amp;grant_type=client_credentials
+
+MSAL Response: {response}
+StatusCode: 200, ReasonPhrase: 'OK', Version: 1.1, Content: System.Net.Http.HttpConnectionResponseContent, Headers:
+{
+  Content-Type: application/json; charset=utf-8
+}
+
+{
+ "token_type":"Bearer",
+ "expires_in":3599,"ext_expires_in":3599,
+ "access_token":"eyJ0eXAiOiJKV..."
+}
+
+  
+
+
+<p>The signed JWT client assertion contains the following claims. The OpenID Connect specification defines the required claims and further optional claims can be included in the request JWT as required. Microsoft.Identity.Client supports adding customs claims if required.</p>
+
+
+
+
+
+
+
+<p>By adding PII logs and logging all requests and responses from the MSAL client, it is possible to see exactly how the client was implemented and works without having to reverse engineer the code. Do not use this in production!</p>
+
+
+
+<p></p>
+
+
+
+<p>For clients without a user, you should implement the client credentials flow using certificates whenever possible, as this is a more secure and improved authentication compared to the same flow using client secrets.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/msal-net-client-assertions">https://docs.microsoft.com/en-us/azure/active-directory/develop/msal-net-client-assertions</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/architecture/multitenant-identity/client-certificate">https://docs.microsoft.com/en-us/azure/architecture/multitenant-identity/client-certificate</a></p>
+
+
+
+<p><a href="https://jwt.ms/">https://jwt.ms/</a></p>
+
+
+
+<p><a href="https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication">https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/08/clientassertion_token_01.png?w=1019'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:02 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2022/newsletter-housekeeping'>Newsletter housekeeping</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ If you’re subscribing via email, heads up that I’m thinking about changing my newsletter engine, possibly to Buttondown. You shouldn’t see anything particularly different - and if you’re subscribing via RSS, nothing will change at all. But, to be honest, I’ll be paying a lot less money for a lot more power.  As always, I really appreciate it when people share around my posts, or let me know if t
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+<p>If you’re <a href="https://subscribe.werd.io/">subscribing via email</a>, heads up that I’m thinking about changing my newsletter engine, possibly to <a href="https://buttondown.email/">Buttondown</a>. You shouldn’t see anything particularly different - and if you’re <a href="https://werd.io/feed">subscribing via RSS</a>, nothing will change at all. But, to be honest, I’ll be paying a lot less money for a lot more power.</p><p>As always, I really appreciate it when people share around my posts, or let me know if they’ve disagreed with something I’ve written. Your time and attention are limited; thanks for sticking around.</p> 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:45 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -779,7 +1197,7 @@
 
 <div class='item-footer'>
    00:47 &bull;
-   2 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -857,7 +1275,7 @@
 
 <div class='item-footer'>
    00:10 &bull;
-   3 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -928,7 +1346,7 @@
 
 <div class='item-footer'>
    22:59 &bull;
-   4 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1556,7 +1974,7 @@
 
 <div class='item-footer'>
    21:20 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1634,7 +2052,7 @@
 
 <div class='item-footer'>
    21:19 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1698,7 +2116,7 @@
 
 <div class='item-footer'>
    15:50 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2473,7 +2891,7 @@
 
 <div class='item-footer'>
    17:31 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2852,7 +3270,7 @@
 
 <div class='item-footer'>
    21:12 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2918,7 +3336,7 @@
 
 <div class='item-footer'>
    20:38 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2994,7 +3412,7 @@
 
 <div class='item-footer'>
    19:04 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3078,7 +3496,7 @@
 
 <div class='item-footer'>
    19:04 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4019,7 +4437,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    18:39 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4095,7 +4513,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    18:07 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4173,7 +4591,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    18:07 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4250,7 +4668,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    16:36 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4407,7 +4825,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    19:57 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4556,7 +4974,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    16:25 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4622,7 +5040,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    15:18 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4758,7 +5176,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    19:51 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4822,7 +5240,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    19:18 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5023,7 +5441,7 @@ docker run -it multiarch/ubuntu-core:s390x-focal /bin/bash
 
 <div class='item-footer'>
    19:02 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5108,7 +5526,7 @@ docker run -it multiarch/ubuntu-core:s390x-focal /bin/bash
 
 <div class='item-footer'>
    18:10 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5326,7 +5744,7 @@ end
 
 <div class='item-footer'>
    21:09 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5502,7 +5920,7 @@ end
 
 <div class='item-footer'>
    17:55 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5598,7 +6016,7 @@ end
 
 <div class='item-footer'>
    15:51 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5674,7 +6092,7 @@ end
 
 <div class='item-footer'>
    15:50 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5744,7 +6162,7 @@ end
 
 <div class='item-footer'>
    14:57 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5812,7 +6230,7 @@ end
 
 <div class='item-footer'>
    20:43 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5878,7 +6296,7 @@ end
 
 <div class='item-footer'>
    19:49 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5953,7 +6371,7 @@ end
 
 <div class='item-footer'>
    14:55 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6654,7 +7072,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    21:03 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6714,7 +7132,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    20:59 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6782,7 +7200,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    15:52 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7170,7 +7588,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    16:34 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7300,7 +7718,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    20:40 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7365,74 +7783,6 @@ but probably lots of other places, too.</p>
 <div class='item-footer'>
    10:00 &bull;
    20 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Sunday, 17. July 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2022/body-image-post-covid'>Body image post-covid</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- Content warning: discussion of body dysmorphia, weight loss.  I stopped testing positive for covid a while ago, but I’ve still been feeling very low-energy. I measure my activity on my Apple Watch - yes, I’m that person - and I haven’t managed to close my activity rings for weeks. Correspondingly, I’m pretty sure I’ve been gaining weight.   I’ve never felt very comfortable with my body: I’ve bee
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p>Content warning: discussion of body dysmorphia, weight loss.</p><p>I stopped testing positive for covid a while ago, but I’ve still been feeling very low-energy. I measure my activity on my Apple Watch - yes, I’m that person - and I haven’t managed to close my activity rings for weeks. Correspondingly, I’m pretty sure I’ve been gaining weight. </p><p>I’ve never felt very comfortable with my body: I’ve been much bigger than most of the people around me for most of my life. I’m 6’4” tall and, unlike many tall people, look like I’ve been proportionally enlarged in Photoshop. Over the last few years, thanks in no small part to the trauma surrounding caring for my mother and her subsequent loss, as well as the unfortunate effects of aging, those proportions have been softening.</p><p>I wish I could be smaller. Getting fitter and losing weight is at least somewhat within my control, but the overall proportions of my body - that height, the bigness of me - is something I have to live with. I don’t enjoy it. When I was much younger, I wanted to hurt myself over it. Now it’s more of a background discomfort, which sometimes comes into the foreground when I have to go shopping for clothes or catch myself in a full-length mirror. I move awkwardly and look awkward.</p><p>Should I be more comfortable in my own skin now that I’m rapidly approaching my mid-forties? Probably. It’s not a place I’ve ever managed to get to. It particularly doesn’t feel great after a long period of illness-related inactivity, but I’m digging deep to try and get over my discomfort and concentrate on the bits that relate to my health.</p><p>Covid really sucks; I hope to never get it again. I’m still wearing an N95 mask indoors, and I hope you are too. I’ve checked in with a few friends who are also recovering from it, and most of them are also still in this low-energy phase. Our brains aren’t completely back up and running, but we’re grateful to at least be breathing easily. I certainly feel that it pushed me off-track in a way that I’ll be feeling for months.</p> 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:50 &bull;
-   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7520,7 +7870,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    16:23 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7785,7 +8135,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    18:32 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7853,7 +8203,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    16:26 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7975,7 +8325,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    15:13 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8146,7 +8496,7 @@ set -e
 
 <div class='item-footer'>
    21:31 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15848,194 +16198,6 @@ Photo by <a href="https://unsplash.com/@v2osk?utm_source=medium&amp;utm_medium=r
 
 <div class='item-footer'>
    19:49 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/05/02/implement-an-openiddict-identity-provider-using-asp-net-core-identity-with-keycloak-federation/'>Implement an OpenIddict identity provider using ASP.NET Core Identity with Keycloak federation</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post shows how to setup a Keycloak external authentication in an OpenIddict identity provider using ASP.NET Core identity. Code: https://github.com/damienbod/AspNetCoreOpeniddict Setup The solution context implements OpenID Connect clients which use an OpenIddict identity provider and ASP.NET Core Identity to manage the accounts. All clients authenticate using the OpenIddict server. Keycloak i
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post shows how to setup a Keycloak external authentication in an OpenIddict identity provider using ASP.NET Core identity. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreOpeniddict">https://github.com/damienbod/AspNetCoreOpeniddict</a></p>
-
-
-
-<p>Setup</p>
-
-
-
-<p>The solution context implements OpenID Connect clients which use an OpenIddict identity provider and ASP.NET Core Identity to manage the accounts. All clients authenticate using the OpenIddict server. Keycloak is used as an external authentication provider on the OpenIddict identity provider. Users can be created in either identity provider. If only users are created on the Keycloak server, the direct sign in with username, password can be completely disabled in the OpenIddict server. This setup allows for great flexibility and the MFA can be forced anywhere depending on the requirements. Companies using the product can use their own identity provider. </p>
-
-
-
-
-
-
-
-<p>Integrating an OpenID Connect conform client is really simple in ASP.NET Core and no extra Nuget packages are required. You only need extra packages when the IDP are not conform or do something vendor specific.  The AddOpenIdConnect method is used to implement the Keycloak server. I set this up using this <a href="https://github.com/tuxiem/AspNetCore-keycloak">github</a> repo and the Keycloak docs. The SignInScheme needs to be set to the correct value. ASP.NET Core Identity is used to map the external identities and the “Identity.External” is the default scheme used for this. If you need to disable local identity users, the ASP.NET Core Identity logic can be scaffolded into the project and adapted.</p>
-
-
-  services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-	.AddOpenIdConnect("KeyCloak", "KeyCloak", options =&gt;
-	{
-		options.SignInScheme = "Identity.External";
-		//Keycloak server
-		options.Authority = Configuration.GetSection("Keycloak")["ServerRealm"];
-		//Keycloak client ID
-		options.ClientId = Configuration.GetSection("Keycloak")["ClientId"];
-		//Keycloak client secret in user secrets for dev
-		options.ClientSecret = Configuration.GetSection("Keycloak")["ClientSecret"];
-		//Keycloak .wellknown config origin to fetch config
-		options.MetadataAddress = Configuration.GetSection("Keycloak")["Metadata"];
-		//Require keycloak to use SSL
-		
-		options.GetClaimsFromUserInfoEndpoint = true;
-		options.Scope.Add("openid");
-		options.Scope.Add("profile");
-		options.SaveTokens = true;
-		options.ResponseType = OpenIdConnectResponseType.Code;
-		options.RequireHttpsMetadata = false; //dev
-
-		options.TokenValidationParameters = new TokenValidationParameters
-		{
-			NameClaimType = "name",
-			RoleClaimType = ClaimTypes.Role,
-			ValidateIssuer = true
-		};
-	});
-  
-
-
-<p>The Keycloak configuration is added to the app.settings. We do not need much, a standard OpenID connect confidential code flow client with PKCE is setup to authenticate using Keycloak. This can be adapted, changed in almost any way depending on the server requirements. You should stick to the standards when implementing this. Using PKCE is required now on most deployments when using the OIDC code flow. Any identity providers solutions which does not support this should be avoided.</p>
-
-
-    "Keycloak": {
-    "ServerRealm": "http://localhost:8080/realms/myrealm",
-    "Metadata": "http://localhost:8080/realms/myrealm/.well-known/openid-configuration",
-    "ClientId": "oidc-code-pkce",
-    // "ClientSecret": "--in user secrets or keyvault--"
-  },
-  
-
-
-<p>The Keycloak server is setup to use the standard settings. You could improve the security of this using token exchange or further supported specifications from Keycloak and ASP.NET Core.</p>
-
-
-
-
-
-
-
-<p>Notes:</p>
-
-
-
-<p>Using OpenIddict and ASP.NET Core to federate to further identity providers, it is really easy to support best practice application security and also integrate any third party identity systems without surprises. Having full control of your identity provider is a good thing and by using federation, you do not need to manage the user accounts. This can be fully implemented on the client system. If the application requires strong MFA like FIDO2, this can also be easily implemented in ASP.NET Core. Using some of the cloud solution IDPs prevents you implementing strong application security. These cloud systems do provide excellent user accounting and it would be nice to use this and combine this with a top identity provider.</p>
-
-
-
-<p>If implementing a product which needs to support multiple different identity providers from different clients, then you should implement the identity provider as part of your solution context and federate to the client systems. </p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://documentation.openiddict.com/">https://documentation.openiddict.com/</a></p>
-
-
-
-<p><a href="https://github.com/openiddict/openiddict-core">https://github.com/openiddict/openiddict-core</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/java/openjdk/download">https://docs.microsoft.com/en-us/java/openjdk/download</a></p>
-
-
-
-<p><a href="https://github.com/tuxiem/AspNetCore-keycloak">https://github.com/tuxiem/AspNetCore-keycloak</a></p>
-
-
-
-<p><a href="https://wjw465150.gitbooks.io/keycloak-documentation/content/server_installation/topics/network/https.html">https://wjw465150.gitbooks.io/keycloak-documentation/content/server_installation/topics/network/https.html</a></p>
-
-
-
-<p><a href="https://www.keycloak.org/documentation.html">https://www.keycloak.org/documentation.html</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authentication/identity">https://docs.microsoft.com/en-us/aspnet/core/security/authentication/identity</a></p>
-
-
-
-<p><br><br></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/04/openiddictkeycloak_01-1.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:43 &bull;
    3 months ago
 </div>
 
