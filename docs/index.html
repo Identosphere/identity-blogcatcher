@@ -701,7 +701,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:48 PM August 08, 2022 (UTC)</sup>
+<sup>Last Update 2:55 AM August 09, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -714,6 +714,367 @@
  <h2 class='new-date'>
   Monday, 08. August 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://justatheory.com'>Just a Theory</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://justatheory.com/2022/08/rfc-restful-secondary-key-api/'>RFC: Restful Secondary Key API</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  A RESTful API design conundrum and a proposed solution.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ 
+         
+<p>I’ve been working on a simple CRUD API at <a href="https://nytimes.com" title="The New York Times">work</a>, with an eye to make a
+nicely-designed REST interface for managing a single type of resource. It’s not
+a complicated API, following best practices recommended by <a href="https://pages.apigee.com/rs/apigee/images/api-design-ebook-2012-03.pdf" title="Web API Design: Crafting Interfaces that Developers Love">Apigee</a> and
+<a href="https://docs.microsoft.com/en-us/azure/architecture/best-practices/api-design" title="Azure Docs: “RESTful web API design”">Microsoft</a>. It features exactly the sorts for APIs you’d expect if you’re
+familiar with REST, including:</p>
+ 
+ <code>POST /users</code>: Create a new user resource 
+ <code>GET /users/{uid}</code>: Read a user resource 
+ <code>PUT /users/{uid}</code>: Update a user resource 
+ <code>DELETE /users/{uid}</code>: Delete a user resource 
+ <code>GET /users?{params}</code>: Search for user resources 
+ 
+<p>If you’re familiar with REST, you get the idea.</p>
+<p>There is one requirement that proved a bit of design challenge. We will be
+creating canonical ID for all resources managed by the service, which will
+function as the primary key. The APIs above reference that key by the <code>{uid}</code>
+path variable. However, we also need to support fetching a single resource by a
+number of existing identifiers, including multiple legacy IDs, and natural keys
+like, sticking to the users example, usernames and email addresses. Unlike the
+search API, which returns an array of resources, we need a nice single API like
+<code>GET /users/{uid}</code> that returns a single resource, but for a secondary key. What
+should it look like?</p>
+<p>None of my initial proposals were great (using <code>username</code> as the sample
+secondary key, though again, we need to support a bunch of these):</p>
+ 
+ <code>GET /users?username={username}</code> — consistent with search, but does it
+return a collection like search or just a single entry like <code>GET /users/{uid}</code>? Would be weird not to return an array or not based on which
+parameters were used. 
+ <code>GET /users/by/username/{username}</code> — bit weird to put a preposition in
+the URL. Besides, it might conflict with a planned API to fetch subsets of
+info for a single resource, e.g., <code>GET /users/{uid}/profile</code>, which might
+return just the profile object. 
+ <code>GET /user?username={username}</code> — Too subtle to have the singular rather
+than plural, but perhaps the most REST-ish. 
+ <code>GET /lookup?obj=user&amp;username={username}</code> Use special verb, not very
+RESTful 
+ 
+<p>I asked around a coding Slack, posting a few possibilities, and friendly API
+designers suggested some others. We agreed it was an interesting problem, easily
+solved if there was just one alternate that never conflicts with the primary key
+ID, such as <code>GET /users/{uid || username}</code>. But of course that’s not the problem
+we have: there are a bunch of these fields, and they may well overlap!</p>
+<p>There was some interest in <code>GET /users/by/username/{username}</code> as an
+aesthetically-pleasing URL, plus it allows for</p>
+ 
+ <code>/by</code> =&gt; list of unique fields 
+ <code>/by/username/</code> =&gt; list of all usernames? 
+ 
+<p>But again, it runs up against the planned use of subdirectories to return
+sub-objects of a resource. One other I played around with was: <code>GET /users/user?username={username}</code>: The <code>user</code> sub-path indicates we want just one
+user much more than <code>/by</code> does, and it’s unlikely we’d ever use <code>user</code> to name
+an object in a user resource. But still, it overloads the path to mean one thing
+when it’s <code>user</code> and another when it’s a UID.</p>
+<p>Looking back through the options, I realized that what we really want is an
+API that is identical to <code>GET /users/{uid}</code> in its behaviors and response, just
+with a different key. So what if we just keep using that, as originally
+suggested by a colleague as <code>GET /users/{uid || username}</code> but instead of just
+the raw value, we encode the key name in the URL. Turns out, colons (<code>:</code>) are
+valid in paths, so I defined this route:</p>
+ 
+ <code>GET /users/{key}:{value}</code>: Fetch a single resource by looking up the
+<code>{key}</code> with the <code>{value}</code>. Supported <code>{key}</code> params are <code>legacy_id</code>,
+<code>username</code>, <code>email_address</code>, and even <code>uid</code>. This then becomes the canonical
+“look up a user resource by an ID” API. 
+ 
+<p>The nice thing about this API is that it’s consistent: all keys are treated the
+same, as long as no key name contains a colon. Best of all, we can keep the
+original <code>GET /users/{uid}</code> API around as an alias for <code>GET /users/uid:{value}</code>.
+Or, better, continue to refer to it as the canonical path, since the <code>PUT</code> and
+<code>DELETE</code> actions map only to it, and document the <code>GET /users/{key}:{value}</code> API
+as accessing an alias for symlink for <code>GET /users/{uid}</code>. Perhaps return a
+<code>Location</code> header to the canonical URL, too?</p>
+<p>In any event, as far as I can tell this is a unique design, so maybe it’s too
+weird or not properly RESTful? Would love to know of any other patterns designed
+to solve the problem of supporting arbitrarily-named secondary unique keys.
+What do you think?</p>
+
+         
+
+         
+             More about… 
+             
+                 <a href="https://justatheory.com/tags/rest/">REST</a> 
+                 <a href="https://justatheory.com/tags/api/">API</a> 
+                 <a href="https://justatheory.com/tags/secondary-key/">Secondary Key</a> 
+                 <a href="https://justatheory.com/tags/rfc/">RFC</a> 
+             
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:12 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/09/election-deniers-winning.html'> Election deniers winning elections without any hint of irony</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Election deniers winning elections without any hint of irony. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Election deniers winning elections without any hint of irony.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:09 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/09/my-spideysense-feels.html'> 
+ “My spidey-sense feels good about it. If everyone register</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ “My spidey-sense feels good about it. If everyone registers, if everyone votes, if all the votes are counted and reported fairly, most people will be satisfied with the outcome.” 
+ 
+ 💬 Dana Blankenhorn 
+ I think Dana is very … very … wrong. 
+ Unless by ‘most’ he means the majority … which by definition of the setup he describes is a self fulfilling prophesy. 
+ But we all know that what he descri
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<blockquote>
+<p>“My spidey-sense feels good about it. If everyone registers, if everyone votes, if all the votes are counted and reported fairly, most people will be satisfied with the outcome.”</p>
+</blockquote>
+<p>💬 Dana Blankenhorn</p>
+<p>I think Dana is very … very … wrong.</p>
+<p>Unless by ‘most’ he means the majority … which by definition of the setup he describes is a self fulfilling prophesy.</p>
+<p>But we all know that what he describes is not going to happen.</p>
+<p>It’s that word ‘everyone’.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:58 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/09/front-page-techs.html'> Front Page Tech’s writing style is so horrible that they jus</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Front Page Tech’s writing style is so horrible that they just lost a subscriber. 
+ 
+ Imagine the seismic shift in the organ’s readership department, the analysis of what went wrong, the shaking chagrined heads as they wonder how they will now survive losing one more free reader. 
+ 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Front Page Tech’s writing style is so horrible that they just lost a subscriber.</p>
+<blockquote>
+<p>Imagine the seismic shift in the organ’s readership department, the analysis of what went wrong, the shaking chagrined heads as they wonder how they will now survive losing one more free reader.</p>
+</blockquote>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:16 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -1055,7 +1416,7 @@ StatusCode: 200, ReasonPhrase: 'OK', Version: 1.1, Content: System.Net.Http.Http
 
 <div class='item-footer'>
    06:02 &bull;
-   13 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1121,7 +1482,7 @@ StatusCode: 200, ReasonPhrase: 'OK', Version: 1.1, Content: System.Net.Http.Http
 
 <div class='item-footer'>
    05:45 &bull;
-   13 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1197,7 +1558,7 @@ StatusCode: 200, ReasonPhrase: 'OK', Version: 1.1, Content: System.Net.Http.Http
 
 <div class='item-footer'>
    00:47 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1275,7 +1636,7 @@ StatusCode: 200, ReasonPhrase: 'OK', Version: 1.1, Content: System.Net.Http.Http
 
 <div class='item-footer'>
    00:10 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1346,7 +1707,7 @@ StatusCode: 200, ReasonPhrase: 'OK', Version: 1.1, Content: System.Net.Http.Http
 
 <div class='item-footer'>
    22:59 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2183,7 +2544,7 @@ StatusCode: 200, ReasonPhrase: 'OK', Version: 1.1, Content: System.Net.Http.Http
 
 <div class='item-footer'>
    08:18 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4011,232 +4372,6 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    05:30 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/08/02/the-bluestocking-vol.html'> The Bluestocking, vol 244 
- 
- “I don’t know about you, but m</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   The Bluestocking, vol 244 
- 
- “I don’t know about you, but my enjoyment of the Tory leadership election has increased a thousandfold since I realised that Rishi Sunak reminds me of Niles Crane.” 
- 
- 💬 Helen Lewis 
- ROTFLMAO - is that still a thing? 
- It should be! 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://helenlewis.substack.com/p/the-bluestocking-vol-244">The Bluestocking, vol 244</a></p>
-<blockquote>
-<p>“I don’t know about you, but my enjoyment of the Tory leadership election has increased a thousandfold since I realised that Rishi Sunak reminds me of Niles Crane.”</p>
-</blockquote>
-<p>💬 Helen Lewis</p>
-<p>ROTFLMAO - is that still a thing?</p>
-<p>It should be!</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:23 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/08/02/instagram-walks-back.html'> Instagram walks back its changes. 
- 
- “Users serve Instagram</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Instagram walks back its changes. 
- 
- “Users serve Instagram, not the other way around.” 
- 
- 💬 Casey Newton 
- 
- “Like all of them.” 
- 
- 💬 John Philpin 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.platformer.news/p/-instagram-walks-back-its-changes">Instagram walks back its changes.</a></p>
-<blockquote>
-<p>“Users serve Instagram, not the other way around.”</p>
-</blockquote>
-<p>💬 Casey Newton</p>
-<blockquote>
-<p>“Like all of them.”</p>
-</blockquote>
-<p>💬 John Philpin</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:21 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/08/02/stowe-boyd-preferably.html'> Stowe Boyd : Preferably Paradoxical  
- 
- “Quiet Quitting” 
- </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Stowe Boyd : Preferably Paradoxical  
- 
- “Quiet Quitting” 
- 
- A new term to me - but  yes. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Stowe Boyd : <a href="https://www.workfutures.io/p/preferably-paradoxical">Preferably Paradoxical </a></p>
-<blockquote>
-<p>“Quiet Quitting”</p>
-</blockquote>
-<p>A new term to me - but  yes.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:20 &bull;
    7 days ago
 </div>
 
@@ -6162,7 +6297,7 @@ end
 
 <div class='item-footer'>
    14:57 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6371,7 +6506,7 @@ end
 
 <div class='item-footer'>
    14:55 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7278,7 +7413,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    07:13 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7650,7 +7785,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    13:16 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7782,7 +7917,7 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    10:00 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9076,7 +9211,7 @@ public async Task&lt;ActionResult&lt;UserModel&gt;&gt; CreateUserAsync(
 
 <div class='item-footer'>
    06:59 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16436,7 +16571,7 @@ Photo by <a href="https://unsplash.com/@v2osk?utm_source=medium&amp;utm_medium=r
 
 <div class='item-footer'>
    02:57 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -25643,82 +25778,6 @@ Photo by <a href="https://unsplash.com/@lemonvlad?utm_source=unsplash&amp;utm_me
 
 <div class='item-footer'>
    22:00 &bull;
-   10 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.mydigitalfootprint.com/'>MyDigitalFootprint</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.mydigitalfootprint.com/2021/10/when-does-democracy-break.html'>When does democracy break?</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    We spend most of our waking hours being held to account between the guardrails of risk-informed and responsible decision making.&nbsp; Undoubtedly, we often climb over the guardrails and make ill-informed, irresponsible and irrational decisions, but that is human agency. It is also true that we would not innovate, create or discover if we could not explore the other side of our safety guardrails.
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://lh5.googleusercontent.com/BjkG93KdZXoxM0Q1uO85CxmHMT8MmY0iMqaSczXIWCQlCl0XYY5tZq-RwP5pQpz6kAvwmBEau7GzbjXmzkmIw2rcNT3k5znxGc1IQKPFOdxMKpiL-rJW3bAHHCwKEQi_C0Kpt31F=s1600'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-    We spend most of our waking hours being held to account between the guardrails of risk-informed and responsible decision making.&nbsp; Undoubtedly, we often climb over the guardrails and make ill-informed, irresponsible and irrational decisions, but that is human agency. It is also true that we would not innovate, create or discover if we could not explore the other side of our safety guardrails.&nbsp; <p>Today’s perception of responsible decision making is different to that our grandparents held.&nbsp; Our grandchildren will look back at our “risk-informed” decisions with the advantage of hindsight and question why our risk management frameworks were so short-term-focused.&nbsp; However, we need to recognise that our guardrails are established by current political, economic and societal framing.&nbsp;&nbsp;&nbsp;</p><p>What are we optimising for?”</p><p>I often ask the question, “what are we optimising for?” The reason I ask this question is to draw out different viewpoints in a leadership team.&nbsp; The viewpoints that drive individual optimisation is framed by their experience, ability to understand time-frames and incentives.&nbsp;</p><p>Peak Paradox is a non-confrontational framework to explore our different perceptions of what we are optimising for.&nbsp; We need different and diverse views to ensure that our guardrails don’t become so narrow they look like rail tracks, and we repeat the same mistakes because that is what the process determines.&nbsp; Equally, we must agree together boundaries of divergence which means we can optimise as a team for something that we believe in and has a shared purpose of us and our stakeholders.&nbsp; Finding this dynamic area of alignment is made easier with the Peak Paradox framework.&nbsp;</p><p>However, our model of risk-informed responsible decision making is based on the idea that the majority decides, essentially democracy.&nbsp; If the “majority” is a supermajority, we need 76%; for a simple majority, we need 51%, and for minority protections less than 10%.&nbsp; What we get depends on how someone has previously set up the checks, balances, and control system. And then there is the idea of monarchy or the rich and powerful making the decisions for everyone else, the 0.001%.&nbsp;&nbsp;</p><p>However, our guardrails for democratic decision making breaks down when there is a need for choices, decisions, judgement that has to be made that people do not like.&nbsp; How do we enable better decisions when hard decisions mean you will lose the support of the majority?&nbsp;</p><p></p><p>We do not all agree with vaccines (even before covid), eating meat, climate change, our government or authority.&nbsp; Vaccines in the current global pandemic period are one such tension of divergence.&nbsp; We see this every day in the news feeds; there is an equal and opposite view for every side.&nbsp; Humanity at large lives at Peak Paradox, but we don’t equally value everyone views. Why do we struggle with the idea that individual liberty of choice can be taken away in the interests of everyone?&nbsp;&nbsp;</p><p>Climate change is another.&nbsp; Should the government act in the longer term and protect the future or act in the short term persevering liberty and ensure re-election?&nbsp; Protestors with a cause may fight authority and are portrayed as mavericks and disruptors, but history remembers many as pioneers, martyrs and great leaders.&nbsp; Those who protested in the 1960 and 1970s against nuclear energy may look back today and think that they should have been fighting fossil fuels.&nbsp; Such pioneers are optimising for something outside of the normal guardrails. Whilst they appear to be living outside of the accepted guardrails, they can see they should be adopted.</p><p>Our guardrails work well when we can agree on the consequences of risk-informed and responsible decision making; however, in an age when information is untrusted and who is responsible is questioned, we find that we all have different guardrails.&nbsp; Living at Peak Paradox means we have to accept we will never agree on what is a responsible decision and we are likely to see that our iteration of democracy that maintains power and control is going to end in a revolution if we could only agree on what to optimise for.&nbsp;&nbsp;&nbsp;</p><br> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lh5.googleusercontent.com/BjkG93KdZXoxM0Q1uO85CxmHMT8MmY0iMqaSczXIWCQlCl0XYY5tZq-RwP5pQpz6kAvwmBEau7GzbjXmzkmIw2rcNT3k5znxGc1IQKPFOdxMKpiL-rJW3bAHHCwKEQi_C0Kpt31F=s1600'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   12:57 &bull;
    10 months ago
 </div>
 
