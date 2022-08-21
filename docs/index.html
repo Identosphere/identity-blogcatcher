@@ -701,12 +701,683 @@
 
 </div>
 </div>
-<sup>Last Update 6:46 PM August 20, 2022 (UTC)</sup>
+<sup>Last Update 2:57 AM August 21, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Sunday, 21. August 2022
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Aug/21/scotrail/#atom-everything'>Hacking around with the ScotRail audio announcements</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Scottish train operator ScotRail released a two-hour long MP3 file containing all of the components of its automated station announcements. Messing around with them is proving to be a huge amount of fun. 
+ I now have a Datasette instance running at scotrail.datasette.io with a table of 2,440 MP3 files of announcement snippets. You can search them, filter them and play them there - either individua
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2022/scotrail-apology.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Scottish train operator ScotRail released a two-hour long MP3 file containing all of the components of its automated station announcements. Messing around with them is proving to be a huge amount of fun.</p>
+<p>I now have a Datasette instance running at <a href="https://scotrail.datasette.io/">scotrail.datasette.io</a> with a table of 2,440 MP3 files of announcement snippets. You can search them, filter them and play them there - either individual clips or as a sequence of clips attached together.</p>
+<p>A few examples of things you can do with it:</p>
+ 
+ Here are all of <a href="https://scotrail.datasette.io/scotrail/announcements?Category=Reason">421 reasons</a> that a train might be delayed or cancelled 
+ A <a href="https://scotrail.datasette.io/scotrail/announcements?_search=bomb">search for bomb</a> turns up four audio clips about a "wartime bomb near the railway" 
+ Here's every clip in <a href="https://scotrail.datasette.io/scotrail/announcements?Category=Special+train">the Special Train category</a>
+ 
+ Here are <a href="https://scotrail.datasette.io/scotrail?sql=select+*+from+announcements+order+by+random()+limit+100">100 random clips</a> - hit "Play 100 MP3s on this page" to listen to them all in sequence 
+ This page generates <a href="https://scotrail.datasette.io/scotrail/random_apology">a random apology</a> by gluing together six different clips, mad libs style 
+ 
+<p></p>
+<p>The rest of this post is a detailed account of how I built this Datasette instance, from early prototypes on <a href="https://lite.datasette.io/">Datasette Lite</a> to a full, customized instance of Datasette running on Vercel and with build and deploy automation powered by GitHub Actions.</p>
+ Origins of the data 
+<p>Yesterday, Daily Record journalist Jon Brady <a href="https://twitter.com/jonbradyphoto/status/1560630522002321408">tweeted this</a>:</p>
+<blockquote>
+<p>Bizarre FOI find of the day: Scotrail has openly published a two-hour long sound file containing every single element of its automated station announcements <a href="https://files.scotrail.co.uk/ScotRail_Station_Announcements_June2022.mp3">https://files.scotrail.co.uk/ScotRail_Station_Announcements_June2022.mp3</a></p>
+</blockquote>
+<p>An hour and a half later, developer Matt Eason <a href="https://twitter.com/MattEason/status/1560653413783744512">replied</a>:</p>
+<blockquote>
+<p>If anyone needs this split into 2,440 individual mp3s - because why wouldn't you - I've put them here: <a href="https://drive.google.com/drive/folders/172W6sXnvlr7UcNLipO8BTw417_KRz9c5?usp=sharing">https://drive.google.com/drive/folders/172W6sXnvlr7UcNLipO8BTw417_KRz9c5?usp=sharing</a></p>
+<p>And if anyone wants to help transcribe all the files, here's a shared sheet, which has a good chance of descending into chaos:</p>
+<p><a href="https://docs.google.com/spreadsheets/d/1jAtNLBXLYwTraaC_IGAAs53jJWWEQUtFrocS5jW31JM/edit#gid=2073317291">https://docs.google.com/spreadsheets/d/1jAtNLBXLYwTraaC_IGAAs53jJWWEQUtFrocS5jW31JM/edit#gid=2073317291</a></p>
+</blockquote>
+<p>(Matt later <a href="https://github.com/matteason/scotrail-announcements-june-2022/blob/main/README.md">shared notes</a> about how he used <a href="https://www.nch.com.au/wavepad/index.html">WavePad</a> to do this.)</p>
+<p>It took two hours for a collective of anonymous volunteers to dive through all of the files and transcribe every single one of them.</p>
+<p>I first heard about this all earlier today, when Matt shared his project <a href="https://www.matteason.co.uk/scotbeats/">Ambient Scotrail Beats</a> - an absolutely superb project that overlays random snippets of ScotRail announcement on top of ambient "lofi hip hop radio" - or any YouTube clip you want to enhance in that way.</p>
+<p></p>
+<p>I love how Matt credits Voiceover artist <a href="https://www.alisonmckay.com/">Alison McKay</a>, who originally recorded the announcements for ScotRail, in his work.</p>
+<p>I couldn't resist throwing the data into <a href="https://datasette.io/">Datasette</a> to see what kind of things I could do with it.</p>
+ Starting out with Datasette Lite 
+<p>My first step to explore the data was to try it out in <a href="https://lite.datasette.io/">Datasette Lite</a>, my build of Datasette that <a href="https://simonwillison.net/2022/May/4/datasette-lite/">runs in WebAssembly entirely in the browser</a>.</p>
+<p>The great thing about Datasette Lite is that you don't need to deploy anything anywhere in order to use it for a new project.</p>
+<p>I exported a CSV file from <a href="https://docs.google.com/spreadsheets/d/1jAtNLBXLYwTraaC_IGAAs53jJWWEQUtFrocS5jW31JM/edit#gid=2073317291">the Google Sheet</a>, pasted it into <a href="https://gist.github.com/simonw/8a2494a3402450716f4c8129d280b133">this GitHub Gist</a>, grabbed the URL to the <a href="https://gist.githubusercontent.com/simonw/8a2494a3402450716f4c8129d280b133/raw/76f4f030a64318082496c51ffa6e572f3d8d00bd/ScotRail%2520announcements%2520June%25202022%2520index%2520-%2520Index.csv">raw CSV file</a> and pasted that into Datasette Lite.</p>
+<p>I ran it through GitHub Gists because Datasette Lite needs data to have open CORS headers in order to load it, and GitHub Gists (and files on GitHub itself) have these headers.</p>
+<p><a href="https://lite.datasette.io/?csv=https%3A%2F%2Fgist.githubusercontent.com%2Fsimonw%2F8a2494a3402450716f4c8129d280b133%2Fraw%2F76f4f030a64318082496c51ffa6e572f3d8d00bd%2FScotRail%252520announcements%252520June%2525202022%252520index%252520-%252520Index.csv#/data/ScotRail~252520announcements~252520June~2525202022~252520index~252520-~252520Index?_facet=Category">Here's the result</a>. Just being able to facet by Category was already pretty interesting:</p>
+<p></p>
+<p>I <a href="https://twitter.com/simonw/status/1561024141121048576">started a Twitter thread</a> sharing my progress so far. This ended up running for the next eight hours as my experiments got increasingly ambitious.</p>
+ Adding an audio player 
+<p>Wouldn't it be neat if you could listen to those MP3 files right there in the Datasette interface?</p>
+<p>A few days ago I added <a href="https://simonwillison.net/2022/Aug/17/datasette-lite-plugins/">plugin support to Datasette Lite</a> - you can now add <code>?install=name-of-plugin</code> to the URL to install and use a new plugin.</p>
+<p>This seemed like the perfect opportunity to put that new capability to good use!</p>
+<p>Matt had uploaded all of the individual MP3 files to <a href="https://github.com/matteason/scotrail-announcements-june-2022">his scotrail-announcements-june-2022 GitHub repository</a>. This meant that you could get the URL for a snippet called <code>0008.mp3</code> by constructing the following URL:</p>
+<p><code>https://github.com/matteason/scotrail-announcements-june-2022/raw/main/announcements/0008.mp3</code></p>
+<p>What I needed was a Datasette plugin that could spot URLs ending in <code>.mp3</code> and turn them into an interactive audio player.</p>
+<p>The easiest way to create a player in modern HTML is like this:</p>
+  &lt;audio controls src="https://github.com/matteason/scotrail-announcements-june-2022/raw/main/announcements/0008.mp3"&gt;
+  Audio not supported
+&lt;/audio&gt;  
+<p>Datasette has a <a href="https://docs.datasette.io/en/stable/plugin_hooks.html#render-cell-row-value-column-table-database-datasette">render_cell() plugin hook</a> which allows plugins to customize the way individual table cells are rendered.</p>
+<p>Here's the full implementation of a plugin that turns <code>.mp3</code> URLs into audio elements:</p>
+ from datasette import hookimpl
+from markupsafe import Markup, escape
+
+
+@hookimpl
+def render_cell(value):
+    if not isinstance(value, str):
+        return
+    if value.endswith(".mp3") and (
+        value.startswith("http://")
+        or value.startswith("https://")
+        or value.startswith("/")
+    ):
+        return Markup(
+            '&lt;audio controls src="{}"&gt;Audio not supported&lt;/audio&gt;'.format(escape(value))
+        ) 
+<p>I fired up a new plugin using my <a href="https://github.com/simonw/datasette-plugin-template-repository">datasette-plugin</a> cookiecutter/GitHub repository template called <a href="https://github.com/simonw/datasette-mp3-audio">datasette-mp3-audio</a>, dropped in that implementation, added <a href="https://github.com/simonw/datasette-mp3-audio/blob/0.1/tests/test_mp3_audio.py">a basic test</a> and shipped it <a href="https://pypi.org/project/datasette-mp3-audio">to PyPI</a>.</p>
+<p>Now, adding <code>?install=datasette-mp3-audio</code> to the Datasette Lite would install that plugin!</p>
+<p>I built a <a href="https://gist.github.com/simonw/0a30d52feeb3ff60f7d8636b0bde296b">new copy of the CSV file</a> with those full MP3 URLs in it, and loaded that up in Datasette Lite:</p>
+<p><a href="https://lite.datasette.io/?install=datasette-mp3-audio&amp;csv=https://gist.githubusercontent.com/simonw/0a30d52feeb3ff60f7d8636b0bde296b/raw/c078a9e5a0151331e2e46c04c1ebe7edc9f45e8c/scotrail-announcements.csv#/data/scotrail-announcements">https://lite.datasette.io/?install=datasette-mp3-audio&amp;csv=https://gist.githubusercontent.com/simonw/0a30d52feeb3ff60f7d8636b0bde296b/raw/c078a9e5a0151331e2e46c04c1ebe7edc9f45e8c/scotrail-announcements.csv#/data/scotrail-announcements</a></p>
+<p></p>
+<p>Being able to listen to the clips right there in the Datasette interface made the whole project instantly enormously more fun and interesting.</p>
+ Upgrading to a full Datasette 
+<p>Prototyping this on Datasette Lite had been fast and fun, but the long load times were beginning to grate - downloading and running a full copy of Python-compiled-to-WebAssembly every time someone loads the site didn't make for a great first impression.</p>
+<p>I decided to ship a server-side Datasette instance. The database is tiny - just 504KB - so I decided to use <a href="https://vercel.com/">Vercel</a> for this. I tend to switch to Cloud Run when my databases grow above about 100MB.</p>
+<p>I like to automate my projects as early as possible, so I started a <a href="https://github.com/simonw/scotrail-datasette">simonw/scotrail-datasette</a> GitHub repository so I could run the deploys using GitHub Actions.</p>
+ Fetching the CSV with GitHub Actions 
+<p>First, I wanted a copy of the data in my repository - so that any future changes to the Google Sheet wouldn't break my project.</p>
+<p>I followed my <a href="https://simonwillison.net/2020/Oct/9/git-scraping/">Git scraping</a> pattern and built <a href="https://github.com/simonw/scotrail-datasette/blob/b1126635050303476f691a074a77ba6b1dae6b18/.github/workflows/fetch-csv.yml">a quick GitHub Actions workflow</a> to download the Google Sheets data as CSV and stash it in the repository:</p>
+  name: Fetch CSV from Google Sheets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-csv:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.10"
+        cache: "pip"
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    - name: Fetch
+      run: |        
+        curl -s -L 'https://docs.google.com/spreadsheets/d/1jAtNLBXLYwTraaC_IGAAs53jJWWEQUtFrocS5jW31JM/export?format=csv' | \
+          sqlite-utils memory stdin:csv \
+          'select [File], [NRE ID], Transcription, Category, Notes, Timestamp, [mp3 file] from stdin' \
+          --no-detect-types \
+          --csv &gt; announcements.csv
+    - name: Commit and push
+      run: |-
+        git config user.name "Automated"
+        git config user.email "actions@users.noreply.github.com"
+        git add -A
+        timestamp=$(date -u)
+        git commit -m "${timestamp}" || exit 0
+        git pull --rebase
+        git push  
+<p>I was hoping I could just grab the CSV file and save it directly to the repo, but it turned out the raw data had some weirdness to it:</p>
+ <code>% curl -s -L 'https://docs.google.com/spreadsheets/d/1jAtNLBXLYwTraaC_IGAAs53jJWWEQUtFrocS5jW31JM/export?format=csv' | head -n 5 
+File,NRE ID,Transcription,Category,Notes,Timestamp,Length,mp3 file,,,,,,,,,,,,,,,,,,,,,,,,
+1869,BAI,Blairhill,Destination,,,00:00:00,1869.mp3,,,,,,,,,,,,,,,,,,,,,,,,
+1703,BYK,Bentley,Destination,,,00:00:00,1703.mp3,,,,,,,,,,,,,,,,,,,,,,,,
+0083,HEX,Hexham,Destination,,,00:00:00,0083.mp3,,,,,,,,,,,,,,,,,,,,,,,,
+0004,,South West Trains service to,Train operating company,Bit of a detour,0:00:07,00:00:02,0004.mp3,Progress,#DIV/0!,Progress,#DIV/0!,Progress,#DIV/0!,,,,,,,,,,,,,,,,,,
+</code> 
+<p>What's with all of those <code>,,,,,</code> blank lines?</p>
+<p>It turned out enthusiastic data entry volunteers had scattered some emoji around in the spreadsheet grid to the right of the data, resulting in a whole bunch of extra blank columns in the CSV!</p>
+<p>I decided to solve this using by using my <a href="https://sqlite-utils.readthedocs.io/">sqlite-utils</a> tool to clean up the data - in particular, the <a href="https://simonwillison.net/2021/Jun/19/sqlite-utils-memory/">sqlite-utils memory</a> mechanism. That's what this bit does:</p>
+ <code>curl -s -L 'https://docs.google.com/spreadsheets/d/1jAtNLBXLYwTraaC_IGAAs53jJWWEQUtFrocS5jW31JM/export?format=csv' | \
+    sqlite-utils memory stdin:csv \
+    'select [File], [NRE ID], Transcription, Category, Notes, Timestamp, [mp3 file] from stdin' \
+    --no-detect-types \
+    --csv &gt; announcements.csv
+</code> 
+<p>This fetches the raw CSV data with <code>curl</code> and loads it into an in-memory database, using <code>stdin:csv</code> to hint to <code>sqlite-utils</code> that the data being piped to standard input is in CSV format rather than the default JSON.</p>
+<p>Then it runs a SQL query directly against that in-memory database to pull out just the columns I want to keep.</p>
+<p>The tool automatically detects types in CSV data. In this particular case filenames such as <code>0001</code> were being truncated to the integer <code>1</code>, which I didn't want to happen - so I added the <code>--no-detect-types</code> option to turn that off.</p>
+<p>Finally, I told it to output <code>--csv</code> and write that to the <code>announcements.csv</code> file.</p>
+<p>The workflow ends by writing that new file back to the repository and pushing it, if it has changed.</p>
+<p>The workflow is triggered on <code>workflow_dispatch</code>, which means I have to click a button in the GitHub Actions UI to trigger it. I clicked that button, waited a few seconds and GitHub Actions wrote <a href="https://github.com/simonw/scotrail-datasette/blob/main/announcements.csv">this CSV file</a> back to my repo.</p>
+ Building the SQLite database 
+<p>The next step was to write as script that would load that CSV file into a SQLite database. Again, I used <code>sqlite-utils</code> for this. Here's the <code>build-db.sh</code> script I wrote:</p>
+  #!/bin/bash
+sqlite-utils insert scotrail.db announcements announcements.csv --csv --pk File
+sqlite-utils transform scotrail.db announcements \
+  --rename 'NRE ID' NRE_ID \
+  --rename 'mp3 file' 'mp3' \
+  -o File \
+  -o Transcription \
+  -o Category \
+  -o mp3 \
+  -o Notes \
+  -o Timestamp \
+  -o NRE_ID
+sqlite-utils scotrail.db "update announcements set mp3 = 'https://github.com/matteason/scotrail-announcements-june-2022/raw/main/announcements/' || mp3"
+
+# Enable search
+sqlite-utils enable-fts scotrail.db announcements Transcription --tokenize porter  
+<p>It took a few iterations to get this exactly right.</p>
+<p>The first line imports the CSV data into a table.</p>
+<p>The second line does most of the work: it uses <a href="https://simonwillison.net/2020/Sep/23/sqlite-advanced-alter-table/">sqlite-utils transform</a> to rename a couple of columns, then change the order of the columns in that table to present them in a more useful order in the Datasette UI.</p>
+<p>It updates the <code>mp3</code> column to turn those filenames into full URLs.</p>
+<p>Finally, it configures <a href="https://sqlite-utils.datasette.io/en/stable/cli.html#configuring-full-text-search">full-text search</a> on the <code>Transcription</code> column, with porter stemming enabled.</p>
+ Deploying to Vercel 
+<p>Build script in place, the last step was to automate the process of building the database and then deploying it to Vercel.</p>
+<p>I wrote <a href="https://github.com/simonw/scotrail-datasette/blob/88173856254018614c9620d8099a4bb8d80fbb5b/.github/workflows/build-and-deploy.yml">a second workflow</a> for that:</p>
+  name: Build and deploy
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.10"
+        cache: "pip"
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    - name: Build SQLite database
+      run: ./build-db.sh
+    - name: Deploy to Vercel
+      env:
+        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      run: |-
+        datasette publish vercel scotrail.db \
+          --token $VERCEL_TOKEN \
+          --scope datasette \
+          --project scotrail \
+          --install datasette-mp3-audio \
+          --metadata metadata.yml  
+<p>This workflow runs on every push to the repo, but can also be triggered manually.</p>
+<p>It installs Python 3.10 and the dependencies I need, then runs the build script to build the database.</p>
+<p>The interesting bit is that last block, titled "Deploy to Vercel".</p>
+<p>I created a Vercel API token in their dashboard and saved that as the <code>VERCEL_TOKEN</code> secret in the repository.</p>
+<p>The final block uses the <a href="https://datasette.io/plugins/datasette-publish-vercel">datasette-publish-vercel</a> plugin to deploy the site:</p>
+  datasette publish vercel scotrail.db \
+  --token $VERCEL_TOKEN \
+  --scope datasette \
+  --project scotrail \
+  --install datasette-mp3-audio \
+  --metadata metadata.yml  
+<p>Here we're deploying the <code>scotrail.db</code> database that was created by our earlier build script. I'm using <code>--scope datasette</code> to specify the Vercel organization that I want to deploy to, and <code>--project scotrail</code> to specify the project.</p>
+<p>Vercel will create a new project the first time you use that name, then deploy to that existing project on subsequent runs.</p>
+<p>I install the <a href="https://datasette.io/plugins/datasette-mp3-audio">datasette-mp3-audio plugin</a>, described earlier.</p>
+<p>Finally, I specify <code>--metadata metadata.yml</code> to upload a metadata file with details to be displayed on the homepage of the site. You can see an early version of that file <a href="https://github.com/simonw/scotrail-datasette/blob/15a40c70ca4e21e267fad84d75be96fb61e025c8/metadata.yml">here</a>.</p>
+<p>This worked! I pushed the new workflow, it ran, and Vercel made my new application available at <code>scotrail.vercel.app</code>. I used their dashboard to assign a vanity URL of <a href="https://scotrail.datasette.io">scotrail.datasette.io</a>.</p>
+ Adding a "play all" button 
+<p>I quickly found myself frustrated at having to click the play button on so many different clips!</p>
+<p>I decided to see if I could use JavaScript to hit play on everything in succession instead.</p>
+<p>I opened up the Firefox DevTools console and started messing around in JavaScript. I eventually found that this recipe did what I wanted:</p>
+  function playAllAudios() {
+  let audios = Array.from(document.querySelectorAll('audio'));
+  function playNext() {
+    if (!audios.length) {
+      return;
+    }
+    let next = audios.shift();
+    next.addEventListener('ended', playNext);
+    next.play();
+  }
+  playNext();
+}
+playAllAudios();  
+<p>I <a href="https://github.com/simonw/datasette-mp3-audio/issues/2">opened an issue</a> to record my prototype.</p>
+<p>This was while I was still working with Datasette Lite, which still <a href="https://github.com/simonw/datasette-lite/issues/8">has some limitations</a> in terms of executing JavaScript from plugins.</p>
+<p>Once I'd upgraded to a full Datasette, I revisited the issue.</p>
+<p>I figured out an extended version of my JavaScript prototype which would add a "Play 33 MP3s on this page" button to any page with two or more audio elements. Here's <a href="https://github.com/simonw/datasette-mp3-audio/blob/7206b759c7888c10cb823f10962fa8f393d61261/datasette_mp3_audio/static/datasette-mp3-audio.js">the code</a>. I <a href="https://github.com/simonw/datasette-mp3-audio/commit/4885926f5cd015af29e41928ef272cba1dd9c150">implemented that in datasette-mp3-audio</a>, shipped a <a href="https://github.com/simonw/datasette-mp3-audio/releases/0.2">0.2 release</a> and added that to the site.</p>
+<p>The new button is really fun! Here it is on <a href="https://scotrail.datasette.io/scotrail?sql=select+*+from+announcements+order+by+random%28%29+limit+100">a query that returns 100 random snippets</a>:</p>
+<p></p>
+ Generating random apologies with a SQL query 
+<p>To really exercise this new feature, I decided to try and build a <a href="https://en.wikipedia.org/wiki/Mad_Libs">mad lib</a>.</p>
+<p>I figured out a SQL query that would construct a random apology, stringing together random snippets from a number of different categories.</p>
+<p>I used CTEs (common table expressions - the <code>with x as (query)</code> blocks) to pick each of the random components of the final sentence.</p>
+<p>Here's <a href="https://scotrail.datasette.io/scotrail?sql=with+apology+as+%28%0A++++select+Transcription%2C+mp3+from+announcements+where%0A++++++++Category+%3D+%27Apology%27%0A++++order+by+random%28%29+limit+1%0A%29%2C%0Atrain_company+as+%28%0A++++select+Transcription%2C+mp3+from+announcements+where%0A++++++++Category+%3D+%27Train+operating+company%27%0A++++++++and+Transcription+like+%27%25to%25%27%0A++++order+by+random%28%29+limit+1%0A%29%2C%0Adestination+as+%28%0A++++select+Transcription%2C+mp3+from+announcements+where%0A++++++++Category+%3D+%27Destination%27%0A++++order+by+random%28%29+limit+1%0A%29%2C%0Acancelled+as+%28%0A++++select+Transcription%2C+mp3+from+announcements+where%0A++++++++Transcription+%3D+%27has+been+cancelled%27%0A++++limit+1%0A%29%2C%0Adue_to+as+%28%0A++++select+Transcription%2C+mp3+from+announcements+where%0A++++++++Transcription+%3D+%27due+to%27%0A++++limit+1%0A%29%2C%0Areason+as+%28%0A++++select+Transcription%2C+mp3+from+announcements+where%0A++++++++Category+%3D+%27Reason%27%0A++++order+by+random%28%29+limit+1%0A%29%2C%0Acombined+as+%28%0A++select+1+as+sort%2C+%2A+from+apology%0A++union+select+2%2C+%2A+from+train_company%0A++union+select+3%2C+%2A+from+destination%0A++union+select+4%2C+%2A+from+cancelled%0A++union+select+5%2C+%2A+from+due_to%0A++union+select+6%2C+%2A+from+reason%0A%29%0Aselect+%2A+from+combined+order+by+sort">the query I came up with</a>, with some extra inline commentary:</p>
+  with apology as (
+    select Transcription, mp3 from announcements where
+        Category = 'Apology'
+    order by random() limit 1
+),  
+<p>The <a href="https://scotrail.datasette.io/scotrail/announcements?Category=Apology">Apology category</a> only has 8 rows, each along the lines of "I am sorry to announce that the" or "We are sorry to announce that the".</p>
+  train_company as (
+    select Transcription, mp3 from announcements where
+        Category = 'Train operating company'
+        and Transcription like '%to%'
+    order by random() limit 1
+),  
+<p>There are <a href="https://scotrail.datasette.io/scotrail/announcements?Category=Train+operating+company">76 Train operating company</a> snippets, in formats that include "Midland Main Line service from" and "Southeastern Trains service to". I filterled for just the ones with <code>to</code> in the text.</p>
+  destination as (
+    select Transcription, mp3 from announcements where
+        Category = 'Destination'
+    order by random() limit 1
+),  
+<p>There are <a href="https://scotrail.datasette.io/scotrail/announcements?Category=Destination">1,271</a> potential destinations - single word names of places, like "Bath Spa" or "Dunfermline Queen Margaret".</p>
+  cancelled as (
+    select Transcription, mp3 from announcements where
+        Transcription = 'has been cancelled'
+    limit 1
+),
+due_to as (
+    select Transcription, mp3 from announcements where
+        Transcription = 'due to'
+    limit 1
+),  
+<p>There's probably a neater way to do this - I just wanted the literal text "has been cancelled due to" in every result.</p>
+  reason as (
+    select Transcription, mp3 from announcements where
+        Category = 'Reason'
+    order by random() limit 1
+),  
+<p>These are the really fun ones. There are <a href="https://scotrail.datasette.io/scotrail/announcements?Category=Reason">421</a> snippets marked "Reason", everything from "Bad weather conditions" to "...a burst water main near the railway, yesterday" to "A wartime bomb near the railway earlier today"!</p>
+<p>The final piece of the query combined these together into a list, with an artificially added <code>sort</code> column to guarantee the order (which I don't think is strictly necessary in SQLite, but better safe than sorry):</p>
+  combined as (
+  select 1 as sort, * from apology
+  union select 2, * from train_company
+  union select 3, * from destination
+  union select 4, * from cancelled
+  union select 5, * from due_to
+  union select 6, * from reason
+)
+select * from combined order by sort  
+<p>This totally works!</p>
+<p>Since the bookmarked query is a pretty long URL I decided to use Datasette's <a href="https://docs.datasette.io/en/stable/sql_queries.html#canned-queries">canned query</a> mechanism to turn it into a more easily discovered page:</p>
+<p><a href="https://scotrail.datasette.io/scotrail/random_apology">scotrail.datasette.io/scotrail/random_apology</a></p>
+<p>I also chose to hide the SQL query by default, to put the essential "Play 6 MP3s on this page" button above the fold.</p>
+<p>I linked to it from the <a href="https://scotrail.datasette.io/">site homepage</a> too, using <code>description_html</code> in <a href="https://github.com/simonw/scotrail-datasette/blob/b1126635050303476f691a074a77ba6b1dae6b18/metadata.yml">the site metadata.yml</a>:</p>
+<p></p>
+ Make fun stuff with the API 
+<p>As you can probably tell, I had a ridiculous amount of fun playing with this data.</p>
+<p>If you want to build some things with this, you should know that every page on the Datasette instance has an accompanying API. Look for the <code>JSON</code> links on each page - Datasette serves them with CORS headers so you can fetch data from them from any domain on the Web.</p>
+<p>I recommend adding <code>?_shape=objects</code> to the array, since this shape of data is closer to the breaking change I have planned for Datasette 1.0. Here's an example returning one of those random apologies:</p>
+<p><a href="https://scotrail.datasette.io/scotrail/random_apology.json?_shape=objects">https://scotrail.datasette.io/scotrail/random_apology.json?_shape=objects</a></p>
+<p>I also installed the <a href="https://datasette.io/plugins/datasette-graphql">datasette-graphql</a> plugin, so if you want to use GraphQL instead you can do something <a href="https://scotrail.datasette.io/graphql/scotrail?query=%7B%0A%20%20announcements(filter%3A%20%7BCategory%3A%20%7Beq%3A%20%22Special%20train%22%7D%7D)%20%7B%0A%20%20%20%20nodes%20%7B%0A%20%20%20%20%20%20File%0A%20%20%20%20%20%20Transcription%0A%20%20%20%20%20%20Category%0A%20%20%20%20%20%20mp3%0A%20%20%20%20%20%20Notes%0A%20%20%20%20%20%20Timestamp%0A%20%20%20%20%20%20NRE_ID%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D">like this</a>:</p>
+  {
+  announcements(filter: {Category: {eq: "Special train"}}) {
+    nodes {
+      File
+      Transcription
+      Category
+      mp3
+      Notes
+      Timestamp
+      NRE_ID
+    }
+  }
+}  
+<p>That query returns the <a href="https://scotrail.datasette.io/scotrail/announcements?Category=Special+train">12 rows in the Special train category</a>.</p>
+<p>Let me know <a href="https://twitter.com/simonw">on Twitter</a> if you build something fun!</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2022/scotrail-apology.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:04 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/21/135835.html'></a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/85620c4ce0.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/85620c4ce0.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:58 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/08/21/its-summer-and.html'> 
+ “It’s summer, and I got a note that politely encouraged a </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ “It’s summer, and I got a note that politely encouraged a few forays into brevity.” 
+ 
+ 💬 Brian Morrisey 
+ It could equally well have been directed at me! 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<blockquote>
+<p>“It’s summer, and I got a note that politely encouraged a few forays into brevity.”</p>
+</blockquote>
+<p>💬 Brian Morrisey</p>
+<p>It could equally well have been directed at me!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:22 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
+  Saturday, 20. August 2022
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Aug/20/gpt3-templates/#atom-everything'>Show HN: A new way to use GPT-3 to generate code (and everything else)</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Show HN: A new way to use GPT-3 to generate code (and everything else) 
+ Riley Goodside is my favourite Twitter follow for GPT-3 tips. Here he describes a powerful prompt pattern he's designed which lets you generate extremely complex code output by asking GPT-3 to fill in $$areas like this$$ with different patterns, then stitch them together into full HTML or other source code files. It's really 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://news.ycombinator.com/item?id=32532875">Show HN: A new way to use GPT-3 to generate code (and everything else)</a></p>
+<p>Riley Goodside is my favourite Twitter follow for GPT-3 tips. Here he describes a powerful prompt pattern he's designed which lets you generate extremely complex code output by asking GPT-3 to fill in $$areas like this$$ with different patterns, then stitch them together into full HTML or other source code files. It's really clever.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:33 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Aug/20/shoelace/#atom-everything'>Shoelace</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Shoelace 
+ Saw this for the first time today: it's a relatively new library of framework-agnostic Web Components, built on lit-html and covering a huge array of common functionality: buttons and sliders and dialogs and drawer interfaces and dropdown menus and so on. The design is very clean, the documentation is superb - and it looks like you can cherry pick just the components you are using for a
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://shoelace.style/">Shoelace</a></p>
+<p>Saw this for the first time today: it's a relatively new library of framework-agnostic Web Components, built on lit-html and covering a huge array of common functionality: buttons and sliders and dialogs and drawer interfaces and dropdown menus and so on. The design is very clean, the documentation is superb - and it looks like you can cherry pick just the components you are using for a pretty lean addition to your page weight. So refreshing to see libraries like this that really take advantage of modern web standards.</p>
+
+    <p>Via <a href="https://twitter.com/AdamRackis/status/1561075648143278080">Adam Rackis</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:57 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -769,7 +1440,7 @@
 
 <div class='item-footer'>
    01:20 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4862,135 +5533,6 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 <article class='item'>
 
 
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/08/11/kevin-spacey-ordered.html'> Kevin Spacey ordered to pay $31m to House of Cards producers</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Kevin Spacey ordered to pay $31m to House of Cards producers. 
- … the award seems a little out of wack compared to Alex Jones. 
- No? 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.theguardian.com/culture/2022/aug/05/kevin-spacey-ordered-to-pay-31m-to-house-of-cards-producers">Kevin Spacey ordered to pay $31m to House of Cards producers.</a></p>
-<p>… the award seems a little out of wack compared to Alex Jones.</p>
-<p>No?</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:55 &bull;
-   10 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/08/11/truth-in-humour.html'> Truth in humour … 
- You’re an asset waiting to happen. </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Truth in humour … 
- You’re an asset waiting to happen. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Truth in humour …</p>
-<p><a href="https://thisisindexed.com/2022/06/youre-an-asset-waiting-to-happen/">You’re an asset waiting to happen.</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:50 &bull;
-   10 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
 <h4 class='feed-title'>
   <a href='http://simonwillison.net'>Simon Willison</a>
 </h4>
@@ -5509,7 +6051,7 @@ The post The Panopticon is (going to be) Us first appeared on SeanB
 
 <div class='item-footer'>
    14:32 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9465,7 +10007,7 @@ end
 
 <div class='item-footer'>
    14:57 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9598,72 +10140,6 @@ just better.</p>
  <h2 class='new-date'>
   Tuesday, 26. July 2022
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Jul/26/cosmopolitan-python/#atom-everything'>Cosmopolitan: Compiling Python</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Cosmopolitan: Compiling Python 
- Cosmopolitan is Justine Tunney's "build-once run-anywhere C library" - part of the αcτµαlly pδrταblε εxεcµταblε effort, which produces wildly clever binary executable files that work on multiple different platforms, and is the secret sauce behind redbean. I hadn't realized this was happening but there's an active project to get Python to work as this format, produc
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://github.com/jart/cosmopolitan/issues/141">Cosmopolitan: Compiling Python</a></p>
-<p>Cosmopolitan is Justine Tunney's "build-once run-anywhere C library" - part of the αcτµαlly pδrταblε εxεcµταblε effort, which produces wildly clever binary executable files that work on multiple different platforms, and is the secret sauce behind redbean. I hadn't realized this was happening but there's an active project to get Python to work as this format, producing a new way of running Python applications as standalone executables, only these ones have the potential to run unmodified on Windows, Linux and macOS.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:43 &bull;
-   25 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -10080,144 +10556,6 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    01:00 &bull;
-   26 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Jul/26/viewport-preview/#atom-everything'>viewport-preview</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   viewport-preview 
- I built a tiny tool which lets you preview a URL in a bunch of different common browser viewport widths, using iframes. 
-
-     Via @simonw 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://github.com/simonw/viewport-preview">viewport-preview</a></p>
-<p>I built a tiny tool which lets you preview a URL in a bunch of different common browser viewport widths, using iframes.</p>
-
-    <p>Via <a href="https://twitter.com/simonw/status/1551709715658186752">@simonw</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:00 &bull;
-   26 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 25. July 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Jul/25/reduce-friction/#atom-everything'>Reduce Friction</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Reduce Friction 
- Outstanding essay on software engineering friction and development team productivity by C J Silverio: it explains the concept of "friction" (and gives great definitions of "process", "ceremony" and "formality" in the process) as it applies to software engineering, lays out the challenges involved in getting organizations to commit to reducing it and then provides actionable advic
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://blog.ceejbot.com/posts/reduce-friction/">Reduce Friction</a></p>
-<p>Outstanding essay on software engineering friction and development team productivity by C J Silverio: it explains the concept of "friction" (and gives great definitions of "process", "ceremony" and "formality" in the process) as it applies to software engineering, lays out the challenges involved in getting organizations to commit to reducing it and then provides actionable advice on how to get consensus and where to invest your efforts in order to make things better.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:25 &bull;
    26 days ago
 </div>
 
@@ -19898,7 +20236,7 @@ range of setups under that term today.</p>
 
 <div class='item-footer'>
    00:51 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
@@ -23241,7 +23579,7 @@ You can use it to add a flat virtual background to your video, or you could use 
 
 <div class='item-footer'>
    19:05 &bull;
-   7 months ago
+   8 months ago
 </div>
 
 </div><!-- item-body -->
