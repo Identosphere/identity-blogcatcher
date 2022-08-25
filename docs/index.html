@@ -701,7 +701,7 @@
 
 </div>
 </div>
-<sup>Last Update 9:43 AM August 25, 2022 (UTC)</sup>
+<sup>Last Update 6:48 PM August 25, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -714,6 +714,254 @@
  <h2 class='new-date'>
   Thursday, 25. August 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Aug/25/sfms-archive/#atom-everything'>Building a searchable archive for the San Francisco Microscopical Society</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The San Francisco Microscopical Society was founded in 1870 by a group of scientists dedicated to advancing the field of microscopy. 
+ Today the society is a non-profit run entirely by volunteers (they welcome new members). 
+ This year they've been working with the UC Berkeley Bancroft Library to digitize their archives, which reach back to the founding of the organization. 
+ Hep Svadja, Jenny Jac
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2022/sfms-homepage.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>The <a href="https://sfmicrosociety.org/">San Francisco Microscopical Society</a> was <a href="https://sfmicrosociety.org/history">founded</a> in 1870 by a group of scientists dedicated to advancing the field of microscopy.</p>
+<p>Today the society is a non-profit run entirely by volunteers (they welcome <a href="https://sfmicrosociety.org/join">new members</a>).</p>
+<p>This year they've been working with the UC Berkeley Bancroft Library to <a href="https://mailchi.mp/sfmicrosociety/spring-2022#FROM%20THE%20ARCHIVE">digitize their archives</a>, which reach back to the founding of the organization.</p>
+<p>Hep Svadja, Jenny Jacox and Ariel Waldman have taken the lead on this effort, resulting in a wealth of scanned PDF files covering 150 years of microscope history.</p>
+<p>I've been helping out with the project running OCR against the archives (using Amazon Textract via my <a href="https://simonwillison.net/2022/Jun/30/s3-ocr/">s3-ocr tool</a>, which I built for this project) and turning them into a searchable website using <a href="https://datasette.io/">Datasette</a>.</p>
+<p>The result is now live! Take a look at <a href="https://archive.sfmicrosociety.org/">archive.sfmicrosociety.org</a>.</p>
+<p></p>
+<p>Try running a search for <a href="https://archive.sfmicrosociety.org/?q=newton">newton</a> to see the search feature in action.</p>
+<p>You can also <a href="https://archive.sfmicrosociety.org/folders/PUBLIC/Section+5+Supporting+Documents+for+SFHS+Application">browse by folder structure</a> or by <a href="https://archive.sfmicrosociety.org/docs/12abb3e5">individual document</a>.</p>
+<p>A neat thing about using AWS Textract is that it is significantly better at reading 19th century handwritten documents than I am.</p>
+<p>Each document page is shown with the OCRd text alongside the original scan, so you can see that for yourself on <a href="https://archive.sfmicrosociety.org/docs/402f6021/15">this page</a>.</p>
+<p></p>
+ How it works 
+<p>The website itself is a custom Datasette instance hosted on <a href="https://vercel.com/">Vercel</a> - deployed using the <a href="https://datasette.io/plugins/datasette-publish-vercel">datasette-publish-vercel plugin</a>.</p>
+<p>It's an implementation of the <a href="https://simonwillison.net/2021/Jul/28/baked-data/">Baked Data</a> architectural pattern, where the database itself is packaged up as a SQLite and included as a binary file in the application that is deployed to Vercel.</p>
+<p>You can directly browse and query the underlying database (a 12.4MB SQLite file) using the default Datasette interface at <a href="https://archive.sfmicrosociety.org/sfms">archive.sfmicrosociety.org/sfms</a>.</p>
+<p>The database schema (excluding the tables that enable full-text search) looks like this:</p>
+  CREATE TABLE [documents] (
+   [id] TEXT PRIMARY KEY,
+   [title] TEXT,
+   [path] TEXT,
+   [etag] TEXT
+)
+
+CREATE TABLE [pages] (
+   [id] TEXT PRIMARY KEY,
+   [document_id] TEXT,
+   [page] INTEGER,
+   [text] TEXT,
+   FOREIGN KEY([document_id]) REFERENCES [documents]([id])
+)  
+<p>As you can see, the site consists of documents and pages. Documents have a <code>path</code> (the directory structure), a title (the filename) and an ID. Pages belong to documents and have a <code>text</code> column and a page number. It's a pretty simple schema!</p>
+<p>The public pages on the site are all built using custom templates and views. You can browse the source code in the <a href="https://github.com/simonw/sfms-history">simonw/sfms-history</a> GitHub repository.</p>
+<p>In particular, the custom pages are implemented using a <a href="https://docs.datasette.io/en/stable/writing_plugins.html#writing-one-off-plugins">one-off site plugin</a> (in the <code>plugins/</code> folder) that adds extra routes to Datasette using the <a href="https://docs.datasette.io/en/stable/plugin_hooks.html#register-routes-datasette">register_routes()</a> plugin hook, <a href="https://github.com/simonw/sfms-history/blob/cdf31999b9534b78c41ccfe6dc0c38067ca9cfe3/plugins/views.py#L5-L12">like this</a>:</p>
+ @hookimpl
+def register_routes():
+    return [
+        (r"^/docs$", docs),
+        (r"^/docs/(?P&lt;document_id&gt;[a-z0-9]+)$", document),
+        (r"^/docs/(?P&lt;document_id&gt;[a-z0-9]+)/(?P&lt;page&gt;\d+)/?$", page),
+        (r"^/folders/(?P&lt;folder&gt;.*)$", folder),
+    ] 
+<p><code>docs</code>, <code>document</code>, <code>page</code> and <code>folder</code> are Python view functions that take a request and return a custom response.</p>
+<p>Here's the <code>docs</code> function for example, which powers the listing of all documents at <a href="https://archive.sfmicrosociety.org/docs">archive.sfmicrosociety.org/docs</a>:</p>
+ async def docs(datasette, request):
+    db = datasette.get_database("sfms")
+    documents = [
+        to_document(doc)
+        for doc in await db.execute(
+            """
+    select documents.*, count(*) as num_pages
+    from pages join documents on pages.document_id = documents.id
+    group by documents.id
+    order by path
+    """
+        )
+    ]
+    return Response.html(
+        await datasette.render_template("docs.html", {"documents": documents}, request)
+    ) 
+<p>And here's <a href="https://github.com/simonw/sfms-history/blob/cdf31999b9534b78c41ccfe6dc0c38067ca9cfe3/templates/docs.html">the docs.html template</a> it uses.</p>
+<p>The <a href="https://github.com/simonw/sfms-history/blob/cdf31999b9534b78c41ccfe6dc0c38067ca9cfe3/templates/index.html">index.html</a> template which implements both the homepage and the search results page is worth a look too. It takes <a href="https://github.com/simonw/sfms-history/blob/cdf31999b9534b78c41ccfe6dc0c38067ca9cfe3/plugins/index.py">a slightly different approach</a>, using the <a href="https://docs.datasette.io/en/stable/plugin_hooks.html#extra-template-vars-template-database-table-columns-view-name-request-datasette">extra_template_vars()</a> plugin hook to populate extra custom template variables that can be used by that page to loop through the search results.</p>
+<p>I built that page first, before adding custom routes for the other pages - I should probably refactor that to use <code>register_routes()</code> instead for consistency.</p>
+ OCRing the documents 
+<p>The documents started out in a Google Drive. I used the <a href="https://rclone.org/">Rclone</a> tool to sync that to an S3 bucket, and then ran my <a href="https://datasette.io/tools/s3-ocr">s3-ocr tool</a> against specific folders within that bucket to run them through AWS Textract.</p>
+<p>Then I ran the <code>s3-ocr index</code> command to suck down the OCR results and build those into a SQLite database.</p>
+<p>The resulting schema wasn't quite right for this particular project. I wrote <a href="https://github.com/simonw/sfms-history/blob/cdf31999b9534b78c41ccfe6dc0c38067ca9cfe3/build-db.sh">this build-db.sh script</a> to construct a schema specifically designed for the archive, copy the data in and then enable full-text search on the resulting tables.</p>
+<p>The SQLite database file containing the inital OCR results is called <code>index.db</code>. I used the following commands to attach that <code>index.db</code> file to the same connection as the <code>sfms.db</code> database and copy and re-shape the records that I wanted:</p>
+  # Populate documents
+sqlite-utils sfms.db --attach index2 index.db "$(cat &lt;&lt;EOF
+insert into documents select
+  substr(s3_ocr_etag, 2, 8) as id,
+  key as title,
+  key as path,
+  replace(s3_ocr_etag, '"', '') as etag
+from
+  index2.ocr_jobs
+where
+  key in (
+    select path from index2.pages
+    where (
+      folder like 'INTAKE/%'
+      or folder like 'PUBLIC/%'
+    )
+    and folder not like '%PROCESSED INTAKE DOCUMENTS/%'
+  )
+EOF
+)"
+
+# Populate pages
+sqlite-utils sfms.db --attach index2 index.db "$(cat &lt;&lt;EOF
+insert into pages select distinct
+  substr(s3_ocr_etag, 2, 8) || '-' || page as id,
+  substr(s3_ocr_etag, 2, 8) as document_id,
+  page,
+  text
+from index2.pages
+  join index2.ocr_jobs
+    on index2.pages.path = index2.ocr_jobs.key
+where
+  (
+    folder like 'INTAKE/%'
+    or folder like 'PUBLIC/%'
+  )
+  and folder not like '%PROCESSED INTAKE DOCUMENTS/%'
+EOF
+)"  
+<p>This script is <a href="https://github.com/simonw/sfms-history/blob/cdf31999b9534b78c41ccfe6dc0c38067ca9cfe3/.github/workflows/deploy.yml#L39-L41">run by GitHub Actions</a> as part of the workflow that deploys the site to Vercel.</p>
+ Images of pages 
+<p>The site itself makes use of the OCRd text that is stored in the database - that's how the search feature works.</p>
+<p>But the scanned pages are visually so much more interesting than that!</p>
+<p>I wanted to display those page images both as thumbnails and larger images, both to add visual appeal and because OCRd text loses a lot of the richness of the underlying records.</p>
+<p>Since I already had the PDFs in an S3 bucket, the easiest way to build this was using <a href="https://imgix.com/">imgix</a>.</p>
+<p>imgix offers a proxy service for running URL-defined transforms against images. I've used it on a bunch of projcets before: it's really powerful.</p>
+<p>In this case, given an imgix source configured against an S3 bucket an image for a specific page of a PDF can be constructed like this (newlines added for readability):</p>
+ <code>https://sfms-history.imgix.net/
+  PUBLIC/Scientific%20Documents/
+  MicroscopicGymnastics_J.EdwardsSmith-04-06-1876.pdf
+  ?page=1
+  &amp;w=200
+  &amp;auto=format
+  &amp;s=634c00249fbe4a2eda90f00be0ae66d6
+</code> 
+<p>Here we're providing the path to the PDF in the S3 bucket, requesting a render of page 1 of that PDF, at width 200px and using <code>auto=format</code> which caues imgix to <a href="https://docs.imgix.com/apis/rendering/auto/auto#format">serve the image in an optimized format</a> based on the capabilities of the user's device.</p>
+<p>The <code>&amp;s=</code> parameter is a signature which can be configured to prevent people from constructing their own arbitrary URLs. In this case the S3 bucket has some files in that are not part of the public archive, so using a signature prevents people from guessing filenames and sniffing around in the bucket contents.</p>
+ s3-ocr elsewhere 
+<p>I built <code>s3-ocr</code> for this specific project, but it's already starting to see use for other projects. My favourite example so far is the work Philip James has been doing to deploy search engines against OCRd meeting minutes for the cities of Alameda and Oakland (and soon more) - he wrote about that in detail is <a href="https://phildini.dev/digitizing-55-000-pages-of-civic-meetings">Digitizing 55,000 pages of civic meetings</a>.</p>
+<p>If you have an interesting archive of PDFs that need to be OCRd I would love to hear from you! Contact me <a href="https://twitter.com/simonw">on Twitter</a> or email me at <code>swillison</code> at Google's webmail provider.</p>
+ Also this week 
+<p>I got very distracted by <a href="https://simonwillison.net/2022/Aug/21/scotrail/">Analyzing ScotRail audio announcements with Datasette</a> - which did at least produce a new, detailed tutorial describing my process for approaching new projects with Datasette.</p>
+<p>I added <a href="https://simonwillison.net/2022/Aug/17/datasette-lite-plugins/">Plugin support to Datasete Lite</a>.</p>
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/datasette-multiline-links">datasette-multiline-links</a>: <a href="https://github.com/simonw/datasette-multiline-links/releases/tag/0.1">0.1</a> - 2022-08-24
+<br>Make multiple newline separated URLs clickable in Datasette 
+ 
+<a href="https://github.com/simonw/datasette-publish-vercel">datasette-publish-vercel</a>: <a href="https://github.com/simonw/datasette-publish-vercel/releases/tag/0.14.2">0.14.2</a> - (<a href="https://github.com/simonw/datasette-publish-vercel/releases">23 releases total</a>) - 2022-08-24
+<br>Datasette plugin for publishing data using Vercel 
+ 
+<a href="https://github.com/simonw/datasette-edit-schema">datasette-edit-schema</a>: <a href="https://github.com/simonw/datasette-edit-schema/releases/tag/0.5.1">0.5.1</a> - (<a href="https://github.com/simonw/datasette-edit-schema/releases">10 releases total</a>) - 2022-08-22
+<br>Datasette plugin for modifying table schemas 
+ 
+<a href="https://github.com/dogsheep/pocket-to-sqlite">pocket-to-sqlite</a>: <a href="https://github.com/dogsheep/pocket-to-sqlite/releases/tag/0.2.2">0.2.2</a> - (<a href="https://github.com/dogsheep/pocket-to-sqlite/releases">4 releases total</a>) - 2022-08-22
+<br>Create a SQLite database containing data from your Pocket account 
+ 
+<a href="https://github.com/simonw/datasette-mp3-audio">datasette-mp3-audio</a>: <a href="https://github.com/simonw/datasette-mp3-audio/releases/tag/0.2">0.2</a> - (<a href="https://github.com/simonw/datasette-mp3-audio/releases">2 releases total</a>) - 2022-08-20
+<br>Turn .mp3 URLs into an audio player in the Datasette interface 
+ 
+<a href="https://github.com/simonw/sqlite-diffable">sqlite-diffable</a>: <a href="https://github.com/simonw/sqlite-diffable/releases/tag/0.5">0.5</a> - (<a href="https://github.com/simonw/sqlite-diffable/releases">6 releases total</a>) - 2022-08-18
+<br>Tools for dumping/loading a SQLite database to diffable directory structure 
+ 
+<a href="https://github.com/simonw/datasette-sentry">datasette-sentry</a>: <a href="https://github.com/simonw/datasette-sentry/releases/tag/0.2">0.2</a> - (<a href="https://github.com/simonw/datasette-sentry/releases">5 releases total</a>) - 2022-08-14
+<br>Datasette plugin for configuring Sentry 
+ 
+<a href="https://github.com/simonw/datasette">datasette</a>: <a href="https://github.com/simonw/datasette/releases/tag/0.62">0.62</a> - (<a href="https://github.com/simonw/datasette/releases">113 releases total</a>) - 2022-08-14
+<br>An open source multi-tool for exploring and publishing data 
+ 
+<a href="https://github.com/simonw/s3-credentials">s3-credentials</a>: <a href="https://github.com/simonw/s3-credentials/releases/tag/0.13">0.13</a> - (<a href="https://github.com/simonw/s3-credentials/releases">14 releases total</a>) - 2022-08-12
+<br>A tool for creating credentials for accessing S3 buckets 
+ 
+ TIL this week 
+ 
+ <a href="https://til.simonwillison.net/javascript/openseadragon">Creating a tiled zoomable image with OpenSeadragon and vips</a> 
+ <a href="https://til.simonwillison.net/python/setup-py-from-url">Defining setup.py dependencies using a URL</a> 
+ <a href="https://til.simonwillison.net/googlecloud/google-cloud-spend-datasette">Analyzing Google Cloud spend with Datasette</a> 
+ <a href="https://til.simonwillison.net/sqlite/sort-by-number-of-json-intersections">Sort by number of JSON intersections</a> 
+ <a href="https://til.simonwillison.net/quarto/trying-out-quarto">Trying out Quarto on macOS</a> 
+ <a href="https://til.simonwillison.net/sqlite/function-list">Seeing which functions are unique to a specific SQLite / Datasette instance</a> 
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2022/sfms-homepage.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:24 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -783,7 +1031,7 @@
 
 <div class='item-footer'>
    07:36 &bull;
-   2 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -871,7 +1119,7 @@
 
 <div class='item-footer'>
    06:34 &bull;
-   3 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -958,7 +1206,7 @@
 
 <div class='item-footer'>
    06:09 &bull;
-   4 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1019,7 +1267,7 @@
 
 <div class='item-footer'>
    05:53 &bull;
-   4 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1091,7 +1339,7 @@
 
 <div class='item-footer'>
    00:20 &bull;
-   9 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1157,7 +1405,7 @@
 
 <div class='item-footer'>
    21:28 &bull;
-   12 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1235,7 +1483,7 @@
 
 <div class='item-footer'>
    18:06 &bull;
-   16 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1305,7 +1553,7 @@
 
 <div class='item-footer'>
    16:16 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1385,7 +1633,7 @@
 
 <div class='item-footer'>
    23:50 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1465,7 +1713,7 @@
 
 <div class='item-footer'>
    21:59 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1532,7 +1780,7 @@
 
 <div class='item-footer'>
    21:58 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1595,7 +1843,7 @@
 
 <div class='item-footer'>
    21:55 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1660,7 +1908,7 @@
 
 <div class='item-footer'>
    21:10 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1740,7 +1988,7 @@
 
 <div class='item-footer'>
    21:08 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1804,7 +2052,7 @@
 
 <div class='item-footer'>
    21:06 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1882,7 +2130,7 @@
 
 <div class='item-footer'>
    04:21 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1956,7 +2204,7 @@
 
 <div class='item-footer'>
    03:31 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2158,7 +2406,7 @@
 
 <div class='item-footer'>
    04:59 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2219,7 +2467,7 @@
 
 <div class='item-footer'>
    02:13 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3195,7 +3443,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    02:04 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3272,7 +3520,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    01:58 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3342,7 +3590,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    01:22 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3542,7 +3790,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    01:20 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3624,7 +3872,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    22:51 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3686,7 +3934,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    22:49 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4256,7 +4504,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    06:39 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4332,7 +4580,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    03:42 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4410,7 +4658,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    03:41 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4482,7 +4730,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    02:04 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4556,7 +4804,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    23:12 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5082,7 +5330,7 @@ dotnet new blazorbffoidc -n YourCompany.Bff
 
 <div class='item-footer'>
    05:56 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5203,7 +5451,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5392,7 +5640,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    22:18 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5462,7 +5710,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5539,7 +5787,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    23:53 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5639,6 +5887,10 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 
  
+
+
+
+
 
 
 
@@ -6419,7 +6671,7 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 
 <div class='item-footer'>
    01:14 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6487,7 +6739,7 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 
 <div class='item-footer'>
    01:06 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6551,7 +6803,7 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 
 <div class='item-footer'>
    01:02 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6621,7 +6873,7 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 
 <div class='item-footer'>
    22:29 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6685,7 +6937,7 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 
 <div class='item-footer'>
    22:22 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7244,7 +7496,7 @@ What do you think?</p>
 
 <div class='item-footer'>
    22:12 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7596,7 +7848,7 @@ StatusCode: 200, ReasonPhrase: 'OK', Version: 1.1, Content: System.Net.Http.Http
 
 <div class='item-footer'>
    06:02 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7672,7 +7924,7 @@ StatusCode: 200, ReasonPhrase: 'OK', Version: 1.1, Content: System.Net.Http.Http
 
 <div class='item-footer'>
    00:47 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7964,7 +8216,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8447,7 +8699,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    03:45 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8553,7 +8805,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    02:09 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8957,7 +9209,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    05:56 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9021,7 +9273,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    01:14 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9091,7 +9343,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    23:40 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9329,7 +9581,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    06:34 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9622,70 +9874,6 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    23:47 &bull;
-   25 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Jul/30/gpsjam/#atom-everything'>GPSJam</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   GPSJam 
- John Wiseman's "Daily maps of GPS interference"  - a beautiful interactive globe (powered by Mapbox GL) which you can use to see points of heaviest GPS interference over a 24 hour period, using data collected from commercial airline radios by ADS-B Exchange. "From what I can tell the most common reason for aircraft GPS systems to have degraded accuracy is jamming by military systems. At l
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://gpsjam.org/">GPSJam</a></p>
-<p>John Wiseman's "Daily maps of GPS interference"  - a beautiful interactive globe (powered by Mapbox GL) which you can use to see points of heaviest GPS interference over a 24 hour period, using data collected from commercial airline radios by ADS-B Exchange. "From what I can tell the most common reason for aircraft GPS systems to have degraded accuracy is jamming by military systems. At least, the vast majority of aircraft that I see with bad GPS accuracy are flying near conflict zones where GPS jamming is known to occur."</p>
-
-    <p>Via <a href="https://twitter.com/lemonodor/status/1553097820860600320">@lemonodor</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:51 &bull;
    26 days ago
 </div>
 
@@ -10027,7 +10215,7 @@ end
 
 <div class='item-footer'>
    02:28 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10321,7 +10509,7 @@ just better.</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14972,7 +15160,7 @@ services.Configure&lt;MicrosoftIdentityOptions&gt;(OpenIdConnectDefaults.Authent
 
 <div class='item-footer'>
    14:40 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -23371,7 +23559,7 @@ You can use it to add a flat virtual background to your video, or you could use 
 
 <div class='item-footer'>
    18:23 &bull;
-   7 months ago
+   8 months ago
 </div>
 
 </div><!-- item-body -->
