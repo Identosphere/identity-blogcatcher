@@ -701,7 +701,7 @@
 
 </div>
 </div>
-<sup>Last Update 3:15 AM August 29, 2022 (UTC)</sup>
+<sup>Last Update 9:44 AM August 29, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -714,6 +714,338 @@
  <h2 class='new-date'>
   Monday, 29. August 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/08/29/secure-asp-net-core-grpc-api-hosted-in-a-linux-kestrel-azure-app-service/'>Secure ASP.NET Core GRPC API hosted in a Linux kestrel Azure App Service</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement a secure GRPC API service implemented in ASP.NET Core and hosted on an Azure App Service using Linux and kestrel. An application Azure App registration is used to implement the security together with Microsoft.Identity.Web. A client credentials flow is used to acquire an application access token and the GRPC […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement a secure GRPC API service implemented in ASP.NET Core and hosted on an Azure App Service using Linux and kestrel. An application Azure App registration is used to implement the security together with Microsoft.Identity.Web. A client credentials flow is used to acquire an application access token and the GRPC service validates the bearer token.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/GrpcAzureAppServiceAppAuth">https://github.com/damienbod/GrpcAzureAppServiceAppAuth</a></p>
+
+
+
+<p>The service and the client use Azure AD to secure the service and request access tokens. The GRPC service is hosted on an Azure App service using kestrel and Linux. The service only allows HTTP 2.0. Any other identity provider could be used or if you are using a public client, then a delegated user access token would be used.</p>
+
+
+
+
+
+
+
+<p>The following Nuget packages are used to implement the ASP.NET Core service:</p>
+
+
+
+  Grpc.AspNetCore  Microsoft.Identity.Web  
+
+
+
+<p>The services are setup to require a valid JWT access token to use the GRPC service and the GRPC API is also setup. It is important to only accept access tokens intended for this service. The ConfigureKestrel method is used to configure the port which must match the Azure App Service deployment. The HTTP20_ONLY_PORT value must match this. Only HTTP2 is used.</p>
+
+
+  var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container.
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+
+builder.Services.AddAuthorization(options =&gt;
+{
+    options.AddPolicy("ValidateAccessTokenPolicy", validateAccessTokenPolicy =&gt;
+    {
+        // Validate id of application for which the token was created
+        // In this case the CC client application 
+        validateAccessTokenPolicy.RequireClaim("azp", "b178f3a5-7588-492a-924f-72d7887b7e48");
+
+        // only allow tokens which used "Private key JWT Client authentication"
+        // // https://docs.microsoft.com/en-us/azure/active-directory/develop/access-tokens
+        // Indicates how the client was authenticated. For a public client, the value is "0". 
+        // If client ID and client secret are used, the value is "1". 
+        // If a client certificate was used for authentication, the value is "2".
+        validateAccessTokenPolicy.RequireClaim("azpacr", "1");
+    });
+});
+
+builder.Services.AddGrpc();
+
+// Configure Kestrel to listen on a specific HTTP port 
+builder.WebHost.ConfigureKestrel(options =&gt;
+{
+    options.ListenAnyIP(8080);
+    // port must match the Azure App Service setup HTTP20_ONLY_PORT
+    options.ListenAnyIP(7179, listenOptions =&gt;
+    {
+        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
+    });
+});
+  
+
+
+<p>The middleware is setup like any other secure ASP.NET Core API application. The GRPC service is added to the endpoints.</p>
+
+
+  var app = builder.Build();
+
+app.UseHttpsRedirection();
+
+app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseEndpoints(endpoints =&gt;
+{
+    endpoints.MapGrpcService&lt;GreeterService&gt;();
+
+    endpoints.MapGet("/", async context =&gt;
+    {
+        await context.Response.WriteAsync("GRPC service running...");
+    });
+});
+
+app.Run();
+  
+
+
+<p>The GRPC service requires a proto3 definition. I reused the example file from the ASP.NET Core Microsoft documentation. </p>
+
+
+  syntax = "proto3";
+
+option csharp_namespace = "GrpcAzureAppServiceAppAuth";
+
+package greet;
+
+// The greeting service definition.
+service Greeter {
+  // Sends a greeting
+  rpc SayHello (HelloRequest) returns (HelloReply);
+}
+
+// The request message containing the user's name.
+message HelloRequest {
+  string name = 1;
+}
+
+// The response message containing the greetings.
+message HelloReply {
+  string message = 1;
+}
+  
+
+
+<p>The GRPC API can then be protected using the Authorize attribute and the scheme and the authorization policy can be applied to the service.</p>
+
+
+  using Grpc.Core;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+
+namespace GrpcAzureAppServiceAppAuth;
+
+[Authorize(Policy = "ValidateAccessTokenPolicy", 
+AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+public class GreeterService : Greeter.GreeterBase
+{
+    public override Task&lt;HelloReply&gt; SayHello(HelloRequest request, ServerCallContext context)
+    {
+        return Task.FromResult(new HelloReply
+        {
+            Message = "Hello " + request.Name
+        });
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>Deploying the GRPC Azure App Service</p>
+
+
+
+<p>Now that the ASP.NET Core GRPC serivce is setup, this can be deployed to an Azure App Service using Linux. See docs: <a href="https://github.com/Azure/app-service-linux-docs/blob/master/HowTo/gRPC/use_gRPC_with_dotnet.md">use_gRPC_with_dotnet</a> for full details.  It is important to setup HTTP 2 and also to turn on the HTTP 2 proxy.</p>
+
+
+
+
+
+
+
+<p>The HTTP20_ONLY_PORT configuration must be added with a value that matches the port in the code.</p>
+
+
+
+
+
+
+
+<p>Implement a GRPC test client with Microsoft Identity client credentials flow for trusted clients</p>
+
+
+
+<p>The following Nuget packages are used to implement the test GRPC client using an OAuth client credentials flow. This can only be used with an application which can keep a secret. You could also use certificates and implement client assertions to request the access token. </p>
+
+
+
+  Microsoft.Identity.Client  Google.Protobuf  Grpc.Net.Client  Grpc.Tools  
+
+
+
+<p>The application gets an access token, adds this to the GRPC client and requests data from the GRPC service. The base URL is read from the app.settings which match the Azure App Service deployment.</p>
+
+
+  using Grpc.Net.Client;
+using GrpcAzureAppServiceAppAuth;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Identity.Client;
+using Grpc.Core;
+
+var builder = new ConfigurationBuilder()
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddUserSecrets("0464abbd-c57d-4048-873d-d16355586e50")
+    .AddJsonFile("appsettings.json");
+
+var configuration = builder.Build();
+
+// 1. Client client credentials client
+var app = ConfidentialClientApplicationBuilder
+    .Create(configuration["AzureADServiceApi:ClientId"])
+    .WithClientSecret(configuration["AzureADServiceApi:ClientSecret"])
+    .WithAuthority(configuration["AzureADServiceApi:Authority"])
+    .Build();
+
+var scopes = new[] { configuration["AzureADServiceApi:Scope"] };
+
+// 2. Get access token
+var authResult = await app.AcquireTokenForClient(scopes)
+    .ExecuteAsync();
+
+if (authResult == null)
+{
+    Console.WriteLine("no auth result... ");
+}
+else
+{
+    Console.WriteLine(authResult.AccessToken);
+
+    // 2. Use access token &amp; service
+    var tokenValue = "Bearer " + authResult.AccessToken;
+    var metadata = new Metadata
+    {
+        { "Authorization", tokenValue }
+    };
+
+    var handler = new HttpClientHandler();
+
+    var channel = GrpcChannel.ForAddress(
+        configuration["AzureADServiceApi:ApiBaseAddress"], 
+        new GrpcChannelOptions
+    {
+        HttpClient = new HttpClient(handler)
+        
+    });
+
+    CallOptions callOptions = new CallOptions(metadata);
+
+    var client = new Greeter.GreeterClient(channel);
+
+    var reply = await client.SayHelloAsync(
+        new HelloRequest { Name = "GreeterClient" }, callOptions);
+
+    Console.WriteLine("Greeting: " + reply.Message);
+
+    Console.WriteLine("Press any key to exit...");
+    Console.ReadKey();
+}
+  
+
+
+<p>Using GRPC together with Azure App Services is a really cool, easy to develop and now full duplex app services can be used from Azure App services with little effort. Kestrel with Linux is a state of the art hosting system. </p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://github.com/grpc/grpc-dotnet/">https://github.com/grpc/grpc-dotnet/</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/grpc">https://docs.microsoft.com/en-us/aspnet/core/grpc</a></p>
+
+
+
+<p><a href="https://github.com/Azure/app-service-linux-docs/blob/master/HowTo/gRPC/use_gRPC_with_dotnet">https://github.com/Azure/app-service-linux-docs/blob/master/HowTo/gRPC/use_gRPC_with_dotnet</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/08/appservicegrpc_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:08 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -813,7 +1145,7 @@
 <p>I know many vegans. They have access to the same information as I do about the treatment of animals, and they have made informed decisions about their lifestyle, which I fully respect.</p>
 <p>I myself remain a meat-eater.</p>
 <p>There will be many people who will decide that the  AI models trained on copyrighted images are incompatible with their values. I understand and respect that decision.</p>
-<p>But when I look at that img2img example of the futuristic city on the dome, I can't resist imagining what I could do with that capability.</p>
+<p>But when I look at that img2img example of the futuristic city in the dome, I can't resist imagining what I could do with that capability.</p>
 <p>If someone were to create <a href="https://twitter.com/simonw/status/1563201333821288452">a vegan model</a>, trained entirely on out-of-copyright images, I would be delighted to promote it and try it out. If its results were good enough, I might even switch to it entirely.</p>
  Indistinguishable from magic 
 <p>Just a few months ago, if I'd seen someone on a fictional TV show using an interface like that Photoshop plugin I'd have grumbled about how that was a step too far even by the standards of American network TV dramas.</p>
@@ -835,7 +1167,7 @@
 
 <div class='item-footer'>
    01:09 &bull;
-   2 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -904,7 +1236,7 @@
 
 <div class='item-footer'>
    23:29 &bull;
-   4 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -986,7 +1318,7 @@
 
 <div class='item-footer'>
    21:18 &bull;
-   6 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1064,7 +1396,7 @@
 
 <div class='item-footer'>
    21:17 &bull;
-   6 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1142,7 +1474,7 @@
 
 <div class='item-footer'>
    19:47 &bull;
-   8 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1207,7 +1539,7 @@
 
 <div class='item-footer'>
    08:56 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1271,7 +1603,7 @@
 
 <div class='item-footer'>
    08:54 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1334,7 +1666,7 @@
 
 <div class='item-footer'>
    08:54 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1395,7 +1727,7 @@
 
 <div class='item-footer'>
    07:53 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1469,7 +1801,7 @@
 
 <div class='item-footer'>
    05:30 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1536,7 +1868,7 @@
 
 <div class='item-footer'>
    05:21 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2198,7 +2530,7 @@ The title is not representative of the piece which is actually about 'Google Map
 
 <div class='item-footer'>
    17:49 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2337,7 +2669,7 @@ Screenshots from Beckn tutorial videos</a> from Ravi Prakash (<a href="https://c
 
 <div class='item-footer'>
    15:33 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2998,7 +3330,7 @@ EOF
 
 <div class='item-footer'>
    17:24 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3452,7 +3784,7 @@ EOF
 
 <div class='item-footer'>
    21:28 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3530,7 +3862,7 @@ EOF
 
 <div class='item-footer'>
    18:06 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3600,7 +3932,7 @@ EOF
 
 <div class='item-footer'>
    16:16 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3898,7 +4230,7 @@ EOF
 
 <div class='item-footer'>
    19:12 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3962,7 +4294,7 @@ EOF
 
 <div class='item-footer'>
    16:26 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4034,7 +4366,7 @@ EOF
 
 <div class='item-footer'>
    17:40 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4100,7 +4432,7 @@ EOF
 
 <div class='item-footer'>
    16:25 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4714,7 +5046,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    21:33 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4778,7 +5110,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    20:57 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4924,7 +5256,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    18:08 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5002,7 +5334,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    18:08 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5070,7 +5402,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    19:06 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5134,7 +5466,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    18:30 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5279,7 +5611,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    18:20 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5349,7 +5681,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    17:35 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6028,7 +6360,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    18:25 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6704,7 +7036,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    19:33 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6780,7 +7112,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    18:04 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6858,7 +7190,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    18:03 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7015,7 +7347,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    17:19 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7422,7 +7754,7 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 
 <div class='item-footer'>
    15:39 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7486,7 +7818,7 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 
 <div class='item-footer'>
    15:34 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7554,7 +7886,7 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 
 <div class='item-footer'>
    21:23 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8703,7 +9035,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    16:49 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8781,7 +9113,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    21:20 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8845,7 +9177,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    15:50 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8915,7 +9247,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    17:31 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9294,7 +9626,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    21:12 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9370,7 +9702,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    19:04 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9838,7 +10170,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    18:07 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9915,7 +10247,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    16:36 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10072,7 +10404,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    19:57 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10221,7 +10553,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    16:25 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10308,7 +10640,7 @@ await _msGraphService.UpdateUserAsync(user);
 
 <div class='item-footer'>
    18:10 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16552,7 +16884,7 @@ with open('slideshow.html', 'w') as f:
 <p>A continuous access evaluation (CAE) authentication context was created using Microsoft Graph and a policy was created to use this. See the first <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">blog</a> in this series for details on setting this up.</p>
 
 
-&lt;
+
 
 
 
@@ -17118,7 +17450,7 @@ public class AccountController : ControllerBase
 <p>A continuous access (CA) authentication context was created using Microsoft Graph and a policy was created to use this. See the previous <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">blog</a> for details on setting this up.</p>
 
 
-&lt;
+
 
 
 
@@ -18032,246 +18364,6 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    18:03 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/05/16/using-multiple-azure-b2c-user-flows-from-asp-net-core/'>Using multiple Azure B2C user flows from ASP.NET Core</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to use multiple Azure B2C user flows from a single ASP.NET Core application. Microsoft.Identity.Web is used to implement the authentication in the client. This is not so easy to implement with multiple schemes as the user flow policy is used in most client URLs and the Microsoft.Identity.Web package overrides an lot […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to use multiple Azure B2C user flows from a single ASP.NET Core application. Microsoft.Identity.Web is used to implement the authentication in the client. This is not so easy to implement with multiple schemes as the user flow policy is used in most client URLs and the Microsoft.Identity.Web package overrides an lot of the default settings. I solved this by implementing an account controller to handle the Azure B2C signup user flow initial request and set the Azure B2C policy. It can be useful to split the user flows in the client application, if the user of the application needs to be guided better.</p>
-
-
-
-<p>Code <a href="https://github.com/damienbod/azureb2c-fed-azuread">https://github.com/damienbod/azureb2c-fed-azuread</a></p>
-
-
-
-<p>The Azure B2C user flows can be implemented as simple user flows. I used a signup flow and a signin, signup flow.</p>
-
-
-
-
-
-
-
-<p>The AddMicrosoftIdentityWebAppAuthentication is used to implement a standard Azure B2C client. There is no need to implement a second scheme and override the default settings of the Microsoft.Identity.Web client because we use a controller to select the flow.</p>
-
-
-  string[]? initialScopes = Configuration.GetValue&lt;string&gt;(
-	"UserApiOne:ScopeForAccessToken")?.Split(' ');
-
-services.AddMicrosoftIdentityWebAppAuthentication(Configuration, "AzureAdB2C")
-	.EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
-	.AddInMemoryTokenCaches();
-
-services.Configure&lt;MicrosoftIdentityOptions&gt;(
-	OpenIdConnectDefaults.AuthenticationScheme, options =&gt;
-{
-	options.Events.OnTokenValidated = async context =&gt;
-	{
-		if (ApplicationServices != null &amp;&amp; context.Principal != null)
-		{
-			using var scope = ApplicationServices.CreateScope();
-			context.Principal = await scope.ServiceProvider
-				.GetRequiredService&lt;MsGraphClaimsTransformation&gt;()
-				.TransformAsync(context.Principal);
-		}
-	};
-});
-  
-
-
-<p>The AzureAdB2C app settings configures the sign in, sign up flow. The SignUpSignInPolicyId setting is used to configure the default user flow policy. </p>
-
-
-  "AzureAdB2C": {
-    "Instance": "https://b2cdamienbod.b2clogin.com",
-    "ClientId": "8cbb1bd3-c190-42d7-b44e-42b20499a8a1",
-    "Domain": "b2cdamienbod.onmicrosoft.com",
-    "SignUpSignInPolicyId": "B2C_1_signup_signin",
-    "TenantId": "f611d805-cf72-446f-9a7f-68f2746e4724",
-    "CallbackPath": "/signin-oidc",
-    "SignedOutCallbackPath ": "/signout-callback-oidc",
-    // "ClientSecret": "--use-secrets--"
-},
-  
-
-
-<p>The AccountSignUpController is used to set the policy of the flow we would like to use. The SignUpPolicy method just challenges the  Azure B2C OpenID Connect server with the correct policy.</p>
-
-
-  using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-
-namespace Microsoft.Identity.Web.UI.Areas.MicrosoftIdentity.Controllers;
-
-[AllowAnonymous]
-[Route("MicrosoftIdentity/[controller]/[action]")]
-public class AccountSignUpController : Controller
-{
-    [HttpGet("{scheme?}")]
-    public IActionResult SignUpPolicy(
-        [FromRoute] string scheme,
-        [FromQuery] string redirectUri)
-    {
-        scheme ??= OpenIdConnectDefaults.AuthenticationScheme;
-        string redirect;
-        if (!string.IsNullOrEmpty(redirectUri) &amp;&amp; Url.IsLocalUrl(redirectUri))
-        {
-            redirect = redirectUri;
-        }
-        else
-        {
-            redirect = Url.Content("~/")!;
-        }
-
-        scheme ??= OpenIdConnectDefaults.AuthenticationScheme;
-
-        var properties = new AuthenticationProperties 
-           { RedirectUri = redirect };
-        properties.Items[Constants.Policy] = "B2C_1_signup";
-        return Challenge(properties, scheme);
-    }
-}
-  
-
-
-<p>The Razor page opens a link to the new controller and challenges the OIDC server with the correct policy.</p>
-
-
-  &lt;li class="nav-item"&gt;
-	&lt;a class="nav-link text-dark" 
-href="/MicrosoftIdentity/AccountSignUp/SignUpPolicy"&gt;Sign Up&lt;/a&gt;
-&lt;/li&gt;
-  
-
-
-<p>With this approach, an ASP.NET Core application can be extended with multiple user flows and the UI can be improved for the end user as required.</p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/overview">https://docs.microsoft.com/en-us/azure/active-directory-b2c/overview</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-azure-ad-single-tenant">https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-azure-ad-single-tenant</a></p>
-
-
-
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/microsoft-identity-web">https://docs.microsoft.com/en-us/azure/active-directory/develop/microsoft-identity-web</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-local">https://docs.microsoft.com/en-us/azure/active-directory-b2c/identity-provider-local</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/">https://docs.microsoft.com/en-us/azure/active-directory/</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authentication/azure-ad-b2c">https://docs.microsoft.com/en-us/aspnet/core/security/authentication/azure-ad-b2c</a></p>
-
-
-
-<p><a href="https://github.com/azure-ad-b2c/azureadb2ccommunity.io">https://github.com/azure-ad-b2c/azureadb2ccommunity.io</a></p>
-
-
-
-<p><a href="https://github.com/azure-ad-b2c/samples">https://github.com/azure-ad-b2c/samples</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/blazor/security/webassembly/graph-api">https://docs.microsoft.com/en-us/aspnet/core/blazor/security/webassembly/graph-api</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS#client-credentials-provider">https://docs.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS#client-credentials-provider</a></p>
-
-
-
- 
-<a href="https://docs.microsoft.com/en-us/graph/api/user-post-users?view=graph-rest-1.0&amp;tabs=csharp">https://docs.microsoft.com/en-us/graph/api/user-post-users?view=graph-rest-1.0&amp;tabs=csharp</a>
- 
-
-
-
- 
-<a href="https://docs.microsoft.com/en-us/graph/api/invitation-post?view=graph-rest-1.0&amp;tabs=csharp">https://docs.microsoft.com/en-us/graph/api/invitation-post?view=graph-rest-1.0&amp;tabs=csharp</a>
- 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/05/azureb2c_flows_01.png?w=865'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:10 &bull;
    3 months ago
 </div>
 
