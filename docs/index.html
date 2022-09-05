@@ -701,7 +701,7 @@
 
 </div>
 </div>
-<sup>Last Update 3:21 AM September 05, 2022 (UTC)</sup>
+<sup>Last Update 9:44 AM September 05, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -714,6 +714,491 @@
  <h2 class='new-date'>
   Monday, 05. September 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/09/05/implement-a-grpc-api-with-openiddict-and-oauth-the-client-credentials-flow/'>Implement a GRPC API with OpenIddict and the OAuth client credentials flow</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how to implement a GRPC service implemented in an ASP.NET Core kestrel hosted service. The GRPC service is protected using an access token. The client application uses the OAuth2 client credentials flow with introspection and the reference token is used to get access to the GRPC service. The GRPC API uses introspection […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how to implement a GRPC service implemented in an ASP.NET Core kestrel hosted service. The GRPC service is protected using an access token. The client application uses the OAuth2 client credentials flow with introspection and the reference token is used to get access to the GRPC service. The GRPC API uses introspection to validate and authorize the access. OpenIddict is used to implement the identity provider.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreOpeniddict">https://github.com/damienbod/AspNetCoreOpeniddict</a></p>
+
+
+
+<p>The applications are setup with a identity provider implemented using OpenIddict, an GRPC service implemented using ASP.NET Core and a simple console application to request the token and use the API.</p>
+
+
+
+
+
+
+
+<p>Setup GRPC API</p>
+
+
+
+<p>The GRPC API service needs to add services and middleware to support introspection and to authorize the reference token. I use the AddOpenIddict method from the OpenIddict client Nuget package, but any client package which supports introspection could be used. If you decided to use a self contained JWT bearer token, then the standard JWT bearer token middleware could be used. This can only be used if the tokens are not encrypted and are self contained JWT tokens. The aud is defined as well as the required claims. A secret is required to use introspection.</p>
+
+
+
+<p></p>
+
+
+
+<p>GRPC is added and the kestrel is setup to support HTTP2. For local debugging, UseHttps is added. You should always develop with HTTPS and never HTTP as the dev environment should be as close as possible to the target system and you do not deploy unsecure HTTP services even when these are hidden behind a WAF.</p>
+
+
+  using GrpcApi;
+using OpenIddict.Validation.AspNetCore;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAuthentication(options =&gt;
+{
+    options.DefaultScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
+});
+
+builder.Services.AddOpenIddict()
+    .AddValidation(options =&gt;
+    {
+        // Note: the validation handler uses OpenID Connect discovery
+        // to retrieve the address of the introspection endpoint.
+        options.SetIssuer("https://localhost:44395/");
+        options.AddAudiences("rs_dataEventRecordsApi");
+
+        // Configure the validation handler to use introspection and register the client
+        // credentials used when communicating with the remote introspection endpoint.
+        options.UseIntrospection()
+                .SetClientId("rs_dataEventRecordsApi")
+                .SetClientSecret("dataEventRecordsSecret");
+
+        // disable access token encyption for this
+        options.UseAspNetCore();
+
+        // Register the System.Net.Http integration.
+        options.UseSystemNetHttp();
+
+        // Register the ASP.NET Core host.
+        options.UseAspNetCore();
+    });
+
+builder.Services.AddAuthorization(options =&gt;
+{
+    options.AddPolicy("dataEventRecordsPolicy", policyUser =&gt;
+    {
+        policyUser.RequireClaim("scope", "dataEventRecords");
+    });
+});
+
+builder.Services.AddGrpc();
+
+// Configure Kestrel to listen on a specific HTTP port 
+builder.WebHost.ConfigureKestrel(options =&gt;
+{
+    options.ListenAnyIP(8080);
+    options.ListenAnyIP(7179, listenOptions =&gt;
+    {
+        listenOptions.UseHttps();
+        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
+    });
+});
+  
+
+
+<p>The middleware is added like any secure API. GRPC is added instead of controllers, pages or whatever.</p>
+
+
+  var app = builder.Build();
+
+app.UseHttpsRedirection();
+
+app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseEndpoints(endpoints =&gt;
+{
+    endpoints.MapGrpcService&lt;GreeterService&gt;();
+
+    endpoints.MapGet("/", async context =&gt;
+    {
+        await context.Response.WriteAsync("GRPC service running...");
+    });
+});
+
+app.Run();
+  
+
+
+<p>The GRPC service is secured using the authorize attribute with a policy checking the scope claim.</p>
+
+
+  using Grpc.Core;
+using Microsoft.AspNetCore.Authorization;
+
+namespace GrpcApi;
+
+[Authorize("dataEventRecordsPolicy")]
+public class GreeterService : Greeter.GreeterBase
+{
+    public override Task&lt;HelloReply&gt; SayHello(HelloRequest request, ServerCallContext context)
+    {
+        return Task.FromResult(new HelloReply
+        {
+            Message = "Hello " + request.Name
+        });
+    }
+}
+  
+
+
+<p>A proto3 file is used to define the API. This is just the simple example from the Microsoft ASP.NET Core GRPC documentation.</p>
+
+
+  syntax = "proto3";
+
+option csharp_namespace = "GrpcApi";
+
+package greet;
+
+// The greeting service definition.
+service Greeter {
+  // Sends a greeting
+  rpc SayHello (HelloRequest) returns (HelloReply);
+}
+
+// The request message containing the user's name.
+message HelloRequest {
+  string name = 1;
+}
+
+// The response message containing the greetings.
+message HelloReply {
+  string message = 1;
+}
+  
+
+
+<p></p>
+
+
+
+<p>Setup OpenIddict client credentials flow with introspection</p>
+
+
+
+<p>We use OpenIddict to implement the client credentials flow with introspection. The client uses the grant type ClientCredentials and a secret to acquire the reference token.</p>
+
+
+  // API application CC
+if (await manager.FindByClientIdAsync("CC") == null)
+{
+	await manager.CreateAsync(new OpenIddictApplicationDescriptor
+	{
+		ClientId = "CC",
+		ClientSecret = "cc_secret",
+		DisplayName = "CC for protected API",
+		Permissions =
+		{
+			Permissions.Endpoints.Authorization,
+			Permissions.Endpoints.Token,
+			Permissions.GrantTypes.ClientCredentials,
+			Permissions.Prefixes.Scope + "dataEventRecords"
+		}
+	});
+}
+
+static async Task RegisterScopesAsync(IServiceProvider provider)
+{
+	var manager = provider.GetRequiredService&lt;IOpenIddictScopeManager&gt;();
+
+	if (await manager.FindByNameAsync("dataEventRecords") is null)
+	{
+		await manager.CreateAsync(new OpenIddictScopeDescriptor
+		{
+			DisplayName = "dataEventRecords API access",
+			DisplayNames =
+			{
+				[CultureInfo.GetCultureInfo("fr-FR")] = "Accès à l'API de démo"
+			},
+			Name = "dataEventRecords",
+			Resources =
+			{
+				"rs_dataEventRecordsApi"
+			}
+		});
+	}
+}
+  
+
+
+<p>The AddOpenIddict method is used to define the supported features of the OpenID Connect server. Per default, encryption is used as well as introspection. The AllowClientCredentialsFlow method is used to added the support for the OAuth client credentials flow. </p>
+
+
+  services.AddOpenIddict()
+.AddCore(options =&gt;
+{
+	options.UseEntityFrameworkCore()
+	   .UseDbContext&lt;ApplicationDbContext&gt;();
+	options.UseQuartz();
+})
+.AddServer(options =&gt;
+{
+	options.SetAuthorizationEndpointUris("/connect/authorize")
+	  .SetLogoutEndpointUris("/connect/logout")
+	  .SetIntrospectionEndpointUris("/connect/introspect")
+	  .SetTokenEndpointUris("/connect/token")
+	  .SetUserinfoEndpointUris("/connect/userinfo")
+	  .SetVerificationEndpointUris("/connect/verify");
+
+	options.AllowAuthorizationCodeFlow()
+	   .AllowHybridFlow()
+	   .AllowClientCredentialsFlow()
+	   .AllowRefreshTokenFlow();
+
+	options.RegisterScopes(Scopes.Email, 
+		Scopes.Profile, Scopes.Roles, "dataEventRecords");
+
+	// Register the signing and encryption credentials.
+	options.AddDevelopmentEncryptionCertificate()
+	   .AddDevelopmentSigningCertificate();
+
+	options.UseAspNetCore()
+	   .EnableAuthorizationEndpointPassthrough()
+	   .EnableLogoutEndpointPassthrough()
+	   .EnableTokenEndpointPassthrough()
+	   .EnableUserinfoEndpointPassthrough()
+	   .EnableStatusCodePagesIntegration();
+})
+  
+
+
+<p>You also need to update the Account controller exchange method to support the OAuth2 client credentials (CC) flow. See the OpenIddict samples for reference.</p>
+
+
+
+<p>Implementing the GRPC client</p>
+
+
+
+<p>The client gets an access token and uses this to request the data from the GRPC API. The ClientCredentialAccessTokenClient class requests the access token using a secret, client Id and a scope. In a real application, you should cache and only request a new access token if it has expired, or is about to expire.</p>
+
+
+  using IdentityModel.Client;
+using Microsoft.Extensions.Configuration;
+
+namespace GrpcAppClientConsole;
+
+public class ClientCredentialAccessTokenClient
+{
+    private readonly HttpClient _httpClient;
+    private readonly IConfiguration _configuration;
+
+    public ClientCredentialAccessTokenClient(
+        IConfiguration configuration,
+        HttpClient httpClient)
+    {
+        _configuration = configuration;
+        _httpClient = httpClient;
+    }
+
+    public async Task&lt;string&gt; GetAccessToken(
+        string api_name, string api_scope, string secret)
+    {
+        try
+        {
+            var disco = await HttpClientDiscoveryExtensions.GetDiscoveryDocumentAsync(
+                _httpClient,
+                _configuration["OpenIDConnectSettings:Authority"]);
+
+            if (disco.IsError)
+            {
+                Console.WriteLine($"disco error Status code: {disco.IsError}, Error: {disco.Error}");
+                throw new ApplicationException($"Status code: {disco.IsError}, Error: {disco.Error}");
+            }
+
+            var tokenResponse = await HttpClientTokenRequestExtensions.RequestClientCredentialsTokenAsync(_httpClient, new ClientCredentialsTokenRequest
+            {
+                Scope = api_scope,
+                ClientSecret = secret,
+                Address = disco.TokenEndpoint,
+                ClientId = api_name
+            });
+
+            if (tokenResponse.IsError)
+            {
+                Console.WriteLine($"tokenResponse.IsError Status code: {tokenResponse.IsError}, Error: {tokenResponse.Error}");
+                throw new ApplicationException($"Status code: {tokenResponse.IsError}, Error: {tokenResponse.Error}");
+            }
+
+            return tokenResponse.AccessToken;
+            
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"Exception {e}");
+            throw new ApplicationException($"Exception {e}");
+        }
+    }
+}
+  
+
+
+<p>The console application uses the access token to request the GRPC API data using the proto3 definition.</p>
+
+
+  using Grpc.Net.Client;
+using GrpcApi;
+using Microsoft.Extensions.Configuration;
+using Grpc.Core;
+using GrpcAppClientConsole;
+
+var builder = new ConfigurationBuilder()
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddJsonFile("appsettings.json");
+
+var configuration = builder.Build();
+
+var clientCredentialAccessTokenClient 
+    = new ClientCredentialAccessTokenClient(configuration, new HttpClient());
+
+// 2. Get access token
+var accessToken = await clientCredentialAccessTokenClient.GetAccessToken(
+    "CC",
+    "dataEventRecords",
+    "cc_secret"
+);
+
+if (accessToken == null)
+{
+    Console.WriteLine("no auth result... ");
+}
+else
+{
+    Console.WriteLine(accessToken);
+
+    var tokenValue = "Bearer " + accessToken;
+    var metadata = new Metadata
+    {
+        { "Authorization", tokenValue }
+    };
+
+    var handler = new HttpClientHandler();
+
+    var channel = GrpcChannel.ForAddress(
+        configuration["ProtectedApiUrl"], 
+        new GrpcChannelOptions
+    {
+        HttpClient = new HttpClient(handler)
+        
+    });
+
+    CallOptions callOptions = new(metadata);
+
+    var client = new Greeter.GreeterClient(channel);
+
+    var reply = await client.SayHelloAsync(
+        new HelloRequest { Name = "GreeterClient" }, callOptions);
+
+    Console.WriteLine("Greeting: " + reply.Message);
+
+    Console.WriteLine("Press any key to exit...");
+    Console.ReadKey();
+}
+  
+
+
+<p>GRPC in ASP.NET Core works really well with any OAuth2, OpenID Connect server. This is my preferred way to secure GRPC services and I only use certification authentication if this is required due to the extra effort to setup the hosted environments and the deployment of the client and server certificates.</p>
+
+
+
+<p>Links</p>
+
+
+
+<p><a href="https://github.com/grpc/grpc-dotnet/">https://github.com/grpc/grpc-dotnet/</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/grpc">https://docs.microsoft.com/en-us/aspnet/core/grpc</a></p>
+
+
+
+<p><a href="https://documentation.openiddict.com/">https://documentation.openiddict.com/</a></p>
+
+
+
+<p><a href="https://github.com/openiddict/openiddict-samples">https://github.com/openiddict/openiddict-samples</a></p>
+
+
+
+<p><a href="https://github.com/openiddict/openiddict-core">https://github.com/openiddict/openiddict-core</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/09/openiddictgrpc_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:51 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -1041,7 +1526,7 @@ EOF
 
 <div class='item-footer'>
    00:18 &bull;
-   3 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1107,7 +1592,7 @@ EOF
 
 <div class='item-footer'>
    21:06 &bull;
-   6 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1171,7 +1656,7 @@ EOF
 
 <div class='item-footer'>
    18:50 &bull;
-   9 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1315,7 +1800,7 @@ EOF
 
 <div class='item-footer'>
    21:37 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1387,7 +1872,7 @@ EOF
 
 <div class='item-footer'>
    19:24 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1453,7 +1938,7 @@ EOF
 
 <div class='item-footer'>
    18:11 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1518,7 +2003,7 @@ EOF
 
 <div class='item-footer'>
    18:06 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1584,7 +2069,7 @@ EOF
 
 <div class='item-footer'>
    17:41 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1687,7 +2172,7 @@ EOF
 
 <div class='item-footer'>
    17:33 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3138,7 +3623,7 @@ else
 
 <div class='item-footer'>
    21:17 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3216,7 +3701,7 @@ else
 
 <div class='item-footer'>
    19:47 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3849,7 +4334,7 @@ GitHub enables what I’ve shown here by wrapping the byzantine complexity of th
 
 <div class='item-footer'>
    20:46 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4272,7 +4757,7 @@ The title is not representative of the piece which is actually about 'Google Map
 
 <div class='item-footer'>
    17:49 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4411,7 +4896,7 @@ Screenshots from Beckn tutorial videos</a> from Ravi Prakash (<a href="https://c
 
 <div class='item-footer'>
    15:33 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5072,7 +5557,7 @@ EOF
 
 <div class='item-footer'>
    17:24 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5397,7 +5882,7 @@ EOF
 
 <div class='item-footer'>
    21:28 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5475,7 +5960,7 @@ EOF
 
 <div class='item-footer'>
    18:06 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5545,7 +6030,7 @@ EOF
 
 <div class='item-footer'>
    16:16 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5843,7 +6328,7 @@ EOF
 
 <div class='item-footer'>
    19:12 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5907,7 +6392,7 @@ EOF
 
 <div class='item-footer'>
    16:26 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5979,7 +6464,7 @@ EOF
 
 <div class='item-footer'>
    17:40 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6045,7 +6530,7 @@ EOF
 
 <div class='item-footer'>
    16:25 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6659,7 +7144,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    21:33 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6723,7 +7208,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    20:57 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6869,7 +7354,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    18:08 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6947,7 +7432,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    18:08 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7015,7 +7500,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    19:06 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7079,7 +7564,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    18:30 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7224,7 +7709,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    18:20 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7294,7 +7779,7 @@ A wartime bomb near the railway
 
 <div class='item-footer'>
    17:35 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8569,7 +9054,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    19:33 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8645,7 +9130,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    18:04 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8802,7 +9287,7 @@ reader, as well. If you think it can be improved, let me know!</p>
 
 <div class='item-footer'>
    17:19 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18141,541 +18626,6 @@ public class AccountController : ControllerBase
 
 <div class='item-footer'>
    18:30 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 23. May 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/05/23/implement-azure-ad-continuous-access-evaluation-cae-step-up-with-asp-net-core-blazor-using-a-web-api/'>Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to implement Azure AD Continuous Access (CA) in a Blazor application which uses a Web API. The API requires an Azure AD conditional access authentication context. In the example code, MFA is required to use the external API. If a user requests data from the API using the required access token […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to implement Azure AD Continuous Access (CA) in a Blazor application which uses a Web API. The API requires an Azure AD conditional access authentication context. In the example code, MFA is required to use the external API. If a user requests data from the API using the required access token without the required acr claim, an unauthorized response is returned with the missing claims. The Blazor application returns the claims challenge to the WASM application and the application authenticates again with the step up claims challenge. If the user has authenticated using MFA, the authentication is successful and the data from the API can be retrieved.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreAzureADCAE">https://github.com/damienbod/AspNetCoreAzureADCAE</a></p>
-
-
-
-<p>Blogs in this series</p>
-
-
-
-  <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">Implement Azure AD Continuous Access in an ASP.NET Core Razor Page app using a Web&nbsp;API</a>  Implement Azure AD Continuous Access (CA) step up with ASP.NET Core Blazor using a Web API  <a href="https://damienbod.com/2022/05/30/implement-azure-ad-continuous-access-evaluation-cae-standalone-with-blazor-asp-net-core/">Implement Azure AD Continuous Access (CA) standalone with Blazor ASP.NET Core</a>  <a href="https://damienbod.com/2022/06/13/force-mfa-in-blazor-using-azure-ad-and-continuous-access/">Force MFA in Blazor using Azure AD and Continuous Access</a>  
-
-
-
-<p>Steps to implement </p>
-
-
-
-  Create an authentication context in Azure for the tenant (using Microsoft Graph).  Add a CA policy which uses the authentication context.  Implement the CA Azure AD authentication context authorization in the API.  Implement the Blazor backend to handle the CA unauthorized responses correctly.  Implement an authentication challenge using the claims challenge in the Blazor WASM.  
-
-
-
-<p>Setup overview</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>Creating a Conditional access Authentication Context</p>
-
-
-
-<p>A continuous access (CA) authentication context was created using Microsoft Graph and a policy was created to use this. See the previous <a href="https://damienbod.com/2022/04/20/implement-azure-ad-continuous-access-evaluation-in-an-asp-net-core-razor-page-app-using-a-web-api/">blog</a> for details on setting this up.</p>
-
-
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>External API setup</p>
-
-
-
-<p>The external API is setup to validate Azure AD JWT Bearer access tokens and to validate that the required continuous access evaluation (CAE) policy is fulfilled. The CAE policy uses the authentication context required for this API. If the user is authorized, the correct claims need to be presented in the access token.</p>
-
-
-  [Authorize(Policy = "ValidateAccessTokenPolicy", 
-AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-[ApiController]
-[Route("[controller]")]
-public class ApiForUserDataController : ControllerBase
-{
-    private readonly CAEClaimsChallengeService _caeClaimsChallengeService;
-
-    public ApiForUserDataController(
-		CAEClaimsChallengeService caeClaimsChallengeService)
-    {
-        _caeClaimsChallengeService = caeClaimsChallengeService;
-    }
-
-    [HttpGet]
-    public IEnumerable&lt;string&gt; Get()
-    {
-        // returns unauthorized exception with WWW-Authenticate header 
-        // if CAE claim missing in access token
-        // handled in the caller client exception with challenge returned 
-        // if not ok
-        _caeClaimsChallengeService
-			.CheckForRequiredAuthContext(AuthContextId.C1, HttpContext);
-		
-        return new List&lt;string&gt; 
-		{ 
-			"admin API CAE protected data 1", 
-			"admin API CAE protected data 2" 
-		};
-    }
-}
-  
-
-
-<p>The CaeClaimsChallengeService class implements the CAE requirement to use the API. If the user access token has insufficient claims, an unauthorized response is returned to the application requesting data from the API. The WWW-Authenticate header is set with the correct data as defined in the OpenID Connect signals and events specification.</p>
-
-
-  using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
-using System;
-using System.Globalization;
-using System.Linq;
-using System.Net;
-using System.Text;
-
-namespace AdminCaeMfaRequiredApi;
-
-/// &lt;summary&gt;
-/// Claims challenges, claims requests, and client capabilities
-/// 
-/// https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge
-/// 
-/// Applications that use enhanced security features like Continuous Access Evaluation (CAE) 
-/// and Conditional Access authentication context must be prepared to handle claims challenges.
-/// &lt;/summary&gt;
-public class CaeClaimsChallengeService
-{
-    private readonly IConfiguration _configuration;
-
-    public CaeClaimsChallengeService(IConfiguration configuration)
-    {
-        _configuration = configuration;
-    }
-    /// &lt;summary&gt;
-    /// Retrieves the acrsValue from database for the request method.
-    /// Checks if the access token has acrs claim with acrsValue.
-    /// If does not exists then adds WWW-Authenticate and throws UnauthorizedAccessException exception.
-    /// &lt;/summary&gt;
-    public void CheckForRequiredAuthContext(string authContextId, HttpContext context)
-    {
-        if (!string.IsNullOrEmpty(authContextId))
-        {
-            string authenticationContextClassReferencesClaim = "acrs";
-
-            if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
-            {
-                throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
-            }
-
-            var acrsClaim = context.User.FindAll(authenticationContextClassReferencesClaim).FirstOrDefault(x =&gt; x.Value == authContextId);
-
-            if (acrsClaim?.Value != authContextId)
-            {
-                if (IsClientCapableofClaimsChallenge(context))
-                {
-                    string clientId = _configuration.GetSection("AzureAd").GetSection("ClientId").Value;
-                    var base64str = Convert.ToBase64String(Encoding.UTF8.GetBytes("{\"access_token\":{\"acrs\":{\"essential\":true,\"value\":\"" + authContextId + "\"}}}"));
-
-                    context.Response.Headers.Append("WWW-Authenticate", $"Bearer realm=\"\", authorization_uri=\"https://login.microsoftonline.com/common/oauth2/authorize\", client_id=\"" + clientId + "\", error=\"insufficient_claims\", claims=\"" + base64str + "\", cc_type=\"authcontext\"");
-                    context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-                    string message = string.Format(CultureInfo.InvariantCulture, "The presented access tokens had insufficient claims. Please request for claims requested in the WWW-Authentication header and try again.");
-                    context.Response.WriteAsync(message);
-                    context.Response.CompleteAsync();
-                    throw new UnauthorizedAccessException(message);
-                }
-                else
-                {
-                    throw new UnauthorizedAccessException("The caller does not meet the authentication  bar to carry our this operation. The service cannot allow this operation");
-                }
-            }
-        }
-    }
-
-    /// &lt;summary&gt;
-    /// Evaluates for the presence of the client capabilities claim (xms_cc) and accordingly returns a response if present.
-    /// &lt;/summary&gt;
-    public bool IsClientCapableofClaimsChallenge(HttpContext context)
-    {
-        string clientCapabilitiesClaim = "xms_cc";
-
-        if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
-        {
-            throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
-        }
-
-        var ccClaim = context.User.FindAll(clientCapabilitiesClaim).FirstOrDefault(x =&gt; x.Type == "xms_cc");
-
-        if (ccClaim != null &amp;&amp; ccClaim.Value == "cp1")
-        {
-            return true;
-        }
-
-        return false;
-    }
-}
-  
-
-
-<p>The API can be used by any application and user which presents the correct access token including the claims required by the CAE.</p>
-
-
-
-<p>Using Continuous Access Evaluation (CAE) in an ASP.NET Core hosted Blazor application.</p>
-
-
-
-<p>The Blazor application is authenticated using MSAL and the backend for frontend (BFF) architecture. The Blazor application administrator page uses data from the CAE protected API. The Blazor ASP.NET Core hosted WASM application is protected using a MSAL confidential client.</p>
-
-
-  services.AddMicrosoftIdentityWebAppAuthentication(
-	Configuration, 
-	"AzureAd", 
-	subscribeToOpenIdConnectMiddlewareDiagnosticsEvents: true)
-	.EnableTokenAcquisitionToCallDownstreamApi(
-		new[]
-		{ 
-			"api://7c839e15-096b-4abb-a869-df9e6b34027c/access_as_user" 
-		})
-	.AddMicrosoftGraph(
-		Configuration.GetSection("GraphBeta"))
-	.AddDistributedTokenCaches();
-  
-
-
-<p>The AdminApiClientService class is used to request data from the external API. The http client uses an Azure AD user delegated access token. If the API returns an unauthorized response, a WebApiMsalUiRequiredException is created with the WWW-Authenticate header payload.</p>
-
-
-  public class AdminApiClientService
-{
-    private readonly IHttpClientFactory _clientFactory;
-    private readonly ITokenAcquisition _tokenAcquisition;
-
-    public AdminApiClientService(
-        ITokenAcquisition tokenAcquisition,
-        IHttpClientFactory clientFactory)
-    {
-        _clientFactory = clientFactory;
-        _tokenAcquisition = tokenAcquisition;
-    }
-
-    public async Task&lt;IEnumerable&lt;string&gt;?&gt; GetApiDataAsync()
-    {
-        var client = _clientFactory.CreateClient();
-
-        var scopes = new List&lt;string&gt; 
-		{ 
-			"api://7c839e15-096b-4abb-a869-df9e6b34027c/access_as_user" 
-		};
-		
-        var accessToken = await _tokenAcquisition
-			.GetAccessTokenForUserAsync(scopes);
-
-        client.BaseAddress = new Uri("https://localhost:44395");
-        client.DefaultRequestHeaders.Authorization 
-			= new AuthenticationHeaderValue("Bearer", accessToken);
-			
-        client.DefaultRequestHeaders.Accept
-			.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await client.GetAsync("ApiForUserData");
-		
-        if (response.IsSuccessStatusCode)
-        {
-            var stream = await response.Content.ReadAsStreamAsync();
-            var payload = await JsonSerializer.DeserializeAsync&lt;List&lt;string&gt;&gt;(stream);
-
-            return payload;
-        }
-
-        throw new WebApiMsalUiRequiredException(
-			$"Unexpected status code in the HttpResponseMessage: {response.StatusCode}.", response);
-    }
-}
-  
-
-
-<p>The AdminApiCallsController implements the API used by the Blazor WASM client. This is protected using cookies. The controller would return an unauthorized response with the claims challenge, if the WebApiMsalUiRequiredException is thrown.</p>
-
-
-  public class AdminApiCallsController : ControllerBase
-{
-    private readonly AdminApiClientService _userApiClientService;
-   
-    public AdminApiCallsController(
-		AdminApiClientService userApiClientService)
-    {
-        _userApiClientService = userApiClientService;
-    }
-
-    [HttpGet]
-    public async Task&lt;IActionResult&gt; Get()
-    {
-        try
-        {
-            return Ok(await _userApiClientService.GetApiDataAsync());
-        }
-        catch (WebApiMsalUiRequiredException hex)
-        {
-            var claimChallenge = WwwAuthenticateParameters
-				.GetClaimChallengeFromResponseHeaders(hex.Headers);
-            return Unauthorized(claimChallenge);
-        }
-    }
-}
-  
-
-
-<p>In the Blazor WASM client, an AuthorizedHandler is implemented to handle the unauthorized response from the API. If the “acr” claim is returned, the CAE step method is called.</p>
-
-
-  public class AuthorizedHandler : DelegatingHandler
-{
-    private readonly HostAuthenticationStateProvider _authenticationStateProvider;
-
-    public AuthorizedHandler(
-		HostAuthenticationStateProvider authenticationStateProvider)
-    {
-        _authenticationStateProvider = authenticationStateProvider;
-    }
-
-    protected override async Task&lt;HttpResponseMessage&gt; SendAsync(
-        HttpRequestMessage request,
-        CancellationToken cancellationToken)
-    {
-        var authState = await _authenticationStateProvider
-			.GetAuthenticationStateAsync();
-        HttpResponseMessage responseMessage;
-        if (authState.User.Identity!= null &amp;&amp; 
-			!authState.User.Identity.IsAuthenticated)
-        {
-            // if user is not authenticated, 
-			// immediately set response status to 401 Unauthorized
-            responseMessage = new HttpResponseMessage(
-				HttpStatusCode.Unauthorized);
-        }
-        else
-        {
-            responseMessage = await base.SendAsync(
-				request, cancellationToken);
-        }
-
-        if (responseMessage.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            var content = await responseMessage.Content.ReadAsStringAsync();
-
-            // if server returned 401 Unauthorized, redirect to login page
-            if (content != null &amp;&amp; content.Contains("acr")) // CAE
-            {
-                _authenticationStateProvider.CaeStepUp(content);
-            }
-            else // standard
-            {
-                _authenticationStateProvider.SignIn();
-            }
-        }
-
-        return responseMessage;
-    }
-}
-  
-
-
-<p>The CaeStepUp method is implemented in the Blazor WASM client and creates a claims challenge with the defined claims challenge and the URL of the WASM client page for the redirect.</p>
-
-
-  public void CaeStepUp(string claimsChallenge, string? customReturnUrl = null)
-{
-	var returnUrl = customReturnUrl != null 
-		? _navigation.ToAbsoluteUri(customReturnUrl).ToString() : null;
-		
-	var encodedReturnUrl = 
-		Uri.EscapeDataString(returnUrl ?? _navigation.Uri);
-	var logInUrl = _navigation.ToAbsoluteUri(
-		$"{LogInPath}?claimsChallenge={claimsChallenge}&amp;returnUrl={encodedReturnUrl}");
-		
-	_navigation.NavigateTo(logInUrl.ToString(), true);
-}
-  
-
-
-<p>The account login sends a challenge to Azure AD to request the claims for the CAE. </p>
-
-
-  [HttpGet("Login")]
-public ActionResult Login(string? returnUrl, string? claimsChallenge)
-{
-	//var claims = "{\"access_token\":{\"acrs\":{\"essential\":true,\"value\":\"c1\"}}}";
-	var redirectUri = !string.IsNullOrEmpty(returnUrl) ? returnUrl : "/";
-
-	var properties = new AuthenticationProperties { RedirectUri = redirectUri };
-
-	if(claimsChallenge != null)
-	{
-		string jsonString = claimsChallenge.Replace("\\", "")
-			.Trim(new char[1] { '"' });
-
-		properties.Items["claims"] = jsonString;
-	}
-
-	return Challenge(properties);
-}
-  
-
-
-<p>The Microsoft.Identity.Web client package requires the cp1 ClientCapabilities.</p>
-
-
-  "AzureAd": {
- "Instance": "https://login.microsoftonline.com/",
- "Domain": "[Enter the domain of your tenant, e.g. contoso.onmicrosoft.com]",
- "TenantId": "[Enter 'common', or 'organizations' or the Tenant Id (Obtained from the Azure portal. Select 'Endpoints' from the 'App registrations' blade and use the GUID in any of the URLs), e.g. da41245a5-11b3-996c-00a8-4d99re19f292]",
- "ClientId": "[Enter the Client Id (Application ID obtained from the Azure portal), e.g. ba74781c2-53c2-442a-97c2-3d60re42f403]",
- "ClientSecret": "[Copy the client secret added to the app from the Azure portal]",
- "ClientCertificates": [
- ],
- // the following is required to handle Continuous Access Evaluation challenges
- "ClientCapabilities": [ "cp1" ],
- "CallbackPath": "/signin-oidc"
-},
-  
-
-
-<p>To test both the Blazor server application and the API can be started and the CAE claims are required to use the API.</p>
-
-
-
-
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://github.com/damienbod/Blazor.BFF.AzureAD.Template">https://github.com/damienbod/Blazor.BFF.AzureAD.Template</a></p>
-
-
-
-<p><a href="https://github.com/Azure-Samples/ms-identity-ca-auth-context">https://github.com/Azure-Samples/ms-identity-ca-auth-context</a></p>
-
-
-
-<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app">https://github.com/Azure-Samples/ms-identity-dotnetcore-ca-auth-context-app</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview">https://docs.microsoft.com/en-us/azure/active-directory/conditional-access/overview</a></p>
-
-
-
-<p><a href="https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae">https://github.com/Azure-Samples/ms-identity-dotnetcore-daemon-graph-cae</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context">https://docs.microsoft.com/en-us/azure/active-directory/develop/developer-guide-conditional-access-authentication-context</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge">https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide">https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-conditional-access-dev-guide</a></p>
-
-
-
-<p><a href="https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345">https://techcommunity.microsoft.com/t5/itops-talk-blog/deep-dive-how-does-conditional-access-block-legacy/ba-p/3265345</a></p>
-
-
-
- 
-<blockquote><a href="https://openid.net/wg/sse/">Shared Signals and Events – A Secure Webhooks Framework</a></blockquote>
- 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/05/caesetup_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:37 &bull;
    3 months ago
 </div>
 
