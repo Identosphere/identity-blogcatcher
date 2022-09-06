@@ -371,7 +371,7 @@
 
 </div>
 </div>
-<sup>Last Update 7:58 AM September 06, 2022 (UTC)</sup>
+<sup>Last Update 2:47 PM September 06, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Web3 | Identosphere Blogcatcher</h1>
@@ -384,6 +384,221 @@
  <h2 class='new-date'>
   Tuesday, 06. September 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://coinbase.com/'>Coinbase</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.coinbase.com/real-time-reconciliation-with-overseer-4d1b75a77f0c?source=rss----c114225aeaf7---4'>Real-time reconciliation with Overseer</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Tl;dr: A common challenge with distributed systems is how to ensure that state remains synchronized across systems. At Coinbase, this is an important problem for us as many transactions flow through our microservices every day and we need to ensure that these systems agree on a given transaction. In this blog post, we’ll deep-dive into Overseer, the system Coinbase created to provide us with the a
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/0*eW3UHsuemcoD08Uo'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Tl;dr: A common challenge with distributed systems is how to ensure that state remains synchronized across systems. At Coinbase, this is an important problem for us as many transactions flow through our microservices every day and we need to ensure that these systems agree on a given transaction. In this blog post, we’ll deep-dive into Overseer, the system Coinbase created to provide us with the ability to perform real-time reconciliation.</p><p>By Cedric Cordenier, Senior Software&nbsp;Engineer</p><p>Every day, transactions are processed by Coinbase’s payments infrastructure. Processing each of these transactions successfully means completing a complex workflow involving multiple microservices. These microservices range from “front-office” services, such as the product frontend and backend, to “back-office” services such as our internal ledger, to the systems responsible for interacting with our banking partners or executing the transaction on&nbsp;chain.</p><p>All of the systems involved in processing a transaction store some state relating to it, and we need to ensure that they agree on what happened to the transaction. To solve this coordination problem, we use orchestration engines like <a href="https://cadenceworkflow.io/">Cadence</a> and techniques such as retries and idempotency to ensure that the transactions are eventually executed correctly.</p><p>Despite this effort, the systems occasionally disagree on what happened, preventing the transaction from completing. The causes of this blockage are varied, ranging from bugs to outages affecting the systems involved in processing. Historically, unblocking these transactions has involved significant operational toil, and our infrastructure to tackle this problem has been imperfect.</p><p>In particular, our systems have lacked an exhaustive and immutable record of all of the actions taken when processing a transaction, including actions taken during incident remediation, and been unable to verify the consistency of a transaction holistically across the entire range of systems involved in real time. Our existing process relied on ETL pipelines which meant delays of up to 24 hours to be able to access recent transaction data.</p><p>To solve this problem, we created Overseer, a system to perform near real-time reconciliation of distributed systems. Overseer has been designed with the following in&nbsp;mind:</p>  Extensibility: Writing a new check is as simple as writing a function, and adding a new data source is a matter of configuration in the average case. This makes it easy for new teams to onboard checks onto the platform that is Overseer.  Scalability: As of today, our internal metrics show that Overseer is capable of handling more than 30k messages per&nbsp;second.  Accuracy: Overseer travels through time and intelligently delays running a check for a short time to compensate for delays in receiving data, thus reducing the number of false negatives.  Near real-time: Overseer has a time to detect (TTD) of less than 1 minute on&nbsp;average.  <p>Architecture</p><p>At a high-level, the architecture of Overseer consists of the three services pictured&nbsp;above:</p>  The ingestion service is how any new data enters Overseer. The service is responsible for receiving update notifications from the databases which Overseer is subscribed, storing the update in S3, and notifying the upstream processors runner service (PRS) of the&nbsp;update.  The data access layer service (DAL) is how services access the data stored in S3. Each update is stored as a single, immutable, object in S3 and the DAL is responsible for aggregating the updates into a canonical view of a record at a given point in time. This also serves as the semantic layer on top of S3 by translating data from its at-rest representation — which makes no assumptions about the schema or format of the data — into protobufs, and by defining the join relationships necessary to stitch multiple related records into a data&nbsp;view.  The processors runner service (PRS) receives these notifications and determines which checks — also known as processors — are applicable to the notification. Before running the check, it calls the data access layer service to fetch the data view required to perform the&nbsp;check.  <p>The Ingestion Service</p><p>A predominant design goal of the ingestion service is to support any format of incoming data. As we look to integrate Overseer into all of Coinbase systems in the future, it is crucial that the platform is built to easily and efficiently add new data&nbsp;sources.</p><p>Our typical pattern for receiving events from upstream data sources is to tail its database’s WAL (write-ahead log). We chose this approach for a few&nbsp;reasons:</p>  Coinbase has a small number of database technologies that are considered “paved road”, so by supporting the data format emitted by the WAL, we can make it easy to onboard the majority of our services.  Tailing the WAL also ensures a high level of data fidelity as we are replicating directly what’s in the database. This eliminates a class of errors which the alternative — to have upstream data sources emit change events at the application level — would expose us&nbsp;to.  <p>The ingestion service is able to support any data format due to how data is stored and later received. When the ingestion service receives an update, it creates two artifacts — the update document and the master document.</p>  The update document contains the update event exactly as we received it from the upstream source, in its original format (protobuf bytes, JSON, BSON, etc) and adds metadata such as the unique identifier for the record being modified.  The master document aggregates all of the references found in updates belonging to a single database model. Together, these documents serve as an index Overseer can use to join records together.  <p>When the ingestion service receives an update for a record, it extracts these references and either creates a master document with the references (if the event is an insert event), or updates an existing master document with any new references (if the event is an update event). In other words, ingesting a new data format is just a matter of storing the raw event and extracting its metadata, such as the record identifier, or any references it has to other&nbsp;records.</p><p>To achieve this, the ingestion service has the concept of a consumer abstraction. Consumers translate a given input format into the two artifacts we mentioned above and can onboard new data sources, through configuration, to tie the data source to a consumer to use at&nbsp;runtime.</p><p>However, this is just one part of the equation. The ability to store arbitrary data is only useful if we can later retrieve it and give it some semantic meaning. This is where the Data Access Layer (DAL) is&nbsp;useful.</p><p>DAL, Overseer’s semantic&nbsp;layer</p><p>To understand the role played by DAL, let’s examine a typical update event from the perspective of a hypothetical Toy model, which has the schema described below:</p> type Toy struct {<br>    Type string<br>    Color string<br>    Id string<br>} <p>We’ll further assume that our Toy model is hosted in a MongoDB collection, such that change events will have the raw format described <a href="https://www.mongodb.com/docs/manual/reference/change-events/#change-events-1">here</a>. For our example Toy record, we’ve recorded two events, namely an event creating it, and a subsequent update. The first event looks approximately like this, with some irrelevant details or field&nbsp;elided:</p> {<br>    "_id": "22914ec8-4687-4428-8cab-e0fd21c6b3b6",<br>    "fullDocument": {<br>        "type": "watergun",<br>        "color": "blue",<br>     },<br>     "clusterTime": 1658224073,<br>} <p>And, the second, like&nbsp;this:</p> {<br>    "_id": "22914ec8-4687-4428-8cab-e0fd21c6b3b6",<br>    "updateDescription": {<br>        "updatedFields": {<br>            "type": "balloon",<br>        },<br>     },<br>     "clusterTime": 1658224074,<br>} <p>We mentioned earlier that DAL serves as the semantic layer on top of Overseer’s storage. This means it performs three functions with respect to this&nbsp;data:</p><p>Time travel: retrieving the updates belonging to a record up to a given timestamp. In our example, this could mean retrieving either the first or both of these&nbsp;updates.</p><p>Aggregation: transforming the updates into a view of the record at a point in time, and serializing this into DAL’s output format, protobufs.</p><p>In our case, the updates above can be transformed to describe the record at two points in time, namely after the first update, and after the second update. If we were interested in knowing what the record looked like on creation, we would transform the updates by fetching the first update’s “fullDocument” field. This would result in the following:</p> proto.Toy{<br>    Type: "watergun",<br>    Id: "22914ec8-4687-4428-8cab-e0fd21c6b3b6",<br>    Color: "blue",<br>} <p>However, if we wanted to know what the record would look like after the second update, we would instead take the “fullDocument” of the initial update and apply the contents of the “updateDescription” field of subsequent updates. This would&nbsp;yield:</p> proto.Toy{<br>    Type: "balloon",<br>    Id: "22914ec8-4687-4428-8cab-e0fd21c6b3b6",<br>    Color: "blue",<br>} <p>This example contains two important insights:</p>  First, the algorithm required to aggregate updates depends on the input format of the data. Accordingly, DAL encapsulates the aggregation logic for each type of input data, and has aggregators (called “builders”) for all of the formats we support, such as Mongo or Postgres for&nbsp;example.  Second, aggregating updates is a stateless process. In an earlier version of Overseer, the ingestion service was responsible for generating the latest state of a model in addition to storing the raw update event. This was performant but led to significantly reduced developer velocity, since any errors in our aggregators required a costly backfill to&nbsp;correct.  <p>Exposing data&nbsp;views</p><p>Checks running in Overseer operate on arbitrary data views. Depending on the needs of the check being performed, these views can contain a single record or multiple records joined together. In the latter case, DAL provides the ability to identify sibling records by querying the collection of master records built by the ingestion service.</p><p>PRS, a platform for running&nbsp;checks</p><p>As we mentioned previously, Overseer was designed to be easily extensible, and nowhere is this more important than in the design of the PRS. From the outset, our design goal was to make adding a new check as easy as writing a function, while retaining the flexibility to handle the variety of use cases Overseer was intended to&nbsp;serve.</p><p>A check is any function which performs the following two functions:</p>  It makes assertions when given data. A check can declare which data it needs by accepting a data view provided by DAL as a function argument.  It specifies an escalation policy: i.e. given a failing assertion, it makes a decision on how to proceed. This could be as simple as emitting a log, or creating an incident in PagerDuty, or performing any other action decided by the owner of the&nbsp;check.  <p>Keeping checks this simple facilitates onboarding — testing is particularly easy as a check is just a function which accepts some inputs and emits some side effects — but requires PRS to handle a lot of complexity automatically. To understand this complexity, it’s helpful to gain an overview of the lifecycle of an update notification inside Overseer. In the architecture overview at the beginning of this post, we saw how updates are stored by the ingestion service in S3 and how the ingestion service emits a notification to PRS via an events topic. Once a message has been received by PRS, it goes through the following flow:</p>  Selection: PRS determines which checks should be triggered by the given&nbsp;event.  Scheduling: PRS determines when and how a check should be scheduled. This happens via what we call “execution strategies”. These can come in various forms, but basic execution strategies might execute a check immediately (i.e. do nothing), or delay a check by a fixed amount of time, which can be useful for enforcing SLAs. The default execution strategy is more complex. It drives down the rate of false negatives by determining the relative freshness of the data sources that Overseer listens to, and may choose to delay a check — thus sacrificing a little bit of our TTD — to allow lagging sources to catch&nbsp;up.  Translation maps the event received to a specific data view required by the check. During this step, PRS queries the DAL to fetch the records needed to perform the&nbsp;check.  Finally, execution, which calls the check&nbsp;code.  <p>Checks are registered with the framework through a lightweight domain-specific language (DSL). This DSL makes it possible to register a check in a single line of code, with sensible defaults specifying the behavior in terms of what should trigger a check (the selection stage), how to schedule a check, and what view it requires (the translation stage). For more advanced use cases, the DSL also acts as an escape hatch by allowing users to customize the behavior of their check at each of these&nbsp;stages.</p><p>Today, Overseer processes more than 30,000 messages per second, and supports four separate use cases in production, with a goal to add two more by the end of Q3. This is a significant milestone for the project which has been in incubation for more than a year, and required overcoming a number of technical challenges, and multiple changes to Overseer’s architecture.</p><p>This project has been a true team effort, and would not have been possible without the help and support of the Financial Hub product and engineering leadership, and members of the Financial Hub Transfers and Transaction Intelligence teams.</p> <p><a href="https://blog.coinbase.com/real-time-reconciliation-with-overseer-4d1b75a77f0c">Real-time reconciliation with Overseer</a> was originally published in <a href="https://blog.coinbase.com">The Coinbase Blog</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*eW3UHsuemcoD08Uo'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:59 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.sequoiacap.com/'>Sequoia</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.sequoiacap.com/article/partnering-with-zeet-bring-your-code-to-your-cloud/'>Partnering with Zeet: Bring Your Code to Your Cloud</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The post Partnering with Zeet: Bring Your Code to Your Cloud appeared first on Sequoia Capital US/Europe. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+         Partnering with Zeet: Bring Your Code to Your Cloud            <p>A simple cloud infrastructure management console—to make developers’ lives easier.</p>  <p>By Lauren Reeder and Bogomil Balkansky</p><p>Published September 6, 2022</p>       
+
+
+
+      Zeet co-founders Johnny Dallas and Zihao Zhang.      
+
+
+
+ 
+ 
+   
+<p>We wish we’d found Johnny Dallas four years ago, when he was 16 and the youngest-ever speaker at AWS re:Invent. Already three years into his career, he wasn’t yet old enough to set foot in a casino and had to be escorted to the presentation room—where he proceeded to explain how he automated an entire fleet of over a thousand servers at the video streaming platform Bebo, later acquired by Twitch. The name of that presentation? “<a href="https://newsvideo.su/tech/video/275419">Managing 1,000 Servers Without a Driver’s License</a>.”</p>
+
+
+
+<p>Just a couple of years later, Johnny and co-founder Zihao Zhang (CTO) struck out on their own to launch <a href="https://zeet.co/">Zeet</a>, and today, they and their team have built a wonderfully intuitive product that helps companies simplify the management of cloud infrastructure. One common refrain from customers we talked to: “Everyone should use Zeet.”</p>
+
+
+
+<p>The origin of the cloud was about self-service. Instead of waiting on internal IT to provision infrastructure, developers flocked to an alternative that offered instant​​—or at least much faster—gratification. As the cloud continues to grow, the cloud providers’ offerings are becoming richer—but also fundamentally more complex.&nbsp;</p>
+
+
+
+Options abound in an AWS console.
+
+
+
+<p></p>
+
+
+
+<p>Most engineers shouldn’t have to worry about DNS or API gateway, or making sure the right ports are exposed. But we’ve seen that application developers everywhere are spending significant cycles on setting up the infrastructure they need to do their job. While it’s a difficult problem to solve, we knew there must be a better way.&nbsp;</p>
+
+
+
+<p>Through an absolutely glowing customer reference, we’re excited to have found that better way in Zeet. Johnny recognized that for most applications, a lot of standard infrastructure can be automated, abstracting away the complexity of the underlying cloud and creating a developer-friendly experience that can scale as products grow. Customers can use Zeet to deploy and manage their applications, but because it operates in their own cloud accounts, they also have an escape hatch—they can go directly to the cloud provider’s management console or use its APIs alongside Zeet. The result is easier deployment of containers, serverless functions and databases, so developers can spend less time on infrastructure and more time on their products.<br></p>
+
+
+
+<p>Just as exciting as the product is the team behind Zeet, and Johnny and Zihao are looking for more teammates as they continue to build the company—so if you’d like to help them tackle this massive problem space, please<a href="https://zeet-co.notion.site/zeet-co/Work-Zeet-584be4ec1e924c07af008f72fcf08c41"> reach out</a>! We at Sequoia could not be more thrilled to partner with them in this new round of seed funding, and to support them on their mission to help everyone make better use of the cloud.</p>
+   
+
+
+
+     
+ 
+ 
+
+
+ 
+	 
+		Share
+		 
+			
+				
+				Share this on Facebook				
+			
+			
+				
+				Share this on Twitter				
+			
+			
+				
+				Share this on LinkedIn				
+			
+			<a href="mailto:?subject=Partnering+with+Zeet:+Bring+Your+Code+to+Your+Cloud&amp;body=https%3A%2F%2Fwww.sequoiacap.com%2Farticle%2Fpartnering-with-zeet-bring-your-code-to-your-cloud%2F">
+				Share this via email
+			</a>
+		 
+	 
+ 
+<p>The post <a href="https://www.sequoiacap.com/article/partnering-with-zeet-bring-your-code-to-your-cloud/">Partnering with Zeet: Bring Your Code to Your Cloud</a> appeared first on <a href="https://www.sequoiacap.com">Sequoia Capital US/Europe</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.sequoiacap.com/wp-content/uploads/sites/6/2022/08/Sized_zeet_founders.jpeg?w=1920'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:30 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -447,7 +662,7 @@
 
 <div class='item-footer'>
    04:35 &bull;
-   3 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -519,7 +734,7 @@
 
 <div class='item-footer'>
    21:03 &bull;
-   11 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -555,7 +770,7 @@
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   Be brave as Ukraine — Build “AnonDrop” at the Kyiv Tech Summit hackathon!  One of the harder problems facing the documentation of war crimes is to allow witnesses to send in data without revealing who they are or their location to an adversary that can watch their internet connection. The last thing someone who wishes to disclose a human rights violation to do is to make themselves a victim simply
+   Be brave as Ukrainians — Build “AnonDrop” at the Kyiv Tech Summit hackathon!  One of the harder problems facing the documentation of war crimes is to allow witnesses to send in data without revealing who they are or their location to an adversary that can watch their internet connection. The last thing someone who wishes to disclose a human rights violation to do is to make themselves a victim sim
    
   
   
@@ -576,7 +791,7 @@
  -->
 <div class='wrap'>
 
- Be brave as Ukraine — Build “AnonDrop” at the Kyiv Tech Summit hackathon! <p>One of the harder problems facing the documentation of war crimes is to allow witnesses to send in data without revealing who they are or their location to an adversary that can watch their internet connection. The last thing someone who wishes to disclose a human rights violation to do is to make themselves a victim simply by reporting the&nbsp;crime!</p><p>Nym is a <a href="https://nymtech.net/docs/stable/overview/network-privacy">decentralised mixnet</a> that provides privacy and anonymity at the network layer and so potentially can serve as a powerful privacy-protecting front-end for these attacks. The mix network can be utilized to provide strong privacy protections able to withstand attacks by even nation level adversaries.</p><p>We believe there is an urgent need to create an encrypted file drop application — AnonDrop. This will use the Nym mixnet to hide the metadata of a user uploading encrypted files (and their decryption keys) to a service operated by institutions requiring sensitive evidence where sender anonymity is paramount.</p><p>Kyiv Tech Summit and AnonDrop for the freedom of&nbsp;Ukraine</p><p>The <a href="https://www.kyivtechsummit.com/">Kyiv Tech Summit</a>, happening 6–9 September 2022 in a global hybrid format, aims to bring together some of the best developers, technology providers, designers, innovators, and product evangelists who are looking to solve tangible, on-the-ground issues to aid the Ukrainian people in their fight for&nbsp;freedom.</p><p>AnonDrop can be used by those fighting for the freedom of Ukraine to securely upload evidence of war crimes&nbsp;there.</p><p>Looking beyond, the software should defend the uploading of data not just in Ukraine, but anywhere where human rights work is needed, and allow the persistent and decentralised storage of data. There has been a long-stream of work on using mixnets for this use-case, such as the FreeHaven design that preceded even Tor, but now is the time to make privacy-preserving storage a&nbsp;reality!</p><p>Combining the powers of Nym, IPFS and&nbsp;Filecoin</p><p>As we have always believed, privacy loves company! AnonDrop combines the Nym mixnet for anonymity with IPFS for decentralised storage. Solutions built for the Nym specifications therefore also qualify for a <a href="https://ecosystem-wg.notion.site/Filecoin-IPFS-Hackathon-Judging-Criteria-fb29da31431c4c8da1be6c30e1d0ef82">IPFS/Filecoin bounty evaluation</a>!</p><p>Needing little introduction, <a href="https://ipfs.tech/">IPFS </a>and <a href="https://filecoin.io/">Filecoin </a>have been providing persistent decentralised file storage since 2015 so it is only natural for Nym to join forces with this tried and tested infrastructure to advance to provide real support for defenders of human&nbsp;rights.</p><p>Specifications for&nbsp;AnonDrop</p><p>Code already exists (see section below) for a generic ‘encrypted Dropbox’ proof of concept (‘NymDrive’) which utilises the mixnet. The spec for this challenge requires modifying the NymDrive code with additional features to make it suitable to securely send sensitive evidence to institutions such as the United Nations (‘the Authority’). These service providers will be run by the institutions who will be gathering this evidence. The institutions gathering the evidence run “service providers” enabling people to connect and send files through the decentralised Nym mixnet. The mixnet mixes the data, making it anonymous and untraceable before forwarding it to be stored on IPFS, a decentralised filestore.</p><p>This application spec involves three distinct bits of&nbsp;code:</p><p>1. An Uploader GUI allowing users to do the following through the&nbsp;mixnet:</p>  Store an encrypted file via the AnonDrop service&nbsp;provider  Multi-lingual interface (so interface can be in English and Ukrainian)  Verify their file has been uploaded and stored (via checking&nbsp;hashes)  Toggle an option to delete the local file from their device, ideally secure deletion.  Securely share the hash &amp; decryption key of uploaded encrypted files with ‘the authority’  <p>2. An AnonDrop service provider which does the following via the&nbsp;mixnet:</p>  Receive files.  Hash these files with the same hash function as the GUI and store the files with this hash as its identifier in&nbsp;IPFS.  Respond to verification requests from&nbsp;users.  Send the relevant file as a response to valid retrieval queries.  Deny invalid file retrieval requests.  <p>3. A Reader GUI allowing the Authority to do the following:</p>  Receive files.  Verify these&nbsp;files.  Decrypt these&nbsp;files.  <p>Changes required to existing NymDrive code for challenge</p><p>The specification of the NymDrive code can be found <a href="https://docs.google.com/document/d/16k5lw-Y3fzfk5mzE65DRCBa0IIqCvAUzM26zNsIo0rQ/edit">here</a>, and the code of the winner of the Hackathon <a href="https://github.com/saleel/nymdrive">here</a>.</p><p>There are a number of required changes to modify NymDrive into a FileDrop&nbsp;POC:</p>  Make a ‘reader’ GUI app with which the authority can decrypt and access information that is&nbsp;stored  Make data flow unidirectional    User uploads an encrypted file.  <p>(N.B. we have not yet implemented anonymous replies in the mixnet — as such acknowledgements of receipt of the file by the SP to the Upload Client will have to be implemented manually, and will not be anonymous. Anonymous replies via Single Use Reply Blocks (SURBs) would be swapped in once they are implemented in the mixnet in the future, and would be used in production / deployment of this application.</p><p>TL;DR its fine for teams to implement non-private hacks in this hackathon project as we do not yet have SURBs implemented.)</p>  File optionally deleted from local device (see point&nbsp;below)  Remove option to grab upload from SP at a later date that currently exists with&nbsp;NymDrive  <p>3. Add automatic file wipe from local device on upload as an&nbsp;option</p>  We already have the option of a file being deleted manually via the GUI — add the option for it to be automatic on upload once the encrypted file and other evidence are uploaded &amp; ack is received from the&nbsp;SP  <p>4. Enable Authority running the service provider to decrypt files on SP accessed via ReaderGUI</p>  E.g. something like ECDH key exchange with the Authority for decryption.  <p>5. Include additional information when uploading files to service provider:</p>  ​​​​​​​Identity of sender (cryptographic)  Metadata of photo or video from phone (e.g. time, if location tagging is on then that,&nbsp;etc)  <p>There are a number of additional things which would be interesting to see implemented on top of&nbsp;these:</p>  Image provenance check prior to uploading file&nbsp;to    CAI has a pretty well developed java SDK (the Rust SDK currently only handles images, not video, but might still be worth experimenting with given that this functionality is presumed to be added in the future): <a href="https://opensource.contentauthenticity.org/docs/c2patool">https://opensource.contentauthenticity.org/docs/c2patool</a>  Inclusion of this check is noted in the application flow diagram above, where the check takes place after the file is uploaded to a computer, but prior to being encrypted and sent through the mixnet to the&nbsp;SP.  Image provenance tasks are any tasks that must occur on the user’s end to make the file capable of being authenticated, verified, etc. This can be accomplished by running the file through CAI SDK functions.  <p>2. Identity sharding for key backup if you lose your device / original sender goes&nbsp;missing</p>  Something like ShamirSecretSharing with designated other Nym addresses  <p>3. Decentralised hosting via something like&nbsp;Akash</p><p>4. Private distributed storage solution instead of&nbsp;IPFS</p><p>Building beyond Kyiv — Nym&nbsp;Shipyard</p><p>The <a href="https://shipyard.nymtech.net/docs/shipyard/">Nym Shipyard</a>, the new beta space for Nym, will be launched shortly. Shipyard is a place to build and try out new Privacy Enhanced Applications (PEApps) in experimental mode. Members of the Nym ecosystem can apply for grants, build and test the strength of their privacy protections before sailing out into the&nbsp;world.</p><p>Participants successful in the AnonDrop challenge will quality automatically for a Shipyard grant to continue developing AnonDrop, focusing on verifying the authenticity of evidence submitted. This grant will also come with mentorship — details to be announced shortly.</p><p>Filecoin also has a <a href="https://github.com/filecoin-project/devgrants">Grants program</a> where promising projects that may not win in this hackathon, could apply for support if they would like to continue building after the hackathon and would like&nbsp;support.</p><p>Make a difference, join the hackathon now</p><p>The <a href="https://kyiv-tech-summit.devpost.com/">Kyiv Tech Summit hackathon</a> starts tomorrow, 6 September, and participation online is possible, so <a href="https://secure.devpost.com/users/register?return_to=https%3A%2F%2Fkyiv-tech-summit.devpost.com%2Fregister%3Fflow%255Bdata%255D%255Bchallenge_id%255D%3D16007%26flow%255Bname%255D%3Dregister_for_challenge">join now</a> to use the power of technology to solve real on-the-ground issues in&nbsp;Ukraine!</p><p>For those unable to participate but interested in our efforts for&nbsp;Ukraine:</p><p><a href="http://discord.com/invite/nym">Discord</a></p><p><a href="https://twitter.com/nymproject">Twitter</a></p><p><a href="https://t.me/nymchan">Telegram</a></p><p>Use Nym to privacy enhance your existing apps. Test the Beta release of NymConnect with Telegram and Electrum — <a href="https://shipyard.nymtech.net/docs/nymconnect">download&nbsp;here</a></p> <p><a href="https://blog.nymtech.net/be-brave-as-ukraine-build-anondrop-at-the-kyiv-tech-summit-hackathon-4959ea99cfb8">Be brave as Ukraine — Build “AnonDrop” at the Kyiv Tech Summit hackathon!</a> was originally published in <a href="https://blog.nymtech.net">nymtech</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+ Be brave as Ukrainians — Build “AnonDrop” at the Kyiv Tech Summit hackathon! <p>One of the harder problems facing the documentation of war crimes is to allow witnesses to send in data without revealing who they are or their location to an adversary that can watch their internet connection. The last thing someone who wishes to disclose a human rights violation to do is to make themselves a victim simply by reporting the&nbsp;crime!</p><p>Nym is a <a href="https://nymtech.net/docs/stable/overview/network-privacy">decentralised mixnet</a> that provides privacy and anonymity at the network layer and so potentially can serve as a powerful privacy-protecting front-end for these attacks. The mix network can be utilized to provide strong privacy protections able to withstand attacks by even nation level adversaries.</p><p>We believe there is an urgent need to create an encrypted file drop application — AnonDrop. This will use the Nym mixnet to hide the metadata of a user uploading encrypted files (and their decryption keys) to a service operated by institutions requiring sensitive evidence where sender anonymity is paramount.</p><p>Kyiv Tech Summit and AnonDrop for the freedom of&nbsp;Ukraine</p><p>The <a href="https://www.kyivtechsummit.com/">Kyiv Tech Summit</a>, happening 6–9 September 2022 in a global hybrid format, aims to bring together some of the best developers, technology providers, designers, innovators, and product evangelists who are looking to solve tangible, on-the-ground issues to aid the Ukrainian people in their fight for&nbsp;freedom.</p><p>AnonDrop can be used by those fighting for the freedom of Ukraine to securely upload evidence of war crimes&nbsp;there.</p><p>Looking beyond, the software should defend the uploading of data not just in Ukraine, but anywhere where human rights work is needed, and allow the persistent and decentralised storage of data. There has been a long-stream of work on using mixnets for this use-case, such as the FreeHaven design that preceded even Tor, but now is the time to make privacy-preserving storage a&nbsp;reality!</p><p>Combining the powers of Nym, IPFS and&nbsp;Filecoin</p><p>As we have always believed, privacy loves company! AnonDrop combines the Nym mixnet for anonymity with IPFS for decentralised storage. Solutions built for the Nym specifications therefore also qualify for a <a href="https://ecosystem-wg.notion.site/Filecoin-IPFS-Hackathon-Judging-Criteria-fb29da31431c4c8da1be6c30e1d0ef82">IPFS/Filecoin bounty evaluation</a>!</p><p>Needing little introduction, <a href="https://ipfs.tech/">IPFS </a>and <a href="https://filecoin.io/">Filecoin </a>have been providing persistent decentralised file storage since 2015 so it is only natural for Nym to join forces with this tried and tested infrastructure to advance to provide real support for defenders of human&nbsp;rights.</p><p>Specifications for&nbsp;AnonDrop</p><p>Code already exists (see section below) for a generic ‘encrypted Dropbox’ proof of concept (‘NymDrive’) which utilises the mixnet. The spec for this challenge requires modifying the NymDrive code with additional features to make it suitable to securely send sensitive evidence to institutions such as the United Nations (‘the Authority’). These service providers will be run by the institutions who will be gathering this evidence. The institutions gathering the evidence run “service providers” enabling people to connect and send files through the decentralised Nym mixnet. The mixnet mixes the data, making it anonymous and untraceable before forwarding it to be stored on IPFS, a decentralised filestore.</p><p>This application spec involves three distinct bits of&nbsp;code:</p><p>1. An Uploader GUI allowing users to do the following through the&nbsp;mixnet:</p>  Store an encrypted file via the AnonDrop service&nbsp;provider  Multi-lingual interface (so interface can be in English and Ukrainian)  Verify their file has been uploaded and stored (via checking&nbsp;hashes)  Toggle an option to delete the local file from their device, ideally secure deletion.  Securely share the hash &amp; decryption key of uploaded encrypted files with ‘the authority’  <p>2. An AnonDrop service provider which does the following via the&nbsp;mixnet:</p>  Receive files.  Hash these files with the same hash function as the GUI and store the files with this hash as its identifier in&nbsp;IPFS.  Respond to verification requests from&nbsp;users.  Send the relevant file as a response to valid retrieval queries.  Deny invalid file retrieval requests.  <p>3. A Reader GUI allowing the Authority to do the following:</p>  Receive files.  Verify these&nbsp;files.  Decrypt these&nbsp;files.  <p>Changes required to existing NymDrive code for challenge</p><p>The specification of the NymDrive code can be found <a href="https://docs.google.com/document/d/16k5lw-Y3fzfk5mzE65DRCBa0IIqCvAUzM26zNsIo0rQ/edit">here</a>, and the code of the winner of the Hackathon <a href="https://github.com/saleel/nymdrive">here</a>.</p><p>There are a number of required changes to modify NymDrive into a FileDrop&nbsp;POC:</p>  Make a ‘reader’ GUI app with which the authority can decrypt and access information that is&nbsp;stored  Make data flow unidirectional    User uploads an encrypted file.  <p>(N.B. we have not yet implemented anonymous replies in the mixnet — as such acknowledgements of receipt of the file by the SP to the Upload Client will have to be implemented manually, and will not be anonymous. Anonymous replies via Single Use Reply Blocks (SURBs) would be swapped in once they are implemented in the mixnet in the future, and would be used in production / deployment of this application.</p><p>TL;DR its fine for teams to implement non-private hacks in this hackathon project as we do not yet have SURBs implemented.)</p>  File optionally deleted from local device (see point&nbsp;below)  Remove option to grab upload from SP at a later date that currently exists with&nbsp;NymDrive  <p>3. Add automatic file wipe from local device on upload as an&nbsp;option</p>  We already have the option of a file being deleted manually via the GUI — add the option for it to be automatic on upload once the encrypted file and other evidence are uploaded &amp; ack is received from the&nbsp;SP  <p>4. Enable Authority running the service provider to decrypt files on SP accessed via ReaderGUI</p>  E.g. something like ECDH key exchange with the Authority for decryption.  <p>5. Include additional information when uploading files to service provider:</p>  ​​​​​​​Identity of sender (cryptographic)  Metadata of photo or video from phone (e.g. time, if location tagging is on then that,&nbsp;etc)  <p>There are a number of additional things which would be interesting to see implemented on top of&nbsp;these:</p>  Image provenance check prior to uploading file&nbsp;to    CAI has a pretty well developed java SDK (the Rust SDK currently only handles images, not video, but might still be worth experimenting with given that this functionality is presumed to be added in the future): <a href="https://opensource.contentauthenticity.org/docs/c2patool">https://opensource.contentauthenticity.org/docs/c2patool</a>  Inclusion of this check is noted in the application flow diagram above, where the check takes place after the file is uploaded to a computer, but prior to being encrypted and sent through the mixnet to the&nbsp;SP.  Image provenance tasks are any tasks that must occur on the user’s end to make the file capable of being authenticated, verified, etc. This can be accomplished by running the file through CAI SDK functions.  <p>2. Identity sharding for key backup if you lose your device / original sender goes&nbsp;missing</p>  Something like ShamirSecretSharing with designated other Nym addresses  <p>3. Decentralised hosting via something like&nbsp;Akash</p><p>4. Private distributed storage solution instead of&nbsp;IPFS</p><p>Building beyond Kyiv — Nym&nbsp;Shipyard</p><p>The <a href="https://shipyard.nymtech.net/docs/shipyard/">Nym Shipyard</a>, the new beta space for Nym, will be launched shortly. Shipyard is a place to build and try out new Privacy Enhanced Applications (PEApps) in experimental mode. Members of the Nym ecosystem can apply for grants, build and test the strength of their privacy protections before sailing out into the&nbsp;world.</p><p>Participants successful in the AnonDrop challenge will quality automatically for a Shipyard grant to continue developing AnonDrop, focusing on verifying the authenticity of evidence submitted. This grant will also come with mentorship — details to be announced shortly.</p><p>Filecoin also has a <a href="https://github.com/filecoin-project/devgrants">Grants program</a> where promising projects that may not win in this hackathon, could apply for support if they would like to continue building after the hackathon and would like&nbsp;support.</p><p>Make a difference, join the hackathon now</p><p>The <a href="https://kyiv-tech-summit.devpost.com/">Kyiv Tech Summit hackathon</a> starts tomorrow, 6 September, and participation online is possible, so <a href="https://secure.devpost.com/users/register?return_to=https%3A%2F%2Fkyiv-tech-summit.devpost.com%2Fregister%3Fflow%255Bdata%255D%255Bchallenge_id%255D%3D16007%26flow%255Bname%255D%3Dregister_for_challenge">join now</a> to use the power of technology to solve real on-the-ground issues in&nbsp;Ukraine!</p><p>For those unable to participate but interested in our efforts for&nbsp;Ukraine:</p><p><a href="http://discord.com/invite/nym">Discord</a></p><p><a href="https://twitter.com/nymproject">Twitter</a></p><p><a href="https://t.me/nymchan">Telegram</a></p><p>Use Nym to privacy enhance your existing apps. Test the Beta release of NymConnect with Telegram and Electrum — <a href="https://shipyard.nymtech.net/docs/nymconnect">download&nbsp;here</a></p> <p><a href="https://blog.nymtech.net/be-brave-as-ukraine-build-anondrop-at-the-kyiv-tech-summit-hackathon-4959ea99cfb8">Be brave as Ukraine — Build “AnonDrop” at the Kyiv Tech Summit hackathon!</a> was originally published in <a href="https://blog.nymtech.net">nymtech</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
    
   
   
@@ -593,7 +808,7 @@
 
 <div class='item-footer'>
    13:24 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -855,7 +1070,7 @@
 
 <div class='item-footer'>
    20:26 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1382,7 +1597,7 @@
 
 <div class='item-footer'>
    00:11 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1798,7 +2013,7 @@
 
 <div class='item-footer'>
    00:24 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1870,7 +2085,7 @@
 
 <div class='item-footer'>
    21:33 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2492,7 +2707,7 @@
 
 <div class='item-footer'>
    22:01 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3088,7 +3303,7 @@
 
 <div class='item-footer'>
    00:30 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3358,7 +3573,7 @@
 
 <div class='item-footer'>
    00:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3620,7 +3835,7 @@
 
 <div class='item-footer'>
    21:42 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3686,7 +3901,7 @@
 
 <div class='item-footer'>
    21:21 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4167,7 +4382,7 @@
 
 <div class='item-footer'>
    00:00 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4252,7 +4467,7 @@
 
 <div class='item-footer'>
    20:04 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4326,7 +4541,7 @@
 
 <div class='item-footer'>
    20:00 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4550,80 +4765,6 @@
 
 
 <h4 class='feed-title'>
-  <a href='https://coinbase.com/'>Coinbase</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.coinbase.com/security-psa-protecting-erc-20-assets-from-malicious-actors-a5649cb5885d?source=rss----c114225aeaf7---4'>Security PSA: Protecting ERC-20 assets from malicious actors</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Tl;dr: At Coinbase, our top priority is, and always will be, protecting you and your digital assets. That’s why we secure Coinbase with the latest industry-leading technology and work with the larger community to build a safer crypto ecosystem so that everyone is able to&nbsp;succeed.  In this blog post, we share how a contract with dangerous superuser roles is only as secure as the protections on
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/0*XC6zIRHHOY1Lk1SX'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Tl;dr: At Coinbase, our top priority is, and always will be, protecting you and your digital assets. That’s why we secure Coinbase with the latest industry-leading technology and work with the larger community to build a safer crypto ecosystem so that everyone is able to&nbsp;succeed.</p><p>In this blog post, we share how a contract with dangerous superuser roles is only as secure as the protections on those roles and discuss controls including multisig, a governance contract, or revoked privileges that asset issuers can implement to prevent a single actor from exercising privileges in a malicious way.</p><p>By The Coinbase Digital Asset &amp; Protocol Security&nbsp;Team</p><p>At Coinbase, when considering assets for listing we define a risky function as any function that can impact user balance transfer or amounts — directly or indirectly. This can be as direct as a superuser being able to burn funds on anyone’s behalf, or as indirect as the ability to upgrade the token, which could change the token and/or user balances. Since Coinbase custodies assets on behalf of users, Coinbase Security needs to be able to provide users with the peace of mind that their tokens are safe. Therefore, any risky functionality within an asset reduces its eligibility for being listed on Coinbase.</p><p>That said, even a token with risky functionality can potentially be eligible for listing if it has<a href="https://help.coinbase.com/en/coinbase/privacy-and-security/other/asset-security-review"> sufficient</a> protections in place. Common protections of this nature are multisigs, governance contracts and revoking privilege.</p> How to Secure a Risky Function with Access Modifiers <p>When projects need to use functions like burn() or upgrade(), developers must consider appropriate access controls to prevent a single user from calling the risky function. Any individual who holds a role that can perform risky functions exposes the asset to <a href="https://www.dhs.gov/science-and-technology/cybersecurity-insider-threat">insider threats</a>. Additionally, even if that user is trustworthy, an attacker compromising their key is another route by which token holders can be harmed by centralized superuser privileges.</p> Superuser Risk with Access Modifiers <p>A contract with dangerous superuser roles is only as secure as the protections on those roles. When a privileged user has their key compromised, an attacker may abuse that superuser role to call risky functions. Below we’ve outlined a compromised token project that uses an access modifier to restrict the project to a superuser controlled by a single individual.</p><p>Although Tim and his team restricted access to the risky function, the role was controlled only by a single key owned by Tim. Tim’s key was compromised and the attacker upgraded the contract, the attacker had full control of the&nbsp;project.</p><p>To mitigate superuser risk on access-restricted functions, token project teams can implement multisigs, governance contracts or revoke privileges behind the superuser role to decentralize/revoke access to call the function. Teams can assign privileged roles to a multisig/governance contract or the null address (0x00…) to prevent scenarios like Tim’s Downfall Token from occurring.</p> Protecting ERC-20 Assets from Malicious Actors <p>To better understand mitigations to superuser risk, we’ve outlined three (3) scenarios where the design of the privileged access mapped to the superuser role helped protect the token project when the original superuser’s key was compromised.</p> Why it&nbsp;Matters <p>The increased security offered by cryptocurrency is a big reason why digital money was created. Unlike traditional currencies, cryptocurrencies such as Bitcoin and Ethereum are open-source, meaning anyone can inspect the blockchains they run on, assuring that every transaction is accurate.</p><p>To create a fair and open financial system, we’ve developed a deliberate approach for adding new assets to our platform. Every ERC-20 asset on Coinbase goes through an extensive security review process to assess the custodial risk of funds and ensure that risky functions are appropriately mitigated. This gives token holders, whether they hold their tokens at an exchange like Coinbase or in a self-custodied wallet, stronger assurance in ownership of their&nbsp;tokens.</p><p>At Coinbase, we believe that everyone deserves access to financial services that can help empower them to create a better life for themselves and their families. If the world economy ran on a common set of standards that could not be manipulated by any one actor, the world would be a more fair and free place, and human progress would accelerate.</p><p>If you’re interested in listing your token with Coinbase, visit the<a href="https://www.coinbase.com/assethub"> Coinbase Asset&nbsp;Hub</a>.</p><p>We understand that trust is built on dependable security — which is why we make protecting your account &amp; your digital assets our number one priority. Learn more&nbsp;<a href="https://www.coinbase.com/security">here</a>.</p> <p><a href="https://blog.coinbase.com/security-psa-protecting-erc-20-assets-from-malicious-actors-a5649cb5885d">Security PSA: Protecting ERC-20 assets from malicious actors</a> was originally published in <a href="https://blog.coinbase.com">The Coinbase Blog</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*XC6zIRHHOY1Lk1SX'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:59 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://www.wasabiwallet.io/'>Wasabi Wallet</a>
 </h4>
 
@@ -4816,7 +4957,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    01:21 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4941,7 +5082,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    21:34 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5024,7 +5165,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    21:08 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5909,7 +6050,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    00:00 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6204,7 +6345,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    00:00 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6317,7 +6458,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    00:00 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6393,7 +6534,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    23:17 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6459,7 +6600,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    22:05 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6817,7 +6958,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
  -->
 <div class='wrap'>
 
-<p>Just over one year ago, Statemine became fully operational on Kusama, allowing anyone to create fungible and non-fungible asset classes. Since then, Statemine has opened five bi-directional HRMP (aka XCMP-Lite) channels with other parachains and had two assets deemed “sufficient” by the Kusama stakeholders. Its cousin Statemint has become a parachain on Polkadot, and several applications, block explorers, development tools, and custodians have added support for assets on both networks.</p><p>Although as a live network, Statemint is the most visible, the team at Parity has been working to prepare for the launch of several more chains it plans to propose as common good parachains. On the technical side, this work has involved making runtime changes that allow more expressive interaction over <a href="https://polkadot.network/cross-chain-communication/">XCM</a> and developing testing and release processes that scale to several runtimes.</p><p>The community has also provided valuable feedback on XCM uses, the general role of common good parachains (especially when it comes to adding new functionality), and the most desired new features. This feedback has shaped a lot of our internal roadmap for the coming six months.</p> Collectives <p>The team at Parity has been busy testing a new parachain for collectives and plans to make a governance proposal to connect it to Polkadot. For those who pay close attention to testnets, you may have already noticed a new parachain on Westend since late July, and that is where some of the final testing is happening.</p><p>The name “collectives” may not evoke much meaning, but Polkadot and Kusama already have collectives, each operating with a Council and Technical Committee. Although these particular collectives will retire with the proposed next generation of Polkadot governance, the ability to organize and act as a group (without needing to trust third parties like lawyers and jurisdictional courts) remains an important element of Web3.</p><p>The <a href="https://polkadot.network/blog/gov2-polkadots-next-generation-of-decentralised-governance/">new proposal for Polkadot governance</a> &nbsp;introduces a new collective, the Fellowship, which allows a ranked group of experts to express its opinion on sensitive or highly privileged proposals. This collective succeeds the Technical Committee, but with much broader membership to represent more of the technical contributors to the Polkadot protocol. Rather than fast tracking referendum voting and enactment schedules, the Fellowship expresses its opinion that certain proposals are safe and of technical importance to the advancement or functioning of the network. Although the Fellowship and its logic will incubate on Kusama, it should eventually migrate to Polkadot and serve both networks via stakeholder-approved referenda.</p><p>Another collective in development is the Polkadot Alliance. The Alliance is already deployed on the Westend test parachain and will likely be the first one on Polkadot. Several community teams banded together about two years ago and came up with the idea for the Alliance, primarily to fight misuse of the Polkadot brand and unattributed code. If approved by the network, the Alliance would be an on-chain industry collective that sets a code of ethics regarding brand use, scam activities, and harmful behavior, but also provides recognition to teams who do make positive contributions to the growth and success of the Polkadot network.</p><p>Although the Alliance would exist on-chain, and publish its findings of unscrupulous websites and accounts on-chain, it will not have any governance powers. You can think of it like an airline alliance (e.g. Star Alliance), where members could have an Alliance badge on their website or product UIs that give users more confidence that certain standards of quality will be upheld. Likewise, wallets could warn users when connecting to websites or interacting with accounts that the Alliance has flagged.</p><p>The collectives parachain will connect only to Polkadot; there are no plans for a Kusama counterpart. In fact, for some collectives, like the Alliance, the Kusama network could actually join the collective as a member. That is, networks themselves can act as collectives and express their legislative voices as single opinions within other networks.</p><p>How this works in practice leads to the next parachain in the works: a bridge hub.</p> Bridge Hub <p>Polkadot always included plans for bridges to other networks, like Ethereum. And plans for a bridge between Polkadot and Kusama predate the launch of Kusama itself. As highlighted by recent exploits, building secure bridge primitives is a considerable undertaking. But the engineering team at Parity (in close collaboration with Snowfork and the researchers at Web3 Foundation) have made enough progress to begin testing for the launch process.</p><p>Before Kusama and Polkadot supported their first parachains, the only way to design a bridge was to put the bridge logic into the Relay Chain itself. But with both networks supporting parachains, it makes sense to have a parachain on each network dedicated to bridges. Because of the execution isolation provided by parachains, the activity on a parachain does not affect the Relay Chain or other parachains. So a bridge hub can support bridges to many other consensus systems. The team has been working on adding a runtime to <a href="https://wiki.polkadot.network/docs/build-pdk#cumulus">Cumulus</a>, and has been prototyping bridge parachains on local testnets with plans to move to <a href="https://wiki.polkadot.network/docs/build-pdk#rococo-testnet">Rococo</a> (bridged to its sinister sounding cousin, Wococo).</p><p>A bridge hub would of course be a hub, and support more bridges than just one between Polkadot and Kusama. Parity is also working with Snowfork on an Ethereum bridge to launch on the same hub. But this does not exclude other bridges from existence; teams who have built a bridge that does not fit under the common goods umbrella can still operate as parachains and offer their bridge services to the network.</p><p>Bridges require an understanding of finality of their interlocutor complemented with a message format and delivery service. The more technically minded readers may be familiar with the GRANDPA Finality and BEEFY systems, used to verify finality on GRANDPA and Ethereum based chains, respectively. These modules are being reviewed by auditors and tested on the prototyping networks.</p><p>The second half, a message format and delivery service, comes from XCM v3 and Polkadot’s suite of <a href="https://wiki.polkadot.network/docs/learn-crosschain#cross-consensus-protocols">transport protocols</a> (UMP, DMP, HRMP/XCMP-Lite, and eventually XCMP). XCM v2 already allows for secure communication between parachains, but does not contain all of the messaging primitives that bridges need to interact with other consensus systems. XCM v3 is under review and bridges will be ready for action once XCM v3 is in production.<br><br>In practice, a bridge between Polkadot and Kusama will allow collectives like the Alliance and Fellowship to serve both networks, and even for Kusama to act as a unified voice and participant within those collectives or the Polkadot network as a whole.</p> Assets <p>Finally, let us not forget the first common good parachain, Statemint, which has a rich roadmap in its own right. At the launch of Statemint, the team kept the runtime intentionally lean, eschewing features like smart contracts that, according to the architectural principles behind Polkadot, should exist on other chains and interact with assets via XCM. This decision was frustrating to many developers who wanted to express more complex interactions. But the advancement of XCM is making these possible now.<br><br>Statemint’s two core pallets are dedicated to fungible assets and NFTs. After much feedback from the community about usability and desired features (e.g. asset locking and reserving, nested and multi-resource NFTs), several people from Parity, RMRK, Phala, KILT, and others are working on the next generation of these pallets to deliver these features.</p><p>Building on XCM v3 and the newer assets features, Statemint will also begin taking more “core system” level work from the Relay Chain, especially for the on-chain Treasury and balances. </p><p>It has been a long-standing idea within the Polkadot network for the on-chain Treasury to hold many assets, in addition to its native token. One, users making Treasury proposals may want to request funding in other assets besides DOT. In addition, the Polkadot stakeholder community as a whole may want Polkadot to acquire stakes in other assets. By providing the multi-asset support that Statemint specializes in, it can allow more options for Treasury use and management.</p><p>Statemint will eventually take on more balances functionality too. With staking and governance both on the Relay Chain, they can each interact synchronously with the DOT/KSM balances on the Relay Chain. That is, they can each get a “real-time” thumbs up that an account has sufficient lockable balance to stake, vote, etc. But as these subsystems move to parachains, they can only interact asynchronously. A user’s balance cannot exist at the same time on a governance parachain and a staking parachain, so those systems need a common place to reference balances.</p><p>To solve this, Statemint and XCM v3 support locking over XCM. In this model, a user may want to both vote and stake with 100 DOT, and the governance and staking chains would each request that Statemint lock the DOT and send an affirmation that the balance has been locked for each purpose. Then the governance and staking chains can issue the user the correct voting and staking rights, using the same locked DOT.</p> Community <p>The community has been a driving force in developing these plans. The roadmap that I originally had in mind for common good parachains has been rendered obsolete by many conversations with community members over the winter and spring. And that is a good thing. </p><p>Parachains have a diverse set of users: from end-users to application developers to other parachain developers. Feedback from all these groups has influenced our roadmap, and quite often external contributors submit PRs for the features that they want.<br><br>As the common good parachain team at Parity grows, we would love to see more community involvement from all types of users. The roadmap I’ve laid out in this article is a gargantuan endeavor. Common good parachains are meant to be an extension of the Relay Chain itself, part of the Polkadot core protocol. Like the rest of the core protocol, its success requires engagement from the entire community. We encourage everyone to get involved in any way: feel free to ask questions on <a href="https://substrate.stackexchange.com/">Stack Exchange</a> or open issues in the <a href="https://github.com/paritytech/cumulus/issues?q=is%3Aissue+is%3Aopen+label%3AR1-statemint">Cumulus repository</a>.<br><br>Interested in building on Polkadot? <a href="https://info.polkadot.network/contact">Get in touch here</a>.</p>
+<p>Just over one year ago, Statemine became fully operational on Kusama, allowing anyone to create fungible and non-fungible asset classes. Since then, Statemine has opened five bi-directional HRMP (aka XCMP-Lite) channels with other parachains and had two assets deemed “sufficient” by the Kusama stakeholders. Its cousin Statemint has become a parachain on Polkadot, and several applications, block explorers, development tools, and custodians have added support for assets on both networks.</p><p>Although as a live network, Statemint is the most visible, the team at Parity has been working to prepare for the launch of several more chains it plans to propose as common good parachains. On the technical side, this work has involved making runtime changes that allow more expressive interaction over <a href="https://polkadot.network/cross-chain-communication/">XCM</a> and developing testing and release processes that scale to several runtimes.</p><p>The community has also provided valuable feedback on XCM uses, the general role of common good parachains (especially when it comes to adding new functionality), and the most desired new features. This feedback has shaped a lot of our internal roadmap for the coming six months.</p> Collectives <p>The team at Parity has been busy testing a new parachain for collectives and plans to make a governance proposal to connect it to Polkadot. For those who pay close attention to testnets, you may have already noticed a new parachain on Westend since late July, and that is where some of the final testing is happening.</p><p>The name “collectives” may not evoke much meaning, but Polkadot and Kusama already have collectives, each operating with a Council and Technical Committee. Although these particular collectives will retire with the proposed next generation of Polkadot governance, the ability to organize and act as a group (without needing to trust third parties like lawyers and jurisdictional courts) remains an important element of Web3.</p><p>The <a href="https://polkadot.network/blog/gov2-polkadots-next-generation-of-decentralised-governance/">new proposal for Polkadot governance</a> &nbsp;introduces a new collective, the Fellowship, which allows a ranked group of experts to express its opinion on sensitive or highly privileged proposals. This collective succeeds the Technical Committee, but with much broader membership to represent more of the technical contributors to the Polkadot protocol. Rather than fast tracking referendum voting and enactment schedules, the Fellowship expresses its opinion that certain proposals are safe and of technical importance to the advancement or functioning of the network. Although the Fellowship and its logic will incubate on Kusama, it should eventually migrate to Polkadot and serve both networks via stakeholder-approved referenda.</p><p>Another collective in development is the <a href="https://docs.google.com/document/d/1aXlVDDQj6v8kOTvbMXBmenBZ3Sfn5zZf0ipQbYvdipo/edit#">Polkadot Alliance</a>. The Alliance is already deployed on the Westend test parachain and will likely be the first one on Polkadot. Several community teams banded together about two years ago and came up with the idea for the Alliance, primarily to fight misuse of the Polkadot brand and unattributed code. If approved by the network, the Alliance would be an on-chain industry collective that sets a code of ethics regarding brand use, scam activities, and harmful behavior, but also provides recognition to teams who do make positive contributions to the growth and success of the Polkadot network.</p><p>Although the Alliance would exist on-chain, and publish its findings of unscrupulous websites and accounts on-chain, it will not have any governance powers. You can think of it like an airline alliance (e.g. Star Alliance), where members could have an Alliance badge on their website or product UIs that give users more confidence that certain standards of quality will be upheld. Likewise, wallets could warn users when connecting to websites or interacting with accounts that the Alliance has flagged.</p><p>The collectives parachain will connect only to Polkadot; there are no plans for a Kusama counterpart. In fact, for some collectives, like the Alliance, the Kusama network could actually join the collective as a member. That is, networks themselves can act as collectives and express their legislative voices as single opinions within other networks.</p><p>How this works in practice leads to the next parachain in the works: a bridge hub.</p> Bridge Hub <p>Polkadot always included plans for bridges to other networks, like Ethereum. And plans for a bridge between Polkadot and Kusama predate the launch of Kusama itself. As highlighted by recent exploits, building secure bridge primitives is a considerable undertaking. But the engineering team at Parity (in close collaboration with Snowfork and the researchers at Web3 Foundation) have made enough progress to begin testing for the launch process.</p><p>Before Kusama and Polkadot supported their first parachains, the only way to design a bridge was to put the bridge logic into the Relay Chain itself. But with both networks supporting parachains, it makes sense to have a parachain on each network dedicated to bridges. Because of the execution isolation provided by parachains, the activity on a parachain does not affect the Relay Chain or other parachains. So a bridge hub can support bridges to many other consensus systems. The team has been working on adding a runtime to <a href="https://wiki.polkadot.network/docs/build-pdk#cumulus">Cumulus</a>, and has been prototyping bridge parachains on local testnets with plans to move to <a href="https://wiki.polkadot.network/docs/build-pdk#rococo-testnet">Rococo</a> (bridged to its sinister sounding cousin, Wococo).</p><p>A bridge hub would of course be a hub, and support more bridges than just one between Polkadot and Kusama. Parity is also working with Snowfork on an Ethereum bridge to launch on the same hub. But this does not exclude other bridges from existence; teams who have built a bridge that does not fit under the common goods umbrella can still operate as parachains and offer their bridge services to the network.</p><p>Bridges require an understanding of finality of their interlocutor complemented with a message format and delivery service. The more technically minded readers may be familiar with the GRANDPA Finality and BEEFY systems, used to verify finality on GRANDPA and Ethereum based chains, respectively. These modules are being reviewed by auditors and tested on the prototyping networks.</p><p>The second half, a message format and delivery service, comes from XCM v3 and Polkadot’s suite of <a href="https://wiki.polkadot.network/docs/learn-crosschain#cross-consensus-protocols">transport protocols</a> (UMP, DMP, HRMP/XCMP-Lite, and eventually XCMP). XCM v2 already allows for secure communication between parachains, but does not contain all of the messaging primitives that bridges need to interact with other consensus systems. XCM v3 is under review and bridges will be ready for action once XCM v3 is in production.<br><br>In practice, a bridge between Polkadot and Kusama will allow collectives like the Alliance and Fellowship to serve both networks, and even for Kusama to act as a unified voice and participant within those collectives or the Polkadot network as a whole.</p> Assets <p>Finally, let us not forget the first common good parachain, Statemint, which has a rich roadmap in its own right. At the launch of Statemint, the team kept the runtime intentionally lean, eschewing features like smart contracts that, according to the architectural principles behind Polkadot, should exist on other chains and interact with assets via XCM. This decision was frustrating to many developers who wanted to express more complex interactions. But the advancement of XCM is making these possible now.<br><br>Statemint’s two core pallets are dedicated to fungible assets and NFTs. After much feedback from the community about usability and desired features (e.g. asset locking and reserving, nested and multi-resource NFTs), several people from Parity, RMRK, Phala, KILT, and others are working on the next generation of these pallets to deliver these features.</p><p>Building on XCM v3 and the newer assets features, Statemint will also begin taking more “core system” level work from the Relay Chain, especially for the on-chain Treasury and balances. </p><p>It has been a long-standing idea within the Polkadot network for the on-chain Treasury to hold many assets, in addition to its native token. One, users making Treasury proposals may want to request funding in other assets besides DOT. In addition, the Polkadot stakeholder community as a whole may want Polkadot to acquire stakes in other assets. By providing the multi-asset support that Statemint specializes in, it can allow more options for Treasury use and management.</p><p>Statemint will eventually take on more balances functionality too. With staking and governance both on the Relay Chain, they can each interact synchronously with the DOT/KSM balances on the Relay Chain. That is, they can each get a “real-time” thumbs up that an account has sufficient lockable balance to stake, vote, etc. But as these subsystems move to parachains, they can only interact asynchronously. A user’s balance cannot exist at the same time on a governance parachain and a staking parachain, so those systems need a common place to reference balances.</p><p>To solve this, Statemint and XCM v3 support locking over XCM. In this model, a user may want to both vote and stake with 100 DOT, and the governance and staking chains would each request that Statemint lock the DOT and send an affirmation that the balance has been locked for each purpose. Then the governance and staking chains can issue the user the correct voting and staking rights, using the same locked DOT.</p> Community <p>The community has been a driving force in developing these plans. The roadmap that I originally had in mind for common good parachains has been rendered obsolete by many conversations with community members over the winter and spring. And that is a good thing. </p><p>Parachains have a diverse set of users: from end-users to application developers to other parachain developers. Feedback from all these groups has influenced our roadmap, and quite often external contributors submit PRs for the features that they want.<br><br>As the common good parachain team at Parity grows, we would love to see more community involvement from all types of users. The roadmap I’ve laid out in this article is a gargantuan endeavor. Common good parachains are meant to be an extension of the Relay Chain itself, part of the Polkadot core protocol. Like the rest of the core protocol, its success requires engagement from the entire community. We encourage everyone to get involved in any way: feel free to ask questions on <a href="https://substrate.stackexchange.com/">Stack Exchange</a> or open issues in the <a href="https://github.com/paritytech/cumulus/issues?q=is%3Aissue+is%3Aopen+label%3AR1-statemint">Cumulus repository</a>.<br><br>Interested in building on Polkadot? <a href="https://info.polkadot.network/contact">Get in touch here</a>.</p>
    
   
   
@@ -7030,7 +7171,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    20:05 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7992,7 +8133,7 @@ The Launch of Verida Vault in developer preview on iOS and&nbsp;Android<p>Today 
 
 <div class='item-footer'>
    00:04 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8065,7 +8206,7 @@ photo credit: W3C</p> Use Cases for Verifiable Credentials<a title="Direct link 
 
 <div class='item-footer'>
    00:00 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8578,7 +8719,7 @@ Verida Vault now supports the NEAR&nbsp;Protocol<p>Earlier this year <a href="ht
 
 <div class='item-footer'>
    00:00 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8969,7 +9110,7 @@ of DIF and our interoperability test reports can be found here:</p>  <a href="ht
 
 <div class='item-footer'>
    00:00 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9037,7 +9178,7 @@ of DIF and our interoperability test reports can be found here:</p>  <a href="ht
 
 <div class='item-footer'>
    23:04 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10301,7 +10442,7 @@ of DIF and our interoperability test reports can be found here:</p>  <a href="ht
 
 <div class='item-footer'>
    23:42 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10454,7 +10595,7 @@ of DIF and our interoperability test reports can be found here:</p>  <a href="ht
 
 <div class='item-footer'>
    00:00 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10898,7 +11039,7 @@ of DIF and our interoperability test reports can be found here:</p>  <a href="ht
 
 <div class='item-footer'>
    21:25 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12994,7 +13135,7 @@ Current supply schedule vs Zcash Posterity Fund disbursements (w/out deposits).<
  <i class='icon-caret-down item-collapse item-close item-opened'></i>
  <i class='icon-caret-right item-expand item-open item-closed'></i>
 
- <a href='https://blog.cosmos.network/the-tendermint-council-and-the-path-to-delivering-abci-d6deb9e0fc7f?source=rss----6c5d35b77e13---4'>The Tendermint Council and the path to delivering ABCI++</a>
+ <a href='https://blog.cosmos.network/the-tendermint-council-and-the-path-to-delivering-abci-d6deb9e0fc7f?source=rss----6c5d35b77e13---4'>The Cosmos Consensus Council and the path to delivering ABCI++</a>
 
 </h3>
 
@@ -13004,7 +13145,7 @@ Current supply schedule vs Zcash Posterity Fund disbursements (w/out deposits).<
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   Our plan for delivering ABCI++  The Tendermint project is one which, relative to other software in the space, is long in the tooth. While Tendermint remains the industry standard in consensus engines, its journey has seen many iterations of the core development team. This lack of continuity has led to subsequent knowledge loss, the latest playing a key role in the discontinued v0.35&nbsp;release. 
+   Our plan for delivering ABCI++  The Tendermint Core project is one which, relative to other software in the space, is long in the tooth. While Tendermint remains the industry standard in consensus engines, its journey has seen many iterations of the core development team. This lack of continuity has led to subsequent knowledge loss, the latest playing a key role in the discontinued v0.35&nbsp;rele
    
   
   
@@ -13025,7 +13166,7 @@ Current supply schedule vs Zcash Posterity Fund disbursements (w/out deposits).<
  -->
 <div class='wrap'>
 
-<p>Our plan for delivering ABCI++</p><p>The Tendermint project is one which, relative to other software in the space, is long in the tooth. While Tendermint remains the industry standard in consensus engines, its journey has seen many iterations of the core development team. This lack of continuity has led to subsequent knowledge loss, the latest playing a key role in the <a href="https://medium.com/the-interchain-foundation/discontinuing-tendermint-v0-35-a-postmortem-on-the-new-networking-layer-3696c811dabc">discontinued v0.35&nbsp;release</a>.</p><p>In response to this, a group of experienced Tendermint contributors, from across the Cosmos Ecosystem, have formed the Tendermint Council. The Council’s objective is to accelerate development, guide product direction and provide continuity for Tendermint, working alongside both users and core contributors.</p><p>The immediate focus of the Council is the delivery of the much anticipated ABCI++. This is a collection of ergonomic changes to the interface between the application and Tendermint that will give the application far greater control of how the consensus engine conducts state machine replication. More information of what exactly ABCI++ does and what it unlocks will be released in a subsequent blog&nbsp;post.</p><p>The new release structure will start with getting the lowest risk pieces of ABCI++ into the hands of users first. PrepareProposal and ProcessProposal methods will be delivered on top of v0.34 as the next release. We aim to begin integrating this release with the Cosmos SDK within the next couple of weeks. This will be followed by FinalizeBlock and the vote extension logic.</p><p>Our goal is to fully deliver ABCI++ by the end of 2022, while focusing on quality of life improvements, performance and stability. As part of this, we have decided to <a href="https://medium.com/the-interchain-foundation/discontinuing-tendermint-v0-35-a-postmortem-on-the-new-networking-layer-3696c811dabc">discontinue support of v0.35</a>. Features from v0.35, such as the improvements to state sync and the storage engine, will slowly be assessed and ported into upcoming releases.</p><p>Follow the latest developments of Tendermint on&nbsp;<a href="https://github.com/tendermint/tendermint/discussions">GitHub</a>.</p> <p><a href="https://blog.cosmos.network/the-tendermint-council-and-the-path-to-delivering-abci-d6deb9e0fc7f">The Tendermint Council and the path to delivering ABCI++</a> was originally published in <a href="https://blog.cosmos.network">Cosmos Blog</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+<p>Our plan for delivering ABCI++</p><p>The Tendermint Core project is one which, relative to other software in the space, is long in the tooth. While Tendermint remains the industry standard in consensus engines, its journey has seen many iterations of the core development team. This lack of continuity has led to subsequent knowledge loss, the latest playing a key role in the <a href="https://medium.com/the-interchain-foundation/discontinuing-tendermint-v0-35-a-postmortem-on-the-new-networking-layer-3696c811dabc">discontinued v0.35&nbsp;release</a>.</p><p>In response to this, a group of experienced Tendermint Core contributors, from across the Cosmos Ecosystem, have formed the Cosmos Consensus Council. The Council’s objective is to accelerate development, guide product direction and provide continuity for Tendermint Core, working alongside both users and core contributors.</p><p>The immediate focus of the Council is the delivery of the much anticipated ABCI++. This is a collection of ergonomic changes to the interface between the application and Tendermint Core that will give the application far greater control of how the consensus engine conducts state machine replication. More information of what exactly ABCI++ does and what it unlocks will be released in a subsequent blog&nbsp;post.</p><p>The new release structure will start with getting the lowest risk pieces of ABCI++ into the hands of users first. PrepareProposal and ProcessProposal methods will be delivered on top of v0.34 as the next release. We aim to begin integrating this release with the Cosmos SDK within the next couple of weeks. This will be followed by FinalizeBlock and the vote extension logic.</p><p>Our goal is to fully deliver ABCI++ by the end of 2022, while focusing on quality of life improvements, performance and stability. As part of this, we have decided to <a href="https://medium.com/the-interchain-foundation/discontinuing-tendermint-v0-35-a-postmortem-on-the-new-networking-layer-3696c811dabc">discontinue support of v0.35</a>. Features from v0.35, such as the improvements to state sync and the storage engine, will slowly be assessed and ported into upcoming releases.</p><p>Follow the latest developments of Tendermint Core on&nbsp;<a href="https://github.com/tendermint/tendermint/discussions">GitHub</a>.</p><p>The Cosmos Consensus Council is a community initiative, formed and coordinated by contributors of Tendermint Core from across the Cosmos Ecosystem. While the council makes recommendations on the product roadmap and helps coordinate development efforts, it is not associated or led by the Interchain Foundation or Interchain GmbH.</p> <p><a href="https://blog.cosmos.network/the-tendermint-council-and-the-path-to-delivering-abci-d6deb9e0fc7f">The Cosmos Consensus Council and the path to delivering ABCI++</a> was originally published in <a href="https://blog.cosmos.network">Cosmos Blog</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
    
   
   
@@ -21055,70 +21196,6 @@ LAYERZERO
 
 <div class='item-footer'>
    12:00 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://podcast.banklesshq.com/'>bankless</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://sites.libsyn.com/247424/resilient-defi-with-kirk-hutchison-layer-zero'>Resilient DeFi with Kirk Hutchison | Layer Zero</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Kirk Hutchison is the Co-Founder of Volt Protocol, an inflation hedged stablecoin built on Ethereum. Kirk is widely known as the gigabrain’s gigabrain when it comes to all things DeFi.   As inflation continues to rise, Kirk couldn’t have joined at a better time. However, Kirk and David dive into much more than inflation.   On this episode, Kirk explains symmetric money systems, self-referential fe
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Kirk Hutchison is the Co-Founder of Volt Protocol, an inflation hedged stablecoin built on Ethereum. Kirk is widely known as the gigabrain’s gigabrain when it comes to all things DeFi.</p> <p>As inflation continues to rise, Kirk couldn’t have joined at a better time. However, Kirk and David dive into much more than inflation.</p> <p>On this episode, Kirk explains symmetric money systems, self-referential feedback mechanisms, the problems with DeFi today, what Volt is and its future, and so much more.</p> <p>------ 📣 NOTIONAL | Real DeFi Yield <a href="https://bankless.cc/Notional">https://bankless.cc/Notional</a>&nbsp;</p> <p>------ 🚀 SUBSCRIBE TO NEWSLETTER: <a href="https://newsletter.banklesshq.com/">https://newsletter.banklesshq.com/</a>&nbsp;  🎙️ SUBSCRIBE TO PODCAST: <a href="http://podcast.banklesshq.com/">http://podcast.banklesshq.com/</a>&nbsp;</p> <p>------ BANKLESS SPONSOR TOOLS:</p> <p>⚖️ ARBITRUM | SCALED ETHEREUM <a href="https://bankless.cc/Arbitrum">https://bankless.cc/Arbitrum</a>&nbsp;</p> <p>❎ ACROSS | BRIDGE TO LAYER 2 <a href="https://bankless.cc/Across">https://bankless.cc/Across</a>&nbsp;</p> <p>🏦 ROCKET POOL | STAKE YOUR ETH <a href="https://bankless.cc/RocketPool">https://bankless.cc/RocketPool</a>&nbsp;</p> <p>👻 AAVE V3 | LEND &amp; BORROW CRYPTO <a href="https://bankless.cc/aave">https://bankless.cc/aave</a>&nbsp;</p> <p>⚡️ LIDO | LIQUID ETH STAKING <a href="https://bankless.cc/lido">https://bankless.cc/lido</a>&nbsp;</p> <p>🔐 LEDGER | NANO S PLUS WALLET <a href="https://bankless.cc/Ledger">https://bankless.cc/Ledger</a>&nbsp;</p> <p>------ Topics Covered:</p> <p>0:00 Intro 4:45 What Kirk Thinks About 8:36 Decentral Bank Terms Explained 13:45 What is a PSM? 18:16 The Bankless Thesis 21:20 Fully Symmetric Money System 28:05 Why is Fixed Rate a Problem? 32:12 Self-Referential Feedback Mechanisms 40:45 The Problems with DeFi Today 47:40 DeFi Utopia vs. Dystopia 1:00:55 What is Volt &amp; Its Future? 1:09:25 Governance Token Design 1:13:35 8% Yield to Combat Inflation in DeFi 1:19:20 Closing</p> <p>------ Resources:</p> <p>Kirk <a href="https://twitter.com/OneTrueKirk">https://twitter.com/OneTrueKirk</a>&nbsp;</p> <p>Volt Protocol <a href="https://twitter.com/voltprotocol">https://twitter.com/voltprotocol</a>&nbsp;</p> <p>----- Not financial or tax advice. This channel is strictly educational and is not investment advice or a solicitation to buy or sell any assets or to make any financial decisions. This video is not tax advice. Talk to your accountant. Do your own research.</p> <p>Disclosure. From time-to-time I may add links in this newsletter to products I use. I may receive commission if you make a purchase through one of these links. Additionally, the Bankless writers hold crypto assets. See our investment disclosures here: <a href="https://newsletter.banklesshq.com/p/bankless-disclosures">https://newsletter.banklesshq.com/p/bankless-disclosures</a>&nbsp;</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   10:35 &bull;
    2 months ago
 </div>
 
