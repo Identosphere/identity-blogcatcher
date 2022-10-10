@@ -706,7 +706,7 @@
 
 </div>
 </div>
-<sup>Last Update 3:17 AM October 10, 2022 (UTC)</sup>
+<sup>Last Update 9:52 AM October 10, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -719,6 +719,467 @@
  <h2 class='new-date'>
   Monday, 10. October 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/10/10/force-phishing-resistant-authentication-in-an-asp-net-core-application-using-azure-ad/'>Force phishing resistant authentication in an ASP.NET Core application using Azure AD</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to force a phishing resistant authentication for an ASP.NET Core application using Azure AD and a conditional access policy which forces a phishing resistant authentication using a conditional access authentication context. The ASP.NET Core application forces this by requiring the acrs claim in the id_token with the value of c4 which […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to force a phishing resistant authentication for an ASP.NET Core application using Azure AD and a conditional access policy which forces a phishing resistant authentication using a conditional access authentication context. The ASP.NET Core application forces this by requiring the acrs claim in the id_token with the value of c4 which is the authentication context created for this in this tenant.</p>
+
+
+
+<p>Code <a href="https://github.com/damienbod/AspNetCoreAzureADCAE">https://github.com/damienbod/AspNetCoreAzureADCAE</a></p>
+
+
+
+<p>The following five steps are required to set this up. I used Microsoft Entra for this but Graph can be used as well which makes automatization and infrastructure as code (IaC) deployments possible.</p>
+
+
+
+ 
+ Step 1 Authentication method definition 
+
+
+
+ Step 2 Create an CA Auth context 
+
+
+
+ Step 3 Create a policy to use the Azure AD CA Auth context 
+
+
+
+ Step 4 Define the Azure App registration 
+
+
+
+ Step 5 Use inside an ASP.NET Core application 
+ 
+
+
+
+ Step 1 Authentication method definition 
+
+
+
+<p>Using <a href="https://entra.microsoft.com">https://entra.microsoft.com</a>, you can create a custom authentication method, or re-use some of the given standard definitions. A phishing resistant authentication method is already defined in the portal. You can also create a custom method that for example only accepts your company specific FIDO2 keys.</p>
+
+
+
+
+
+
+
+<p>Creating a specific authentication method allows you to choose a specific authentication method. The phishing resistant default definition is a pre-defined authentication method.</p>
+
+
+
+
+
+
+
+ Step 2 Create an CA Auth context 
+
+
+
+<p>An authentication context needs to be created to force a policy in the ASP.NET Core application. Create a new authentication context using the Microsoft Entra.</p>
+
+
+
+<p></p>
+
+
+
+
+
+
+
+<p>Add the naming of the policy and the authentication context identifier. I used c4 for my phishing resistant requirement.</p>
+
+
+
+
+
+
+
+<p>You could also create the authentication context using Microsoft Graph. I created the <a href="https://github.com/damienbod/AspNetCoreAzureADCAE/tree/main/CaeAdministrationTool">CaeAdministrationTool</a> application in the demo repo showing how to implement this.</p>
+
+
+
+ Step 3 Create a policy to use the Azure AD CA Auth context 
+
+
+
+<p>You can create the conditional access policy to use the authentication context and force the authentication method as requires. Create a new policy.</p>
+
+
+
+
+
+
+
+<p>Select the created authentication context in the Cloud apps or actions.</p>
+
+
+
+
+
+
+
+<p>In the access controls, grant access to users that authenticate with a phishing resistant authentication.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>Using this policy, a user must authentication with one of the phishing resistant methods.</p>
+
+
+
+ Step 4 Define the Azure App registration 
+
+
+
+<p>The ASP.NET Core application requires an Azure App registration with the correct configuration to authenticate with Azure AD and the use conditional access policy. The application must validate the CA and not a downstream API. This means we need to validate this in the id_token. This is done using the xms_cc claim. You can add this in the App registration manifest.</p>
+
+
+  "optionalClaims": {
+	"idToken": [
+		{
+			"name": "xms_cc",
+			"source": null,
+			"essential": false,
+			"additionalProperties": []
+		}
+	],
+	"accessToken": [],
+	"saml2Token": []
+},
+  
+
+
+<p>Microsoft.Identity.Web is used to implement the authentication for Azure AD. The app.settings requires the ClientCapabilities value with the cp1 value.</p>
+
+
+  "AzureAd": {
+	"Instance": "https://login.microsoftonline.com/",
+	"Domain": "damienbodsharepoint.onmicrosoft.com",
+	"TenantId": "5698af84-5720-4ff0-bdc3-9d9195314244",
+	"ClientId": "daffd2e8-3718-4ac4-b971-c7f1bb570375",
+	"CallbackPath": "/signin-oidc",
+    "ClientCapabilities": [ "cp1" ]
+	//"ClientSecret":  "--in-user-secrets-or-key-vault--"
+},
+  
+
+
+<p>You can check some of the standard settings required for the Web application Azure App registration using the manifest definition. The docs for this can be found on the Microsoft.Identity.Web Github repo Wiki.</p>
+
+
+  "oauth2AllowIdTokenImplicitFlow": true,
+"optionalClaims": {
+	"idToken": [
+		{
+			"name": "xms_cc",
+			"source": null,
+			"essential": false,
+			"additionalProperties": []
+		}
+	],
+	"accessToken": [],
+	"saml2Token": []
+},
+"replyUrlsWithType": [
+	{
+		"url": "https://localhost:44414/signin-oidc",
+		"type": "Web"
+	}
+],
+"signInAudience": "AzureADMyOrg",
+  
+
+
+ Step 5 Use inside an ASP.NET Core application 
+
+
+
+<p>The application must validate if the id_token and the corresponding claims identity has the acrs claim with the value c4 which represents the authentication context created for the phishing resistant conditional access policy. If this is configured correctly, a phishing resistant authentication is required to use the application.</p>
+
+
+  using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using System;
+using System.Linq;
+
+namespace RazorCaePhishingResistant;
+
+/// &lt;summary&gt;
+/// Claims challenges, claims requests, and client capabilities
+/// 
+/// https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge
+/// 
+/// Applications that use enhanced security features like Continuous Access Evaluation (CAE) 
+/// and Conditional Access authentication context must be prepared to handle claims challenges.
+/// &lt;/summary&gt;
+public class CaeClaimsChallengeService
+{
+    private readonly IConfiguration _configuration;
+
+    public CaeClaimsChallengeService(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+
+    public string? CheckForRequiredAuthContextIdToken(string authContextId, HttpContext context)
+    {
+        if (!string.IsNullOrEmpty(authContextId))
+        {
+            string authenticationContextClassReferencesClaim = "acrs";
+
+            if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
+            {
+                throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
+            }
+
+            var acrsClaim = context.User.FindAll(authenticationContextClassReferencesClaim).FirstOrDefault(x =&gt; x.Value == authContextId);
+
+            if (acrsClaim?.Value != authContextId)
+            {
+                string clientId = _configuration.GetSection("AzureAd").GetSection("ClientId").Value;
+                var cae = "{\"id_token\":{\"acrs\":{\"essential\":true,\"value\":\"" + authContextId + "\"}}}";
+
+                return cae;
+            }
+        }
+
+        return null;
+    }
+}
+  
+
+
+<p>The admin page requires a strong authentication. If this is missing, a challenge is returned informing the identity provider (AAD) which claim is required to use the application. This is specified in the OpenID Connect shared signal and events specifications.</p>
+
+
+  using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
+using System.Collections.Generic;
+
+namespace RazorCaePhishingResistant.Pages;
+
+public class AdminModel : PageModel
+{
+    private readonly CaeClaimsChallengeService _caeClaimsChallengeService;
+
+    public AdminModel( CaeClaimsChallengeService caeClaimsChallengeService)
+    {
+        _caeClaimsChallengeService = caeClaimsChallengeService;
+    }
+
+    [BindProperty]
+    public IEnumerable&lt;string&gt;? Data { get; private set; }
+
+    public IActionResult OnGet()
+    {
+        // if CAE claim missing in id token, the required claims challenge is returned
+        // C4 is used in the phishing resistant policy
+        var claimsChallenge = _caeClaimsChallengeService
+            .CheckForRequiredAuthContextIdToken(AuthContextId.C4, HttpContext);
+
+        if (claimsChallenge != null)
+        {
+            var properties = new AuthenticationProperties { RedirectUri = "/admin" };
+
+            properties.Items["claims"] = claimsChallenge;
+            return Challenge(properties);
+        }
+
+        Data = new List&lt;string&gt;()
+        {
+            "Admin data 1",
+            "Admin data 2"
+        };
+
+        return Page();
+    }
+}
+  
+
+
+<p>Now the admin page of the application requires the correct authentication. You could force this for the complete application or just a single page of the app. If the user does not authenticate using a phishing resistant authentication or cannot use this, the application page cannot be used. This is really useful when deploying administration applications to tenants which do not enforce this for all users.</p>
+
+
+
+ Notes 
+
+
+
+<p>This works really well and you can force a phishing resistant authentication from the application.  MFA using the authenticator app will not work and the users of of Azure AD and applications using Azure AD have more protection. </p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://entra.microsoft.com/#view/Microsoft_AAD_IAM/AuthenticationMethodsMenuBlade/~/AuthStrengths">https://entra.microsoft.com/#view/Microsoft_AAD_IAM/AuthenticationMethodsMenuBlade/~/AuthStrengths</a></p>
+
+
+
+<p><a href="https://danielchronlund.com/2022/01/07/the-attackers-guide-to-azure-ad-conditional-access/">https://danielchronlund.com/2022/01/07/the-attackers-guide-to-azure-ad-conditional-access/</a></p>
+
+
+
+<p><a href="https://entra.microsoft.com">https://entra.microsoft.com</a></p>
+
+
+
+<p><a href="https://cloudbrothers.info/en/azure-attack-paths/">https://cloudbrothers.info/en/azure-attack-paths/</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://openid.net/wg/sse/">OpenID Connect Signals and Events</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/10/phishing_resistent_ca_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:37 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Oct/10/vox-ai-images/#atom-everything'>The AI that creates any picture you want, explained</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The AI that creates any picture you want, explained 
+ Vox made this explainer video about text-to-image generative AI models back in June, months before Stable Diffusion was released and shortly before the DALL-E preview started rolling out to a wider audience. It's a really good video - in particular the animation that explains at a high level how diffusion models work, which starts about 5m30s i
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://www.youtube.com/watch?v=SVcsDDABEkM">The AI that creates any picture you want, explained</a></p>
+<p>Vox made this explainer video about text-to-image generative AI models back in June, months before Stable Diffusion was released and shortly before the DALL-E preview started rolling out to a wider audience. It's a really good video - in particular the animation that explains at a high level how diffusion models work, which starts about 5m30s in.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:28 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -785,7 +1246,7 @@
 
 <div class='item-footer'>
    00:27 &bull;
-   3 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -854,7 +1315,7 @@
 
 <div class='item-footer'>
    23:20 &bull;
-   4 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -919,7 +1380,7 @@
 
 <div class='item-footer'>
    23:15 &bull;
-   4 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -985,7 +1446,7 @@
 
 <div class='item-footer'>
    20:43 &bull;
-   7 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1001,6 +1462,80 @@
 
 <article class='item'>
 
+
+<h4 class='feed-title'>
+  <a href='https://herestomwiththeweather.com'>Heres Tom with the Weather</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://herestomwiththeweather.com/2022/10/09/minimum-viable-indieauth-server/'>Minimum Viable IndieAuth Server</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   One of the building blocks of the Indieweb is IndieAuth. Like many others, I bootstrapped my experience with indieauth.com but as Marty McGuire explains, there are good reasons to switch and even consider building your own.  Because I wanted a server as simple to understand as possible but also wanted to be able to add features that are usually not available, I created a rails project called Irwin
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>One of the building blocks of the <a href="https://indieweb.org">Indieweb</a> is <a href="https://indieweb.org/IndieAuth">IndieAuth</a>. Like many others, I bootstrapped my experience with <a href="https://indieauth.com/">indieauth.com</a> but as <a href="https://martymcgui.re/2022/07/31/switching-costs-for-an-indieauth-server/">Marty McGuire explains</a>, there are good reasons to switch and even consider building your own.  Because I wanted a server as simple to understand as possible but also wanted to be able to add features that are usually not available, I created a rails project called <a href="https://github.com/herestomwiththeweather/irwin">Irwin</a> and <a href="https://github.com/herestomwiththeweather/herestomwiththeweather.github.io/commit/554dbaad13250a97c2b26c034fbce3dd6908c273">recently configured my blog to use it</a>.</p>
+
+<p>This is not production ready code.  While I know that <a href="https://github.com/voxpelli/webpage-micropub-to-github">the micropub server I use</a> works with it, I expect others may not. Also, there is no support for refresh tokens and other things in the spec that I didn’t consider high priority.  It does support <a href="https://indieweb.org/PKCE">PKCE</a> but not the less useful “plain” method.</p>
+
+<p>All of <a href="https://aaronparecki.com/2020/12/03/1/indieauth-2020">IndieAuth Spec Updates 2020</a> was very clear and helpful.  In one case, I made the server probably too strict (as an easy way to curtail spam registrations).  It requires that the hosts for a blog’s authorization endpoint and token endpoint match the host of the IndieAuth server before a user can register an account on the indieauth server.</p>
+
+<p>I plan to add an option for a user to keep a history of logins to indieauth clients soon.  Please let me know if you have any questions or suggestions.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:38 &bull;
+   13 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
 
 
 <h3 class='item-title'>
@@ -1057,7 +1592,7 @@
 
 <div class='item-footer'>
    18:17 &bull;
-   9 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1951,7 +2486,7 @@
 
 <div class='item-footer'>
    15:43 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2216,7 +2751,7 @@
 
 <div class='item-footer'>
    17:49 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2278,7 +2813,7 @@
 
 <div class='item-footer'>
    17:47 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2340,7 +2875,7 @@
 
 <div class='item-footer'>
    17:44 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2416,7 +2951,7 @@
 
 <div class='item-footer'>
    17:22 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2488,7 +3023,7 @@
 
 <div class='item-footer'>
    17:22 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2988,7 +3523,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    21:54 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3064,7 +3599,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    19:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3505,7 +4040,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    21:51 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3583,7 +4118,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    21:11 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3658,7 +4193,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    20:56 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3771,7 +4306,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    20:40 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3847,7 +4382,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    19:39 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3919,7 +4454,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    19:24 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3979,7 +4514,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    18:03 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4041,7 +4576,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    17:51 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4681,7 +5216,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    18:38 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4745,7 +5280,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    17:29 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4819,7 +5354,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    17:27 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4889,7 +5424,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    16:13 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5184,7 +5719,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    20:46 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5250,7 +5785,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    20:15 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5311,7 +5846,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    19:58 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5381,7 +5916,7 @@ This-ism, that-ism, ism ism ism</p>
 
 <div class='item-footer'>
    18:36 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6282,7 +6817,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    20:15 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6423,7 +6958,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    15:56 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7074,7 +7609,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    21:24 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7194,7 +7729,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    21:21 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7377,7 +7912,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    15:26 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7872,7 +8407,7 @@ def render_cell(row, column, value):
 
 <div class='item-footer'>
    19:31 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8017,7 +8552,7 @@ def render_cell(row, column, value):
 
 <div class='item-footer'>
    20:40 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8092,7 +8627,7 @@ Everybody’s watching me. I was rich. The world saw me, I had lawyers to fight 
 
 <div class='item-footer'>
    19:29 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8158,7 +8693,7 @@ Everybody’s watching me. I was rich. The world saw me, I had lawyers to fight 
 
 <div class='item-footer'>
    16:03 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8228,7 +8763,7 @@ Everybody’s watching me. I was rich. The world saw me, I had lawyers to fight 
 
 <div class='item-footer'>
    18:56 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8642,7 +9177,7 @@ Everybody’s watching me. I was rich. The world saw me, I had lawyers to fight 
 
 <div class='item-footer'>
    16:19 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9095,72 +9630,6 @@ public class ValuesController : Controller
 
 <div class='item-footer'>
    21:05 &bull;
-   21 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Sep/18/an-introduction-to-xgboost-regression/#atom-everything'>An introduction to XGBoost regression</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   An introduction to XGBoost regression 
- I hadn't realized what a wealth of high quality tutorial material could be found in Kaggle notebooks. Here Carl McBride Ellis provides a very approachable and practical introduction to XGBoost, one of the leading techniques for building machine learning models against tabular data. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.kaggle.com/code/carlmcbrideellis/an-introduction-to-xgboost-regression">An introduction to XGBoost regression</a></p>
-<p>I hadn't realized what a wealth of high quality tutorial material could be found in Kaggle notebooks. Here Carl McBride Ellis provides a very approachable and practical introduction to XGBoost, one of the leading techniques for building machine learning models against tabular data.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:42 &bull;
    22 days ago
 </div>
 
@@ -9289,7 +9758,7 @@ public class ValuesController : Controller
 
 <div class='item-footer'>
    21:32 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9700,7 +10169,7 @@ That’s the flyer for the first salon in our&nbsp;<a href="https://events.iu.ed
 
 <div class='item-footer'>
    19:06 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9934,7 +10403,7 @@ The post <a href="https://realestatecafe.com/use-27th-anniversary-of-real-estate
 
 <div class='item-footer'>
    19:44 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10010,7 +10479,7 @@ The post <a href="https://realestatecafe.com/use-27th-anniversary-of-real-estate
 
 <div class='item-footer'>
    17:22 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18467,457 +18936,6 @@ public async Task&lt;ActionResult&lt;UserModel&gt;&gt; CreateUserAsync(
 
 
  <h2 class='new-date'>
-  Monday, 04. July 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/07/04/add-fido2-mfa-to-an-openiddict-identity-provider-using-asp-net-core-identity/'>Add Fido2 MFA to an OpenIddict identity provider using ASP.NET Core Identity</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to add Fido2 multi-factor authentication to an OpenID Connect identity provider using OpenIddict and ASP.NET Core Identity. OpenIddict implements the OpenID Connect standards and ASP.NET Core Identity is used for the user accounting and persistence of the identities. Code: https://github.com/damienbod/AspNetCoreOpeniddict I began by creating an OpenIddict web application usin
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to add Fido2 multi-factor authentication to an OpenID Connect identity provider using OpenIddict and ASP.NET Core Identity. OpenIddict implements the OpenID Connect standards and ASP.NET Core Identity is used for the user accounting and persistence of the identities.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreOpeniddict">https://github.com/damienbod/AspNetCoreOpeniddict</a></p>
-
-
-
-<p>I began by creating an <a href="https://documentation.openiddict.com/">OpenIddict</a> web application using ASP.NET Core Identity. See the OpenIddict <a href="https://github.com/openiddict/openiddict-samples">samples</a> for getting started. </p>
-
-
-
-<p>I use the fido2-net-lib <a href="https://github.com/passwordless-lib/fido2-net-lib">Fido2</a> Nuget package which can be use to add support for Fido2 in .NET Core applications. You can add this to the web application used for the identity provider.</p>
-
-
-  &lt;PackageReference Include="Fido2" Version="3.0.0-beta6" /&gt;
-  
-
-
-<p>Once added, you need to add the API controllers for the webAuthn API calls and the persistence classes using the Fido2 Nuget package. I created a set of classes which you can copy into your project. You need to switch the ApplicationUser class with IdentityUser if you are not extending the ASP.NET Core Identity. I use the ApplicationUser class in this example.</p>
-
-
-
-<p><a href="https://github.com/damienbod/AspNetCoreOpeniddict/tree/main/OpeniddictServer/Fido2">https://github.com/damienbod/AspNetCoreOpeniddict/tree/main/OpeniddictServer/Fido2</a></p>
-
-
-
-<p>In the ApplicationDbContext, the DBSet with the FidoStoredCredential entity is added to persist the Fido2 data.</p>
-
-
-  using Fido2Identity;
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore;
-
-namespace OpeniddictServer.Data;
-
-public class ApplicationDbContext : IdentityDbContext&lt;ApplicationUser&gt;
-{
-    public ApplicationDbContext(DbContextOptions&lt;ApplicationDbContext&gt; options)
-        : base(options)
-    {
-    }
-
-    public DbSet&lt;FidoStoredCredential&gt; FidoStoredCredential =&gt; Set&lt;FidoStoredCredential&gt;();
-
-    protected override void OnModelCreating(ModelBuilder builder)
-    {
-        builder.Entity&lt;FidoStoredCredential&gt;().HasKey(m =&gt; m.Id);
-
-        base.OnModelCreating(builder);
-    }
-}
-  
-
-
-<p>The Fido2 Identity services are added to the application. I use an SQL Server to persistent the data. The ApplicationUser is used for the ASP.NET Core services. The Fido2 Fido2UserTwoFactorTokenProvider class is used to add a new Fido2 MFA to the ASP.NET Core Identity. A session is used to store the webAuthn requests and the Fido2 store was added for the persistence.  </p>
-
-
-  services.AddDbContext&lt;ApplicationDbContext&gt;(options =&gt;
-{
-	// Configure the context to use Microsoft SQL Server.
-	options.UseSqlServer(Configuration
-		.GetConnectionString("DefaultConnection"));
-
-	// Register the entity sets needed by OpenIddict.
-	// Note: use the generic overload if you need
-	// to replace the default OpenIddict entities.
-	options.UseOpenIddict();
-});
-
-services.AddIdentity&lt;ApplicationUser, IdentityRole&gt;()
-  .AddEntityFrameworkStores&lt;ApplicationDbContext&gt;()
-  .AddDefaultTokenProviders()
-  .AddDefaultUI()
-  .AddTokenProvider&lt;Fido2UserTwoFactorTokenProvider&gt;("FIDO2");
-
-services.Configure&lt;Fido2Configuration&gt;(
-	Configuration.GetSection("fido2"));
-services.AddScoped&lt;Fido2Store&gt;();
-
-services.AddDistributedMemoryCache();
-
-services.AddSession(options =&gt;
-{
-	options.IdleTimeout = TimeSpan.FromMinutes(2);
-	options.Cookie.HttpOnly = true;
-	options.Cookie.SameSite = SameSiteMode.None;
-	options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-});
-  
-
-
-<p>The Fido2UserTwoFactorTokenProvider implements the IUserTwoFactorTokenProvider interface which can be used to add additional custom 2FA providers to ASP.NET Core Identity.</p>
-
-
-  using Microsoft.AspNetCore.Identity;
-using OpeniddictServer.Data;
-using System.Threading.Tasks;
-
-namespace Fido2Identity;
-
-public class Fido2UserTwoFactorTokenProvider 
-	: IUserTwoFactorTokenProvider&lt;ApplicationUser&gt;
-{
-    public Task&lt;bool&gt; CanGenerateTwoFactorTokenAsync(
-		UserManager&lt;ApplicationUser&gt; manager, ApplicationUser user)
-    {
-        return Task.FromResult(true);
-    }
-
-    public Task&lt;string&gt; GenerateAsync(string purpose, 
-		UserManager&lt;ApplicationUser&gt; manager, 
-		ApplicationUser user)
-    {
-        return Task.FromResult("fido2");
-    }
-
-    public Task&lt;bool&gt; ValidateAsync(string purpose, 
-		string token, 
-		UserManager&lt;ApplicationUser&gt; manager, 
-		ApplicationUser user)
-    {
-        return Task.FromResult(true);
-    }
-}
-  
-
-
-<p>The Session is added as middleware as well as the standard packages.</p>
-
-
-  app.UseRouting();
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.UseSession();
-
-app.UseEndpoints(endpoints =&gt;
-{
-	endpoints.MapControllers();
-	endpoints.MapDefaultControllerRoute();
-	endpoints.MapRazorPages();
-});
-  
-
-
-<p>The Javascript classes to implement the webAuthn standard API calls and backend API calls need to be added to the wwwroot of the project. The is added here:</p>
-
-
-
-<p><a href="https://github.com/damienbod/AspNetCoreOpeniddict/tree/main/OpeniddictServer/wwwroot/js">https://github.com/damienbod/AspNetCoreOpeniddict/tree/main/OpeniddictServer/wwwroot/js</a></p>
-
-
-
-<p>One js file implements the Fido2 register process and the other implements the login.</p>
-
-
-
-<p>Now we need to implement the Fido2 bits in the ASP.NET Core Identity UI and add the Javascript scripts to these pages. I usually scaffold in the required ASP.NET Core pages and extend these with the FIDO2 implementations for the MFA. </p>
-
-
-
-<p>The following Identity Pages need to be created or updated:</p>
-
-
-
-  Account/Login  Account/LoginFido2Mfa  Account/Manage/Disable2fa  Account/Manage/Fido2Mfa  Account/Manage/TwoFactorAuthentication  Account/Manage/ManageNavPages  
-
-
-
-<p>The Fido2 registration is implemented in the Account/Manage/Fido2Mfa Identity Razor page. The Javascript files are added in this page. </p>
-
-
-  @page "/Fido2Mfa/{handler?}"
-@using Microsoft.AspNetCore.Identity
-@inject SignInManager&lt;ApplicationUser&gt; SignInManager
-@inject UserManager&lt;ApplicationUser&gt; UserManager
-@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Xsrf
-@functions{
-    public string? GetAntiXsrfRequestToken()
-    {
-        return Xsrf.GetAndStoreTokens(this.HttpContext).RequestToken;
-    }
-}
-@model OpeniddictServer.Areas.Identity.Pages.Account.Manage.MfaModel
-@{
-    Layout = "_Layout.cshtml";
-    ViewData["Title"] = "Two-factor authentication (2FA)";
-    ViewData["ActivePage"] = ManageNavPages.Fido2Mfa;
-}
-
-&lt;h4&gt;@ViewData["Title"]&lt;/h4&gt;
-&lt;div class="section"&gt;
-    &lt;div class="container"&gt;
-        &lt;h1 class="title is-1"&gt;2FA/MFA&lt;/h1&gt;
-        &lt;div class="content"&gt;&lt;p&gt;This is scenario where we just want to use FIDO as the MFA. The user register and logins with their username and password. For demo purposes, we trigger the MFA registering on sign up.&lt;/p&gt;&lt;/div&gt;
-        &lt;div class="notification is-danger" style="display:none"&gt;
-            Please note: Your browser does not seem to support WebAuthn yet. &lt;a href="https://caniuse.com/#search=webauthn" target="_blank"&gt;Supported browsers&lt;/a&gt;
-        &lt;/div&gt;
-
-        &lt;div class="columns"&gt;
-            &lt;div class="column is-4"&gt;
-
-                &lt;h3 class="title is-3"&gt;Add a Fido2 MFA&lt;/h3&gt;
-                &lt;form action="/Fido2Mfa" method="post" id="register"&gt;
-                    &lt;input type="hidden" id="RequestVerificationToken" name="RequestVerificationToken" value="@GetAntiXsrfRequestToken()"&gt;
-                    &lt;div class="field"&gt;
-                        &lt;label class="label"&gt;Username&lt;/label&gt;
-                        &lt;div class="control has-icons-left has-icons-right"&gt;
-                            &lt;input class="form-control" type="text" readonly placeholder="email" value="@User.Identity?.Name" name="username" required&gt;
-                        &lt;/div&gt;
-                    &lt;/div&gt;
-
-                    &lt;div class="field" style="margin-top:10px;"&gt;
-                        &lt;div class="control"&gt;
-                            &lt;button class="btn btn-primary"&gt;Add FIDO2 MFA&lt;/button&gt;
-                        &lt;/div&gt;
-                    &lt;/div&gt;
-                &lt;/form&gt;
-            &lt;/div&gt;
-        &lt;/div&gt;
-
-        &lt;div id="fido2mfadisplay"&gt;&lt;/div&gt;
-
-    &lt;/div&gt;
-&lt;/div&gt;
-
-&lt;div style="display:none" id="fido2TapYourSecurityKeyToFinishRegistration"&gt;FIDO2_TAP_YOUR_SECURITY_KEY_TO_FINISH_REGISTRATION&lt;/div&gt;
-&lt;div style="display:none" id="fido2RegistrationError"&gt;FIDO2_REGISTRATION_ERROR&lt;/div&gt;
-
-&lt;script src="~/js/helpers.js"&gt;&lt;/script&gt;
-&lt;script src="~/js/instant.js"&gt;&lt;/script&gt;
-&lt;script src="~/js/mfa.register.js"&gt;&lt;/script&gt;
-  
-
-
-<p></p>
-
-
-
-<p>The Account/LoginFido2Mfa Razor Page implements the Fido2 login.</p>
-
-
-  @page
-
-@using Microsoft.AspNetCore.Identity
-@inject SignInManager&lt;ApplicationUser&gt; SignInManager
-@inject UserManager&lt;ApplicationUser&gt; UserManager
-@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Xsrf
-@functions{
-    public string? GetAntiXsrfRequestToken()
-    {
-        return Xsrf.GetAndStoreTokens(this.HttpContext).RequestToken;
-    }
-}
-@model OpeniddictServer.Areas.Identity.Pages.Account.MfaModel
-@{
-    ViewData["Title"] = "Login with Fido2 MFA";
-}
-
-&lt;h4&gt;@ViewData["Title"]&lt;/h4&gt;
-&lt;div class="section"&gt;
-    &lt;div class="container"&gt;
-        &lt;h1 class="title is-1"&gt;2FA/MFA&lt;/h1&gt;
-        &lt;div class="content"&gt;&lt;p&gt;This is scenario where we just want to use FIDO as the MFA. The user register and logins with their username and password. For demo purposes, we trigger the MFA registering on sign up.&lt;/p&gt;&lt;/div&gt;
-        &lt;div class="notification is-danger" style="display:none"&gt;
-            Please note: Your browser does not seem to support WebAuthn yet. &lt;a href="https://caniuse.com/#search=webauthn" target="_blank"&gt;Supported browsers&lt;/a&gt;
-        &lt;/div&gt;
-
-        &lt;div class="columns"&gt;
-            &lt;div class="column is-4"&gt;
-
-                &lt;h3 class="title is-3"&gt;Fido2 2FA&lt;/h3&gt;
-                &lt;form action="/LoginFido2Mfa" method="post" id="signin"&gt;
-                    &lt;input type="hidden" id="RequestVerificationToken" name="RequestVerificationToken" value="@GetAntiXsrfRequestToken()"&gt;
-                    &lt;div class="field"&gt;
-                        &lt;div class="control"&gt;
-                            &lt;button class="btn btn-primary"&gt;2FA with FIDO2 device&lt;/button&gt;
-                        &lt;/div&gt;
-                    &lt;/div&gt;
-                &lt;/form&gt;
-            &lt;/div&gt;
-        &lt;/div&gt;
-
-        &lt;div id="fido2logindisplay"&gt;&lt;/div&gt;
-
-    &lt;/div&gt;
-&lt;/div&gt;
-
-&lt;div style="display:none" id="fido2TapKeyToLogin"&gt;FIDO2_TAP_YOUR_SECURITY_KEY_TO_LOGIN&lt;/div&gt;
-&lt;div style="display:none" id="fido2CouldNotVerifyAssertion"&gt;FIDO2_COULD_NOT_VERIFY_ASSERTION&lt;/div&gt;
-&lt;div style="display:none" id="fido2ReturnUrl"&gt;@Model.ReturnUrl&lt;/div&gt;
-
-&lt;script src="~/js/helpers.js"&gt;&lt;/script&gt;
-&lt;script src="~/js/instant.js"&gt;&lt;/script&gt;
-&lt;script src="~/js/mfa.login.js"&gt;&lt;/script&gt;
-  
-
-
-<p>The other ASP.NET Core Identity files are extended to implement the 2FA providers logic.</p>
-
-
-
-<p>I extended the _Layout file to include the sweetalert2 js package used to implement the UI popups as in the FIDO2 demo from the Nuget package passwordless demo. You do not need this and can change the js files to use something else.</p>
-
-
-  &lt;head&gt;
-
-// ...
-&lt;script type="text/javascript" 
-	src="https://cdn.jsdelivr.net/npm/sweetalert2"&gt;&lt;/script&gt;
-&lt;link rel="stylesheet" 
-	href="https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/6.10.1/sweetalert2.min.css" /&gt;
-	
-&lt;/head&gt;
-  
-
-
-<p>I used the Feitian Fido2 keys to test the implementation. I find these keys excellent and robust. I used 2 mini and 2 NFC standard keys to test. You should add at least 2 keys per identity. I usually use three keys for all my accounts.</p>
-
-
-
-<p><a href="https://www.ftsafe.com/products/FIDO">https://www.ftsafe.com/products/FIDO</a></p>
-
-
-
-
-
-
-
-<p>Once you login and create an account, you can go to the user settings and setup a 2FA. Choose Fido2. Then you can register a key for you account.</p>
-
-
-
-
-
-
-
-<p>Next time you login, you will be required to authenticate using Fido2 as a second factor.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>With Fido2 protecting the accounts against phishing and a solid implementation of OpenID Connect, you have a great start to implementing a professional identity provider.</p>
-
-
-
-<p>Links:</p>
-
-
-
-<p><a href="https://github.com/abergs/fido2-net-lib">https://github.com/abergs/fido2-net-lib</a></p>
-
-
-
-<p><a href="https://webauthn.io/">https://webauthn.io/</a></p>
-
-
-
-<p><a href="https://github.com/damienbod/AspNetCoreIdentityFido2Mfa">https://github.com/damienbod/AspNetCoreIdentityFido2Mfa</a></p>
-
-
-
-<p><a href="https://documentation.openiddict.com/">https://documentation.openiddict.com/</a></p>
-
-
-
-<p><a href="https://github.com/openiddict/openiddict-core">https://github.com/openiddict/openiddict-core</a></p>
-
-
-
-<p><a href="https://github.com/openiddict/openiddict-samples">https://github.com/openiddict/openiddict-samples</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/07/oidc_fido2_idp_01.png?w=1016'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:38 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Sunday, 03. July 2022
  </h2>
 
@@ -23579,110 +23597,6 @@ as well call it Web3 – is different. And it is totally exciting! Because
 
 <div class='item-footer'>
    14:37 &bull;
-   7 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Wednesday, 09. March 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://herestomwiththeweather.com'>Heres Tom with the Weather</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://herestomwiththeweather.com/2022/03/09/c.-wright-mills-and-the-battalion/'>C. Wright Mills and the Battalion</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    
-
- On Monday, there were a few people in my Twitter feed sharing Texas A&amp;M’s Battalion article about The Rudder Association.  While Texas A&amp;M has improved so much over the years, this stealthy group called the Rudder Association is now embarrassing the school.  I was glad to read the article and reassured that the kids are alright.  I couldn’t help but be reminded of the letters written t
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://coffeebucks.s3.amazonaws.com/c_wright_mills.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p></p>
-
-<p>On Monday, there were a few people in my Twitter feed sharing <a href="https://www.thebatt.com/news/the-rudder-association-a-deep-dive-into-the-conservative-former-student-group-with-plans-to/article_ee9f31ec-9dae-11ec-a4cc-efe4856b436c.html">Texas A&amp;M’s Battalion article about The Rudder Association</a>.  While Texas A&amp;M has improved so much over the years, this stealthy group called the Rudder Association is now embarrassing the school.  I was glad to read the article and reassured that the kids are alright.  I couldn’t help but be reminded of the letters written to the Battalion in 1935 by a freshman named <a href="https://en.wikipedia.org/wiki/C._Wright_Mills">C. Wright Mills</a>.</p>
-
-<blockquote>
-  <p>College students are supposed to become leaders of thought and action in later life. It is expected they will profit from a college education by developing an open and alert mind to be able to cope boldly with everyday problems in economics and politics. They cannot do this unless they learn to think independently for themselves and to stand fast for their convictions. Is the student at A and M encouraged to do this? Is he permitted to do it? The answer is sadly in the negative.</p>
-</blockquote>
-
-<p>Little did he know that current students would be dealing with this shit 85 years later with a group of former students with nothing better to do than infiltrate student-run organizations from freshman orientation to the newspaper.  But shocking no one, they were too incompetent to maintain the privacy of the school regents who met with them.</p>
-
-<blockquote>
-  <p>According to meeting minutes from Dec. 1, 2020, the Rudder Association secured the attendance of four members of the A&amp;M System Board of Regents. The meeting minutes obtained by The Battalion were censored by TRA to remove the names of the regents in the meeting as well as other “highly sensitive information.”</p>
-</blockquote>
-
-<blockquote>
-  <p>“DO NOT USE THEIR NAMES BEYOND THE RUDDER BOARD. They do not wish to be outed,” the minutes read on the regents in attendance.</p>
-</blockquote>
-
-<blockquote>
-  <p>Further examination by The Battalion revealed, however, that the censored text could be copied and pasted into a text document to be viewed in its entirety due to TRA using a digital black highlighter to censor.</p>
-</blockquote>
-
-<p>Well done, Battalion.</p>
-
-<p>(photo is from <a href="https://openlibrary.org/works/OL14863138W/C._Wright_Mills">C. Wright Mills: Letters and autobiographical writings</a>)</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://coffeebucks.s3.amazonaws.com/c_wright_mills.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:51 &bull;
    7 months ago
 </div>
 
