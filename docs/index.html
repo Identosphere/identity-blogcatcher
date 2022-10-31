@@ -706,12 +706,921 @@
 
 </div>
 </div>
-<sup>Last Update 6:49 PM October 30, 2022 (UTC)</sup>
+<sup>Last Update 9:45 AM October 31, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 31. October 2022
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/10/31/switch-tenants-in-an-asp-net-core-app-using-azure-ad-with-multi-tenants/'>Switch tenants in an ASP.NET Core app using Azure AD with multi tenants</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to switch between tenants in an ASP.NET Core multi-tenant application using a multi-tenant Azure App registration to implement the identity provider. Azure roles are added to the Azure App registration and this can be used in the separate enterprise applications created from the multi-tenant Azure App registration to assign users and […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to switch between tenants in an ASP.NET Core multi-tenant application using a multi-tenant Azure App registration to implement the identity provider. Azure roles are added to the Azure App registration and this can be used in the separate enterprise applications created from the multi-tenant Azure App registration to assign users and groups. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreTenantSelect">https://github.com/damienbod/AspNetCoreTenantSelect</a></p>
+
+
+
+<p>Azure AD is used to implement the identity provider for the ASP.NET Core application. In the home tenant, an Azure App registration was created to support multiple tenants. Three roles for users and groups were created and added to the Azure App registration. The first time a user authenticates using the Azure App registration, an administrator can give consent for the tenant. This creates an Azure enterprise application inside the corresponding tenant. Users or groups can be assigned the roles from the Azure App registration. This is specific for the corresponding tenant only. </p>
+
+
+
+<p></p>
+
+
+
+<p>If a user exists in two separate tenants, the user needs an easy way to switch between the tenants without a logout and a login. The user can be assigned separate roles in each tenant. The email is used to identify the user, as separate OIDs are created for each tenant. The user can be added as an external user in multiple tenants with the same email.</p>
+
+
+
+<p></p>
+
+
+
+<p>The ASP.NET Core application uses the Azure App registration to authentication.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The ASP.NET Core application uses Microsoft.Identity.Web to implement the OpenID Connect client. This client uses MSAL. The user of the application needs a way to switch between the tenants. To do this, the specific tenant must be used in the authorize request of the OpenID Connect flow. If the common endpoint is used, which is the standard for a multi-tenant Azure App registration, the user cannot switch between the tenants without an account logout first or using a separate incognito browser.</p>
+
+
+
+<p></p>
+
+
+
+<p>A cache is used to store the preferred tenant of the authenticated user. The user of the application can select the required tenant and the tenant is used for authentication. Before the authorize request is sent to Azure AD, the ProtocolMessage.IssuerAddress is used with the correct tenant GUID identifier. The prompt select_account was added for the authorize request in the OpenID Connect flow so that the user will always be asked to choose an account. Most of us have multiple identities and account nowadays.</p>
+
+
+
+<p>The application requires an authenticated user. The default authentication uses the common endpoint and no select account prompt.</p>
+
+
+
+<p>There are different ways to implement the switch tenant logic. I have not focused on this. I just add the selected organization to an in-memory cache. You can for example keep a database of your specific allowed organizations and authorize this after a successful authentication using claims returned from the identity provider. You could also provide the organization as a query parameter in the URL. The Azure AD Microsoft.Identity.Web.UI client and ASP.NET Core application requires that the application starts the authentication flow from a HTTP GET, and not a redirect to a GET or a POST request.</p>
+
+
+  services.AddTransient&lt;TenantProvider&gt;();
+
+services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));
+
+WebApplication? app = null;
+
+services.Configure&lt;MicrosoftIdentityOptions&gt;(OpenIdConnectDefaults.AuthenticationScheme, options =&gt;
+{
+    options.Prompt = "select_account";
+    
+    var redirectToIdentityProvider = options.Events.OnRedirectToIdentityProvider;
+    options.Events.OnRedirectToIdentityProvider = async context =&gt;
+    {
+        if(app != null)
+        {
+            var tenantProvider = app.Services.GetRequiredService&lt;TenantProvider&gt;();
+            var email = context.HttpContext!.User.Identity!.Name;
+            if (email != null)
+            {
+                var tenant = tenantProvider.GetTenant(email);
+                var address = context.ProtocolMessage.IssuerAddress.Replace("common", tenant.Value);
+                context.ProtocolMessage.IssuerAddress = address;
+            }
+        }
+
+        await redirectToIdentityProvider(context);
+    };
+});
+
+services.AddRazorPages().AddMvcOptions(options =&gt;
+{
+    var policy = new AuthorizationPolicyBuilder()
+                     .RequireAuthenticatedUser()
+                     .Build();
+    options.Filters.Add(new AuthorizeFilter(policy));
+}).AddMicrosoftIdentityUI();
+
+  
+
+
+<p>The TenantProvider service implements the tenant select logic so that a user can switch between tenants or accounts without signing out or switching browsers. This can be replaced with a database or logic as your business requires. I hard coded some test tenants for the organization switch. Some type of persistence or database would be better for this. An in-memory cache is used to persist the user and the preferred organization.</p>
+
+
+  public class TenantProvider
+{
+    private static readonly SelectListItem _org1 = new("Org1", "7ff95b15-dc21-4ba6-bc92-824856578fc1");
+    private static SelectListItem _org2 = new("Org2", "a0958f45-195b-4036-9259-de2f7e594db6");
+    private static SelectListItem _org3 = new("Org3", "5698af84-5720-4ff0-bdc3-9d9195314244");
+    private static SelectListItem _common = new("common", "common");
+
+    private static readonly object _lock = new();
+    private IDistributedCache _cache;
+    private const int cacheExpirationInDays = 1;
+
+    public TenantProvider(IDistributedCache cache)
+    {
+        _cache = cache;
+    }
+
+    public void SetTenant(string email, string org)
+    {
+        AddToCache(email, GetTenantForOrg(org));
+    }
+
+    public SelectListItem GetTenant(string email)
+    {
+        var org = GetFromCache(email);
+
+        if (org != null)
+            return org;
+
+        return _common;
+    }
+
+    public List&lt;SelectListItem&gt; GetAvailableTenants()
+    {
+        return new List&lt;SelectListItem&gt; { _org1, _org2, _org3, _common };
+    }
+
+    private SelectListItem GetTenantForOrg(string org)
+    {
+        if (org == "Org1")
+            return _org1;
+        else if (org == "Org2")
+            return _org2;
+        else if (org == "Org3")
+            return _org3;
+
+        return _common;
+    }
+
+    private void AddToCache(string key, SelectListItem userActiveOrg)
+    {
+        var options = new DistributedCacheEntryOptions()
+            .SetSlidingExpiration(TimeSpan.FromDays(cacheExpirationInDays));
+
+        lock (_lock)
+        {
+            _cache.SetString(key, JsonSerializer.Serialize(userActiveOrg), options);
+        }
+    }
+
+    private SelectListItem? GetFromCache(string key)
+    {
+        var item = _cache.GetString(key);
+        if (item != null)
+        {
+            return JsonSerializer.Deserialize&lt;SelectListItem&gt;(item);
+        }
+
+        return null;
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>An ASP.NET Core Razor Page is used to implement the tenant switch UI logic. This just displays the available tenants and allows the user to choose a new tenant.</p>
+
+
+  public class SwitchTenantModel : PageModel
+{
+    private readonly TenantProvider _tenantProvider;
+
+    public SwitchTenantModel(TenantProvider tenantProvider)
+    {
+        _tenantProvider = tenantProvider;
+    }
+
+    [BindProperty]
+    public string Domain { get; set; } = string.Empty;
+
+    [BindProperty]
+    public string TenantId { get; set; } = string.Empty;
+
+    [BindProperty]
+    public List&lt;string&gt; RolesInTenant { get; set; } = new List&lt;string&gt;();
+
+    [BindProperty]
+    public string AppTenantName { get; set; } = string.Empty;
+
+    [BindProperty]
+    public List&lt;SelectListItem&gt; AvailableAppTenants { get; set; } = new List&lt;SelectListItem&gt;();
+
+    public void OnGet()
+    {
+        var name = User.Identity!.Name;
+
+        if (name != null)
+        {
+            AvailableAppTenants = _tenantProvider.GetAvailableTenants();
+            AppTenantName = _tenantProvider.GetTenant(name).Text;
+
+            List&lt;Claim&gt; roleClaims = HttpContext.User.FindAll(ClaimTypes.Role).ToList();
+
+            foreach (var role in roleClaims)
+            {
+                RolesInTenant.Add(role.Value);
+            }
+
+            TenantId = HttpContext.User.FindFirstValue("http://schemas.microsoft.com/identity/claims/tenantid");
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Only works from a direct GET, not a post or a redirect
+    /// &lt;/summary&gt;
+    public IActionResult OnGetSignIn([FromQuery]string domain)
+    {
+        var email = User.Identity!.Name;
+        if(email != null)
+            _tenantProvider.SetTenant(email, domain);
+
+        return Challenge(new AuthenticationProperties { RedirectUri = "/" },
+                OpenIdConnectDefaults.AuthenticationScheme);
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>The Index Razor page in the ASP.NET Core application displays the actually tenant, the organization and the roles for this identity in this tenant.</p>
+
+
+  public void OnGet()
+{
+	var name = User.Identity!.Name;
+
+	if(name != null)
+	{
+		AvailableAppTenants = _tenantProvider.GetAvailableTenants();
+		AppTenantName = _tenantProvider.GetTenant(name).Text;
+
+		List&lt;Claim&gt; roleClaims = HttpContext.User.FindAll(ClaimTypes.Role).ToList();
+
+		foreach (var role in roleClaims)
+		{
+			RolesInTenant.Add(role.Value);
+		}
+
+		TenantId = HttpContext.User.FindFirstValue(
+			"http://schemas.microsoft.com/identity/claims/tenantid");
+	}
+}
+  
+
+
+<p>After a successful authentication using Azure AD and the multi-tenant Azure App registration, the user can see the assigned roles and the tenant. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The tenant switch is displayed in a HTML list and the authentication request with the select account prompt is sent to Azure AD.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The new tenant and the new corresponding roles for the authorization are displayed after a successful authentication.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>Switching tenants is becoming a required feature in most applications now that we have access to multiple Azure AD tenants and domains using the same email. This makes using external identities for an Azure AD user in a multiple domain environment a little less painful. </p>
+
+
+
+<p></p>
+
+
+
+ Notes 
+
+
+
+<p>If using this in environment where all tenants are not allowed, the tid claim must be validated. You should always restrict the tenants in a multi tenant application if possible. You could force this by adding a tenant requirement.</p>
+
+
+  services.AddRazorPages().AddMvcOptions(options =&gt;
+{
+    var policy = new AuthorizationPolicyBuilder()
+                     .RequireAuthenticatedUser()
+                     // Eanble to force tenant restrictions
+                     .AddRequirements(new[] { new TenantRequirement() })
+                     .Build();
+    options.Filters.Add(new AuthorizeFilter(policy));
+}).AddMicrosoftIdentityUI();
+  
+
+
+ Links 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/fundamentals/multi-tenant-user-management-introduction">https://learn.microsoft.com/en-us/azure/active-directory/fundamentals/multi-tenant-user-management-introduction</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app">https://learn.microsoft.com/en-us/azure/active-directory/develop/quickstart-register-app</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/manage-apps/add-application-portal">https://learn.microsoft.com/en-us/azure/active-directory/manage-apps/add-application-portal</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/10/multi-tenant-select-01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:44 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/10/31/fired-for-cause.html'> “Fired for ‘cause’” ….. 🍿🍿🍿 </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   “Fired for ‘cause’” ….. 🍿🍿🍿 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>“Fired for ‘cause’” ….. 🍿🍿🍿</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:03 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/10/31/phew-one-more.html'> Phew … one more authoritarian regime bites the dust. Are you</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Phew … one more authoritarian regime bites the dust. Are you watching America? It can be done … even when the odds are seemingly stacked against you. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Phew … one more authoritarian regime bites the dust. Are you watching America? It can be done … even when the odds are seemingly stacked against you.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:57 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/10/31/power-photos-is.html'> Power Photos is really rather good. 
+ I might have said that</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Power Photos is really rather good. 
+ I might have said that before. 
+ Thought I’d say it again. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Power Photos is really rather good.</p>
+<p>I might have said that before.</p>
+<p>Thought I’d say it again.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:25 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/10/31/just-for-one.html'> Just For One Day 
+
+ Already back out to the ‘nines’ … </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Just For One Day 
+
+ Already back out to the ‘nines’ … 
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/18758d764d.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Just For One Day</p>
+
+<p>Already back out to the ‘nines’ …</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/18758d764d.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:18 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/10/31/this-makes-me.html'> This makes me feel better about some Man U performances this</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   This makes me feel better about some Man U performances this season. 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/ea5cd01e41.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This makes me feel better about some Man U performances this season.</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/ea5cd01e41.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:17 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Oct/31/insta/#atom-everything'>mitsuhiko/insta</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   mitsuhiko/insta 
+ I asked for recommendations on Twitter for testing libraries in other languages that would give me the same level of delight that I get from pytest. Two people pointed me to insta by  Armin Ronacher, a Rust testing framework for "snapshot testing" which automatically records reference values to your repository, so future tests can spot if they change. 
+
+     Via @david_raznick 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://github.com/mitsuhiko/insta">mitsuhiko/insta</a></p>
+<p>I asked for recommendations on Twitter for testing libraries in other languages that would give me the same level of delight that I get from pytest. Two people pointed me to insta by  Armin Ronacher, a Rust testing framework for "snapshot testing" which automatically records reference values to your repository, so future tests can spot if they change.</p>
+
+    <p>Via <a href="https://twitter.com/david_raznick/status/1586885078457753602">@david_raznick</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:06 &bull;
+   9 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://theracket.news/p/james-bennet-and-the-rewriting-of'>James Bennet and the rewriting of 2020</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ “Desperate to undo the social movement that threatened their place atop the social hierarchy, the right and its handmaidens in the squeamish center have fought obsessively to recast the protest summer as the aborted dawn of a new, terrifying tyranny — of “cancel culture,” anti-racism, and the most feared of them all, “wokism” — in which revolutionary mobs working with the Holl
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>“Desperate to undo the social movement that threatened their place atop the social hierarchy, the right and its handmaidens in the squeamish center have fought obsessively to recast the protest summer as the aborted dawn of a new, terrifying tyranny — of “cancel culture,” anti-racism, and the most feared of them all, “wokism” — in which revolutionary mobs working with the Hollywood elite and the mandarins of the Democratic Party (don’t think too hard about it) will … well, do something bad.”  <a href="https://werd.io/tag/Media">#Media</a></p>
+            <p>[<a href="https://theracket.news/p/james-bennet-and-the-rewriting-of">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   00:01 &bull;
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -728,6 +1637,78 @@
 <h4 class='feed-title'>
   <a href='https://werd.io'>Ben Werdmüller</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://benwerd.substack.com/p/how-to-validate-assumptions'>How to validate assumptions</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ The first real post on my writing Substack: on how to validate product assumptions, and how that might be applied to a novel.  #Elsewhere 
+             [Link] 
+         
+     
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>The first real post on my writing Substack: on how to validate product assumptions, and how that might be applied to a novel.  <a href="https://werd.io/tag/Elsewhere">#Elsewhere</a></p>
+            <p>[<a href="https://benwerd.substack.com/p/how-to-validate-assumptions">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:07 &bull;
+   14 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -784,7 +1765,7 @@
 
 <div class='item-footer'>
    17:37 &bull;
-   an hour ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -846,7 +1827,7 @@
 
 <div class='item-footer'>
    17:25 &bull;
-   an hour ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -906,7 +1887,7 @@
 
 <div class='item-footer'>
    03:57 &bull;
-   15 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -976,7 +1957,7 @@
 
 <div class='item-footer'>
    00:03 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1054,7 +2035,7 @@
 
 <div class='item-footer'>
    22:01 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1119,7 +2100,7 @@
 
 <div class='item-footer'>
    21:49 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1294,7 +2275,7 @@ Prototypes. I'll often paste a few lines of code copied from a Python console se
 
 <div class='item-footer'>
    20:41 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1382,7 +2363,7 @@ Prototypes. I'll often paste a few lines of code copied from a Python console se
 
 <div class='item-footer'>
    19:18 &bull;
-   24 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1588,7 +2569,7 @@ Prototypes. I'll often paste a few lines of code copied from a Python console se
 
 <div class='item-footer'>
    06:52 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1659,7 +2640,7 @@ Prototypes. I'll often paste a few lines of code copied from a Python console se
 
 <div class='item-footer'>
    04:05 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2299,7 +3280,7 @@ Rishi 0</p>
 
 <div class='item-footer'>
    20:03 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2369,7 +3350,7 @@ Rishi 0</p>
 
 <div class='item-footer'>
    19:59 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2429,7 +3410,7 @@ Rishi 0</p>
 
 <div class='item-footer'>
    19:20 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2493,7 +3474,7 @@ Rishi 0</p>
 
 <div class='item-footer'>
    17:43 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2557,7 +3538,7 @@ Rishi 0</p>
 
 <div class='item-footer'>
    15:45 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2633,7 +3614,7 @@ Rishi 0</p>
 
 <div class='item-footer'>
    15:44 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2705,7 +3686,7 @@ Rishi 0</p>
 
 <div class='item-footer'>
    15:44 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2767,7 +3748,7 @@ Rishi 0</p>
 
 <div class='item-footer'>
    15:42 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2837,7 +3818,7 @@ Rishi 0</p>
 
 <div class='item-footer'>
    15:16 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3396,7 +4377,7 @@ def prepare_jinja2_environment(env):
 
 <div class='item-footer'>
    20:40 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3460,7 +4441,7 @@ def prepare_jinja2_environment(env):
 
 <div class='item-footer'>
    18:10 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3520,68 +4501,6 @@ def prepare_jinja2_environment(env):
 
 <div class='item-footer'>
    15:13 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2022/the-magic-behind-the-earth'>The magic behind the earth</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- Over the last week I’ve found myself, many times, wanting to phone my mother. “I should tell Ma,” I’ll think, and it’ll take me a beat to remember. I can’t tell Ma. Ma’s gone.  In the little library nook that sat in the corner of my primary school classroom, 35 years ago, there was a book about ghosts. I devoured it. There were tales of ghosts of actors who still haunted theaters, and of ladies 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p>Over the last week I’ve found myself, many times, wanting to phone my mother. “I should tell Ma,” I’ll think, and it’ll take me a beat to remember. I can’t tell Ma. Ma’s gone.</p><p>In the little library nook that sat in the corner of my primary school classroom, 35 years ago, there was a book about ghosts. I devoured it. There were tales of ghosts of actors who still haunted theaters, and of ladies in stately homes. One of the chapters was about a phenomenon where someone would have a wholly real interaction with a loved one, there in the room with them, only to find they’d died far away the same night. I was fascinated with that idea, and internalized it far more deeply than I thought I had, because I realized when Ma died that some part of me thought I’d get to speak to her one more time.</p><p>I speak to her every day, of course. But I’m speaking to a figment; a version of her in my memory, which in turn has to also be me. In a way, it’s a trick I’m playing on myself, perhaps to make it easier, although I’m not sure that it really does.</p><p>I go on long walks, often late at night, to get some exercise but also to order my thoughts. Sometime last year, I was walking through the hills near my parents’ house, and the wind picked up from nowhere and ran through my hair. I stood still for a moment, goosebumps running up my skin, and for a moment I could have sworn it was her.</p><p>I’m supposed to be a sensible adult, whatever that means, but I’m still the kid who got up to draw comic books an hour before school, I’m still the kid who feels a kind of magic beating behind the earthly mundane, and I’m certainly still the kid who hopes to catch a glimpse of a ghost so he can see his mother again.</p><p>I find that child, a version of whom lives inside all of us, to be more interesting, more endearing, and more alive than the middle aged skinsuits we wear that claim to care deeply about MAUs and ARR and our IRAs. That child - this private version of ourselves - is driven by curiosity and whimsy and the wonder of possibilities. That child knows that magic exists, in some form, if they can only find out how to use it. And they love, so much. The trick is to let them breathe.</p> 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:53 &bull;
    4 days ago
 </div>
 
@@ -3595,79 +4514,6 @@ def prepare_jinja2_environment(env):
  <h2 class='new-date'>
   Wednesday, 26. October 2022
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://ez.substack.com/p/mark-zuckerberg-is-going-to-kill?sd=pf'>Mark Zuckerberg Is Going To Kill His Company</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- “As funny as it is that Zuckerberg responded to “don’t spend as much money on the metaverse” with “I will now spend more on the metaverse,” anybody with half a brain can see that he is burning his company to the ground. Zuckerberg is experiencing peak founder-brain - that previous success begets future success and that has had several good ideas means that every idea you’ll ev
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>“As funny as it is that Zuckerberg responded to “don’t spend as much money on the metaverse” with “I will now spend more on the metaverse,” anybody with half a brain can see that he is burning his company to the ground. Zuckerberg is experiencing peak founder-brain - that previous success begets future success and that has had several good ideas means that every idea you’ll ever have is perfect.”  <a href="https://werd.io/tag/Startups">#Startups</a></p>
-            <p>[<a href="https://ez.substack.com/p/mark-zuckerberg-is-going-to-kill?sd=pf">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:48 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -3803,7 +4649,7 @@ def prepare_jinja2_environment(env):
 
 <div class='item-footer'>
    21:34 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3872,7 +4718,7 @@ def prepare_jinja2_environment(env):
 
 <div class='item-footer'>
    08:33 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4541,7 +5387,7 @@ def prepare_jinja2_environment(env):
 
 <div class='item-footer'>
    21:32 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4625,7 +5471,7 @@ def prepare_jinja2_environment(env):
 
 <div class='item-footer'>
    16:51 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4699,77 +5545,7 @@ def prepare_jinja2_environment(env):
 
 <div class='item-footer'>
    12:33 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2022/10/25/the-gray-man.html'>The Gray Man, 2022 - ★★★</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-      Let’s watch The Gray Man I suggested. We did, both of us looking at the arch other throughout .. the story seemed familiar. And then it didn’t. And then it did. We watched to the end. It was familiar because we’d watched it already. Just didn’t remember. And now … the following morning. Here we are again. Still not knowing what it was about. 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://a.ltrbxd.com/resized/film-poster/6/4/7/7/6/0/647760-the-gray-man-0-600-0-900-crop.jpg?v=85006270c0'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p> <p>Let’s watch The Gray Man I suggested. We did, both of us looking at the arch other throughout .. the story seemed familiar. And then it didn’t. And then it did. We watched to the end. It was familiar because we’d watched it already. Just didn’t remember. And now … the following morning. Here we are again. Still not knowing what it was about.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://a.ltrbxd.com/resized/film-poster/6/4/7/7/6/0/647760-the-gray-man-0-600-0-900-crop.jpg?v=85006270c0'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   12:32 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4782,73 +5558,6 @@ def prepare_jinja2_environment(env):
  <h2 class='new-date'>
   Monday, 24. October 2022
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/10/25/i-just-tried.html'> I just tried to signup for Hypothes.is after seeing a quick </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I just tried to signup for Hypothes.is after seeing a quick exchange twixt @AndySylvester and @chrisaldrich and when i got there discovered that I had already signed up and had forgotten all about it. 
- And then I saw that Readwise just launched ‘public annotations’. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I just tried to signup for Hypothes.is after seeing a quick exchange twixt <a href="https://micro.blog/AndySylvester">@AndySylvester</a> and <a href="https://micro.blog/chrisaldrich">@chrisaldrich</a> and when i got there discovered that I had already signed up and had forgotten all about it.</p>
-<p>And then I saw that Readwise just launched ‘public annotations’.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:50 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -4904,81 +5613,7 @@ def prepare_jinja2_environment(env):
 
 <div class='item-footer'>
    21:34 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2022/10/24/eternals.html'>Eternals, 2021 - ★</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-      Well named. 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://a.ltrbxd.com/resized/film-poster/4/5/4/0/1/6/454016-eternals-0-600-0-900-crop.jpg?v=2578d04fd8'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p> <p>Well named.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://a.ltrbxd.com/resized/film-poster/4/5/4/0/1/6/454016-eternals-0-600-0-900-crop.jpg?v=2578d04fd8'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:35 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5329,134 +5964,6 @@ without the risk of losing data.</p>
 
 <div class='item-footer'>
    19:58 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Saturday, 22. October 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/10/23/102532.html'> Looking forward to @dave moving from 83% to 100% </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Looking forward to @dave moving from 83% to 100% 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Looking forward to <a href="https://micro.blog/dave">@dave</a> moving from 83% to 100%</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:25 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/10/23/how-much-of.html'> How much of a problem would it be to add another camera to t</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   How much of a problem would it be to add another camera to the iPad .. so portrait and landscape both ‘just work’? 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>How much of a problem would it be to add another camera to the iPad .. so portrait and landscape both ‘just work’?</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:25 &bull;
    8 days ago
 </div>
 
@@ -5605,7 +6112,7 @@ without the risk of losing data.</p>
 
 <div class='item-footer'>
    21:25 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5683,7 +6190,7 @@ without the risk of losing data.</p>
 
 <div class='item-footer'>
    15:23 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5764,7 +6271,7 @@ without the risk of losing data.</p>
 
 <div class='item-footer'>
    18:57 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6346,7 +6853,7 @@ mins_in_traffic_other_way
 
 <div class='item-footer'>
    15:41 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6552,7 +7059,7 @@ Describing Internet business in physical terms is like standing at the Dawn of L
 
 <div class='item-footer'>
    15:13 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6618,7 +7125,7 @@ Describing Internet business in physical terms is like standing at the Dawn of L
 
 <div class='item-footer'>
    15:04 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7227,7 +7734,7 @@ Describing Internet business in physical terms is like standing at the Dawn of L
 
 <div class='item-footer'>
    14:04 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7583,7 +8090,7 @@ In July 2008, when I <a href="http://blogs.harvard.edu/doc/2008/07/04/fire-from-
 
 <div class='item-footer'>
    19:22 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7785,7 +8292,7 @@ In July 2008, when I <a href="http://blogs.harvard.edu/doc/2008/07/04/fire-from-
 
 <div class='item-footer'>
    21:30 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7851,7 +8358,7 @@ In July 2008, when I <a href="http://blogs.harvard.edu/doc/2008/07/04/fire-from-
 
 <div class='item-footer'>
    21:28 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7947,7 +8454,7 @@ decision-making. For a less technical primer, Wikipedia has some great examples:
 
 <div class='item-footer'>
    14:20 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8295,7 +8802,7 @@ decision-making. For a less technical primer, Wikipedia has some great examples:
 
 <div class='item-footer'>
    20:28 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8365,7 +8872,7 @@ decision-making. For a less technical primer, Wikipedia has some great examples:
 
 <div class='item-footer'>
    16:22 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8552,7 +9059,7 @@ decision-making. For a less technical primer, Wikipedia has some great examples:
 
 <div class='item-footer'>
    20:08 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8778,7 +9285,7 @@ In my discussions of verifiable credentials, I assume DIDs are the underlying id
 
 <div class='item-footer'>
    14:56 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9313,7 +9820,7 @@ public class AdminModel : PageModel
 
 <div class='item-footer'>
    20:38 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9459,7 +9966,7 @@ public class AdminModel : PageModel
 
 <div class='item-footer'>
    15:43 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9531,7 +10038,7 @@ public class AdminModel : PageModel
 
 <div class='item-footer'>
    17:49 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9593,7 +10100,7 @@ public class AdminModel : PageModel
 
 <div class='item-footer'>
    17:47 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9655,7 +10162,7 @@ public class AdminModel : PageModel
 
 <div class='item-footer'>
    17:44 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9770,7 +10277,7 @@ public class AdminModel : PageModel
 
 <div class='item-footer'>
    20:40 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10098,73 +10605,7 @@ public class AdminModel : PageModel
 
 <div class='item-footer'>
    17:29 &bull;
-   26 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Oct/4/libsql/#atom-everything'>libsql</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   libsql 
- A brand new Apache 2 licensed fork of SQLite. The README explains the rationale behind the project: SQLite itself is open source but not open contribution, and this fork aims to try out new ideas. The most interesting to me so far is a plan to support user defined functions implemented in WebAssembly. The project also intends to use Rust for new feature development. 
-
-     Via SQLite: QEM
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://github.com/libsql/libsql">libsql</a></p>
-<p>A brand new Apache 2 licensed fork of SQLite. The README explains the rationale behind the project: SQLite itself is open source but not open contribution, and this fork aims to try out new ideas. The most interesting to me so far is a plan to support user defined functions implemented in WebAssembly. The project also intends to use Rust for new feature development.</p>
-
-    <p>Via <a href="https://glaubercosta-11125.medium.com/sqlite-qemu-all-over-again-aedad19c9a1c">SQLite: QEMU all over again?</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:13 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10908,7 +11349,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    23:43 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -10972,7 +11413,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    23:33 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -11149,7 +11590,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    23:18 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -11235,7 +11676,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    21:24 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -11355,7 +11796,7 @@ public static string GetAzp(ClaimsPrincipal claimsPrincipal)
 
 <div class='item-footer'>
    21:21 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -12652,7 +13093,7 @@ That’s the flyer for the first salon in our&nbsp;<a href="https://events.iu.ed
 
 <div class='item-footer'>
    01:04 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -18289,264 +18730,6 @@ new versions when needed.</p>
 
 
 <h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/08/02/workarounds-to-disable-azure-ad-user-using-microsoft-graph-and-an-application-scope/'>Disable Azure AD user account using Microsoft Graph and an application client</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post shows how to enable, disable or remove Azure AD user accounts using Microsoft Graph and a client credentials client. The Microsoft Graph client uses an application scope and application client. This is also possible using a delegated client. If using an application which has no user, an application scope is used to authorize […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post shows how to enable, disable or remove Azure AD user accounts using Microsoft Graph and a client credentials client. The Microsoft Graph client uses an application scope and application client. This is also possible using a delegated client. If using an application which has no user, an application scope is used to authorize the client. Using a delegated scope requires a user and a web authentication requesting the required scope and a user consent.</p>
-
-
-
-<p>History</p>
-
-
-
-<p>2022-08-02 : Fixed incorrect conclusion about application client and AccountEnabled permission, feedback from Stephan van Rooij</p>
-
-
-
-Image: <a href="https://docs.microsoft.com/en-us/graph/overview">https://docs.microsoft.com/en-us/graph/overview</a>
-
-
-
-<p>Microsoft Graph with an application scope can be used to update, change, edit user accounts in an Azure AD tenant. The MsGraphService class is used to implement the Graph client using OAuth client credentials. This requires a user secret or a client certificate. The client uses the default scope and no consent is required or can be used because no user is involved. </p>
-
-
-  public MsGraphService(IConfiguration configuration,
-	ILogger&lt;MsGraphService&gt; logger)
-{
-	_groups = configuration.GetSection("Groups").Get&lt;List&lt;GroupsConfiguration&gt;&gt;();
-	_logger = logger;
-	string[]? scopes = configuration.GetValue&lt;string&gt;("AadGraph:Scopes")?.Split(' ');
-	var tenantId = configuration.GetValue&lt;string&gt;("AadGraph:TenantId");
-
-	// Values from app registration
-	var clientId = configuration.GetValue&lt;string&gt;("AadGraph:ClientId");
-	var clientSecret = configuration.GetValue&lt;string&gt;("AadGraph:ClientSecret");
-
-	_federatedDomainDomain = configuration.GetValue&lt;string&gt;("FederatedDomain");
-
-	var options = new TokenCredentialOptions
-	{
-		AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
-	};
-
-	// https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
-	var clientSecretCredential = new ClientSecretCredential(
-		tenantId, clientId, clientSecret, options);
-
-	_graphServiceClient = new GraphServiceClient(clientSecretCredential, scopes);
-}
-  
-
-
-<p></p>
-
-
-
-<p>Option 1 Update User AccountEnabled property </p>
-
-
-
-<p>By setting the AccountEnabled property, a user account can be updated and can be enabled or disabled. The User.ReadWrite.All permission is required for this.</p>
-
-
-  user.GivenName = userModel.FirstName;
-user.Surname = userModel.LastName;
-user.DisplayName = $"{userModel.FirstName} {userModel.LastName}";
-user.AccountEnabled = userModel.IsActive;
-
-await _msGraphService.UpdateUserAsync(user);
-  
-
-
-<p>The Graph user can then be updated.</p>
-
-
-  public async Task&lt;User&gt; UpdateUserAsync(User user)
-{
-	return await _graphServiceClient.Users[user.Id]
-	   .Request()
-	   .UpdateAsync(user);
-}
-  
-
-
-<p></p>
-
-
-
-<p>Option 2 Delete User</p>
-
-
-
-<p>A user can also be completely removed and deleted from the Azure AD tenant.</p>
-
-
-
-<p>Disadvantages</p>
-
-
-
-  User is deleted and would need to add the account again if the user account is “reactivated”  
-
-
-
-<p>The user can be deleted using the following code:</p>
-
-
-  public async Task DeleteUserAsync(string userId)
-{
-	await _graphServiceClient.Users[userId]
-	   .Request()
-	   .DeleteAsync();
-}
-  
-
-
-<p>Option 3 Remove Security groups for user and leave the account enabled</p>
-
-
-
-<p>Deleting or disabling a user is normally not an option because a user might and probably does have access to further applications. After deleting a user, the user cannot be reactivated, but must sign up again. Setting AccountEnabled to false disables the whole account.</p>
-
-
-
-<p>Another option instead of deleting/disabling the user is to use group memberships for access to different Azure services. When access to different services need to be removed or disabled, the user can be removed from the groups which are required to access service X or whatever. This will only work if groups are used to control the access to the different services in AAD or  Office etc. The following code checks if the user has access to the explicit groups and removes the memberships if required. This works well and does not change the user settings for further services in Azure AD, or office which are outside the scope.</p>
-
-
-  public async Task RemoveUserFromAllGroupMemberships(string userId)
-{
-	var currentGroupIds = await GetGraphUserMemberGroups(userId);
-	var currentGroupIdsList = currentGroupIds.ToList();
-
-	// Only delete specific groups we defined in this app.
-	foreach (var group in _groups)
-	{
-		if(currentGroupIdsList.Contains(group.GroupId))
-		// remove group
-		await RemoveUserFromGroup(userId, group.GroupId);
-		currentGroupIds.Remove(group.GroupId);
-	}
-}
-  
-
-
-<p>The group membership for the user is deleted. </p>
-
-
-  private async Task RemoveUserFromGroup(string userId, string groupId)
-{
-	try
-	{
-		await _graphServiceClient.Groups[groupId]
-			.Members[userId]
-			.Reference
-			.Request()
-			.DeleteAsync();
-	}
-	catch (Exception ex)
-	{
-		_logger.LogError(ex, "{Error} RemoveUserFromGroup", ex.Message);
-	}
-}
-  
-
-
-<p>Disadvantages</p>
-
-
-
-  Applications must use security groups for access control  
-
-
-
-<p>For this to work, the groups must be used to force the authorization. This requires some IT management.</p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/graph/api/user-delete">https://docs.microsoft.com/en-us/graph/api/user-delete</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/graph/api/resources/groups-overview">https://docs.microsoft.com/en-us/graph/api/resources/groups-overview</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/azure/active-directory/fundamentals/users-default-permissions#compare-member-and-guest-default-permissions">https://docs.microsoft.com/en-us/azure/active-directory/fundamentals/users-default-permissions#compare-member-and-guest-default-permissions</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/graph/overview">https://docs.microsoft.com/en-us/graph/overview</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/07/microsoft_graph_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:56 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://herestomwiththeweather.com'>Heres Tom with the Weather</a>
 </h4>
 
@@ -21437,7 +21620,7 @@ You've used OAuth if you've ever used any kind of social login like Login with A
 
 <div class='item-footer'>
    20:22 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
@@ -25432,7 +25615,7 @@ exported them again and imported them into my new <a href="https://app.thestoryg
 
 <div class='item-footer'>
    05:06 &bull;
-   8 months ago
+   9 months ago
 </div>
 
 </div><!-- item-body -->
@@ -26864,7 +27047,7 @@ This specification registers a kind of URI that represents a JSON Web Key (JWK) 
 
 <div class='item-footer'>
    23:23 &bull;
-   9 months ago
+   10 months ago
 </div>
 
 </div><!-- item-body -->
