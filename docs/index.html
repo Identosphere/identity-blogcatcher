@@ -706,7 +706,7 @@
 
 </div>
 </div>
-<sup>Last Update 2:02 AM December 06, 2022 (UTC)</sup>
+<sup>Last Update 9:38 AM December 06, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -726,8 +726,412 @@
 
 
 <h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2022/12/06/implement-feature-management-in-blazor-asp-net-core/'>Implement Feature Management in Blazor ASP.NET Core</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The post shows how features toggles or feature switches can be implemented in an ASP.NET Core application using Blazor. The Microsoft.FeatureManagement Nuget package is used to add the feature toggles. Code: https://github.com/damienbod/AspNetCoreFeatures.Toggles Setup The Blazor application is a simple ASP.NET core hosted application using Azure AD for the identity provider. Both the Server and th
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The post shows how features toggles or feature switches can be implemented in an ASP.NET Core application using Blazor. The Microsoft.FeatureManagement Nuget package is used to add the feature toggles.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreFeatures.Toggles">https://github.com/damienbod/AspNetCoreFeatures.Toggles</a></p>
+
+
+
+<p></p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Setup 
+
+
+
+<p>The Blazor application is a simple ASP.NET core hosted application using Azure AD for the identity provider. Both the Server and the Client applications need to implement the feature toggle.</p>
+
+
+
+<p>The Blazor Server project is an ASP.NET Core application. This uses the Microsoft.FeatureManagement.AspNetCore Nuget package. The Client application is a Blazor WASM project and uses the Microsoft.FeatureManagement package.</p>
+
+
+
+ Blazor Server 
+
+
+
+<p>The AddFeatureManagement can be used to added the services to add or remove features. I added a feature specific service which is only added is the feature is activated. This is read from teh server app settings.</p>
+
+
+  services.AddFeatureManagement();
+
+var featureXEnabled = configuration.GetValue&lt;bool&gt;("FeatureManagement:FeatureX");
+
+if(featureXEnabled)
+{
+    services.AddScoped&lt;FeatureXService&gt;();
+}
+  
+
+
+<p>The FeatureXApiController is used to make the feature business available for the Blazor UI. In this example, the IFeatureManager is used to check if the feature is enabled. If enabled, the business is called, otherwise a 404 is returned.</p>
+
+
+  private IFeatureManager _featureManager;
+private readonly FeatureXService _featureXService;
+
+public FeatureXApiController(IFeatureManager featureManager, 
+	
+	FeatureXService featureXService)
+{
+	_featureManager = featureManager;
+	_featureXService = featureXService;
+}
+
+[HttpGet]
+public async Task&lt;IActionResult&gt; GetAsync()
+{
+	var featureX = await _featureManager
+		.IsEnabledAsync(Features.FEATUREX);
+
+	if(featureX)
+	{
+		return Ok(new List&lt;string&gt; { 
+			"some data", 
+			"more data", 
+			_featureXService.GetFeatureString() 
+		});
+	}
+
+	return NotFound();
+}
+  
+
+
+<p>The  ASP.NET Core Server application uses the default FeatureManagement app settings. Only one feature was added to this application.</p>
+
+
+  {
+  "FeatureManagement": {
+    "FeatureX": true
+  }
+}
+  
+
+
+ Blazor WASM Client 
+
+
+
+<p>The AddFeatureManagement is used to add the feature management to the Blazor WASM UI.</p>
+
+
+  builder.Services.AddFeatureManagement();
+  
+
+
+<p>The feature check can be used by injecting the IFeatureManager interface. The IsEnabledAsync can be used to check if the feature is enabled.</p>
+
+
+  @page "/featurexapi"
+@inject IAntiforgeryHttpClientFactory httpClientFactory
+@inject IJSRuntime JSRuntime
+@using Microsoft.FeatureManagement
+@using AspNetCoreFeatures.Toggles.Shared;
+@inject IFeatureManager _featureManager
+
+&lt;h1&gt;Data from Feature X API&lt;/h1&gt;
+
+@if (apiData == null)
+{
+    &lt;p&gt;&lt;em&gt;Loading...&lt;/em&gt;&lt;/p&gt;
+}
+else
+{
+    &lt;table class="table"&gt;
+        &lt;thead&gt;
+            &lt;tr&gt;
+                &lt;th&gt;Data&lt;/th&gt;
+            &lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+            @foreach (var data in apiData)
+            {
+                &lt;tr&gt;
+                    &lt;td&gt;@data&lt;/td&gt;
+                &lt;/tr&gt;
+            }
+        &lt;/tbody&gt;
+    &lt;/table&gt;
+}
+
+@code {
+    private string[]? apiData;
+
+    public bool FeatureXEnabled { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var featureX = await _featureManager.IsEnabledAsync(Features.FEATUREX);
+
+        if (featureX)
+        {
+            var client = await httpClientFactory.CreateClientAsync();
+            apiData = await client.GetFromJsonAsync&lt;string[]&gt;("api/FeatureXApi");
+        }
+    }
+}
+  
+
+
+<p>The Blazor WASM requires app settings with the feature definitions. This is deployed to the wwwroot folder in an ASP.NET Core hosted application.</p>
+
+
+  {
+  "FeatureManagement": {
+    "FeatureX": true
+  }
+}
+  
+
+
+<p>The feature switch can also be used in the Razor UI components. The component can used the OnInitializedAsync to check if a feaure is enabled and set a bool value which can be used in the UI.</p>
+
+
+  @using Microsoft.FeatureManagement
+@using AspNetCoreFeatures.Toggles.Shared
+@inject IFeatureManager _featureManager
+
+&lt;div class="top-row pl-4 navbar navbar-dark"&gt;
+    &lt;a class="navbar-brand" href=""&gt;Blazor AAD BFF Cookies&lt;/a&gt;
+    &lt;button class="navbar-toggler" @onclick="ToggleNavMenu"&gt;
+        &lt;span class="navbar-toggler-icon"&gt;&lt;/span&gt;
+    &lt;/button&gt;
+&lt;/div&gt;
+
+&lt;div class="@NavMenuCssClass" @onclick="ToggleNavMenu"&gt;
+    &lt;ul class="nav flex-column"&gt;
+        &lt;AuthorizeView&gt;
+            &lt;Authorized&gt;
+
+                &lt;li class="nav-item px-3"&gt;
+                    &lt;NavLink class="nav-link" href="" Match="NavLinkMatch.All"&gt;
+                        &lt;span class="oi oi-home" aria-hidden="true"&gt;&lt;/span&gt; Home
+                    &lt;/NavLink&gt;
+                &lt;/li&gt;
+
+                @if (FeatureXEnabled)
+                {
+                    &lt;li class="nav-item px-3"&gt;
+                        &lt;NavLink class="nav-link" href="featurexapi"&gt;
+                            &lt;span class="oi oi-list-rich" aria-hidden="true"&gt;&lt;/span&gt; Feature X API call
+                        &lt;/NavLink&gt;
+                    &lt;/li&gt;
+                }
+
+
+            &lt;/Authorized&gt;
+            &lt;NotAuthorized&gt;
+                &lt;li class="nav-item px-3"&gt;
+                    &lt;p class="whiteColor"&gt;no access&lt;/p&gt;
+                &lt;/li&gt;
+            &lt;/NotAuthorized&gt;
+        &lt;/AuthorizeView&gt;
+        
+    &lt;/ul&gt;
+&lt;/div&gt;
+
+@code {
+    private bool collapseNavMenu = true;
+
+    public bool FeatureXEnabled { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        FeatureXEnabled = await _featureManager.IsEnabledAsync(Features.FEATUREX);
+    }
+   
+    private string? NavMenuCssClass =&gt; collapseNavMenu ? "collapse" : null;
+
+    private void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+}
+  
+
+
+<p>The feature can now be turned on or off per configuration.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The Microsoft.FeatureManagement Nuget package provides many more feature management helpers and is really helpful when you need to support feature toggles or feature switches in a software solution or product. </p>
+
+
+
+<p></p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://dev.to/karthikchintala/the-comprehensive-guide-to-feature-management-in-aspnet-core-23d1">https://dev.to/karthikchintala/the-comprehensive-guide-to-feature-management-in-aspnet-core-23d1</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/azure-app-configuration/quickstart-feature-flag-aspnet-core?tabs=core6x">https://learn.microsoft.com/en-us/azure/azure-app-configuration/quickstart-feature-flag-aspnet-core?tabs=core6x</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/dotnet/api/microsoft.featuremanagement?view=azure-dotnet-preview">https://learn.microsoft.com/en-us/dotnet/api/microsoft.featuremanagement?view=azure-dotnet-preview</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/azure-app-configuration/use-feature-flags-dotnet-core?tabs=core5x">https://learn.microsoft.com/en-us/azure/azure-app-configuration/use-feature-flags-dotnet-core?tabs=core5x</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/11/featuremananagement_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:00 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/12/06/if-you-are.html'> If you are a Kiwi, you might like this post .. but what I’m </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   If you are a Kiwi, you might like this post .. but what I’m really wondering is whether he is right … so asking around. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>If you are a Kiwi, you <a href="https://john.philpin.com/2022/12/06/wayne-brown-should.html">might like this post</a> .. but what I’m really wondering is whether he is right … so asking around.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:40 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -782,7 +1186,7 @@
 
 <div class='item-footer'>
    01:00 &bull;
-   an hour ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -843,7 +1247,7 @@
 
 <div class='item-footer'>
    00:58 &bull;
-   an hour ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -909,7 +1313,7 @@
 
 <div class='item-footer'>
    00:50 &bull;
-   an hour ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -969,7 +1373,7 @@
 
 <div class='item-footer'>
    00:16 &bull;
-   2 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1103,7 +1507,7 @@
 
 <div class='item-footer'>
    00:10 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1178,7 +1582,7 @@
 
 <div class='item-footer'>
    23:51 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1254,7 +1658,7 @@
 
 <div class='item-footer'>
    23:06 &bull;
-   3 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1332,7 +1736,7 @@
 
 <div class='item-footer'>
    23:06 &bull;
-   3 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1469,7 +1873,7 @@
 
 <div class='item-footer'>
    22:27 &bull;
-   4 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1558,6 +1962,7 @@
  <a href="https://github.com/simonw/advent-of-code-2022-in-rust/issues/4">Day 3: Rucksack Reorganization</a> 
  <a href="https://github.com/simonw/advent-of-code-2022-in-rust/issues/5">Day 4: Camp Cleanup</a> 
  <a href="https://github.com/simonw/advent-of-code-2022-in-rust/issues/6">Day 5: Supply Stacks</a> 
+ <a href="https://github.com/simonw/advent-of-code-2022-in-rust/issues/8">Day 6: Tuning Trouble</a> 
  
 <p>I recommend checking out each issue in full if you want to follow how this has all been going.</p>
  Some examples from ChatGPT 
@@ -1652,7 +2057,7 @@ fn main() {
  Where it goes wrong 
 <p>An interesting part of this exercise is spotting where things go wrong.</p>
 <p>Rust is not an easy language to learn. There are concepts like the borrow checker that I've not even started touching on yet, and I'm still getting the hang of basic concepts like Options and Results.</p>
-<p>Mostly Copilot and ChatGPT have been able to act as confident guides - but every now and then I've run up against the shapre edges of their fake confidence combined and the fact that they're actually just language models with no genuine understanding of what they are doing.</p>
+<p>Mostly Copilot and ChatGPT have been able to act as confident guides - but every now and then I've run up against the sharp edges of their fake confidence combined and the fact that they're actually just language models with no genuine understanding of what they are doing.</p>
 <p>I had one instance where I lost about an hour to an increasingly frustrating back-and-forth over <a href="https://github.com/simonw/advent-of-code-2022-in-rust/issues/4#issuecomment-1336249276">an integer overflow error</a> - I ended up having to actually think hard about the problem after failing to debug it with ChatGPT!</p>
 <p>I wanted to figure out if the first character of a line was a <code>"1"</code>. ChatGPT lead me down <a href="https://github.com/simonw/advent-of-code-2022-in-rust/issues/6#issuecomment-1336783594">an infuriatingly complicated warren</a> of options - at one point I asked it "Why is this so hard!?" - until I finally independently stumbled across <code>if line.starts_with("1")</code> which was exactly what I needed. Turns out I should have asked "how do I check if a strings starts with another string" - using the word "character" had thrown it completely off.</p>
 <p>I also had an incident where I installed a package using <code>cargo add itertools</code> and decided I wanted to remove it. <a href="https://github.com/simonw/advent-of-code-2022-in-rust/issues/5#issuecomment-1336759988">I asked ChatGPT about it</a> and it confidently gave me instructions on using <code>cargo remove itertools</code>... which turns out to be a command that does not exist! It hallucinated that, then hallucinated some more options until I gave up and figured it out by myself.</p>
@@ -1685,7 +2090,7 @@ fn main() {
 
 <div class='item-footer'>
    21:11 &bull;
-   5 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1761,7 +2166,7 @@ fn main() {
 
 <div class='item-footer'>
    20:18 &bull;
-   6 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1823,7 +2228,7 @@ fn main() {
 
 <div class='item-footer'>
    18:59 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1883,7 +2288,7 @@ fn main() {
 
 <div class='item-footer'>
    18:28 &bull;
-   8 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1955,7 +2360,7 @@ fn main() {
 
 <div class='item-footer'>
    18:17 &bull;
-   8 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2027,7 +2432,7 @@ fn main() {
 
 <div class='item-footer'>
    17:44 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2089,7 +2494,7 @@ fn main() {
 
 <div class='item-footer'>
    17:14 &bull;
-   9 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2153,7 +2558,7 @@ fn main() {
 
 <div class='item-footer'>
    07:54 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2218,7 +2623,7 @@ fn main() {
 
 <div class='item-footer'>
    06:18 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2297,7 +2702,7 @@ fn main() {
 
 <div class='item-footer'>
    05:45 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2373,7 +2778,7 @@ fn main() {
 
 <div class='item-footer'>
    04:37 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -3264,7 +3669,7 @@ fn main() {
 
 <div class='item-footer'>
    15:11 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3483,7 +3888,7 @@ fn main() {
 
 <div class='item-footer'>
    21:37 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3546,7 +3951,7 @@ fn main() {
 
 <div class='item-footer'>
    21:26 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3609,7 +4014,7 @@ fn main() {
 
 <div class='item-footer'>
    20:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3682,7 +4087,7 @@ fn main() {
 
 <div class='item-footer'>
    18:23 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4791,7 +5196,7 @@ if (id) {
 
 <div class='item-footer'>
    21:31 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4858,83 +5263,7 @@ if (id) {
 
 <div class='item-footer'>
    21:17 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/12/03/no-you-dont.html'> No you don’t Andy. No you don’t. 
-</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   No you don’t Andy. No you don’t. 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/708e4d79ab.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>No you don’t Andy. No you don’t.</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/708e4d79ab.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:09 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5010,7 +5339,7 @@ if (id) {
 
 <div class='item-footer'>
    19:06 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5082,7 +5411,7 @@ if (id) {
 
 <div class='item-footer'>
    19:06 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5154,7 +5483,7 @@ if (id) {
 
 <div class='item-footer'>
    18:50 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5226,7 +5555,7 @@ if (id) {
 
 <div class='item-footer'>
    17:49 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5398,7 +5727,7 @@ if (id) {
 
 <div class='item-footer'>
    16:44 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5909,7 +6238,7 @@ And you can certainly get reach elsewhere.</p>
 
 <div class='item-footer'>
    20:11 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5981,7 +6310,7 @@ And you can certainly get reach elsewhere.</p>
 
 <div class='item-footer'>
    20:11 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6045,7 +6374,7 @@ And you can certainly get reach elsewhere.</p>
 
 <div class='item-footer'>
    18:35 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6119,7 +6448,7 @@ And you can certainly get reach elsewhere.</p>
 
 <div class='item-footer'>
    15:02 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6201,7 +6530,7 @@ And you can certainly get reach elsewhere.</p>
 
 <div class='item-footer'>
    14:12 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6267,7 +6596,7 @@ And you can certainly get reach elsewhere.</p>
 
 <div class='item-footer'>
    15:34 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6305,7 +6634,7 @@ And you can certainly get reach elsewhere.</p>
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  The following is an excerpt from a whitepaper I’m working on. Early feedback is always welcome. BREAKING NEWS: I’ve added some of the more recent revisions that have been made to the DIDComm-ARM to this preview post: Examples of these … Continue reading →
+  Copyright (c) 2021 Michael Herman (Alberta, Canada) – Creative Commons Attribution-ShareAlike 4.0 International Public Licensehttps://creativecommons.org/licenses/by-sa/4.0/legalcode The following is an excerpt from a whitepaper I’m working on. Early feedback is always welcome. BREAKING NEWS: I’ve added some of the more recent … Continue reading →
    
   
   
@@ -6321,6 +6650,10 @@ And you can certainly get reach elsewhere.</p>
    note: content goes first; than try summary
  -->
 <div class='wrap'>
+
+<p>Copyright (c) 2021 Michael Herman (Alberta, Canada) – Creative Commons Attribution-ShareAlike 4.0 International Public License<br><a href="https://creativecommons.org/licenses/by-sa/4.0/legalcode">https://creativecommons.org/licenses/by-sa/4.0/legalcode</a> </p>
+
+
 
 <p>The following is an excerpt from a whitepaper I’m working on.  Early feedback is always welcome.</p>
 
@@ -6496,7 +6829,7 @@ And you can certainly get reach elsewhere.</p>
 
 <div class='item-footer'>
    14:16 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6712,7 +7045,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    21:06 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7314,7 +7647,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    15:47 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7680,7 +8013,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    18:49 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7973,7 +8306,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    17:13 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8121,7 +8454,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    19:56 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8565,7 +8898,7 @@ public class MultiTenantApplicationApiService
 
 <div class='item-footer'>
    18:59 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8930,7 +9263,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    16:02 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8966,7 +9299,7 @@ FROM item_version_detail
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This preliminary taxonomy attempts to characterize the differences between facts, options, folklore, and related terminology. Your feedback is appreciated.
+  Copyright (c) 2021 Michael Herman (Alberta, Canada) – Creative Commons Attribution-ShareAlike 4.0 International Public Licensehttps://creativecommons.org/licenses/by-sa/4.0/legalcode This preliminary taxonomy attempts to characterize the differences between facts, options, folklore, and related terminology. Your feedback is appreciated.
    
   
   
@@ -8982,6 +9315,10 @@ FROM item_version_detail
    note: content goes first; than try summary
  -->
 <div class='wrap'>
+
+<p>Copyright (c) 2021 Michael Herman (Alberta, Canada) – Creative Commons Attribution-ShareAlike 4.0 International Public License<br><a href="https://creativecommons.org/licenses/by-sa/4.0/legalcode">https://creativecommons.org/licenses/by-sa/4.0/legalcode</a></p>
+
+
 
 <p>This preliminary taxonomy attempts to characterize the differences between facts, options, folklore, and related terminology. Your feedback is appreciated. </p>
 
@@ -9140,7 +9477,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    18:43 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9733,7 +10070,7 @@ end
 
 <div class='item-footer'>
    16:42 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9799,7 +10136,7 @@ end
 
 <div class='item-footer'>
    16:25 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10295,7 +10632,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    16:09 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10503,7 +10840,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    19:27 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10595,7 +10932,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    19:22 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10661,7 +10998,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    20:20 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11015,7 +11352,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    19:57 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11077,7 +11414,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    19:54 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11284,7 +11621,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    19:44 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11438,7 +11775,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    15:41 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11520,7 +11857,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    21:25 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18416,493 +18753,6 @@ The post <a href="https://realestatecafe.com/use-27th-anniversary-of-real-estate
 
 <div class='item-footer'>
    05:48 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 05. September 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/09/05/implement-a-grpc-api-with-openiddict-and-oauth-the-client-credentials-flow/'>Implement a GRPC API with OpenIddict and the OAuth client credentials flow</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post shows how to implement a GRPC service implemented in an ASP.NET Core kestrel hosted service. The GRPC service is protected using an access token. The client application uses the OAuth2 client credentials flow with introspection and the reference token is used to get access to the GRPC service. The GRPC API uses introspection […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post shows how to implement a GRPC service implemented in an ASP.NET Core kestrel hosted service. The GRPC service is protected using an access token. The client application uses the OAuth2 client credentials flow with introspection and the reference token is used to get access to the GRPC service. The GRPC API uses introspection to validate and authorize the access. OpenIddict is used to implement the identity provider.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreOpeniddict">https://github.com/damienbod/AspNetCoreOpeniddict</a></p>
-
-
-
-<p>The applications are setup with a identity provider implemented using OpenIddict, an GRPC service implemented using ASP.NET Core and a simple console application to request the token and use the API.</p>
-
-
-
-
-
-
-
-<p>Setup GRPC API</p>
-
-
-
-<p>The GRPC API service needs to add services and middleware to support introspection and to authorize the reference token. I use the AddOpenIddict method from the OpenIddict client Nuget package, but any client package which supports introspection could be used. If you decided to use a self contained JWT bearer token, then the standard JWT bearer token middleware could be used. This can only be used if the tokens are not encrypted and are self contained JWT tokens. The aud is defined as well as the required claims. A secret is required to use introspection.</p>
-
-
-
-<p></p>
-
-
-
-<p>GRPC is added and the kestrel is setup to support HTTP2. For local debugging, UseHttps is added. You should always develop with HTTPS and never HTTP as the dev environment should be as close as possible to the target system and you do not deploy unsecure HTTP services even when these are hidden behind a WAF.</p>
-
-
-  using GrpcApi;
-using OpenIddict.Validation.AspNetCore;
-
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddAuthentication(options =&gt;
-{
-    options.DefaultScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
-});
-
-builder.Services.AddOpenIddict()
-    .AddValidation(options =&gt;
-    {
-        // Note: the validation handler uses OpenID Connect discovery
-        // to retrieve the address of the introspection endpoint.
-        options.SetIssuer("https://localhost:44395/");
-        options.AddAudiences("rs_dataEventRecordsApi");
-
-        // Configure the validation handler to use introspection and register the client
-        // credentials used when communicating with the remote introspection endpoint.
-        options.UseIntrospection()
-                .SetClientId("rs_dataEventRecordsApi")
-                .SetClientSecret("dataEventRecordsSecret");
-
-        // disable access token encyption for this
-        options.UseAspNetCore();
-
-        // Register the System.Net.Http integration.
-        options.UseSystemNetHttp();
-
-        // Register the ASP.NET Core host.
-        options.UseAspNetCore();
-    });
-
-builder.Services.AddAuthorization(options =&gt;
-{
-    options.AddPolicy("dataEventRecordsPolicy", policyUser =&gt;
-    {
-        policyUser.RequireClaim("scope", "dataEventRecords");
-    });
-});
-
-builder.Services.AddGrpc();
-
-// Configure Kestrel to listen on a specific HTTP port 
-builder.WebHost.ConfigureKestrel(options =&gt;
-{
-    options.ListenAnyIP(8080);
-    options.ListenAnyIP(7179, listenOptions =&gt;
-    {
-        listenOptions.UseHttps();
-        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
-    });
-});
-  
-
-
-<p>The middleware is added like any secure API. GRPC is added instead of controllers, pages or whatever.</p>
-
-
-  var app = builder.Build();
-
-app.UseHttpsRedirection();
-
-app.UseRouting();
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.UseEndpoints(endpoints =&gt;
-{
-    endpoints.MapGrpcService&lt;GreeterService&gt;();
-
-    endpoints.MapGet("/", async context =&gt;
-    {
-        await context.Response.WriteAsync("GRPC service running...");
-    });
-});
-
-app.Run();
-  
-
-
-<p>The GRPC service is secured using the authorize attribute with a policy checking the scope claim.</p>
-
-
-  using Grpc.Core;
-using Microsoft.AspNetCore.Authorization;
-
-namespace GrpcApi;
-
-[Authorize("dataEventRecordsPolicy")]
-public class GreeterService : Greeter.GreeterBase
-{
-    public override Task&lt;HelloReply&gt; SayHello(HelloRequest request, ServerCallContext context)
-    {
-        return Task.FromResult(new HelloReply
-        {
-            Message = "Hello " + request.Name
-        });
-    }
-}
-  
-
-
-<p>A proto3 file is used to define the API. This is just the simple example from the Microsoft ASP.NET Core GRPC documentation.</p>
-
-
-  syntax = "proto3";
-
-option csharp_namespace = "GrpcApi";
-
-package greet;
-
-// The greeting service definition.
-service Greeter {
-  // Sends a greeting
-  rpc SayHello (HelloRequest) returns (HelloReply);
-}
-
-// The request message containing the user's name.
-message HelloRequest {
-  string name = 1;
-}
-
-// The response message containing the greetings.
-message HelloReply {
-  string message = 1;
-}
-  
-
-
-<p></p>
-
-
-
-<p>Setup OpenIddict client credentials flow with introspection</p>
-
-
-
-<p>We use OpenIddict to implement the client credentials flow with introspection. The client uses the grant type ClientCredentials and a secret to acquire the reference token.</p>
-
-
-  // API application CC
-if (await manager.FindByClientIdAsync("CC") == null)
-{
-	await manager.CreateAsync(new OpenIddictApplicationDescriptor
-	{
-		ClientId = "CC",
-		ClientSecret = "cc_secret",
-		DisplayName = "CC for protected API",
-		Permissions =
-		{
-			Permissions.Endpoints.Authorization,
-			Permissions.Endpoints.Token,
-			Permissions.GrantTypes.ClientCredentials,
-			Permissions.Prefixes.Scope + "dataEventRecords"
-		}
-	});
-}
-
-static async Task RegisterScopesAsync(IServiceProvider provider)
-{
-	var manager = provider.GetRequiredService&lt;IOpenIddictScopeManager&gt;();
-
-	if (await manager.FindByNameAsync("dataEventRecords") is null)
-	{
-		await manager.CreateAsync(new OpenIddictScopeDescriptor
-		{
-			DisplayName = "dataEventRecords API access",
-			DisplayNames =
-			{
-				[CultureInfo.GetCultureInfo("fr-FR")] = "Accès à l'API de démo"
-			},
-			Name = "dataEventRecords",
-			Resources =
-			{
-				"rs_dataEventRecordsApi"
-			}
-		});
-	}
-}
-  
-
-
-<p>The AddOpenIddict method is used to define the supported features of the OpenID Connect server. Per default, encryption is used as well as introspection. The AllowClientCredentialsFlow method is used to added the support for the OAuth client credentials flow. </p>
-
-
-  services.AddOpenIddict()
-.AddCore(options =&gt;
-{
-	options.UseEntityFrameworkCore()
-	   .UseDbContext&lt;ApplicationDbContext&gt;();
-	options.UseQuartz();
-})
-.AddServer(options =&gt;
-{
-	options.SetAuthorizationEndpointUris("/connect/authorize")
-	  .SetLogoutEndpointUris("/connect/logout")
-	  .SetIntrospectionEndpointUris("/connect/introspect")
-	  .SetTokenEndpointUris("/connect/token")
-	  .SetUserinfoEndpointUris("/connect/userinfo")
-	  .SetVerificationEndpointUris("/connect/verify");
-
-	options.AllowAuthorizationCodeFlow()
-	   .AllowHybridFlow()
-	   .AllowClientCredentialsFlow()
-	   .AllowRefreshTokenFlow();
-
-	options.RegisterScopes(Scopes.Email, 
-		Scopes.Profile, Scopes.Roles, "dataEventRecords");
-
-	// Register the signing and encryption credentials.
-	options.AddDevelopmentEncryptionCertificate()
-	   .AddDevelopmentSigningCertificate();
-
-	options.UseAspNetCore()
-	   .EnableAuthorizationEndpointPassthrough()
-	   .EnableLogoutEndpointPassthrough()
-	   .EnableTokenEndpointPassthrough()
-	   .EnableUserinfoEndpointPassthrough()
-	   .EnableStatusCodePagesIntegration();
-})
-  
-
-
-<p>You also need to update the Account controller exchange method to support the OAuth2 client credentials (CC) flow. See the OpenIddict samples for reference.</p>
-
-
-
-<p>Implementing the GRPC client</p>
-
-
-
-<p>The client gets an access token and uses this to request the data from the GRPC API. The ClientCredentialAccessTokenClient class requests the access token using a secret, client Id and a scope. In a real application, you should cache and only request a new access token if it has expired, or is about to expire.</p>
-
-
-  using IdentityModel.Client;
-using Microsoft.Extensions.Configuration;
-
-namespace GrpcAppClientConsole;
-
-public class ClientCredentialAccessTokenClient
-{
-    private readonly HttpClient _httpClient;
-    private readonly IConfiguration _configuration;
-
-    public ClientCredentialAccessTokenClient(
-        IConfiguration configuration,
-        HttpClient httpClient)
-    {
-        _configuration = configuration;
-        _httpClient = httpClient;
-    }
-
-    public async Task&lt;string&gt; GetAccessToken(
-        string api_name, string api_scope, string secret)
-    {
-        try
-        {
-            var disco = await HttpClientDiscoveryExtensions.GetDiscoveryDocumentAsync(
-                _httpClient,
-                _configuration["OpenIDConnectSettings:Authority"]);
-
-            if (disco.IsError)
-            {
-                Console.WriteLine($"disco error Status code: {disco.IsError}, Error: {disco.Error}");
-                throw new ApplicationException($"Status code: {disco.IsError}, Error: {disco.Error}");
-            }
-
-            var tokenResponse = await HttpClientTokenRequestExtensions.RequestClientCredentialsTokenAsync(_httpClient, new ClientCredentialsTokenRequest
-            {
-                Scope = api_scope,
-                ClientSecret = secret,
-                Address = disco.TokenEndpoint,
-                ClientId = api_name
-            });
-
-            if (tokenResponse.IsError)
-            {
-                Console.WriteLine($"tokenResponse.IsError Status code: {tokenResponse.IsError}, Error: {tokenResponse.Error}");
-                throw new ApplicationException($"Status code: {tokenResponse.IsError}, Error: {tokenResponse.Error}");
-            }
-
-            return tokenResponse.AccessToken;
-            
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine($"Exception {e}");
-            throw new ApplicationException($"Exception {e}");
-        }
-    }
-}
-  
-
-
-<p>The console application uses the access token to request the GRPC API data using the proto3 definition.</p>
-
-
-  using Grpc.Net.Client;
-using GrpcApi;
-using Microsoft.Extensions.Configuration;
-using Grpc.Core;
-using GrpcAppClientConsole;
-
-var builder = new ConfigurationBuilder()
-    .SetBasePath(Directory.GetCurrentDirectory())
-    .AddJsonFile("appsettings.json");
-
-var configuration = builder.Build();
-
-var clientCredentialAccessTokenClient 
-    = new ClientCredentialAccessTokenClient(configuration, new HttpClient());
-
-// 2. Get access token
-var accessToken = await clientCredentialAccessTokenClient.GetAccessToken(
-    "CC",
-    "dataEventRecords",
-    "cc_secret"
-);
-
-if (accessToken == null)
-{
-    Console.WriteLine("no auth result... ");
-}
-else
-{
-    Console.WriteLine(accessToken);
-
-    var tokenValue = "Bearer " + accessToken;
-    var metadata = new Metadata
-    {
-        { "Authorization", tokenValue }
-    };
-
-    var handler = new HttpClientHandler();
-
-    var channel = GrpcChannel.ForAddress(
-        configuration["ProtectedApiUrl"], 
-        new GrpcChannelOptions
-    {
-        HttpClient = new HttpClient(handler)
-        
-    });
-
-    CallOptions callOptions = new(metadata);
-
-    var client = new Greeter.GreeterClient(channel);
-
-    var reply = await client.SayHelloAsync(
-        new HelloRequest { Name = "GreeterClient" }, callOptions);
-
-    Console.WriteLine("Greeting: " + reply.Message);
-
-    Console.WriteLine("Press any key to exit...");
-    Console.ReadKey();
-}
-  
-
-
-<p>GRPC in ASP.NET Core works really well with any OAuth2, OpenID Connect server. This is my preferred way to secure GRPC services and I only use certification authentication if this is required due to the extra effort to setup the hosted environments and the deployment of the client and server certificates.</p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://github.com/grpc/grpc-dotnet/">https://github.com/grpc/grpc-dotnet/</a></p>
-
-
-
-<p><a href="https://docs.microsoft.com/en-us/aspnet/core/grpc">https://docs.microsoft.com/en-us/aspnet/core/grpc</a></p>
-
-
-
-<p><a href="https://documentation.openiddict.com/">https://documentation.openiddict.com/</a></p>
-
-
-
-<p><a href="https://github.com/openiddict/openiddict-samples">https://github.com/openiddict/openiddict-samples</a></p>
-
-
-
-<p><a href="https://github.com/openiddict/openiddict-core">https://github.com/openiddict/openiddict-core</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/09/openiddictgrpc_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:51 &bull;
    3 months ago
 </div>
 
