@@ -706,7 +706,7 @@
 
 </div>
 </div>
-<sup>Last Update 2:05 AM December 09, 2022 (UTC)</sup>
+<sup>Last Update 9:38 AM December 09, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -719,6 +719,129 @@
  <h2 class='new-date'>
   Friday, 09. December 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2022/12/09/when-your-database-is-an-http-client/'>When your database is an HTTP client</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Here are three things I once hoped — but no longer expect — to outlive: 1. PDF files 2. passwords 3. The occasional need to scrape data from web pages PDF files and passwords are topics for another day, but web scraping is timely. Today I was asked to corral data from the Steampipe blog, … Continue reading When your database is an HTTP client
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Here are three things I once hoped — but no longer expect — to outlive:</p>
+<p>1. PDF files</p>
+<p>2. passwords</p>
+<p>3. The occasional need to scrape data from web pages</p>
+<p>PDF files and passwords are topics for another day, but web scraping is timely. Today I was asked to corral data from the Steampipe blog, and the path of least resistance was (of course!) to extract it from the site. </p>
+<p>I was all warmed up for the exercise because we’d just published a <a href="https://steampipe.io/blog/steampipe-is-an-http-client">post</a> dramatically entitled “Why build an HTTP client into a database? So you can ingest web data directly!” In that post I show three solutions enabled by the <a href="https://hub.steampipe.io/plugins/turbot/net">Net plugin’s</a> <a href="https://hub.steampipe.io/plugins/turbot/net/tables/net_http_request">net_http_request</a> table. </p>
+<p>Since the dawn of the web, scraping has worked this way: Use a script to fetch the data, then save it for retrieval and analysis. You might use the script language to query the data, or the query language of a database. </p>
+<p>A couple of years ago I found a way to unify those ingredients: Run the script inside the database. You can do a lot with Postgres’ built-in procedural language, and even more if you activate Python inside Postgres. I went deeply into both and explained why in <a href="https://blog.jonudell.net/2021/07/24/pl-pgsql-versus-pl-python-heres-why-im-using-both-to-write-postgres-functions/">an earlier episode</a>.</p>
+<p>PL/Python was great for <a href="https://blog.jonudell.net/2021/08/19/postgres-set-returning-functions-that-self-memoize-as-materialized-views/">advanced uses</a>, and I used it for a bit of web scraping too. It all worked fine, and I never thought to ask this question: “What if the database is the HTTP client, and SQL the common way to reason over data coming through that pipe?”</p>
+<p>The examples in the post show what that’s like. In its simplest form you write a query like this.</p>
+ select
+    response_status_code,
+    jsonb_pretty(response_headers) as headers
+  from
+    net_http_request
+  where
+    url = 'https://steampipe.io'
+ 
+<p>The result is like this.</p>
+ +----------------------+-------------------------------------------------------+
+| response_status_code | headers                                               |
++----------------------+-------------------------------------------------------+
+| 200                  | {                                                     |
+|                      |     "Age": [                                          |
+|                      |         "45557"                                       |
+|                      |     ],                                                |
+|                      |     "Date": [                                         |
+|                      |         "Fri, 09 Dec 2022 06:46:40 GMT"               |
+|                      |     ],                                                |
+|                      |     "Etag": [                                         |
+|                      |         "W/\"614a142998557b388e053bfa4408cf70\""      |
+ 
+<p>The response_status_code is a regular Postgres column, the headers column is a JSONB column that you can index into (e.g. headers -&gt;&gt; 'etag'). If you also select the response_body column of the net_http_request table you’ll get another regular Postgres column containing the text of the web page. If it’s HTML text, you can use regular expressions to match patterns in it. If it’s JSON text you can use Postgres’ JSON functions to query and transform it. </p>
+<p>You can join fields nested in the JSON with other Postgres columns. And those other columns can belong to tables populated in any of the ways <a href="https://hub.steampipe.io/plugins">Steampipe plugins</a> populate tables: from JSON or GraphQL API endpoints, from CSV or Terraform or Yaml files, from anywhere really. As a developer writing Steampipe queries (and flowing results into dashboards) you see all of these sources as tables, you query them individually in all the ways Postgres can, and you join across diverse sources in a common way. </p>
+<p>Of course web pages are structured in ways that regular expressions can’t easily grok. It’s easy to match links, but parsing HTML tag names and attributes is a job for a real parser. I’d made a start on an <a href="https://github.com/turbot/steampipe-plugin-html">HTML plugin</a> for Steampipe. There were already two tables: one to extract links from a web page, one to transform HTML tables to CSV format. So today, when tasked with tabulating blog metadata, I added a third table to enable these queries.</p>
+ -- find the title
+
+select
+  page,
+  tag_name,
+  tag_content
+from
+  html_tag
+where
+  page = 'https://steampipe.io/blog/selective-select'
+  and tag_name = 'title'
+
+-- list the meta tags
+
+select
+  page,
+  tag_name,
+  tag_attrs
+from
+  html_tag
+where
+  page = 'https://steampipe.io/blog/selective-select'
+  and tag_name = 'meta'
+ 
+<p>That’s a powerful way to reason over HTML data! It was easy for me to extend the HTML plugin in this way, and I assure you that I’m no 10x programmer. The <a href="https://github.com/turbot/steampipe-plugin-sdk">Steampipe plugin SDK</a> and the wonderful <a href="https://github.com/PuerkitoBio/goquery">goquery package</a> are doing all the heavy lifting. I just had to stitch the components together, and if you’re any kind of programmer, with or without Go experience, you could pretty readily do the same.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   08:05 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -774,7 +897,7 @@
 
 <div class='item-footer'>
    01:15 &bull;
-   an hour ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -844,7 +967,7 @@
 
 <div class='item-footer'>
    00:03 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -911,7 +1034,7 @@
 
 <div class='item-footer'>
    23:59 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -974,7 +1097,7 @@
 
 <div class='item-footer'>
    23:35 &bull;
-   3 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1049,7 +1172,7 @@
 
 <div class='item-footer'>
    23:30 &bull;
-   3 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1119,7 +1242,7 @@
 
 <div class='item-footer'>
    23:28 &bull;
-   3 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1182,7 +1305,7 @@
 
 <div class='item-footer'>
    23:02 &bull;
-   3 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1258,7 +1381,7 @@
 
 <div class='item-footer'>
    22:25 &bull;
-   4 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1325,7 +1448,7 @@
 
 <div class='item-footer'>
    21:19 &bull;
-   5 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1388,7 +1511,7 @@
 
 <div class='item-footer'>
    21:07 &bull;
-   5 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1451,7 +1574,7 @@
 
 <div class='item-footer'>
    21:02 &bull;
-   5 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1527,7 +1650,7 @@
 
 <div class='item-footer'>
    20:12 &bull;
-   6 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1631,7 +1754,7 @@
 
 <div class='item-footer'>
    19:31 &bull;
-   7 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1707,7 +1830,7 @@
 
 <div class='item-footer'>
    18:57 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1777,7 +1900,7 @@
 
 <div class='item-footer'>
    18:30 &bull;
-   8 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1847,7 +1970,7 @@
 
 <div class='item-footer'>
    02:29 &bull;
-   24 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2519,7 +2642,7 @@
 
 <div class='item-footer'>
    14:47 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2727,7 +2850,7 @@
 
 <div class='item-footer'>
    13:30 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3658,7 +3781,7 @@ Now I need to write that #introduction!</p>
 
 <div class='item-footer'>
    19:30 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3768,7 +3891,7 @@ Now I need to write that #introduction!</p>
 
 <div class='item-footer'>
    18:54 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3832,7 +3955,7 @@ Now I need to write that #introduction!</p>
 
 <div class='item-footer'>
    14:25 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5215,7 +5338,7 @@ fn main() {
 
 <div class='item-footer'>
    21:11 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5291,7 +5414,7 @@ fn main() {
 
 <div class='item-footer'>
    20:18 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5353,7 +5476,7 @@ fn main() {
 
 <div class='item-footer'>
    18:59 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5413,7 +5536,7 @@ fn main() {
 
 <div class='item-footer'>
    18:28 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5485,7 +5608,7 @@ fn main() {
 
 <div class='item-footer'>
    18:17 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5557,7 +5680,7 @@ fn main() {
 
 <div class='item-footer'>
    17:44 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5619,7 +5742,7 @@ fn main() {
 
 <div class='item-footer'>
    17:14 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5871,7 +5994,7 @@ fn main() {
     
       <div class="preview">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/2f021d29f0.png'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2022/2f021d29f0.png'>
       </div>
     
   
@@ -5893,7 +6016,7 @@ fn main() {
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/2f021d29f0.png'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2022/2f021d29f0.png'>
       </div>
     
   
@@ -5946,7 +6069,7 @@ fn main() {
     
       <div class="preview">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2022/e608ee5952.png'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2022/e608ee5952.png'>
       </div>
     
   
@@ -5968,7 +6091,7 @@ fn main() {
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2022/e608ee5952.png'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2022/e608ee5952.png'>
       </div>
     
   
@@ -6336,7 +6459,7 @@ fn main() {
 
 <div class='item-footer'>
    16:42 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6463,7 +6586,7 @@ fn main() {
 
 <div class='item-footer'>
    15:11 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6686,7 +6809,7 @@ fn main() {
 
 <div class='item-footer'>
    18:23 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7389,7 +7512,7 @@ if (id) {
 
 <div class='item-footer'>
    21:31 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7561,7 +7684,7 @@ if (id) {
 
 <div class='item-footer'>
    16:44 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7781,7 +7904,7 @@ if (id) {
 
 <div class='item-footer'>
    18:35 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7855,7 +7978,7 @@ if (id) {
 
 <div class='item-footer'>
    15:02 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7937,7 +8060,7 @@ if (id) {
 
 <div class='item-footer'>
    14:12 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8003,7 +8126,7 @@ if (id) {
 
 <div class='item-footer'>
    15:34 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8246,7 +8369,7 @@ if (id) {
 
 <div class='item-footer'>
    14:16 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8462,7 +8585,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    21:06 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9064,7 +9187,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    15:47 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9430,7 +9553,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    18:49 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9723,7 +9846,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    17:13 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9871,7 +9994,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    19:56 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10315,7 +10438,7 @@ public class MultiTenantApplicationApiService
 
 <div class='item-footer'>
    18:59 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10680,7 +10803,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    16:02 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10894,7 +11017,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    18:43 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11487,7 +11610,7 @@ end
 
 <div class='item-footer'>
    16:42 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11553,7 +11676,7 @@ end
 
 <div class='item-footer'>
    16:25 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12049,7 +12172,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    16:09 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12257,7 +12380,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    19:27 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12349,7 +12472,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    19:22 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12415,7 +12538,7 @@ sudo apt install nginx libnginx-mod-rtmp
 
 <div class='item-footer'>
    20:20 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -27090,82 +27213,6 @@ Can we redo it and get it right this time? I don’t doubt our technical and ind
 
 <div class='item-footer'>
    20:09 &bull;
-   9 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 21. March 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.heathervescent.com/'>Heather Vescent</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://heathervescent.medium.com/beyond-the-metaverse-hype-409d77451cf8?source=rss-d2cae665ce3c------2'>Beyond the Metaverse Hype</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Seven Reflections Photo by Harry Quan on&nbsp;Unsplash On March 11, 2022, I was a panelist on The Metaverse: The Emperor’s New Clothes panel at the Vancouver International Privacy &amp; Security Summit’s panel. Nik Badminton set the scene and led a discussion with myself, James Hursthouse and Kharis O’Connell. Here are seven reflections.   Games are a playful way to explore who we are, to process 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/0*jGjZkwyEIjrXkvtd'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- Seven Reflections Photo by <a href="https://unsplash.com/@mango_quan?utm_source=medium&amp;utm_medium=referral">Harry Quan</a> on&nbsp;<a href="https://unsplash.com?utm_source=medium&amp;utm_medium=referral">Unsplash</a><p>On March 11, 2022, I was a panelist on The Metaverse: The Emperor’s New Clothes panel at the <a href="https://www.rebootcommunications.com/event/vipss-2022/">Vancouver International Privacy &amp; Security Summit</a>’s panel. Nik Badminton set the scene and led a discussion with myself, James Hursthouse and Kharis O’Connell. Here are seven reflections.</p>  Games are a playful way to explore who we are, to process and interact with people in a way we can’t do IRL. Games are a way to try on other identities, to create or adjust our mental map of the&nbsp;world.  Companies won’t protect me. I’m concerned we are not fully aware of the data that can be tracked with VR hardware. From a quantified self perspective, I would love to know more information about myself to be a better human; but I don’t trust companies. Companies will weaponize any scrap of data to manipulate you and I into buying something (advertising), and even believing something that isn’t true (disinformation).  Privacy for all. We need to shift thinking around privacy and security. It’s not something we each should individually have to fight for — for one of us to have privacy, all of us must have privacy. <a href="https://www.biometricupdate.com/202201/the-metaverse-a-missed-opportunity-for-data-ownership-and-privacy">I wrote some longer thoughts in this&nbsp;article.</a>  Capitalism needs Commons. Capitalism can’t exist without a commons to exploit. And commons will dry up if they are not replenished or created anew. So we need to support the continuity and creation of commons. Governments traditionally are in the role of protecting commons. But people can come together to create common technological languages, like technology standards to enable interoperable technology “rails” that pave the way for an open marketplace.  We need new business models. The point of a business model is profit first. This bias has created the current set of problems. In order to solve the world’s problems, we must wean ourselves off profit as the primary objective. I’m not saying that making money isn’t important, it is. But profit at all costs is what has got us into the current set of world problems.  Appreciate the past. I’m worried too much knowledge about how we’ve done things in the past is being lost. But not everything needs to go into the future. Identify what has worked and keep doing it. Identify what hasn’t worked and iterate to improve on it. This is how you help build on the past and contribute to the&nbsp;future.  Things will fail. There is a lot of energy (and money) in the Metaverse, and I don’t see it going away. That said, there will be failures. If the experimentation fails, is that so bad? In order to understand what is possible, we have to venture a bit into the realm of what’s impossible.  <p>Watch the whole video for the thought-provoking conversation.</p><p>Thank you to Nik, Kharis, James and everyone at the Vancouver International Privacy &amp; Security&nbsp;Summit!</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*jGjZkwyEIjrXkvtd'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:37 &bull;
    9 months ago
 </div>
 
