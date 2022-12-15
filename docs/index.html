@@ -706,7 +706,7 @@
 
 </div>
 </div>
-<sup>Last Update 9:38 AM December 15, 2022 (UTC)</sup>
+<sup>Last Update 6:38 PM December 15, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -719,6 +719,644 @@
  <h2 class='new-date'>
   Thursday, 15. December 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2022/Dec/15/datasette-1a2/#atom-everything'>Datasette 1.0a2: Upserts and finely grained permissions</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I've released the third alpha of Datasette 1.0. The 1.0a2 release introduces upsert support to the new JSON API and makes some major improvements to the Datasette permissions system. 
+ Here are the annotated releases (see previous). 
+ You can install and try out the alpha using: 
+ pip install datasette==1.0a2
+ 
+ Upserts for the JSON API 
+ 
+ New /db/table/-/upsert API, documented here. Upsert is an
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2022/create-api-token.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I've released the third alpha of Datasette 1.0. The <a href="https://docs.datasette.io/en/latest/changelog.html#a2-2022-12-14">1.0a2 release</a> introduces upsert support to the new JSON API and makes some major improvements to the Datasette permissions system.</p>
+<p>Here are the annotated releases (<a href="https://simonwillison.net/series/datasette-release-notes/">see previous</a>).</p>
+<p>You can install and try out the alpha using:</p>
+ <code>pip install datasette==1.0a2
+</code> 
+ Upserts for the JSON API 
+<blockquote>
+<p>New <code>/db/table/-/upsert</code> API, <a href="https://docs.datasette.io/en/latest/json_api.html#tableupsertview">documented here</a>. Upsert is an update-or-insert: existing rows will have specified keys updated, but if no row matches the incoming primary key a brand new row will be inserted instead. (<a href="https://github.com/simonw/datasette/issues/1878">#1878</a>)</p>
+</blockquote>
+<p>I <a href="https://simonwillison.net/2022/Dec/2/datasette-write-api/">wrote about the new JSON Write API</a> when I released the first alpha a couple of weeks ago.</p>
+<p>The API can be used to create and drop tables, and to insert, update and delete rows in those tables.</p>
+<p>The new <code>/db/table/-/upsert</code> API adds <a href="https://docs.datasette.io/en/latest/json_api.html#tableupsertview">upsert support</a> to Datasette.</p>
+<p>An upsert is a update-or-insert. Consider the following:</p>
+ <code>POST /books/authors/-/upsert
+Authorization: Bearer $TOKEN
+Content-Type: application/json
+</code> 
+  {
+  "rows": [
+    {
+      "id": 1,
+      "name": "Ursula K. Le Guin",
+      "born": "1929-10-21"
+    },
+    {
+      "id": 2,
+      "name": "Terry Pratchett",
+      "born": "1948-04-28"
+    },
+    {
+      "id": 3,
+      "name": "Neil Gaiman",
+      "born": "1960-11-10"
+    }
+  ]
+}  
+<p>This table has a primary key of <code>id</code>. The above API call will create three records if the table is empty. But if the table already has records matching any of those primary keys, their <code>name</code> and <code>born</code> columns will be updated to match the incoming data.</p>
+<p>Upserts can be a really convenient way of synchronizing data with an external data source. I had a couple of enquiries about them when I published the first alpha, so I decided to make them a key feature for this release.</p>
+ Ignore and replace for the create table API 
+<blockquote>
+ 
+ The <code>/db/-/create</code> API for <a href="https://docs.datasette.io/en/latest/json_api.html#tablecreateview">creating a table</a> now accepts <code>"ignore": true</code> and <code>"replace": true</code> options when called with the <code>"rows"</code> property that creates a new table based on an example set of rows. This means the API can be called multiple times with different rows, setting rules for what should happen if a primary key collides with an existing row. (<a href="https://github.com/simonw/datasette/issues/1927">#1927</a>) 
+ 
+<code>/db/-/create</code> API now requires actor to have <code>insert-row</code> permission in order to use the <code>"row"</code> or <code>"rows"</code> properties. (<a href="https://github.com/simonw/datasette/issues/1937">#1937</a>) 
+ 
+</blockquote>
+<p>This feature is a little less obvious, but I think it's going to be really useful.</p>
+<p>The <code>/db/-/create</code> API can be used to create a new table. You can feed it <a href="https://docs.datasette.io/en/latest/json_api.html#creating-a-table">an explicit list of columns</a>, but you can also give it one or more rows and have it <a href="https://docs.datasette.io/en/latest/json_api.html#creating-a-table-from-example-data">infer the correct schema</a> based on those examples.</p>
+<p>Datasette inherits this feature <a href="https://sqlite-utils.datasette.io/en/stable/cli.html#inserting-json-data">from sqlite-utils</a> - I've been finding this an incredibly productive way to work with SQLite databases for a few years now.</p>
+<p>The real magic of this feature is that you can pipe data into Datasette without even needing to first check that the appropriate table has been created. It's a really fast way of getting from data to a populated database and a working API.</p>
+<p>Prior to 1.0a2 you could call <code>/db/-/create</code> with <code>"rows"</code> more than once and it would probably work... unless you attempted to insert rows with primary keys that were already in use - in which case you would get an error. This limited the utility of the feature.</p>
+<p>Now you can pass <code>"ignore": true</code> or <code>"replace": true</code> to the API call, to tell Datasette what to do if it encounters a primary key that already exists in the table.</p>
+<p>Heres an example using the author data from above:</p>
+ <code>POST /books/-/create
+Authorization: Bearer $TOKEN
+Content-Type: application/json
+</code> 
+  {
+  "table": "authors",
+  "pk": "id",
+  "replace": true,
+  "rows": [
+    {
+      "id": 1,
+      "name": "Ursula K. Le Guin",
+      "born": "1929-10-21"
+    },
+    {
+      "id": 2,
+      "name": "Terry Pratchett",
+      "born": "1948-04-28"
+    },
+    {
+      "id": 3,
+      "name": "Neil Gaiman",
+      "born": "1960-11-10"
+    }
+  ]
+}  
+<p>This will create the <code>authors</code> table if it does not exist and ensure that those three rows exist in it, in their exact state. If a row already exists it will be replaced.</p>
+<p>Note that this is subtly different from an upsert. An upsert will only update the columns that were provided in the incoming data, leaving any other columns unchanged. A replace will replace the entire row.</p>
+ Finely grained permissions 
+<p>This is the most significant area of improvement in this release.</p>
+<blockquote>
+ 
+ New <a href="https://docs.datasette.io/en/latest/plugin_hooks.html#plugin-register-permissions">register_permissions(datasette)</a> plugin hook. Plugins can now register named permissions, which will then be listed in various interfaces that show available permissions. (<a href="https://github.com/simonw/datasette/issues/1940">#1940</a>) 
+ 
+</blockquote>
+<p>Prior to this, permissions were just strings - things like <code>"view-instance"</code> or <code>"view-table"</code> or <code>"insert-row"</code>.</p>
+<p>Plugins can introduce their own permissions - many do already, like <a href="https://datasette.io/plugins/datasette-edit-schema">datasette-edit-schema</a> which adds a <code>"edit-schema"</code> permission.</p>
+<p>In order to start building UIs for managing permissions, I needed Datasette to know what they were!</p>
+<p>The <a href="https://docs.datasette.io/en/latest/plugin_hooks.html#plugin-register-permissions">register_permissions() hook</a> lets them do exactly that, and Datasette core uses it to register its own default set of permissions too.</p>
+<p>Permissions are registered using the following named tuple:</p>
+ Permission = collections.namedtuple(
+    "Permission", (
+        "name", "abbr", "description",
+        "takes_database", "takes_resource", "default"
+    )
+) 
+<p>The <code>abbr</code> is an abbreviation - e.g. <code>insert-row</code> can be abbreviated to <code>ir</code>. This is useful for creating things like signed API tokens where space is at a premium.</p>
+<p><code>takes_database</code> and <code>takes_resource</code> are booleans that indicate whether the permission can optionally be applied to a specific database (e.g. <code>execute-sql</code>) or to a "resource", which is the name I'm now using for something that could be a SQL table, a SQL view or a <a href="https://docs.datasette.io/en/stable/sql_queries.html#canned-queries">canned query</a>.</p>
+<p>The <code>insert-row</code> permission for example can be granted to the whole of Datasette, or to all tables in a specific database, or to specific tables.</p>
+<p>Finally, the <code>default</code> value is a boolean that indicates whether the permission should be default-allow (<code>view-instance</code> for example) or default-deny (<code>create-table</code> and suchlike).</p>
+<p>This next feature explains why I needed those permission names to be known to Datasette:</p>
+<blockquote>
+ 
+ The <code>/-/create-token</code> page can now be used to create API tokens which are restricted to just a subset of actions, including against specific databases or resources. See <a href="https://docs.datasette.io/en/latest/authentication.html#createtokenview">API Tokens</a> for details. (<a href="https://github.com/simonw/datasette/issues/1947">#1947</a>) 
+ 
+</blockquote>
+<p>Datasette now has finely grained permissions for API tokens!</p>
+<p>This is the feature I always want when I'm working with other APIs: the ability to create a token that can only perform a restricted subset of actions.</p>
+<p>When I'm working with the GitHub API for example I frequently find myself wanting to create a "personal access token" that only has the ability to read issues from a specific repository. It's infuriating how many APIs leave this ability out.</p>
+<p>The <code>/-/create-token</code> interface (which you can try out on <a href="https://latest.datasette.io/">latest.datasette.io</a> by first <a href="https://latest.datasette.io/login-as-root">signing in as root</a> and then <a href="https://latest.datasette.io/-/create-token">visiting this page</a>) lets you create an API token that can act on your behalf... and then optionally specify a subset of actions that the token is allowed to perform.</p>
+<p>Thanks to the new permissions registration system, the UI on that page knows which permissions can be applied to which entities within Datasette itself.</p>
+<p>Here's a partial screenshot of the UI:</p>
+<p></p>
+<p>Select a subset of permissions, hit "Create token" and the result will be an access token you can copy and paste into another application, or use to call Datasette with <code>curl</code>.</p>
+<p>Here's an example token I created that grants <code>view-instance</code> permission against all of Datasette, and <code>view-database</code> and <code>execute-sql</code> permission against the <code>ephemeral</code> database, which in that demo is hidden from anonymous Datasette users.</p>
+<p><code>dstok_eyJhIjoicm9vdCIsInQiOjE2NzEwODUzMDIsIl9yIjp7ImEiOlsidmkiXSwiZCI6eyJlcGhlbWVyYWwiOlsidmQiLCJlcyJdfX19.1uw0xyx8UND_Y_vTVg5kEF6m3GU</code></p>
+<p>Here's a screenshot of the screen I saw when I created it:</p>
+<p></p>
+<p>I've expanded the "token details" section to show the JSON that is bundled inside the signed token. The <code>"_r"</code> block records the specific permissions granted by the token:</p>
+ 
+ 
+<code>"a": ["vi"]</code> indicates that the <code>view-instance</code> permission is granted against all of Datasette. 
+ 
+<code>"d": {"ephemeral": ["vd", "es"]}</code> indicates that the <code>view-database</code> and <code>execute-sql</code> permissions are granted against the <code>ephemeral</code> database. 
+ 
+<p>The token also contains the ID of the user who created it (<code>"a": "root"</code>) and the time that the token was created (<code>"t": 1671085302</code>). If the token was set to expire that expiry duration would be baked in here as well.</p>
+<p>You can see the effect this has on the command-line using <code>curl</code> like so:</p>
+<p><code>curl 'https://latest.datasette.io/ephemeral.json?sql=select+3+*+5&amp;_shape=array'</code></p>
+<p>This will return a forbidden error. But if you add the signed token:</p>
+<p><code>curl 'https://latest.datasette.io/ephemeral.json?sql=select+3+*+5&amp;_shape=array' -H 'Authorization: Bearer dstok_eyJhIjoicm9vdCIsInQiOjE2NzEwODUzMDIsIl9yIjp7ImEiOlsidmkiXSwiZCI6eyJlcGhlbWVyYWwiOlsidmQiLCJlcyJdfX19.1uw0xyx8UND_Y_vTVg5kEF6m3GU'</code></p>
+<p>You'll get back a JSON response:</p>
+  [{"3 * 5": 15}]  
+ The datasette create-token CLI tool 
+<blockquote>
+ 
+ Likewise, the <code>datasette create-token</code> CLI command can now create tokens with <a href="https://docs.datasette.io/en/latest/authentication.html#authentication-cli-create-token-restrict">a subset of permissions</a>. (<a href="https://github.com/simonw/datasette/issues/1855">#1855</a>) 
+ New <a href="https://docs.datasette.io/en/latest/internals.html#create-token-actor-id-expires-after-none-restrict-all-none-restrict-database-none-restrict-resource-none">datasette.create_token()</a> API method for programmatically creating signed API tokens. (<a href="https://github.com/simonw/datasette/issues/1951">#1951</a>) 
+ 
+</blockquote>
+<p>The other way you can create Datasette tokens is on the command-line, using <a href="https://docs.datasette.io/en/latest/authentication.html#datasette-create-token">the datasette create-token command</a>.</p>
+<p>That's been upgraded to support finely grained permissions too.</p>
+<p>Here's how you'd create a token for the same set of permissions as my ephemeral example above:</p>
+ <code>datasette create-token root \
+  --all view-instance \
+  --database ephemeral view-database \
+  --database ephemeral execute-sql \
+  --secret MY_DATASETTE_SECRET
+</code> 
+<p>In order to sign the token you need to pass in the <code>--secret</code> used by the server - although it will pick that up from the <code>DATASETTE_SECRET</code> environment variable if it's available.</p>
+<p>This has the interesting side-effect that you can use that command to create valid tokens for other Datasette instances, provided you know the secret they're using. I think this ability will be really useful for people like myself who run lots of different Datasette instances on stateless hosting platforms such as Vercel and Google Cloud Run.</p>
+ Configuring permissions in metadata.json/yaml 
+<blockquote>
+ 
+ Arbitrary permissions can now be configured at the instance, database and resource (table, SQL view or canned query) level in Datasette's <a href="https://docs.datasette.io/en/latest/metadata.html#metadata">Metadata</a> JSON and YAML files. The new <code>"permissions"</code> key can be used to specify which actors should have which permissions. See <a href="https://docs.datasette.io/en/latest/authentication.html#authentication-permissions-other">Other permissions in metadata</a> for details. (<a href="https://github.com/simonw/datasette/issues/1636">#1636</a>) 
+ 
+</blockquote>
+<p>Datasette has long had the ability to set permissions for viewing databases and tables using blocks of configuration in the increasingly poorly named <a href="https://docs.datasette.io/en/stable/metadata.html">metadata.json/yaml files</a>.</p>
+<p>As I've built new plugins that introduce new permissions, I've found myself wishing for an easier way to say "user X is allowed to perform action Y" for arbitrary other permissions.</p>
+<p>The new <code>"permissions"</code> key in metadata.json/yaml files allows you to do that.</p>
+<p>Here's how to specify that the user with <code>"id": "simon"</code> is allowed to use the API to create tables and insert data into the <code>docs</code> database:</p>
+  databases:
+  docs:
+    permissions:
+      create-table:
+        id: simon
+      insert-row:
+        id: simon  
+<p>Here's a demo you can run on your own machine. Save the above to <code>permissions.yaml</code> and run the following in one terminal window:</p>
+ <code>datasette docs.db --create --secret sekrit -m permissions.yaml
+</code> 
+<p>This will create the <code>docs.db</code> database if it doesn't already exist, and start Datasette with the <code>permissions.yaml</code> metadata file.</p>
+<p>It sets <code>--secret</code> to a known value (you should always use a random secure secret in production) so we can easily use it with <code>create-token</code> in the next step:</p>
+<p>Then in another terminal window run:</p>
+ <code>export TOKEN=$(
+  datasette create-token simon \
+  --secret sekrit
+)
+curl -XPOST http://localhost:8001/docs/-/create \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "table": "demo",
+    "row": {"id": 1, "name": "Simon"},
+    "pk": "id"
+  }'
+</code> 
+<p>The first line creates a token that can act on behalf of the <code>simon</code> actor. The second <code>curl</code> line then uses that token to create a table using the <code>/-/create</code> endpoint.</p>
+<p>Run this, then visit <a href="http://localhost:8001/docs/demo">http://localhost:8001/docs/demo</a> to see the newly created table.</p>
+ What's next? 
+<p>With the 1.0a2 release I'm reasonably confident that Datasette 1.0 is new-feature-complete. There's still a lot of work to do before the final release, but the remaining work is far more intimidating: I need to make clean backwards-incompatible breakages to a whole host of existing features in order to ship a 1.0 that I can keep stable for as long as possible.</p>
+<p>First up: I'm going to <a href="https://github.com/simonw/datasette/issues/1914">redesign Datasette's default API output</a>.</p>
+<p>The current default JSON output for a simple table looks like this:</p>
+  {
+  "database": "fixtures",
+  "table": "facet_cities",
+  "is_view": false,
+  "human_description_en": "sorted by name",
+  "rows": [
+    [
+      3,
+      "Detroit"
+    ],
+    [
+      2,
+      "Los Angeles"
+    ],
+    [
+      4,
+      "Memnonia"
+    ],
+    [
+      1,
+      "San Francisco"
+    ]
+  ],
+  "truncated": false,
+  "filtered_table_rows_count": 4,
+  "expanded_columns": [],
+  "expandable_columns": [],
+  "columns": [
+    "id",
+    "name"
+  ],
+  "primary_keys": [
+    "id"
+  ],
+  "units": {},
+  "query": {
+    "sql": "select id, name from facet_cities order by name limit 101",
+    "params": {}
+  },
+  "facet_results": {},
+  "suggested_facets": [],
+  "next": null,
+  "next_url": null,
+  "private": false,
+  "allow_execute_sql": true,
+  "query_ms": 6.718471999647591,
+  "source": "tests/fixtures.py",
+  "source_url": "https://github.com/simonw/datasette/blob/main/tests/fixtures.py",
+  "license": "Apache License 2.0",
+  "license_url": "https://github.com/simonw/datasette/blob/main/LICENSE"
+}  
+<p>In addition to being really verbose, you'll note that the rows themselves are represented like this:</p>
+  [
+  [
+    3,
+    "Detroit"
+  ],
+  [
+    2,
+    "Los Angeles"
+  ],
+  [
+    4,
+    "Memnonia"
+  ],
+  [
+    1,
+    "San Francisco"
+  ]
+]  
+<p>I originally designed it this way because I thought saving on repeating the column names for every row would be more efficient.</p>
+<p>In practice, every single time I've used Datasette's API I've found myself using the <code>?_shape=array</code> parameter, which outputs this format instead:</p>
+  [
+  {
+    "id": 3,
+    "name": "Detroit"
+  },
+  {
+    "id": 2,
+    "name": "Los Angeles"
+  },
+  {
+    "id": 4,
+    "name": "Memnonia"
+  },
+  {
+    "id": 1,
+    "name": "San Francisco"
+  }
+]  
+<p>It's just so much more convenient to work with!</p>
+<p>So the new default format will look like this:</p>
+  {
+  "rows": [
+    {
+      "id": 3,
+      "name": "Detroit"
+    },
+    {
+      "id": 2,
+      "name": "Los Angeles"
+    },
+    {
+      "id": 4,
+      "name": "Memnonia"
+    },
+    {
+      "id": 1,
+      "name": "San Francisco"
+    }
+  ]
+}  
+<p>The <code>rows</code> key is there so I can add extra keys to the output, based on additional <code>?_extra=</code> request parameters. You'll be able to get back everything you can get in the current full-fat table API, but you'll have to ask for it.</p>
+<p>There are a ton of other changes I want to make to Datasette as a whole - things like renaming <code>metadata.yaml</code> to <code>config.yaml</code> to reflect that it's gone way beyond its origins as a way of attaching metadata to a database.</p>
+<p>The <a href="https://github.com/simonw/datasette/milestone/7">1.0 milestone</a> is a dumping ground for many of these ideas. It's not a canonical reference though: I'd be very surprised if everything currently in that milestone makes it into the final 1.0 release.</p>
+<p>As I get closer to 1.0 though I'll be refining that milestone so it should get more accurate over time.</p>
+<p>Once again: now is the time to be providing feedback on this stuff! The <a href="https://datasette.io/discord">Datasette Discord</a> is a particularly valuable way for me to get feedback on the work so far, and my plans for the future.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2022/create-api-token.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:58 &bull;
+   43 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://altmode.org'>Altmode</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://altmode.org/2022/12/15/civil-rights-journey-day-10-montgomery-to-home/'>Civil Rights Journey Day 10: Montgomery to Home</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Thursday, October 27, 2022 With the other members of our group having already departed, we joined our friends Liz and Peter to explore a few more places in Montgomery. We started our day at the Civil Rights Memorial Center, part of the Southern Poverty Law Center headquarters. The Memorial Center wasn’t large, but had some […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Thursday, October 27, 2022</p>
+
+
+
+<p>With the other members of our group having already departed, we joined our friends Liz and Peter to explore a few more places in Montgomery. We started our day at the <a href="https://www.splcenter.org/civil-rights-memorial">Civil Rights Memorial Center</a>, part of the Southern Poverty Law Center headquarters. The Memorial Center wasn’t large, but had some excellent multimedia presentations on the civil rights struggle, both historical and ongoing.</p>
+
+
+
+<p>From there we walked over to the former Greyhound bus station associated with the Freedom Riders. The station is now a small museum, the <a href="https://ahc.alabama.gov/properties/freedomrides/freedomrides.aspx">Freedom Rides Museum</a>, and has signs on the outside with a detailed history. While there, a Black woman drove up to take some <a href="https://www.instagram.com/p/CkQZACWPxyt/">video</a> of the bus station and we had a somewhat surprising conversation with her. She was not entirely pleased with the placement of all of the civil rights museums and displays in Montgomery — she thought that the Black community needed to strengthen themselves and didn’t need to be constantly reminded of their struggles.</p>
+
+
+ 
+<a href="https://altmode.files.wordpress.com/2022/12/img_8915.jpg"></a>Freedom Rides Museum 
+
+
+<p>From there we walked to the <a href="https://www.troy.edu/student-life-resources/arts-culture/rosa-parks-museum/index.html">Rosa Parks Museum</a> a few blocks away. The museum tour consisted of a couple of multimedia presentations describing the background and events of the day she refused to give up her seat on a city bus, which gave us a much more detailed understanding of the events of that day and the questionable legality of her arrest. This was followed by a short self-guided tour of artifacts relating to the tension between the Black community and the police.</p>
+
+
+
+<p>It was then about time to make our way to the airport for our flights home. We returned to our hotel to retrieve our bags and got a Lyft ride to the airport. The Montgomery Regional Airport is a fairly small airport consisting of about five gates located only about 15 minutes from downtown. TSA inspection was quick and we had a small lunch in the airport’s one restaurant. Co-located with the airport is an Alabama Air National Guard base, which surprised us as several pairs of fighter planes — F-16s I think — took off with considerable noise and speed.</p>
+
+
+
+ 
+
+
+
+<p>This article is the final installment in a series about our recent travels to the US South. To see the introductory article in the series, click <a href="https://altmode.org/2022/12/06/civil-rights-journey-day-1-to-new-orleans/">here</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://altmode.files.wordpress.com/2022/12/img_8915.jpg?w=768'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:00 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://john.philpin.com/2022/12/15/the-grand-budapest.html'>The Grand Budapest Hotel, 2014 - ★★★★</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+      Wes Anderson has such a distinctive style it’s amazing how they are so different. Love them all. 
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://a.ltrbxd.com/resized/film-poster/9/5/1/1/3/95113-the-grand-budapest-hotel-0-600-0-900-crop.jpg?v=6ac71cf4ba'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p></p> <p>Wes Anderson has such a distinctive style it’s amazing how they are so different. Love them all.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://a.ltrbxd.com/resized/film-poster/9/5/1/1/3/95113-the-grand-budapest-hotel-0-600-0-900-crop.jpg?v=6ac71cf4ba'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   10:07 &bull;
+   9 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.cyberforge.com/'>Cyberforge (Anil John)</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.cyberforge.com/asymmetric-wallet-wars/'>Asymmetric wallet wars</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  CyberForge Journal 12/15/22
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p></p>
+
+<p>Ensuring individuals have choice and decision authority when it comes to digital identity wallets is critical to changing, for the better, the current power imbalance between platforms and people.</p>
+
+<p><a href="https://www.cyberforge.com/asymmetric-wallet-wars/">Click here to continue reading.</a> Or, better yet, <a href="https://www.cyberforge.com">subscribe via email</a> and get the best hand-picked science and insights to build and enhance innovative cybersecurity products, services and companies.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.cyberforge.com/img/asymmetric-wallet-wars.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:01 &bull;
+   14 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -772,7 +1410,7 @@
 
 <div class='item-footer'>
    03:10 &bull;
-   7 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -850,7 +1488,7 @@
 
 <div class='item-footer'>
    23:46 &bull;
-   10 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -962,7 +1600,7 @@
 
 <div class='item-footer'>
    23:08 &bull;
-   11 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1039,7 +1677,7 @@
 
 <div class='item-footer'>
    22:58 &bull;
-   11 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1103,7 +1741,7 @@
 
 <div class='item-footer'>
    22:37 &bull;
-   11 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1172,7 +1810,7 @@
 
 <div class='item-footer'>
    22:33 &bull;
-   11 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1240,7 +1878,7 @@
 
 <div class='item-footer'>
    18:56 &bull;
-   15 hours ago
+   24 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1302,7 +1940,7 @@
 
 <div class='item-footer'>
    17:03 &bull;
-   17 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1374,7 +2012,7 @@
 
 <div class='item-footer'>
    15:46 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1621,7 +2259,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    00:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1695,7 +2333,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    22:57 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1768,7 +2406,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    22:05 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1840,7 +2478,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    19:55 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1952,7 +2590,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    18:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2025,7 +2663,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    17:26 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2093,7 +2731,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    17:13 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2259,7 +2897,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    15:46 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2335,7 +2973,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    01:03 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2414,7 +3052,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    00:23 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2480,7 +3118,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    00:03 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2866,7 +3504,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 
 
-<a href="https://hyperonomy.files.wordpress.com/2022/12/image-11.png"></a>Figure 1. Welcome to Web 7.0!
+<a href="https://hyperonomy.files.wordpress.com/2022/12/image-20.png"></a>Figure 1. Welcome to Web 7.0!
 
 
 
@@ -2901,13 +3539,21 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 
 <p>No REST for the wicked!</p>
+
+
+
+<p>APPENDIX A – DID-DOS </p>
+
+
+
+<a href="https://hyperonomy.files.wordpress.com/2022/12/20221214_180127.jpg"></a>Figure 4. DID-DOS 1.0 Genealogy
    
   
   
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://hyperonomy.files.wordpress.com/2022/12/image-11.png?w=1024'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://hyperonomy.files.wordpress.com/2022/12/image-20.png?w=1024'>
       </div>
     
   
@@ -3045,7 +3691,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    05:47 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3112,7 +3758,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    21:51 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3213,7 +3859,7 @@ my music pulls me through.</p>
 
 <div class='item-footer'>
    21:47 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4125,7 +4771,7 @@ my music pulls me through.</p>
 
 <div class='item-footer'>
    06:13 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4201,7 +4847,7 @@ my music pulls me through.</p>
 
 <div class='item-footer'>
    05:26 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4265,7 +4911,7 @@ my music pulls me through.</p>
 
 <div class='item-footer'>
    04:18 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4335,7 +4981,7 @@ my music pulls me through.</p>
 
 <div class='item-footer'>
    04:17 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4592,7 +5238,7 @@ decrypted_message = private_key.decrypt(
 
 <div class='item-footer'>
    02:03 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4853,74 +5499,6 @@ decrypted_message = private_key.decrypt(
 
 
 <h4 class='feed-title'>
-  <a href='https://www.cyberforge.com/'>Cyberforge (Anil John)</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.cyberforge.com/orchestrating-an-ecosystem/'>Orchestrating an ecosystem</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  CyberForge Journal 12/10/22
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p>
-
-<p>The European Commission is orchestrating a fundamental change across the EU to both the public and private sector in how digital identity interactions will happen in the future. This has global implications.</p>
-
-<p><a href="https://www.cyberforge.com/orchestrating-an-ecosystem/">Click here to continue reading.</a> Or, better yet, <a href="https://www.cyberforge.com">subscribe via email</a> and get the best hand-picked science and insights to build and enhance innovative cybersecurity products, services and companies.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:01 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://altmode.org'>Altmode</a>
 </h4>
 
@@ -4991,7 +5569,7 @@ decrypted_message = private_key.decrypt(
 
 <div class='item-footer'>
    04:30 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5067,7 +5645,7 @@ decrypted_message = private_key.decrypt(
 
 <div class='item-footer'>
    04:15 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5137,7 +5715,7 @@ decrypted_message = private_key.decrypt(
 
 <div class='item-footer'>
    00:58 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6170,7 +6748,7 @@ where
 
 <div class='item-footer'>
    01:15 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6240,7 +6818,7 @@ where
 
 <div class='item-footer'>
    00:03 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6307,7 +6885,7 @@ where
 
 <div class='item-footer'>
    23:59 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6370,7 +6948,7 @@ where
 
 <div class='item-footer'>
    23:35 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6445,77 +7023,7 @@ where
 
 <div class='item-footer'>
    23:30 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/12/09/weve-laid-down.html'> 
- “We’ve laid down all of the infrastructure for a very impo</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- “We’ve laid down all of the infrastructure for a very important change coming soon :)” 
- 
- 💬 ReadWise 
- I am excited to learn about the next development in this awesome app. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<blockquote>
-<p>“We’ve laid down all of the infrastructure for a very important change coming soon :)”</p>
-</blockquote>
-<p>💬 ReadWise</p>
-<p>I am excited to learn about the next development in this awesome app.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:28 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6591,7 +7099,7 @@ where
 
 <div class='item-footer'>
    22:25 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6763,7 +7271,7 @@ where
 
 <div class='item-footer'>
    23:08 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6827,7 +7335,7 @@ where
 
 <div class='item-footer'>
    22:52 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7559,7 +8067,7 @@ Now I need to write that #introduction!</p>
 
 <div class='item-footer'>
    03:26 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7632,7 +8140,7 @@ Now I need to write that #introduction!</p>
 
 <div class='item-footer'>
    00:20 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8287,7 +8795,7 @@ else
 
 <div class='item-footer'>
    00:50 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8347,7 +8855,7 @@ else
 
 <div class='item-footer'>
    00:16 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8425,7 +8933,7 @@ else
 
 <div class='item-footer'>
    23:06 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8562,7 +9070,7 @@ else
 
 <div class='item-footer'>
    22:27 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8911,7 +9419,7 @@ fn main() {
 
 <div class='item-footer'>
    01:43 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9212,7 +9720,7 @@ fn main() {
 
 <div class='item-footer'>
    01:23 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9525,7 +10033,7 @@ if (id) {
 
 <div class='item-footer'>
    23:15 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9605,7 +10113,7 @@ if (id) {
 
 <div class='item-footer'>
    23:00 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10001,7 +10509,7 @@ if (id) {
 
 <div class='item-footer'>
    21:57 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10596,7 +11104,7 @@ if (id) {
 
 <div class='item-footer'>
    05:46 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10658,7 +11166,7 @@ if (id) {
 
 <div class='item-footer'>
    01:22 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10806,7 +11314,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    06:22 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10970,7 +11478,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    04:40 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11406,7 +11914,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    02:50 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11564,7 +12072,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    23:54 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11634,7 +12142,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    02:08 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11871,7 +12379,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    04:57 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12529,7 +13037,7 @@ public class MultiTenantApplicationApiService
 
 <div class='item-footer'>
    06:30 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12894,7 +13402,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    00:53 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13261,7 +13769,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    03:44 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13405,7 +13913,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    23:04 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13469,73 +13977,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    03:48 &bull;
-   29 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Nov/16/json-changelog-with-sqlite/#atom-everything'>JSON Changelog with SQLite</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   JSON Changelog with SQLite 
- One of my favourite database challenges is how to track changes to rows over time. This is a neat recipe from 2018 which uses SQLite triggers and the SQLite JSON functions to serialize older versions of the rows and store them in TEXT columns. 
-
-     Via fasiha/yamanote 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.budgetwithbuckets.com/es/blog/2018/08/27/sqlite-changelog.html/">JSON Changelog with SQLite</a></p>
-<p>One of my favourite database challenges is how to track changes to rows over time. This is a neat recipe from 2018 which uses SQLite triggers and the SQLite JSON functions to serialize older versions of the rows and store them in TEXT columns.</p>
-
-    <p>Via <a href="https://github.com/fasiha/yamanote">fasiha/yamanote</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:41 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13614,7 +14056,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    00:48 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13771,7 +14213,7 @@ end
 
 <div class='item-footer'>
    16:42 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -13837,7 +14279,7 @@ end
 
 <div class='item-footer'>
    16:25 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21756,196 +22198,6 @@ web3 empowerment promises for people, ain’t bad. And worth supporting.</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 29. August 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://altmode.org'>Altmode</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://altmode.org/2022/08/29/early-fenton-ancestry/'>Early Fenton Ancestry</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  I have been researching my ancestry over the past 20 years or so. I have previously written about my Fenton ancestors who had a farm in Broadalbin, New York. I am a descendant of Robert Fenton, one of the early Connecticut Fentons. Since one of his other descendants was Reuben Eaton Fenton, a US Senator […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I have been researching my ancestry over the past 20 years or so. I have <a href="https://altmode.org/2016/07/16/great-lakes-day-7-the-formerly-fenton-farm/">previously</a> written about my Fenton ancestors who had a farm in Broadalbin, New York.</p>
-
-
-
-<p>I am a descendant of Robert Fenton, one of the early Connecticut Fentons. Since one of his other descendants was <a href="https://en.wikipedia.org/wiki/Reuben_Fenton">Reuben Eaton Fenton</a>, a US Senator and New York governor, this branch of the family has been well researched and documented, in particular with the publication in 1867 of A genealogy of the Fenton family : descendants of Robert Fenton, an early settler of ancient Windham, Conn. (now Mansfield) by William L. Weaver1. Here’s what Weaver has to say about Robert Fenton’s origin:</p>
-
-
-
-<blockquote>
-<p>Robert Fenton, who is first heard of at Woburn, Mass., in 1688, was the common ancestor of the Connecticut Fentons. We can learn nothing in regard to his parentage, birthplace, or nationality. The records of Woburn shed no light on the subject; and we can find no trace of him elsewhere, previous to his appearance in that town.</p>
-</blockquote>
-
-
-
-<p>The genealogy goes on to relate an old tradition that Robert Fenton had come from Wales, but I have been unable to find any basis for that tradition.</p>
-
-
-
-<p>Somewhere in my research, I came upon a reference to a Robert Fenton in The Complete Book of Emigrants, 1661-1699 by Peter Wilson Coldham2. It said that on 17 July 1682, a number of Midland Circuit prisoners had been reprieved to be transported to America, including Robert Fenton of Birmingham, and included a reference number for the source material. The timing was about right, but there was still the question whether this is the same Robert Fenton that appeared in Woburn six years later.</p>
-
-
-
-<p>In 2018 I was going to London for a meeting, and wondered if I could find out any more about this. I found out that the referenced document was available through <a href="https://www.nationalarchives.gov.uk/">The National Archives</a>, and I could place a request to view the document. But first I needed to complete online training for a “reader’s ticket”. This was a short video class on the handling of archival documents and other rules, some unexpected (no erasers are allowed in the reading room). I completed the training and arranged for the document to be available when I was in London.</p>
-
-
-
-<p>The National Archives is located on an attractive campus in Kew, just west of London. My wife and I went to the reading room and were photographed for our reader’s tickets (actually plastic cards) and admitted to the room. We checked out the document and took it to a reading desk. On opening the box, we had quite a surprise: the document was a scroll!</p>
-
-
-
-
-<a href="https://altmode.files.wordpress.com/2022/08/scrolls.jpeg"></a>
-
-
-
-
-<p>We opened one of the scrolls carefully (using the skills taught in the online course) and started to examine it. The writing was foreign to us, but scanning through it we quickly found what appeared to be “Ffenton”. This seemed to be the record we were looking for. We photographed the sections of the scroll that contained several mentions of “Ffenton” and examined some of the rest before carefully rerolling and returning it. What an experience it was to actually touch 335 year-old records relating to an ancestor!</p>
-
-
-
-
-<a href="https://altmode.files.wordpress.com/2022/08/midland-circuit-pardon-part-1.png"></a>Midland Circuit pardon part 1
-
-
-
-<a href="https://altmode.files.wordpress.com/2022/08/midland-circuit-pardon-part-2.png"></a>Midland Circuit pardon part 2
-
-
-
-<a href="https://altmode.files.wordpress.com/2022/08/midland-circuit-pardon-part-3.png"></a>Midland Circuit pardon part 3
-
-
-
-<a href="https://altmode.files.wordpress.com/2022/08/midland-circuit-pardon-part-4.png"></a>Midland Circuit pardon part 4
-
-
-
-
-<p>When we returned home, we intended to figure out what the document actually said, but it became clear (over the next few years!) that this required an expert. I contacted a professor at Stanford that specializes in paleography to see if he could offer help or a referral, and he gave me a general idea of the document and that it was written in Latin (also that the Ff was just the old way of writing F). Eventually I was referred to <a href="https://www.peterfoden.com/">Peter Foden</a>, an archival researcher located in Wales, one of whose specialties is transcribing and translating handwritten historical documents (Latin to English). I sent copies of the document pictures to him, and was able to engage his services to transcribe and translate the document.</p>
-
-
-
-<p>Peter’s translation of the document is as follows:</p>
-
-
-
-<blockquote>
-<p>The King gives greeting to all to whom these our present letters shall come.<br>Know that we motivated purely by our pity, of our especial grace and knowledge of the matter by the certification and information of our beloved and faithful Thomas Raymond, knight, one of our Justices assigned for Pleas to be held before us, and Thomas Streete, knight, one of the Lords Justices of our Exchequer, assigned for Gaol Delivery of our Gaols in Lincolnshire, Nottinghamshire, Derbyshire, the City of Coventry, Warwickshire and Northamptonshire, for prisoners being in the same, have pardoned, forgiven and released and by these presents for ourselves, our heirs and successors, do pardon, forgive and release, Robert Sell late of Derby in the County of Derbyshire, labourer, by whatsoever other names or surnames or additional names or nicknames of places, arts or mysteries, the same Robert Sell may be listed, called, or known, or was lately listed, called or known, or used to be listed, called or known, the felony of murder, the felony of killing and slaying of a certain Dorothy Middleton however done, committed or perpetrated, for which the same Robert Sell stands indicted, attainted or judged. And furthermore, out of our more abundant special grace, we have pardoned, forgiven, and released and by these presents for ourselves our heirs and successors we do pardon, forgive and release Henry Ward late of the town of Nottingham in the County of Nottinghamshire, labourer, Thomas Letherland, late of the town of Northampton in the County of Northampton, John Pitts of the same place, labourer, Samuel Shaw the younger of the same place, labourer, John Attersley late of Spalding in the county of Lincolnshire, labourer, John Brewster, late of of Grantham in the County of Lincolnshire, labourer, Peter Waterfall late of Derby in the County of Derbyshire, labourer, John Waterfall of the same place, labourer, John White late of the City of Coventry in the County of the same, labourer, Joseph Veares late of Birmingham in the county of Warwickshire, labourer, Edward Cooke of the same place, labourer, Robert Fenton of the same place, labourer, Mary Steers of the same place, spinster, Thomas Smith of the same place, labourer, Humfrey Dormant late of the Borough of Warwick in the county of Warwick, labourer, Edward Higgott late of Derby in the county of Derbyshire, labourer, Eliza Massey of the same place, widow, and Jeremy Rhodes late of Worcester in the County of Worcester, labourer, or by whatsoever other names or surnames or additional names or surnames or names of places, arts or mysteries, the same Henry Ward, Thomas Letherland, John Pitts, Samuel Shaw, John Attersley, John Brewster, Peter Waterfall, John Waterfall, John White, Joseph Veares, Edward Cooke, Robert Fenton, Mary Steares, Thomas Smith, Humfrey Dormant, Edward Higgott, Eliza Massey and Jeremy Rhodes may be listed, called or known, or were lately listed, called or known, or any of them individually or collectively was or were listed, called or known, of every and every kind of Treason and crimes of Lese Majeste of and concerning clipping, washing, forgeries and other falsehoods of the money of this Kingdom of England or of whatsoever other kingdoms and dominions, and also every and every kind of concealments, treasons, and crimes of lese majeste of and concerning the uttering of coinage being clipped, filed and diminished, by whomsoever (singular or plural) the said coinage was clipped, filed and diminished, and also every and every kind of felonies, homicides, burglaries and trespasses whatsoever by them or any of them done, committed or perpetrated, whereof the same Robert Sell, Henry Ward, Thomas Letherland, John Pitts, Samuel Shaw, John Attersley, John Brewster, Peter Waterfall, John Waterfall, John White, Joseph Veares, Edward Cooke, Robert Fenton, Mary Steares, Thomas Smith, Humfrey Dormant, Edward Higgott, Eliza Massey and Jeremy Rhodes, are indicted, attainted, or judged, or are not indicted, attainted, or judged, and the accessories of each of them, and the escapes made thereupon, and also all and singular the indictments, judgments, fines, condemnations, executions, bodily penalties, imprisonments, punishments, and all other things about these matters, that we or our heirs or successors in any way had, may have or in the future shall have, also Outlawries if pronounced or to be pronounced against them or any of them by reason of these matters, and all and all kinds of lawsuits, pleas, and petitions and demands whatsoever which belong, now or int the future, to us against them or any of them, by reason or occasion of these matters, or of any of them, and we give and grant unto them and unto each of them by these presents our firm peace, so that nevertheless they and each them should stand (singular and plural) righteously in our Court if any anyone if anyone summons them to court concerning these matters or any of them, if they cannot find good and sufficient security for their good behaviour towards us our heirs and successors and all our people, according to the form of a certain Act of Parliament of the Lord Edward the Third late King of England, our ancestor, edited and provided at Westminster in the tenth year of his reign. And furthermore, of our abundant special grace, and certain knowledge and pure motives, for us our heirs and successors, we will and grant that they shall have letters of pardon and all and singular matters contained in the same shall stand well, firmly, validly, sufficiently and effectually in Law and shall be allowed by all and all kinds of our Officers and Servants and those of our heirs and successors, notwithstanding the Statute in the Parliament of the Lord Richard the Second late King of England held at Westminster in the thirteenth year of his reign, or any other Statute, Act, Order or Provision made to the contrary in any manner, provided always that if the said Henry Ward, Thomas Letherland, John Pitts, Samuel Shaw, John Attersley, John Brewster, Peter Waterfall, John Waterfall, John White, Joseph Veares, Edward Cooke, Robert Fenton, Mary Steares, Thomas Smith, and Humfrey Dormant, do not leave the Kingdom of England to cross the sea towards some part of America now settled by our subjects, within the space of six months next after the date of these presents, or if they remain or return within seven years immediately following the six months after the date of these presents, or any of them shall return within the space of seven years next after the date of these presents, that then this our pardon be and shall be wholly void and of none effect in respect of Henry Ward, Thomas Letherland, John Pitts, Samuel Shaw, John Attersley, Peter Waterfall, John Waterfall, John White, Joseph Veares, Edward Cooke, Robert Fenton, Mary Steeres and Humfrey Dormant and each of them, notwithstanding anything in these presents to the contrary thereof. We wish however that this our pardon be in all respects firm, valid and sufficient for the same Henry Ward, Thomas Letherland, John Pitts, Samuel Shaw, John Attersley, Peter Waterfall, John Waterfall, John White, Joseph Veares, Edward Cooke, Robert Fenton, Mary Steeres and Humfrey Dormant and each of them, if they shall perform and fulfil or any of them shall perform and fulfil the said conditions. And we furthermore also wish that after the issue of this our pardon, the said Henry Ward and all other persons named in the previous condition here mentioned to be pardoned under the same condition shall remain in the custody of our Sheriffs in our said Gaols where they are now detained until they and each of them be transported (singular or plural) to the aforementioned places beyond the seas, according to the said Condition. In witness of which, the King is witness, at Westminster on the fourteenth day of July by the King himself.</p>
-</blockquote>
-
-
-
-<p>So it appears that Robert Fenton was convicted of treason “concerning clipping, washing, forgeries and other falsehoods of the money of this Kingdom of England.” He was pardoned on condition that he leave for America within six months and stay no less than seven years. While I have found no record of Robert having practiced forgery in America, his son Francis was nicknamed “Moneymaker” because of his well-known forgery escapades3. One of those events caused the <a href="https://en.wikipedia.org/wiki/Fenton_River">Fenton River</a> in Connecticut to be named after him. Francis might have learned “the family business” from his father, so this strengthens the likelihood that this Robert Fenton from Birmingham is my ancestor.</p>
-
-
-
- Appendix 
-
-
-
-<p>For reference, here is the Latin transcription, referenced to the parts of the document pictured above. The line breaks match the original:</p>
-
-
-
-<blockquote>
-<p>(part 1)</p>
-
-
-
-<p>Rex &amp;c Omnibus ad quos presentes littere nostre pervenerint Salutem Sciatis quod<br>nos pietate moti de gratia nostra speciali ac exita scientat &amp; mero motu<br>nostris ex cirtificatione &amp; relatione dilectorum &amp; fidelium nostrorum Thome Raymond<br>militis unius Justiciorum nostrorum ad placita coram nobis tenenda Assignatorum &amp; Thome<br>Streete militis unius Baronum Scaccarii nostri Justiciorum nostrorum Gaolas nostras<br>lincolniensis Nott Derb Civitatis Coventrie Warr &amp; Northton de prisonibus<br>in eadem existentibus deliberandum assignatorum Pardonavimus remissimus et<br>relaxavimus ac per presentes pro nobis heredibus &amp; Successoribus nostris<br>pardonamus remittimus &amp; relaxamus Roberto Sell nuper de Derb in Comitatu<br>Derb laborarium seu quibuscumque aliis nominibus vel cognominibus seu additionibus<br>nominium vel cognominium locorum artium sive misteriorum idem Robertus<br>Sell cenceatur vocetur sive nuncupetur aut nuper cencebatur<br>vocabatur sive nuncupabatur feloniam mortemnecem feloniam<br>interfectionem &amp; occisionem cuiusdam Dorothee Middleton qualitercumque<br>factam comissam sive perpetratam unde idem Robertus Sell indictatus attinctus<br>sive adiudicatus existit Et ulterius de uberiori gratia nostra speciali<br>pardonavimus remissimus &amp; relaxavimus ac per presentest pro nobis heredibus<br>&amp; Successoribus nostris pardonamus remittimus &amp; relaxamus Henrico Ward<br>nper de Villa Nott in Comitatu Nott laborario Thome Letherland nuper<br>de villa Northton in Comitatu Northton laborario Johanni Pitts de eadem<br>laborario Samueli Shaw junioris de eadem laborario Johanni Attersley nuper de<br>Spalding in Comitatu Lincoln laborario Johanni Brewster nuper de Grantham in<br>Comitatu Lincoln laborario Petro Waterfall nuper de Derb in Comitatu Derb laborario<br>Johanni Waterfall de eadem laborario Johanni White nuper de Civitate Coventr’<br>in Comitatu eiusdem laborario Josepho veares nuper de Birmingham in Comitatu<br>Warr laborario Edwardo Cooke de eadem laborario Roberto Fenton de eadem laborario<br>Marie Steers de eadem Spinster Thome Smith de eadem laborario<br>Humfrido Dormant nuper de Burgo Warr in Comitatu Warr laborario Edwardo<br>Higgott nuper de Derb in Comitatu Derb laborario Elize Massey de eadem vidue</p>
-
-
-
-<p>(part 2)<br>&amp; Jeremie Rhodes nuper de Wigorn in Comitatu Wigorn laborario seu quibuscumque<br>aliis nominibus vel cognominibus seu additionibus nominium vel cognominium<br>locorum artium sive misteriorum iidem Henricus Ward Thomas<br>Letherland Johannes Pitts Samuel Shaw Johannes Attesley Johannes<br>Brewster Petrus Waterfall Johannes Waterfall Johannes White Josephus<br>Veares Edwardus Cooke Robertus Fenton Maria Steares Thomas<br>Smith Humfrius Dormant Edwardus Higgott Eliza Massey et<br>Jeremias Rhodes cenceantur vocentur sive nuncupentur aut nuper<br>cencebantur vocabantur sive nuncupabantur aut eorum aliquis<br>cenceatur vocetur sive nuncupetur aut nuper cencebatur vocabatur<br>sive nuncupabatur omnes &amp; omnimodos proditiones &amp; crimina lese maiestatis<br>de &amp; concernentes tonsura lotura falsis Fabricationibus &amp; aliis falsitatibus monete<br>huius Regni Anglie aut aliorum Regnorum &amp; Dominiorum quorumcumque necnon<br>omnes &amp; omnimodos misprisones proditiones &amp; criminis lese maiestatis de et<br>concernentes utteratione pecunie existentes tonsurates filate &amp; diminute oien per<br>quos vel per quem pecuniam predictam tonsuram filatam &amp; diminutam fuit acetiam<br>omnes &amp; omnimoda felonias homicidas Burglarias &amp; transgressas quascumque<br>per ipsos vel eorum aliquem qualitercumque factas commissas sive perpetratas<br>unde iidem Robertus Sell Henricus Ward Thomas Letherland<br>Johannes Pitt Samuel Shaw Johannes Attersley Johannes Brewster Petrus<br>Waterfall Johannes Waterfall Johannes White Josephus Veares<br>Edwardus Cooke Robertus Fenton Maria Steeres Thomas Smith<br>Humfrius Dormant Edwardus Higgott Eliza Massey &amp; Jeremias<br>Rhodes indictati convicti attincti sive adiudicati existunt<br>vel non indictati convicti attincti sive adiudicati existunt</p>
-
-
-
-<p>(part 3)<br>ac accessares eorum cuiuslibet &amp; fugam &amp; fugas super inde facta acetiam<br>omnia &amp; singula Indictamenta Judicia fines Condemnationes<br>executiones penas corporales imprisonamenta punitiones &amp; omnes alia<br>seu eorum aliquem per premissis vel aliquo premissorum habuimus habuemus vel in<br>futuro habere poterimus aut heredes seu Successores nostri ullo modo habere<br>poterint Necnon utlagarii si quo versus ipsos seu eorum aliquem occasione<br>premissorum sunt promulgata seu fiunt promulganda &amp; omnes &amp; omnimodas<br>sectas querelas &amp; impetitiones &amp; demandas quecumque que nos versus<br>ipsos seu eorum aliquem pertinent seu pertinere poterint ratione vel occasione<br>premissorum seu eorum alicuius &amp; firmam pacem nostram eis &amp; eorum cuilibet<br>damus &amp; concedimus per presentes Ita tamen quod ipsi &amp; eorum quilibet stent<br>&amp; stet recte in Curia nostra si quis versus ipsos seu eorum aliquem loqui<br>voluint de premissis vel aliquo premissorum licet quod ipsi vel ipse et<br>eorum quilibet bonam &amp; sufficientem securitatem non inveniunt de se bene<br>gerendo erga nos heredes &amp; Successores nostros &amp; cunctum populum nostrum<br>iuxta formam cuiusdam Actus Parliamenti Domini Edwardi nuper Regis<br>Anglie tertii progenitoris nostri Anno Regni sui decimo apud Westmonasterium<br>editi &amp; provisi Et ulterius de uberiori gratia nostra speciali ac ex certa<br>scientia &amp; mero motu nostris pro nobis heredibus &amp; succcessoribus nostris volumus &amp;<br>concedimus quod habere littere pardinationis &amp; omnia &amp; singula in eisdem<br>contenta bone firme valide sufficienter &amp; effectuale in lege stabunt<br>&amp; existunt &amp; per omnes &amp; omnimodos Officiarios &amp; Ministros nostros &amp; heredes &amp;<br>Successores nostrorum allocentur Statuto in Parliamento Domini Ricardi nuper<br>Regis Anglie secundi Anno regni siu decimo tertio apud Westmonasterium tenti<br>aut aliquo alio Statuto Actu ordinacione vel provisione in contrario</p>
-
-
-
-<p>(part 4)<br>inde facto in aliquo non obstante Proviso tamen quod si predicti<br>Henricus Ward Thomas Letherland Johannes Pitts Samuel Shaw<br>Johannes Attersley Petrus Waterfall Johannes Waterfall Johannes White<br>Josephus Veares Edwardus Cooke Robertus Fenton Maria Steeres<br>&amp; Humfrius Dormant non exibunt extra Regnum Anglie transituri<br>extra mare versus aliqui partem Americe modo inhabitatum per subitos<br>nostros infra spacium sex mensium proximas post datum presentium aut si ipsi<br>infra septem Annos immediate sequentes sex menses post datum<br>presentium remanent aut remanebunt aut redibunt aut eorum aliquis<br>redibit in Angliam infra spacium septem Annorum proximos post datum presentium<br>quod tunc hec nostra pardonatus sit &amp; erit omnino vacua &amp; nulli vigoris<br>quoad ipsos Henricum Ward Thomam Letherland Johannem Pitts<br>Samuel Shaw Johannem Attersley Petrum Waterfall Johannem Waterfall<br>Johannem White Josephum Veaeres Edwardum Cooke Robertum Fenton<br>Mariam Steeres &amp; Humfrium Dormant &amp; quemlibet eorum aliquid in<br>hiis presentibus in contrario inde non obstante volumus tamen quod hec<br>nostra pardonatio sit in omnibus firma valida &amp; sufficiens eiusdem<br>Henrico Ward Thome Letherland Johanni Pitts Samueli Shaw Johanni<br>Attersley Petro Waterfall Johanni Waterfall Johanni White Josepho<br>Veares Edwardo Cooke Roberto Fenton Marie Steeres &amp; Humfrio<br>Dormant &amp; cuilibet eorum si performabunt &amp; perimplebunt aut aliquis eorum<br>perimplebit &amp; performabit conditiones predictos volumus etiam ulterius quod<br>post allocationem huius pardonationis nostre predictus Henricus Ward &amp; omnes<br>alii persones in conditione predicto nominati preantea hic mentionati sub<br>eadem conditione fore pardonati remanebunt sub Custodia vicecomitium nostrorum<br>in Gaolis nostris predictis ubi modo detenti sunt quousque ipsi &amp; ipsei<br>ac eorum quilibet &amp; earum quilibet transportati fuint vel transportati<br>fuit in partibus transmarinis prementionatis secundum Conditionem predictam<br>In cuius &amp;c [rei testimonium] Teste Rege apud Westmonasterium decimo quarto die Julii<br>per ipsum Regem</p>
-</blockquote>
-
-
-
- References 
-
-
-
-<p>1. Weaver, William L. (William Lawton). A Genealogy of the Fenton Family : Descendants of Robert Fenton, an Early Settler of Ancient Windham, Conn. (Now Mansfield). Willimantic, Conn. : [s.n.], 1867. <a href="http://archive.org/details/genealogyoffento05weav">http://archive.org/details/genealogyoffento05weav</a>.</p>
-
-
-
-<p>2. Coldham, Peter Wilson. The Complete Book of Emigrants, 1661-1699. Baltimore, Maryland: Genealogical Publishing Co., Inc., 1990.</p>
-
-
-
-<p>3. Weaver, p. 7</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://altmode.files.wordpress.com/2022/08/scrolls.jpeg?w=640'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:59 &bull;
    4 months ago
 </div>
 
