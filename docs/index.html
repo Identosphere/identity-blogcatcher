@@ -706,7 +706,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:40 PM December 19, 2022 (UTC)</sup>
+<sup>Last Update 1:57 AM December 20, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -719,6 +719,807 @@
  <h2 class='new-date'>
   Monday, 19. December 2022
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/'>Create your own Mastodon UX</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  I’ve been discussing Mastodon UX wishlists with some new acquaintances there. This excerpt from A Bloomberg terminal for Mastodon concludes with part of my own wishlist. In a Mastodon timeline, a chatty person can dominate what you see at a glance. When we participate in social media we are always making bids for one another’s … Continue reading Create your own Mastodon UX
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I’ve been discussing Mastodon UX wishlists with some new acquaintances there. This excerpt from <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">A Bloomberg terminal for Mastodon</a> concludes with part of my own wishlist.</p>
+<blockquote><p>
+In a Mastodon timeline, a chatty person can dominate what you see at a glance. When we participate in social media we are always making bids for one another’s attention. As publishers of feeds it’s wise to consider how a flurry of items can overwhelm a reader’s experience. But it’s also useful to consider ways that feed readers can filter a chatty source. Steampipe’s SQL foundation affords an easy and natural way to do that. Here’s part of the <a href="https://github.com/turbot/steampipe-mod-mastodon-insights/blob/main/query.sp#L391">query</a> that drives the list view.</p>
+ select distinct on (list, person, hour) -- only one per list/user/hour
+  person,
+  url,
+  hour,
+  toot
+from
+  data
+order by
+  hour desc, list, person
+ 
+<p>It was easy to implement a rule that limits each person to at most one toot per hour. Next steps here will be to apply this rule to other views, show the number of collapsed toots, and enable such rules on a per-person basis.
+</p></blockquote>
+<p>As a warmup exercise, I decided to first add a simple control for boosts that enables me to see my home timeline with or without boosts. To give technically-inclined readers a sense of what’s involved in doing this kind of thing with Steampipe, I’ll describe the changes here. I’m obviously biased but I find this programming environment to be accessible and productive. If it seems that way to you as well, you might want to try out some of the items on your own UX wishlist. And if you do, let me know how it goes!</p>
+<p>Here are the original versions of the two files that I changed to add the new feature. First there’s home.sp which defines the dashboard for the home timeline.</p>
+ dashboard "Home" {
+  
+  tags = {
+    service = "Mastodon"
+  }
+
+  container {
+    // a text widget with the HTML links that define the menu of dashboards
+  }
+
+  container {
+    text {
+    // a block that displays the HTML links that form a menu of dashboards
+    }
+
+    card {
+    // a block that reports the name of my server
+    }
+
+    input "limit" {
+      width = 2
+      title = "limit"
+      sql = &lt;&lt;EOQ
+        with limits(label) as (
+          values 
+            ( '50' ),
+            ( '100' ),
+            ( '200' ),
+            ( '500' )
+        )
+        select
+          label,
+          label::int as value
+        from 
+          limits
+      EOQ
+    }    
+  }
+
+
+  container { 
+
+    table {
+      title = "home: recent toots"
+      query = query.timeline
+      args = [ "home", self.input.limit ]
+      column "person" {
+        wrap = "all"
+      }
+      column "toot" {
+        wrap = "all"
+      }
+      column "url" {
+        wrap = "all"
+      }
+    }
+  }
+
+}
+ 
+<p>And here’s the new version. It adds an input block called boosts, and passes its value to the referenced query.</p>
+ dashboard "Home" {
+  
+  tags = {
+    service = "Mastodon"
+  }
+
+  container {
+    // a text widget with the HTML links that define the menu of dashboards
+  }
+
+  container {
+    text {
+    // a block that displays the HTML links that form a menu of dashboards
+    }
+
+    card {
+    // a block that reports the name of my server
+    }
+
+    input "limit" {
+    // as above
+    }
+
+    input "boosts" {
+      width = 2
+      title = "boosts"
+      sql = &lt;&lt;EOQ
+        with boosts(label, value) as (
+          values
+            ( 'include', 'include' ),
+            ( 'hide', ' ' ),
+            ( 'only', ' 🢁 ' )
+        )
+        select
+          label,
+          value
+        from
+          boosts
+      EOQ
+    }
+
+  }
+
+  container { 
+
+    table {
+      // as above
+      args = [ "home", self.input.limit, self.input.boosts ]
+    }
+  }
+
+}
+ 
+<p>Steampipe dashboards are built with two languages. HCL (Hashicorp configuration language) defines the UX widgets, and SQL fills them with data. In this case we’re selecting static values for the boosts input. But any Steampipe query can run there! For example, here is the input block I use on the dashboard that filters the timeline by the list to which I’ve assigned people.</p>
+ input "list" {
+  type = "select"
+  width = 2
+  title = "search home timeline"
+  sql = &lt;&lt;EOQ
+    select
+      title as label,
+      title as value
+    from
+      mastodon_list
+    order by
+      title
+  EOQ
+}
+ 
+<p>Now here is the referenced query, query.timeline, from the file query.sp which contains queries used by all the dashboards.</p>
+ query "timeline" {
+  sql = &lt;&lt;EOQ
+    with toots as (
+      select
+        account_url as account,
+        case 
+          when display_name = '' then user_name 
+          else display_name
+        end as person,
+        case
+          when reblog -&gt; 'url' is null then
+            content
+          else
+            reblog_content
+        end as toot,
+        to_char(created_at, 'MM-DD HH24:MI') as created_at,
+        case
+          when reblog -&gt; 'url' is not null then '🢁'
+          else ''
+        end as boosted,
+        case
+          when in_reply_to_account_id is not null then ' 🢂 ' || ( select acct from mastodon_account where id = in_reply_to_account_id )
+          else ''
+        end as in_reply_to,
+        case
+          when reblog -&gt; 'url' is not null then reblog -&gt;&gt; 'url'
+          else url
+        end as url
+      from
+        mastodon_toot
+      where
+        timeline = $1
+      limit $2
+    )
+    select
+      account,
+      person || 
+        case 
+          when in_reply_to is null then ''
+          else in_reply_to
+        end as person,
+      boosted || ' ' || toot as toot,
+      url
+    from
+      toots
+    order by
+      created_at desc
+  EOQ
+  param "timeline" {}
+  param "limit" {}
+}
+ 
+<p>And here is the new version of that query.</p>
+ query "timeline" {
+  sql = &lt;&lt;EOQ
+    with toots as (
+    // as above      
+    ),
+    boosted as (
+      select
+        $3 as boost,
+        boosted,
+        account,
+        in_reply_to,
+        person,
+        toot,
+        url
+      from
+        toots
+      order by
+        created_at desc
+    )
+    select
+      account,
+      person ||
+        case
+          when in_reply_to is null then ''
+          else in_reply_to
+        end as person,
+      boosted || ' ' || toot as toot,
+      url
+    from
+      boosted
+    where
+      boost = boosted
+      or boost = 'include'
+      or boost = 'n/a'
+  EOQ
+  param "timeline" {}
+  param "limit" {}
+  param "boost" {}
+}
+ 
+<p>The original version uses a single CTE (aka common table expression aka WITH clause), toots, to marshall data for the concluding SELECT. The new version inserts another CTE, boosts, into the pipeline. It uses $3 to reference param "boost" {} which maps to the self.input.boosts passed from home.sp</p>
+<p>The SQL code is all standard. Postgres is the engine inside Steampipe, and I sometimes use Postgres-specific idioms, but I don’t think any of those are happening here. </p>
+<p>The HCL code may be unfamiliar. Steampipe uses HCL because its core audience are DevSecOps pros who are familiar with Terraform, which is HCL-based. But its a pretty simple language that can be used to describe all kinds of resources. Here the resources are widgets that appear on dashboards.</p>
+<p>The other thing to know, if you want to roll up your sleeves and try building your own dashboards, is that the developer experience is — again in my biased opinion! — pretty great because if you’re using an autosaving editor you’ll see your changes (to both HCL and SQL code) reflected in realtime. </p>
+<p>To illustrate that, here’s the screencast we included in our <a href="https://steampipe.io/blog/dashboards-as-code">blog post</a> introducing the dashboard system.</p>
+  
+<p>Not shown there, because we wanted to focus on the happy path, is realtime feedback when your SQL queries provoke Postgres errors. The experience feels very much like the one Bret Victor champions in <a href="https://vimeo.com/38272912">Inventing on Principle</a>. The core principle: “Creators need an immediate connection to what they’re creating.” </p>
+<p>Here’s the wrong way that too often constrains us.</p>
+<blockquote><p>
+If there’s anything wrong with the scene, or if I go and make changes, or if I have further ideas, I have to go back to the code, and I edit the code, compile and run, see what it looks like. Anything wrong, I go back to the code. Most of my time is spent working in the code, working in a text editor blindly, without an immediate connection to this thing, which is what I’m actually trying to make.
+</p></blockquote>
+<p>And here is the right way.</p>
+<blockquote><p>
+I’ve got this picture on the side, and the code on the side, and this part draws the sky and this draws the mountains and this draws the tree, and when I make any change to the code, the picture changes immediately. So the code and the picture are always in sync; there is no compile and run. I just change things in the code and I see things change in the picture.
+</p></blockquote>
+<p><a href="https://i0.wp.com/jonudell.info/images/inventing-on-principle.png?ssl=1"></a></p>
+<p>We want to work the right way wherever we can. The experience isn’t available everywhere, yet, but it is available in Steampipe where it powerfully enables the experimentation and prototyping that many of us are inspired to do as we delve into Mastodon. </p>
+<p>If you want to try this for yourself, please check out the setup instructions for the <a href="https://github.com/turbot/steampipe-plugin-mastodon">plugin</a> that maps Mastodon APIs to Postgres tables, and the <a href="https://github.com/turbot/steampipe-mod-mastodon-insights">dashboards</a> that use those tables, and ping me (on <a href="https://mastodon.social/@judell">Mastodon</a> if you like!) with any questions you may have.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/jonudell.info/images/inventing-on-principle.png?w=656&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:12 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/12/20/the-trouble-with.html'> 
+ “The trouble with market research is that people don’t thi</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ “The trouble with market research is that people don’t think what they feel, they don’t say what they think and they don’t do what they say.” 
+ 
+ 💬 David Ogilvy 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<blockquote>
+<p>“The trouble with market research is that people don’t think what they feel, they don’t say what they think and they don’t do what they say.”</p>
+</blockquote>
+<p>💬 David Ogilvy</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:52 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/12/20/staff-picks-on.html'> Staff Picks on Album Whale 
+ I like this resource. </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Staff Picks on Album Whale 
+ I like this resource. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://albumwhale.com/staff/picks">Staff Picks on Album Whale</a></p>
+<p>I like this resource.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:48 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/12/20/there-are-a.html'> There are a lot of posts talking about copyright of art - be</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   There are a lot of posts talking about copyright of art - because ‘generative art’. 
+ This is all about music copyright. It’s 30 minutes long, so get comfy. 
+ If music copyright is this broken, then what chance to fix the art issue that is hurtling down the pike towards us. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>There are a lot of posts talking about copyright of art - because ‘generative art’.</p>
+<p><a href="https://youtu.be/MAFUdIZnI5o">This is all about music copyright</a>. It’s 30 minutes long, so get comfy.</p>
+<p>If music copyright is this broken, then what chance to fix the art issue that is hurtling down the pike towards us.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:45 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/12/20/the-end-of.html'> the end of the road - Julian Summerhayes 
+ Julian’s writing </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   the end of the road - Julian Summerhayes 
+ Julian’s writing has been getting increasingly … whats the right word? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://open.substack.com/pub/juliansummerhayes/p/the-end-of-the-road">the end of the road - Julian Summerhayes</a></p>
+<p>Julian’s writing has been getting increasingly … whats the right word?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:36 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/12/20/all-around-my.html'> 🎶🎼🎵'All Around My Hat' has been spinning around my head for </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   🎶🎼🎵'All Around My Hat' has been spinning around my head for the past week.. And before that hadn’t thought of it for years ..and then … 
+ 
+ Musical alternative to the morning’s radio news
+Steeleye Span | All Around My Hat 
+ 
+ John Naughton 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>🎶🎼🎵'All Around My Hat' has been spinning around my head for the past week.. And before that hadn’t thought of it for years ..and then …</p>
+<blockquote>
+<p>Musical alternative to the morning’s radio news
+Steeleye Span | All Around My Hat</p>
+</blockquote>
+<p><a href="https://open.substack.com/pub/johnnaughton/p/monday-19-december-2022">John Naughton</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:34 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/12/20/pi.html'> Pi 
+</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Pi 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2022/011b426b8e.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://www.smbc-comics.com/comic/pi-2">Pi</a></p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2022/011b426b8e.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:28 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2022/12/20/what-is-a.html'> What is a ‘project’? </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   What is a ‘project’? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>What is a ‘project’?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:54 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -774,7 +1575,7 @@
 
 <div class='item-footer'>
    04:31 &bull;
-   14 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -836,7 +1637,7 @@
 
 <div class='item-footer'>
    04:17 &bull;
-   14 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1044,7 +1845,7 @@
 
 <div class='item-footer'>
    03:39 &bull;
-   15 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1108,7 +1909,7 @@
 
 <div class='item-footer'>
    02:27 &bull;
-   16 hours ago
+   24 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1186,7 +1987,7 @@
 
 <div class='item-footer'>
    23:21 &bull;
-   19 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1252,7 +2053,7 @@
 
 <div class='item-footer'>
    19:52 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1413,7 +2214,7 @@ order by
 
 <div class='item-footer'>
    03:38 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2159,7 +2960,7 @@ order by
 
 <div class='item-footer'>
    11:30 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2231,7 +3032,7 @@ order by
 
 <div class='item-footer'>
    11:02 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2746,82 +3547,6 @@ order by
 
 <div class='item-footer'>
    21:24 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/12/17/i-like-that.html'> I like that distinction … 
-</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I like that distinction … 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2022/32d8d5d0db.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I like that distinction …</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2022/32d8d5d0db.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:05 &bull;
    3 days ago
 </div>
 
@@ -3813,82 +4538,6 @@ curl -XPOST http://localhost:8001/docs/-/create \
 
 
 <h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2022/12/15/the-grand-budapest.html'>🎥 The Grand Budapest Hotel, 2014 - ★★★★</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    
- Wes Anderson has such a distinctive style it’s amazing how they are so different. Love them all. 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://a.ltrbxd.com/resized/film-poster/9/5/1/1/3/95113-the-grand-budapest-hotel-0-600-0-900-crop.jpg?v=6ac71cf4ba'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p>
-<p>Wes Anderson has such a distinctive style it’s amazing how they are so different. Love them all.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://a.ltrbxd.com/resized/film-poster/9/5/1/1/3/95113-the-grand-budapest-hotel-0-600-0-900-crop.jpg?v=6ac71cf4ba'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   10:07 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://www.cyberforge.com/'>Cyberforge (Anil John)</a>
 </h4>
 
@@ -4199,83 +4848,6 @@ curl -XPOST http://localhost:8001/docs/-/create \
 
 <div class='item-footer'>
    23:08 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/12/15/115821.html'></a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2022/680f23aac8.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2022/680f23aac8.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:58 &bull;
    5 days ago
 </div>
 
@@ -4871,78 +5443,6 @@ and can also be used in places where, for example, firewalls prevent event pushi
  <h2 class='new-date'>
   Tuesday, 13. December 2022
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/12/14/matter-announces-business.html'> Matter Announces Business Model 
- Matter has announced its b</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Matter Announces Business Model 
- Matter has announced its business model … and Matt’s not leaving Matter because he can’t imagine using any other tool to read with and needs Obsidian synch. 
- Readwise just announced that their Reader app is moving out of beta. 
- Readwise Rocks. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://birchtree.me/blog/matter-announces-its-business-model/">Matter Announces Business Model</a></p>
-<p>Matter has announced its business model … and Matt’s not leaving Matter because he can’t imagine using any other tool to read with and needs Obsidian synch.</p>
-<p>Readwise just announced that their Reader app is moving out of beta.</p>
-<p>Readwise Rocks.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:57 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -5582,151 +6082,6 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/12/13/finally-got-round.html'> Finally got round to culling the RSS feeds in Readwise/Reade</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Finally got round to culling the RSS feeds in Readwise/Reader .. and starting to rebuild a list that is focussed on the sources that might give me the best insights, not just because I enjoy reading them … I still have NetNewsWire for ‘pleasure only’. 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2022/9e005a678a.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Finally got round to culling the RSS feeds in Readwise/Reader .. and starting to rebuild a list that is focussed on the sources that might give me the best insights, not just because I enjoy reading them … I still have NetNewsWire for ‘pleasure only’.</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2022/9e005a678a.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:23 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/12/13/if-you-have.html'> If you have a bad voice, rather speak in a low tone 
- The 18</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   If you have a bad voice, rather speak in a low tone 
- The 1830s were different times and yet it was around then that my great great grandparents entered the world. 
- That said I have the feeling that there are a few people in congress who would like to apply these rules today. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.listsofnote.com/p/if-you-have-a-bad-voice-rather-speak">If you have a bad voice, rather speak in a low tone</a></p>
-<p>The 1830s were different times and yet it was around then that my great great grandparents entered the world.</p>
-<p>That said I have the feeling that there are a few people in congress who would like to apply these rules today.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:03 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Monday, 12. December 2022
  </h2>
@@ -6174,72 +6529,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    12:10 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2022/12/12/i-have-just.html'> I have just realized that somewhere .. I am guessing in IFTT</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I have just realized that somewhere .. I am guessing in IFTTT .. there is a recipe that cross posts my Mastodon posts to one of the Twitter accounts … I guess I should fix that. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I have just realized that somewhere .. I am guessing in IFTTT .. there is a recipe that cross posts my Mastodon posts to one of the Twitter accounts … I guess I should fix that.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:41 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7499,7 +7789,7 @@ where
 
 <div class='item-footer'>
    08:05 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8017,7 +8307,7 @@ where
 
 <div class='item-footer'>
    13:30 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8115,7 +8405,7 @@ where
 
 <div class='item-footer'>
    06:54 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9013,7 +9303,7 @@ else
 
 <div class='item-footer'>
    07:00 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9635,7 +9925,7 @@ fn main() {
 
 <div class='item-footer'>
    07:54 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10721,7 +11011,7 @@ if (id) {
 
 <div class='item-footer'>
    11:16 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12722,7 +13012,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    10:37 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13471,7 +13761,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    07:00 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13537,7 +13827,7 @@ FROM item_version_detail
 
 <div class='item-footer'>
    00:53 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -24279,7 +24569,7 @@ new versions when needed.</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27592,86 +27882,6 @@ on, but meanwhile, I’d be happy to be your friend <a href="https://app.thestor
 
 <div class='item-footer'>
    05:43 &bull;
-   7 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 16. May 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://self-issued.info'>Mike Jones: self-issued</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://self-issued.info/?p=2275'>JWK Thumbprint URI Draft Addressing IETF Last Call Comments</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Kristina Yasuda and I have published a new JWK Thumbprint URI draft that addresses the IETF Last Call comments received. Changes made were: Clarified the requirement to use registered hash algorithm identifiers. Acknowledged IETF Last Call reviewers. The specification is available at: https://www.ietf.org/archive/id/draft-ietf-oauth-jwk-thumbprint-uri-02.html
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://twitter.com/kristinayasuda">Kristina Yasuda</a> and I have published a new <a href="https://www.ietf.org/archive/id/draft-ietf-oauth-jwk-thumbprint-uri-02.html">JWK Thumbprint URI</a> draft that addresses the IETF Last Call comments received.  Changes made were:</p>
- 
- Clarified the requirement to use registered hash algorithm identifiers. 
- Acknowledged IETF Last Call reviewers. 
- 
-<p>The specification is available at:</p>
- 
- <a href="https://www.ietf.org/archive/id/draft-ietf-oauth-jwk-thumbprint-uri-02.html">https://www.ietf.org/archive/id/draft-ietf-oauth-jwk-thumbprint-uri-02.html</a> 
- 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://self-issued.info/images/oauth_logo_120x120.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:14 &bull;
    7 months ago
 </div>
 
