@@ -706,12 +706,233 @@
 
 </div>
 </div>
-<sup>Last Update 1:55 AM December 22, 2022 (UTC)</sup>
+<sup>Last Update 9:38 AM December 22, 2022 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Thursday, 22. December 2022
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/'>Lists and people on Mastodon</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  I hadn’t thought to use Mastodon lists until I read the Frustration with lists chapter of Martin Fowler’s Exploring Mastodon, in which he writes: I like lists because they allow me to divide up my timeline to topics I want to read about at different times. They are frustrating because the tools to manage them … Continue reading Lists and people on Mastodon
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I hadn’t thought to use Mastodon lists until I read the Frustration with lists chapter of Martin Fowler’s <a href="https://martinfowler.com/articles/exploring-mastodon.html">Exploring Mastodon</a>, in which he writes:</p>
+<blockquote><p>
+I like lists because they allow me to divide up my timeline to topics I want to read about at different times. They are frustrating because the tools to manage them in Twitter are very limited, so it’s more hassle to set up the kind of environment I’d like. Mastodon also has lists, sadly its current management tools are equally bad.
+</p></blockquote>
+<p>This seemed like a good challenge for Steampipe. To tackle it, I first needed to add some new tables to the plugin to encapsulate the list APIs: <a href="https://github.com/turbot/steampipe-plugin-mastodon/blob/main/docs/tables/mastodon_list.md">mastodon_list</a> and <a href="https://github.com/turbot/steampipe-plugin-mastodon/blob/main/docs/tables/mastodon_list_account.md">mastodon_list_account</a>. I’ll save that story for another time. Here I’ll just show that together they enable queries like this.</p>
+ select
+  l.title as list,
+  array_agg(a.username order by a.username) as people
+from
+  mastodon_list l
+join
+  mastodon_list_account a
+on
+  l.id = a.list_id
+group by
+  l.title
+ 
+ +--------------+--------------------------------------+
+| list         | people                               |               
++--------------+--------------------------------------+
+| Academic     | ____, ______, ____, ___              |
+| Education    | ___, ______  ___, ______             |
+| Energy       | ___, ______, ____ __                 |
+| Fediverse    | ____ __,                             |
+| Humor        | ____, ____ __, ____ __               |
+| Journalism   | ___ __, ___ ____,  ___, ______       |
+| Library      | __                                   |
+| Net          | ___ __, _____, ___ __, __ __, ____   |
+| Science      | __, ____ __, ______                  |
+| Software     | ____ __, ______, ____ __             |
++--------------+--------------------------------------+
+ 
+<p>That’s a useful view, and I’ve now included it, but it didn’t address Martin’s specific need.</p>
+<blockquote><p>
+To manage these lists, I really need a display that shows every account that I follow in a table with its lists. That way I can easily see which list each account is on, and spot any accounts that aren’t on a list.
+</p></blockquote>
+<p>For that I needed to add a list column to the Following tab. </p>
+<p>This was the original query.</p>
+ select
+  url,
+  case when display_name = '' then username else display_name end as person,
+  to_char(created_at, 'YYYY-MM-DD') as since,
+  followers_count as followers,
+  following_count as following,
+  statuses_count as toots,
+  note
+from
+  mastodon_following
+order by
+  person
+ 
+<p>The new version captures the above join of mastodon_list and mastodon_list_account, and joins that to the mastodon_following (people I follow) table. It’s a left join which means I’ll always get all the people I follow. If you’re not on a list, your list column will be null.</p>
+ with data as (
+  select
+    l.title as list,
+    a.*
+  from
+    mastodon_list l
+  join
+    mastodon_list_account a
+  on
+    l.id = a.list_id
+),
+combined as (
+  select
+    d.list,
+    f.url,
+    case when f.display_name = '' then f.username else f.display_name end as person,
+    to_char(f.created_at, 'YYYY-MM-DD') as since,
+    f.followers_count as followers,
+    f.following_count as following,
+    f.statuses_count as toots,
+    f.note
+  from
+    mastodon_following f
+  left join
+    data d
+  on
+    f.id = d.id
+)
+select
+  *
+from
+  combined
+order by
+  person
+ 
+<p>That query drives the new version of the Following tab.</p>
+<p><a href="https://i0.wp.com/jonudell.info/images/mastodon-following-with-lists.png?ssl=1"></a></p>
+<p>It’s pretty sparse, I’ve only just begun adding people to lists. And honestly I’m not sure I’ll want to keep doing this curation, it’s the kind of thing that can become a burden, I need to play around some more before I commit. Meanwhile, the default sort puts unlisted people first so they’re easy to find. </p>
+<p>To provide a better way to find people who are on lists, I expanded the List tab in a couple of ways. It had included a dropdown of lists by which to filter the home timeline. Now that dropdown has counts of people on each list.</p>
+ input "list" {
+  type = "select"
+  width = 2
+  sql = &lt;&lt;EOQ
+    with list_account as (
+      select
+        l.title
+      from
+        mastodon_list l
+      join
+          mastodon_list_account a
+      on
+        l.id = a.list_id
+    ),
+    counted as (
+      select
+        title,
+        count(*)
+      from
+        list_account
+      group by
+        title
+      order by
+        title
+    )
+    select
+      title || ' (' || count || ')' as label,
+      title as value
+    from
+      counted
+    order by
+      title
+  EOQ
+}
+ 
+<p>I also used this query to expand the List tab.</p>
+ select
+  l.title as list,
+  array_to_string( array_agg( lower(a.username) order by lower(a.username)), ', ') as people
+from
+  mastodon_list l
+join
+  mastodon_list_account a
+on
+  l.id = a.list_id
+group by
+  l.title
+ 
+<p>The result is the list / people table on the right.</p>
+<p><a href="https://i0.wp.com/jonudell.info/images/expanded-list-view.png?ssl=1"></a></p>
+<p>I know that some won’t cotton to this SQL-forward programming model. But for others who will, I wanted to show a few detailed examples to give you a sense of what’s possible at the intersection of Mastodon and Steampipe. </p>
+<p>If you’re not tuned into SQL (like I wasn’t for a very long time), here’s your takeaway: as SQL goes, this stuff is not too scary. Yes there are joins, yes there’s an array_agg that transposes a column into a list. It’s not beginner SQL. But lots of people know how to use join and array_agg in these ways, lots more could easily learn how, and with SQL ascendant nowadays these are skills worth having. </p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/">https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/</a><br>
+2 <a href="https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/">https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/</a><br>
+3 <a href="https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/">https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/</a><br>
+4 <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/</a><br>
+5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
+6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/jonudell.info/images/mastodon-following-with-lists.png?w=656&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   08:09 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -778,7 +999,7 @@
 
 <div class='item-footer'>
    17:57 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -890,7 +1111,7 @@
 
 <div class='item-footer'>
    15:47 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -980,6 +1201,74 @@
 
 
 <p> </p>
+
+
+
+ ＜制作環境のメモ＞ 
+
+
+
+<p>今回は、mmhmm Studio を使ってテキストスライドは全てつくり、絵が必要なものだけGoogle slide で作ったものをPowerpointにエクスポートして、それをmmhmm Studio に読み込んで使いました。JPEGではなくPowerpointにエクスポートしたのは、JPEGだとmmhmm Studioに読み込んだ後のサイズ調整が自由にならないからです。</p>
+
+
+
+<p>カメラはMacBook Pro のカメラ。マイクはAudio Technica AT2040、オーディオインターフェースは Yamaha AG03 mk2 です。Compressor, EQはかけていません。マイクの出力が小さいので、Gainはmaxにせざるを得ませんでした。ノイズも乗るので、これをKrispを通してmmhmm Studioに入力しています。</p>
+
+
+
+<p>こうやって作ったビデオをMP4に書き出し、それを <a href="https://vrew.voyagerx.com/ja/">Vrew</a> (動画編集をテキスト編集のようにできるソフト）に読み込んで字幕を作りました。無音部分も検出してくれるので、ダダダっとそれらを切りましたが、ちょっと切り過ぎで音が消えているところもなくはありません。でも通じるからよいか、と。字幕はAIが作ったものなので、わたしの滑舌の悪さから結構ご変換があります。が、心がきれいな方には意味がちゃんと通じるはず！</p>
+
+
+
+<p>こうして編集したものをVrewからAdobe premiere pro に書き出し、Premiere pro で最終的なMP4を作りました。字幕はPremiere pro でも作れるのでそれでも良かったのですが、無音部分削除はVrewの方が楽だと思います。</p>
+
+
+
+<p>これをYoutube Studio でアップロード、プレミア公開の時間を設定します。このときにカウントダウンの時間とそこで流すビデオを設定します。22時に設定して、５分前くらいから人が来るかなと思って時間を５分に設定したら、なんとカウントダウンは指定した22時から始まるのでした。それ、カウントダウンって言わなくね？罠だ。</p>
+
+
+
+<p>プレミア公開<a href="https://www.sakimura.org/2022/12/5098/#easy-footnote-bottom-1-5098" title="英語では単に premiere という">1</a>の特徴は、それが流れている間、チャットでコメントを入れることができ、それを後からプレイバックできることです。動画プレミアが終わった後はチャットを足すことはできません。</p>
+
+
+
+<p>このチャットプレイバックは、わたしのデフォルト設定では出るようになりませんでした。いろいろ見ると、動画の詳細設定で、コメントをすべて許可するをオンにしないと出ないという情報があったので、それをオンにしたら出るようになりました。</p>
+
+
+
+<a href="https://i0.wp.com/www.sakimura.org/wp-content/uploads/2022/12/スクリーンショット-2022-12-22-15.31.20.png?ssl=1"></a>
+
+
+
+ ＜チャットリプレイを見る方法＞ 
+
+
+
+<p>もっとも、これをやっても直ちに画面にチャットリプレイが展開されるわけでは有りません。次のスクリーンショットのように閉じた形で表示されます。</p>
+
+
+
+<a href="https://i0.wp.com/www.sakimura.org/wp-content/uploads/2022/12/chat_replay_closed.jpg?ssl=1"></a>（図）Chat replay は閉じて表示される
+
+
+
+<p>見えるようにするには、この「Show chat replay」をクリックしなければなりません。そうすると、こんな感じで流れるようになります。</p>
+
+
+
+<a href="https://i0.wp.com/www.sakimura.org/wp-content/uploads/2022/12/スクリーンショット-2022-12-22-18.25.11.png?ssl=1"></a>（図）Chat replay が流れるようにしたこと。
+
+
+
+ ＜チャットリプレイは動画を編集すると出なくなる＞ 
+
+
+
+<p>チャットリプレイを出すのにはもう一つ重要なことがあります。</p>
+
+
+
+<p>前後の余分な時間を削るなどの編集を動画に施すとチャットリプレイできなくなります。</p>
    
   
   
@@ -996,7 +1285,7 @@
 
 <div class='item-footer'>
    14:51 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1070,7 +1359,7 @@
 
 <div class='item-footer'>
    12:54 &bull;
-   13 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1139,7 +1428,7 @@
 
 <div class='item-footer'>
    12:54 &bull;
-   13 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1213,7 +1502,7 @@
 
 <div class='item-footer'>
    08:07 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1283,7 +1572,7 @@
 
 <div class='item-footer'>
    08:06 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1353,7 +1642,7 @@
 
 <div class='item-footer'>
    08:05 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1998,7 +2287,7 @@
 
 <div class='item-footer'>
    15:26 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2134,7 +2423,7 @@
 
 <div class='item-footer'>
    14:54 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2194,7 +2483,7 @@
 
 <div class='item-footer'>
    09:54 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2588,6 +2877,13 @@ I’ve got this picture on the side, and the code on the side, and this part dra
 <p><a href="https://i0.wp.com/jonudell.info/images/inventing-on-principle.png?ssl=1"></a></p>
 <p>We want to work the right way wherever we can. The experience isn’t available everywhere, yet, but it is available in Steampipe where it powerfully enables the experimentation and prototyping that many of us are inspired to do as we delve into Mastodon. </p>
 <p>If you want to try this for yourself, please check out the setup instructions for the <a href="https://github.com/turbot/steampipe-plugin-mastodon">plugin</a> that maps Mastodon APIs to Postgres tables, and the <a href="https://github.com/turbot/steampipe-mod-mastodon-insights">dashboards</a> that use those tables, and ping me (on <a href="https://mastodon.social/@judell">Mastodon</a> if you like!) with any questions you may have.</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/">https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/</a><br>
+2 <a href="https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/">https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/</a><br>
+3 <a href="https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/">https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/</a><br>
+4 <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/</a><br>
+5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
+6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a></p>
    
   
   
@@ -2869,7 +3165,7 @@ I’ve got this picture on the side, and the code on the side, and this part dra
 
 <div class='item-footer'>
    21:36 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2940,7 +3236,7 @@ Steeleye Span | All Around My Hat</p>
 
 <div class='item-footer'>
    21:34 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3016,7 +3312,7 @@ Steeleye Span | All Around My Hat</p>
 
 <div class='item-footer'>
    21:28 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3077,7 +3373,7 @@ Steeleye Span | All Around My Hat</p>
 
 <div class='item-footer'>
    20:54 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3621,7 +3917,7 @@ Steeleye Span | All Around My Hat</p>
 
 <div class='item-footer'>
    19:52 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3686,7 +3982,7 @@ Steeleye Span | All Around My Hat</p>
 
 <div class='item-footer'>
    17:13 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3766,6 +4062,13 @@ order by
 <p>It was easy to implement a rule that limits each person to at most one toot per hour. Next steps here will be to apply this rule to other views, show the number of collapsed toots, and enable such rules on a per-person basis.</p>
 <p>There are always links into the Mastodon web app, and I follow them when I want to view images, boost someone, or reply to someone. The dashboards help me scan a lot of Mastodon activity quickly, and decide which items I want to interact with. Your 500-character toot is all you’ve got to grab my attention, and I’ll only see it as an unformatted chunk of plain text. That’s a pretty severe constraint, and not everyone will want to embrace it, but it’s working pretty well for me so far.</p>
 <p>I expect that our dashboard system will support formatted text and images in cells of HTML tables. When it does I’d like to make it an option you can turn on or off in Mastodon dashboards. What should the default be? I suspect I’ll want plain text and no images, especially if image captions can appear along with the text of toots. Some of the original Mastodon cultural norms aren’t surviving the onslaught of new people, but writing descriptions of images is one that’s held up so far, and it’s a wonderful thing. So write a short thoughtful post, write a caption for your image if you include one, and if you capture my attention I’ll click through to view and interact. </p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/">https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/</a><br>
+2 <a href="https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/">https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/</a><br>
+3 <a href="https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/">https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/</a><br>
+4 <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/</a><br>
+5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
+6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a></p>
    
   
   
@@ -4475,7 +4778,7 @@ The post <a href="https://realestatecafe.com/boston-realty-party-what-should-be-
 
 <div class='item-footer'>
    17:39 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4550,7 +4853,7 @@ The post <a href="https://realestatecafe.com/boston-realty-party-what-should-be-
 
 <div class='item-footer'>
    15:40 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4762,7 +5065,7 @@ The post <a href="https://realestatecafe.com/boston-realty-party-what-should-be-
 
 <div class='item-footer'>
    15:08 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4892,7 +5195,7 @@ The post <a href="https://realestatecafe.com/boston-realty-party-what-should-be-
 
 <div class='item-footer'>
    21:04 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5285,7 +5588,7 @@ curl -XPOST http://localhost:8001/docs/-/create \
 
 <div class='item-footer'>
    17:58 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5382,7 +5685,7 @@ curl -XPOST http://localhost:8001/docs/-/create \
 
 <div class='item-footer'>
    17:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5911,7 +6214,7 @@ curl -XPOST http://localhost:8001/docs/-/create \
 
 <div class='item-footer'>
    18:56 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5973,7 +6276,7 @@ curl -XPOST http://localhost:8001/docs/-/create \
 
 <div class='item-footer'>
    17:03 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6045,7 +6348,7 @@ curl -XPOST http://localhost:8001/docs/-/create \
 
 <div class='item-footer'>
    15:46 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6131,7 +6434,7 @@ curl -XPOST http://localhost:8001/docs/-/create \
 
 <div class='item-footer'>
    14:56 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6525,7 +6828,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    19:55 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6637,7 +6940,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    18:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6710,7 +7013,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    17:26 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6876,7 +7179,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    15:46 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6986,7 +7289,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    17:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7180,7 +7483,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    20:46 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7266,7 +7569,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    20:45 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7374,7 +7677,7 @@ and can also be used in places where, for example, firewalls prevent event pushi
 
 <div class='item-footer'>
    18:22 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7706,6 +8009,13 @@ decrypted_message = private_key.decrypt(
 <p><a href="https://cloud.steampipe.io/user/judell/workspace/personal/snapshot/snap_ce7ovposthg9ors2vo4g_ffnv91w2sddp5sqye6djydzt">dashboard.TagSearch</a> </p>
 <p>For me, at least, this approach has become an effective way to browse the fediverse, find interesting people, read what they boost, and keep track of my own activity.</p>
 <p>If you are dev-minded, by the way, please note that these dashboards are just one way to skin the results of queries against the plugin. Any SQL client can connect to Steampipe’s Postgres endpoint. You could use dashboards like Metabase or Grafana, or you could embed Steampipe <a href="https://steampipe.io/blog/steampipe-as-component">as a component</a> in an app. </p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/">https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/</a><br>
+2 <a href="https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/">https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/</a><br>
+3 <a href="https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/">https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/</a><br>
+4 <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/</a><br>
+5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
+6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a></p>
    
   
   
@@ -7722,7 +8032,7 @@ decrypted_message = private_key.decrypt(
 
 <div class='item-footer'>
    20:37 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7801,7 +8111,7 @@ decrypted_message = private_key.decrypt(
 
 <div class='item-footer'>
    16:41 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8069,7 +8379,7 @@ decrypted_message = private_key.decrypt(
 
 <div class='item-footer'>
    17:26 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8139,7 +8449,7 @@ decrypted_message = private_key.decrypt(
 
 <div class='item-footer'>
    17:19 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8251,7 +8561,7 @@ decrypted_message = private_key.decrypt(
 
 <div class='item-footer'>
    15:53 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8480,7 +8790,7 @@ where
 
 <div class='item-footer'>
    19:31 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8732,7 +9042,7 @@ where
 
 <div class='item-footer'>
    17:16 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8800,7 +9110,7 @@ where
 
 <div class='item-footer'>
    16:16 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9213,7 +9523,15 @@ I’m equally delighted to show how Steampipe enables this modern exercise in RS
 And finally, it’s just wonderful to be at the intersection of Mastodon, Steampipe, and RSS in this remarkable moment. I’ll readily admit that nostalgia is a factor. But RSS did bust things wide open twenty years ago, Mastodon’s doing that now, and I love that RSS can help it happen again.
 </p>
 <p>
-Now I need to write that #introduction!</p>
+Now I need to write that #introduction!
+</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/">https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/</a><br>
+2 <a href="https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/">https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/</a><br>
+3 <a href="https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/">https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/</a><br>
+4 <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/</a><br>
+5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
+6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a></p>
    
   
   
@@ -9375,7 +9693,7 @@ Now I need to write that #introduction!</p>
 
 <div class='item-footer'>
    19:30 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9485,7 +9803,7 @@ Now I need to write that #introduction!</p>
 
 <div class='item-footer'>
    18:54 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9549,7 +9867,7 @@ Now I need to write that #introduction!</p>
 
 <div class='item-footer'>
    14:25 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10450,7 +10768,7 @@ fn main() {
 
 <div class='item-footer'>
    21:11 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10711,7 +11029,7 @@ fn main() {
 
 <div class='item-footer'>
    15:11 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11340,7 +11658,7 @@ if (id) {
 
 <div class='item-footer'>
    21:31 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11512,7 +11830,7 @@ if (id) {
 
 <div class='item-footer'>
    16:44 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11732,7 +12050,7 @@ if (id) {
 
 <div class='item-footer'>
    18:35 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11806,7 +12124,7 @@ if (id) {
 
 <div class='item-footer'>
    15:02 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11888,7 +12206,7 @@ if (id) {
 
 <div class='item-footer'>
    14:12 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11954,7 +12272,7 @@ if (id) {
 
 <div class='item-footer'>
    15:34 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12048,7 +12366,7 @@ if (id) {
 
 <div class='item-footer'>
    14:16 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12254,6 +12572,13 @@ Fediverse     high        medium        high        medium    medium
 <p>Twitter flipped things around completely. It wasn’t just the loss of autonomy as ads and algos took over. With packets capped at 120 characters, and tweets potentially seen immediately by everyone, friction went nearly to zero. The architecture of low friction created an addictive experience and enabled powerful effects. But it wasn’t conducive to healthy discourse.</p>
 <p>The fediverse can, perhaps, strike a balance. Humans didn’t evolve to thrive in frictionless social networks with high fanout and velocity, and arguably we shouldn’t. We did evolve in networks governed by <a href="https://en.wikipedia.org/wiki/Dunbar%27s_number">Dunbar’s number</a>, and our online networks should respect that limit. We need less friction within communities of knowledge and practice, more friction between them. We want messages to fan out pervasively and rapidly within communities, but less so between them.</p>
 <p>We’re at an extraordinary inflection point right now. Will the fediverse enable us to strike the right balance? I think it has the right architectural ingredients to land where I’ve (speculatively) placed it in that table. High autonomy. As little friction as necessary, but not too little. As much fanout and velocity as necessary, but not too much. Nobody knows how things will turn out, predictions are futile, behavior is emergent, but I am on the edge of my seat watching this all unfold.</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/">https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/</a><br>
+2 <a href="https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/">https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/</a><br>
+3 <a href="https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/">https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/</a><br>
+4 <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/</a><br>
+5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
+6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a></p>
    
   
   
@@ -12264,7 +12589,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    21:06 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12866,7 +13191,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    15:47 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13232,7 +13557,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    18:49 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13525,7 +13850,7 @@ Fediverse     high        medium        high        medium    medium
 
 <div class='item-footer'>
    17:13 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -28359,131 +28684,6 @@ exported them again and imported them into my new <a href="https://app.thestoryg
 <div class='item-footer'>
    23:45 &bull;
    10 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.theatlantic.com/health/archive/2020/07/why-arent-we-talking-more-about-airborne-transmission/614737/'>We Need to Talk About Ventilation</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Zeynep Tufekci on aerosolized Covid-19 transmission and the need for ventilation.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- 
-         
-<p>Zeynep Tufekci, in <a href="https://www.theatlantic.com/health/archive/2020/07/why-arent-we-talking-more-about-airborne-transmission/614737/" title="We Need to Talk About Ventilation">a piece</a> for The Atlantic:</p>
-<blockquote>
-<p>Jimenez also wondered why the National Guard hadn’t been deployed to set up
-tent schools (not sealed, but letting air in like an outdoor wedding canopy)
-around the country, and why the U.S. hadn’t set up the mass production of HEPA
-filters for every classroom and essential indoor space. Instead, one
-air-quality expert reported, teachers who wanted to buy portable HEPA filters
-were being told that <a href="https://twitter.com/Poppendieck/status/1286300608836907009">they weren’t allowed</a> to, because the CDC wasn’t
-recommending them. It is still difficult to get Clorox wipes in my
-supermarket, but I went online to check, and there is no shortage of portable
-HEPA filters. There is no run on them.</p>
-</blockquote>
-<p>It’s the profoundly irresponsible plan to reopen schools without any remotely
-sufficient attempt to upgrade and modernize the air circulation systems of our
-dilapidated public school buildings that disturbs me. Meanwhile, school
-reopening proposals pay undue attention to <a href="https://www.theatlantic.com/ideas/archive/2020/07/scourge-hygiene-theater/614599/" title="Hygiene Theater Is a Huge Waste of Time">hygiene theater</a> to assuage fears,
-while very real risks go largely unaddressed.<a>1</a> It simply won’t
-work, and that means disastrous outcomes for communities.</p>
-<p>And it’s not like there aren’t ways to get things under better control. Tufekci
-continues:</p>
-<blockquote>
-<p>However, Japan masked up early, focused on <a href="https://pubmed.ncbi.nlm.nih.gov/32611985/" title="Cluster-based approach to Coronavirus Disease 2019 (COVID-19) response in Japan-February-April 2020">super-spreader events</a> (a strategy
-it calls “<a href="https://www.wsj.com/articles/how-japan-beat-coronavirus-without-lockdowns-11594163172" title="How Japan Beat Coronavirus Without Lockdowns">cluster busting</a>”), and, crucially, trained its public to focus on
-avoiding the three C’s—closed spaces, crowded places, and close conversations.
-In other words, exactly the places where airborne transmission and aerosols
-could pose a risk. The Japanese were advised not to talk on the subway, <a href="https://www.cbsnews.com/news/coronavirus-japan-has-long-accepted-covids-airborne-spread-and-scientists-say-ventilation-is-key/" title="Japan has long accepted COVID's airborne spread, and scientists say ventilation is key">where
-windows were kept open</a>. Oshitani said they also developed guidelines that
-included the importance of ventilation in many different settings, such as
-bars, restaurants, and gyms. Six months later, despite having some of the
-earliest outbreaks, ultradense cities, and one of the oldest populations in
-the world, Japan has had about 1,000 COVID-19 deaths total—which is how many
-the United States often has in a single day. Hong Kong, a similarly dense and
-subway-dependent city, has had only 24 deaths.</p>
-</blockquote>
-<p>The U.S. needs to get it shit together. We have the wealth and knowledge to do
-this right, but need to put empathy for each other ahead of temporary political
-and economic impacts to do so.</p>
- 
- 
- 
- 
-<p>In fairness, the <a href="https://web.archive.org/web/20200717104323/https://www.schools.nyc.gov/school-year-20-21/return-to-school-2020/health-and-safety">Health and Safety</a> section the New York
-City DOE’s <a href="https://web.archive.org/web/20200709171600/https://www.schools.nyc.gov/school-year-20-21/return-to-school-2020">Return to School 2020-2021</a> plan says that the “DOE will make
-improvements to HVAC systems, as well as air conditioning repairs, to improve
-air circulation, as well as replacing regular air filters with higher
-efficiency types.” Still, there’s a social failing here, national leaders
-ought to fund the upgrading of air circulation systems to the highest
-standards in every school and classroom in the United States.&nbsp;<a>↩︎</a></p>
- 
- 
- 
-
-         
-
-         
-             More about… 
-             
-                 <a href="https://justatheory.com/tags/health/">Health</a> 
-                 <a href="https://justatheory.com/tags/zeynep-tufekci/">Zeynep Tufekci</a> 
-                 <a href="https://justatheory.com/tags/coronavirus/">Coronavirus</a> 
-                 <a href="https://justatheory.com/tags/covid-19/">Covid-19</a> 
-             
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:35 &bull;
-   over a year ago
 </div>
 
 </div><!-- item-body -->
