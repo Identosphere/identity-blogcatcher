@@ -711,7 +711,7 @@
 
 </div>
 </div>
-<sup>Last Update 9:37 AM January 16, 2023 (UTC)</sup>
+<sup>Last Update 6:40 PM January 16, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -724,6 +724,439 @@
  <h2 class='new-date'>
   Monday, 16. January 2023
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/'>Mastodon relationship graphs</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The new release of Steampipe is all about relationship graphs. Our blog post shows how these graphs provide contextual awareness for devops and security pros who can now see all the resources related to an EC2 instance, or determine at a glance whether the permissions related to an IAM role are properly scoped. As always, … Continue reading Mastodon relationship graphs
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>
+The new release of Steampipe is all about relationship graphs. Our <a href="https://steampipe.io/blog/release-0-18-0">blog post</a> shows how these graphs provide contextual awareness for devops and security pros who can now see all the resources related to an EC2 instance, or determine at a glance whether the permissions related to an IAM role are properly scoped. As always, developers can explore and remix the code that builds these graphs to adapt them for their own purposes. And as always this is general-purpose tech that can be applied in any domain.</p>
+<p>
+These relationship graphs are driven by SQL queries that define nodes and edges. Such queries can use any column of any table provided by <a href="https://hub.steampipe.io/plugins">any Steampipe plugin</a> to form nodes, and then edges between nodes. If you want to see connections among the people and objects represented by diverse APIs, you can now use SQL idioms to graph them. The only limit is your imagination.</p>
+<p>
+Naturally I imagined graphing Mastodon relationships. So far I’ve built two graphs that visualize my home timeline. Here’s the first one.</p>
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/mastodon-boosts-from-selected-server.png?ssl=1"></a></p>
+<p>
+Here we’re looking at the most recent 50 boosts (the Mastodon version of retweet) in my homeline. This is the query to find them.</p>
+ select
+  *
+from
+  mastodon_toot
+where
+  timeline = 'home'
+  and reblog_server is not null
+limit
+  50
+ 
+<p>
+If we focus on Brian Marick we can see that:</p>
+ 
+ Brian belongs to mastdn.social
+  Brian boosted a post by Tim Bray
+  Tim belongs to hachyderm.io
+  
+<p>
+So this graph shows people on a selected server boosting people on other servers. In this case mastdn.social is the selected server, but we can refocus the graph on any other server that’s sending boosts. </p>
+<p>
+The second graph zooms out to show the web of boost relationships among servers. If anyone on infosec.exchange boosts anyone on mastodon.world, there’s an edge connecting the two nodes. Although it’s not happening anywhere in this graph, the arrow can point both ways and would if anyone on mastodon.world were also boosting anyone on infosec.exchange.	</p>
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/mastodon-boosts-server-to-server.png?ssl=1"></a></p>
+<p>
+Let’s build up the first graph step by step. </p>
+ Step 1: Identify the selected server 
+<p>
+Here’s the definition of the node that represents the selected server.</p>
+ node {
+  category = category.selected_server
+  args = [ self.input.server.value ]
+  sql = &lt;&lt;EOQ
+    select
+      server as id,
+      server as title,
+      jsonb_build_object(
+        'server', server
+      ) as properties
+    from
+        mastodon_boosts()
+    where
+        server = $1
+  EOQ
+}
+ 
+<p>
+Per the <a href="https://steampipe.io/docs/reference/mod-resources/node">documentation</a>, a node’s query must at least select a column aliased as id. Here it’s the server column in a row returned by the above query. I’ve packaged that query into a SQL function, mastodon_boosts, to hide details (timeline = 'home' reblog_server is not null limit 50) and make it easier to focus on what’s special about each node. In this case the special quality is the server column that gives the node its identity matches the selected server.</p>
+<p>
+If the <a href="https://steampipe.io/docs/reference/mod-resources/graph">graph</a> block includes only this node, and mastdn.social is the selected server, here is the rendering. Not much to see here yet!</p>
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/relgraph-step-1.png?ssl=1"></a></p>
+<p>
+The node defines a bag of properties that can be any of the columns returned by the underlying query; these appear when you hover the node. The node also refers to a category that governs the node’s icon, color, and link. Here’s the category for the selected server.</p>
+ category "selected_server" {
+  color = "darkgreen"
+  icon = "server"
+  href  = "https://{{.properties.'server'}}"
+}
+ 
+ Step 2: Identify boosted servers 
+<p>
+Now we’ll add boosted servers. This node uses the same set of records: the 50 most recent boosts in my feed. Again it finds just those whose server column matches the selected server. But the id is now the reblog_server which is the target, instead of the origin, of boosts from the selected server.</p>
+ node {
+  category = category.boosted_server
+  args = [ self.input.server.value ]
+  sql = &lt;&lt;EOQ
+    select
+      reblog_server as id,
+      reblog_server as title
+    from
+      mastodon_boosts()
+    where
+      server = $1
+    EOQ
+}
+ 
+<p>
+Here’s the graph with both selected_server and boosted_server nodes. We’ve used another category to differentiate the boosted nodes.</p>
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/relgraph-step-2.png?ssl=1"></a></p>
+<p>
+There’s only one selected server but it can send boosts to more than one boosted server. The default rendering folds them into one node but you can click to unfold and see all of them.</p>
+ Step 3: Identify people who boost others 
+<p>
+Where are the people? Let’s add them next, starting with the people who are sending boosts.</p>
+ node {
+  category = category.person
+  args = [ self.input.server.value ]
+  sql = &lt;&lt;EOQ
+    select
+      username as id,
+      display_name as title,
+      jsonb_build_object(
+        'instance_qualified_account_url', instance_qualified_account_url
+      ) as properties
+    from
+        mastodon_boosts()
+    where
+      server = $1
+  EOQ
+}
+ 
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/relgraph-step-3.png?ssl=1"></a></p>
+<p>
+The username column gives the node its identity. Note also the property instance_qualified_account_url. That’s the synthetic column we added to the Mastodon plugin <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">last time</a> to ensure that links to people and toots will work properly in the Mastodon client. Because it’s included in a property here, and because category.person refers to that property, links representing people in the graph will resolve properly.</p>
+ Step 4: Identify people who are boosted 
+<p>
+This node takes its identify from the reblog_username column, and uses the synthetic column instance_qualified_reblog_url to provide the link.</p>
+ node {
+  category = category.boosted_person
+  args = [ self.input.server.value ]
+  sql = &lt;&lt;EOQ
+    select
+      reblog_username as id,
+      reblog_username as title,
+      jsonb_build_object(
+        'instance_qualified_reblog_url', instance_qualified_reblog_url
+      ) as properties
+    from
+        mastodon_boosts()
+    where
+      server = $1
+  EOQ
+}
+ 
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/relgraph-step-4.png?ssl=1"></a></p>
+ Step 5: Connect boosters on the selected server to that server 
+<p>
+So far we’ve seen only nodes, whose queries minimally return the id property. An <a href="https://steampipe.io/docs/reference/mod-resources/edge">edge</a> connects nodes by way of a query that minimally returns columns aliased to from_id and to_id. </p>
+ edge {
+  sql = &lt;&lt;EOQ
+    select
+      username as from_id,
+      server as to_id,
+      'belongs to' as title
+    ) as properties
+    from
+      mastodon_boosts()
+  EOQ
+}
+ 
+<p>
+You’ll also want to provide a title to label the edge. Here this edge occurs twice to represent “John Mashey belongs to mstdn.social” and “Brian Marick belongs to mstdn.social.”</p>
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/relgraph-step-5.png?ssl=1"></a></p>
+ Step 6: Connect people on boosted servers to their servers 
+<p>
+This edge works the same way, but captures the relationship between boosted people and their servers.</p>
+ edge {
+  args = [ self.input.server.value ]
+  sql = &lt;&lt;EOQ
+    select
+      reblog_username as from_id,
+      reblog_server as to_id,
+      'belongs to' as title
+    from
+        mastodon_boosts()
+    where
+      server = $1
+  EOQ
+}
+ 
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/relgraph-step-6.png?ssl=1"></a></p>
+ Step 7: Connect boosters to the people they boost 
+<p>
+Finally we add an edge to connect boosters to the people they boost.</p>
+ edge {
+  category = category.boost
+  args = [ self.input.server.value ]
+  sql = &lt;&lt;EOQ
+    select
+      username as from_id,
+      reblog_username as to_id,
+      'boosts' as title,
+      jsonb_build_object(
+        'reblog_username', reblog_username,
+        'reblog_server', reblog_server,
+        'content', reblog -&gt;&gt; 'content'
+      ) as properties
+    from
+        mastodon_boosts()
+    where
+        server = $1
+  EOQ
+}
+ 
+<p>
+And now we’ve completed the first graph shown above.</p>
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/relgraph-step-7.png?ssl=1"></a></p>
+ Graphing GitHub relationships 
+<p>
+You can use this grammar of nodes and edges to describe relationships in any domain. Here’s a graph that looks across all the Steampipe-related repos and shows recently-updated PRs from external contributors.</p>
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/relgraph-github-external-prs.png?ssl=1"></a></p>
+<p>
+And here’s one that uses <a href="https://hub.steampipe.io/plugins">any Steampipe plugin</a> to show recently-updated pull requests for a selected repo. </p>
+<p>
+<a href="https://i0.wp.com/jonudell.info/images/relgraph-github-mod-pr-updates.png?ssl=1"></a></p>
+<p>
+These two views share a common SQL query and serve complementary purposes. The table is handy for sorting by date or author, the graph highlights one-to-many relationships.</p>
+ Lifting the burden of context assembly 
+<p>
+In <a href="https://www.infoworld.com/article/2670157/what-timedance-got-right.html">What TimeDance got right</a> I mourned the passing of a tool for scheduling meetings that had excelled at bringing together the messages and documents related to a meeting. I called this “context assembly” — a term I’d picked up from Jack Ozzie, cofounder of Groove, another collaboration tool whose passing I mourn. Context assembly is hard work. Too often the burden falls on people who only need to use that context and would rather not spend time and effort creating it.</p>
+<p>
+We’ve seen how SQL can <a href="https://www.infoworld.com/article/3648648/how-sql-can-unify-access-to-apis.html">unify access to APIs</a>. Now it can also help us see relationships among the data we extract from those APIs.</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/">https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/</a><br>
+2 <a href="https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/">https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/</a><br>
+3 <a href="https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/">https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/</a><br>
+4 <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/</a><br>
+5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
+6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
+7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/jonudell.info/images/mastodon-boosts-from-selected-server.png?w=656&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:29 &bull;
+   13 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/01/17/if-my-dad.html'> If my dad were alive today … he would be sad. R.I.P. Gina. </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   If my dad were alive today … he would be sad. R.I.P. Gina. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>If my dad were alive today … he would be sad. R.I.P. Gina.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:56 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2023/Jan/16/servo-to-advance-in-2023/#atom-everything'>Servo to Advance in 2023</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Servo to Advance in 2023 
+ This is excellent news: Serve, the browser-in-Rust project started by Mozilla in 2012 that produced the Rust programming language, is getting re-activated with four new full-time developers provided by Igalia. 
+
+     Via Hacker News 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://servo.org/blog/2023/01/16/servo-2023/">Servo to Advance in 2023</a></p>
+<p>This is excellent news: Serve, the browser-in-Rust project started by Mozilla in 2012 that produced the Rust programming language, is getting re-activated with four new full-time developers provided by Igalia.</p>
+
+    <p>Via <a href="https://news.ycombinator.com/item?id=34400214">Hacker News</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:08 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -1190,10 +1623,6 @@ app.AddInMemoryTokenCache();
 
 
 
-<p><a href="https://learn.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS">https://learn.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS</a></p>
-
-
-
 <p><a href="https://oceanleaf.ch/azure-managed-identity/">https://oceanleaf.ch/azure-managed-identity/</a></p>
 
 
@@ -1207,6 +1636,10 @@ app.AddInMemoryTokenCache();
 
 
 <p><a href="https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet">https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS">https://learn.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS</a></p>
    
   
   
@@ -1223,7 +1656,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    06:56 &bull;
-   3 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1299,7 +1732,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    03:14 &bull;
-   6 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1379,7 +1812,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    02:28 &bull;
-   7 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1453,7 +1886,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    02:19 &bull;
-   7 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1559,7 +1992,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    02:15 &bull;
-   7 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1658,7 +2091,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    01:44 &bull;
-   8 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1719,7 +2152,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    01:13 &bull;
-   8 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1798,7 +2231,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    00:31 &bull;
-   9 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1870,7 +2303,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    20:31 &bull;
-   13 hours ago
+   22 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1997,7 +2430,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    19:45 &bull;
-   14 hours ago
+   23 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2070,7 +2503,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    18:38 &bull;
-   15 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2139,7 +2572,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    17:36 &bull;
-   16 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2206,7 +2639,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    10:11 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2669,7 +3102,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    23:28 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2744,7 +3177,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    22:59 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2810,7 +3243,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    21:54 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2875,7 +3308,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    19:06 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2969,7 +3402,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    18:21 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3317,7 +3750,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    05:01 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3385,7 +3818,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    01:37 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3446,7 +3879,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    01:37 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3545,7 +3978,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    00:34 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3929,7 +4362,7 @@ select
 
 <div class='item-footer'>
    23:47 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4005,7 +4438,7 @@ select
 
 <div class='item-footer'>
    23:40 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4424,7 +4857,7 @@ select
 
 <div class='item-footer'>
    05:59 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4510,7 +4943,7 @@ select
 
 <div class='item-footer'>
    05:53 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4577,68 +5010,7 @@ select
 
 <div class='item-footer'>
    05:20 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/01/13/got-to-say.html'> Got to say, sitting on my-couch randomly dropping prompts in</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Got to say, sitting on my-couch randomly dropping prompts into Pintador on my iPad mini and waiting for like no time at all to see the results is very very satisfying. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Got to say, sitting on my-couch randomly dropping prompts into Pintador on my iPad mini and waiting for like no time at all to see the results is very very satisfying.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:20 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4718,7 +5090,7 @@ select
 
 <div class='item-footer'>
    22:13 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5015,7 +5387,7 @@ select
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  Mission Web 7.0 is a unified software and hardware ecosystem for building trustable systems using decentralized identifiers, DIDComm agents, and verifiable credentials. Take what you need; leave the rest. Other Web 7.0 Resources Also check out Welcome to Web 7.0 … Continue reading →
+  Mission Web 7.0 is a unified software and hardware ecosystem for building resilient, trusted, decentralized systems using decentralized identifiers, DIDComm agents, and verifiable credentials. Take what you need; leave the rest. Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity … Continue reading →
    
   
   
@@ -5037,12 +5409,12 @@ select
 
 
 <blockquote>
-<p>Web 7.0 is a unified software and hardware ecosystem for building trustable systems using decentralized identifiers, DIDComm agents, and verifiable credentials.</p>
+<p>Web 7.0 is a unified software and hardware ecosystem for building resilient, trusted, decentralized systems using decentralized identifiers, DIDComm agents, and verifiable credentials.</p>
 
 
 
 <p>Take what you need; leave the rest.</p>
-</blockquote>
+Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Parallelspace Corporation. January 2023.</blockquote>
 
 
 
@@ -5073,7 +5445,7 @@ select
 
 <div class='item-footer'>
    05:43 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5560,7 +5932,7 @@ select
 
 <div class='item-footer'>
    22:45 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5977,7 +6349,7 @@ select
 
 <div class='item-footer'>
    02:08 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6041,7 +6413,7 @@ select
 
 <div class='item-footer'>
    02:05 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6119,7 +6491,7 @@ select
 
 <div class='item-footer'>
    21:42 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8204,7 +8576,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    04:26 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8362,7 +8734,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    23:54 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8688,7 +9060,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    23:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8830,7 +9202,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    02:19 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9218,7 +9590,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    23:29 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9280,7 +9652,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    23:27 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9734,7 +10106,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    05:13 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9920,7 +10292,7 @@ Datasette 0.60: The annotated release notes - improve
 
 <div class='item-footer'>
    23:59 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10048,7 +10420,8 @@ Datasette 0.60: The annotated release notes - improve
 5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
 6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
 7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
-8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a></p>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a></p>
    
   
   
@@ -10065,7 +10438,7 @@ Datasette 0.60: The annotated release notes - improve
 
 <div class='item-footer'>
    23:07 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10292,7 +10665,7 @@ Datasette 0.60: The annotated release notes - improve
 
 <div class='item-footer'>
    04:34 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10360,7 +10733,7 @@ The post <a href="https://realestatecafe.com/compensation-revolution-in-real-est
 
 <div class='item-footer'>
    02:55 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10519,7 +10892,8 @@ order by
 5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
 6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
 7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
-8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a></p>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a></p>
    
   
   
@@ -10740,7 +11114,7 @@ order by
 
 <div class='item-footer'>
    00:20 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10817,7 +11191,7 @@ order by
 
 <div class='item-footer'>
    02:57 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10885,7 +11259,7 @@ order by
 
 <div class='item-footer'>
    23:57 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11049,7 +11423,7 @@ order by
 
 <div class='item-footer'>
    21:49 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11109,7 +11483,7 @@ order by
 
 <div class='item-footer'>
    21:47 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11633,7 +12007,8 @@ group by
 5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
 6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
 7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
-8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a></p>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a></p>
    
   
   
@@ -12408,7 +12783,8 @@ I’ve got this picture on the side, and the code on the side, and this part dra
 5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
 6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
 7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
-8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a></p>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a></p>
    
   
   
@@ -12425,7 +12801,7 @@ I’ve got this picture on the side, and the code on the side, and this part dra
 
 <div class='item-footer'>
    23:12 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12515,7 +12891,8 @@ order by
 5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
 6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
 7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
-8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a></p>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a></p>
    
   
   
@@ -12532,7 +12909,7 @@ order by
 
 <div class='item-footer'>
    03:38 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14489,7 +14866,8 @@ decrypted_message = private_key.decrypt(
 5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
 6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
 7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
-8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a></p>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a></p>
    
   
   
@@ -15801,7 +16179,8 @@ Now I need to write that #introduction!
 5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
 6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
 7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
-8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a></p>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a></p>
    
   
   
@@ -16490,72 +16869,6 @@ else
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2022/Dec/6/understanding-a-protocol/#atom-everything'>Understanding a Protocol</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Understanding a Protocol 
- Andrew's latest notes on how ActivityPub and Mastodon work under the hood, based on his extensive development work building out Takahē. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.aeracode.org/2022/12/05/understanding-a-protocol/">Understanding a Protocol</a></p>
-<p>Andrew's latest notes on how ActivityPub and Mastodon work under the hood, based on his extensive development work building out Takahē.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:50 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Monday, 05. December 2022
  </h2>
@@ -17178,7 +17491,7 @@ else
 
 <div class='item-footer'>
    16:44 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17266,7 +17579,7 @@ else
 
 <div class='item-footer'>
    11:16 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17656,7 +17969,8 @@ Fediverse     high        medium        high        medium    medium
 5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
 6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
 7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
-8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a></p>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a></p>
    
   
   
@@ -28080,84 +28394,6 @@ but probably lots of other places, too.</p>
 
 <div class='item-footer'>
    01:00 &bull;
-   6 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Thursday, 21. July 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.mydigitalfootprint.com/'>MyDigitalFootprint</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.mydigitalfootprint.com/2022/07/why-do-we-lack-leadership.html'>Why do we lack leadership?</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-       Because when there is a leader, we look to them to lead, and they want us to follow their ideas. If you challenge the leader, you challenge leadership, and suddenly, you are not in or on the team. If you don’t support the leader, you are seen as a problem and are not a welcome member of the inner circle. If you bring your ideas, you are seen to be competitive to the system and not aligned.&nbs
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://lh4.googleusercontent.com/6ViX3EvwVfq3t4Hl0AnuffOfaVjfa9yFCK1l5ICN1TA5Wno1K0wbuuX76Hy76uL4O4Y0Ba-KZ4TILLyHK84g6XPtssy5LgoIgFA0r6t-Kx-qtPcZjVxYxce9D70N2K0r1qef1zq7hZsaQ62BsruZLB4'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   <p></p><br><p>Because when there is a leader, we look to them to lead, and they want us to follow their ideas. If you challenge the leader, you challenge leadership, and suddenly, you are not in or on the team. If you don’t support the leader, you are seen as a problem and are not a welcome member of the inner circle. If you bring your ideas, you are seen to be competitive to the system and not aligned.&nbsp; If you don’t bring innovation, you are seen to lack leadership potential.&nbsp;</p><p>The leader sets the rules unless and until the leader loses authority or it is evident that their ideas don’t add up when a challenge to leadership and a demonstration of leadership skills becomes valid.</p><p>We know this leadership model is broken and based on old command and control thinking inherited from models of war. We have lots of new leadership models, but leaders who depend on others for ideas, skills and talent, are they really the inspiration we are seeking?&nbsp;&nbsp;</p><p>Leadership is one of the biggest written-about topics, but it focuses on the skills/ talents you need to be a leader and the characteristics you need as a leader.&nbsp;</p><p>So I am stuck thinking …..</p>  <p>in a world where war was not a foundation, what would have been a natural or dominant model for leadership?</p>  <p>do we lack leaders because we have leaders - because of our history?</p>  <p>do we love the idea of leaders more than we love leaders?</p>  <p>do we have leaders because of a broken model for accountability and responsibility?</p>  <p>do we like leadership because it is not us leading?</p>  <p>do we find it easier to be critical than be criticised?</p>  <p>is leadership sustainable?&nbsp;</p>  <p>if care for our natural world was our only job, what would leadership look like?</p>  <br> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lh4.googleusercontent.com/6ViX3EvwVfq3t4Hl0AnuffOfaVjfa9yFCK1l5ICN1TA5Wno1K0wbuuX76Hy76uL4O4Y0Ba-KZ4TILLyHK84g6XPtssy5LgoIgFA0r6t-Kx-qtPcZjVxYxce9D70N2K0r1qef1zq7hZsaQ62BsruZLB4'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:13 &bull;
    6 months ago
 </div>
 
