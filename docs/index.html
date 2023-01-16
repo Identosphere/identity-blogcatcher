@@ -711,7 +711,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:59 AM January 16, 2023 (UTC)</sup>
+<sup>Last Update 9:37 AM January 16, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -731,8 +731,850 @@
 
 
 <h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/01/16/implementing-secure-microsoft-graph-application-clients-in-asp-net-core/'>Implementing secure Microsoft Graph application clients in ASP.NET Core</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The article looks at the different way a Microsoft Graph application client can be implemented and secured in an ASP.NET Core application or a .NET application. This type of client is intended for applications or application logic where no user is involved. Code: https://github.com/damienbod/MicrosoftGraphAppToAppSecurity Accessing Microsoft Graph can be initialized for app-to-app (application perm
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The article looks at the different way a Microsoft Graph application client can be implemented and secured in an ASP.NET Core application or a .NET application. This type of client is intended for applications or application logic where no user is involved. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/MicrosoftGraphAppToAppSecurity">https://github.com/damienbod/MicrosoftGraphAppToAppSecurity</a></p>
+
+
+
+<p>Accessing Microsoft Graph can be initialized for app-to-app (application permissions) security in three different ways. The flows can only be used in a trusted host. The different implementation types are as follows:</p>
+
+
+
+ 
+ Using Managed Identities 
+
+
+
+ Using Azure SDK and Graph SDK directly with client credentials 
+
+
+
+ Using Microsoft.Identity.Client and MSAL to acquire an access token which can be used directly against Microsoft Graph or using GraphServiceClient with the DelegateAuthenticationProvider class 
+ 
+
+
+
+ Using Managed Identities 
+
+
+
+<p>Using managed identities for the Azure deployments is the most secure of the three ways to implement this client. This is because no secret or certificates are shared and so cannot be abused and there is no need for secret rotation. </p>
+
+
+
+ Setup 
+
+
+
+<p>We use a web application deployed to an Azure App Service to setup the security. A managed identity is created for this Azure resource. If the Azure App Service is deleted, so is the managed identity and the assigned Graph roles. Only this Azure resource can use the managed identity. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>Once the Azure resource is created, the Graph App roles can be assigned to the managed identity.</p>
+
+
+
+ Powershell scripting 
+
+
+
+<p>I created the Powershell script using a blog from Microsoft. This powershell script finds the managed identity and assigns the User.Read.All application permission to the managed identity.</p>
+
+
+  $TenantID = "&lt;your-tenant-id&gt;"
+$DisplayNameServicePrincpal ="&lt;your-azure-app-registration-or-other-azure-resource&gt;"
+$GraphAppId = "00000003-0000-0000-c000-000000000000"
+$PermissionName = "User.Read.All"
+
+Connect-AzureAD -TenantId $TenantID
+
+$sp = (Get-AzureADServicePrincipal -Filter "displayName eq '$DisplayNameServicePrincpal'")
+
+Write-Host $sp
+
+$GraphServicePrincipal = Get-AzureADServicePrincipal -Filter "appId eq '$GraphAppId'"
+
+$AppRole = $GraphServicePrincipal.AppRoles | Where-Object {$_.Value -eq $PermissionName -and $_.AllowedMemberTypes -contains "Application"}
+
+New-AzureAdServiceAppRoleAssignment -ObjectId $sp.ObjectId -PrincipalId $sp.ObjectId -ResourceId $GraphServicePrincipal.ObjectId -Id $AppRole.Id
+  
+
+
+<p>This can be checked in the Azure portal using the Enterprise applications blade and filtering for managed identities.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The permissions contains the Graph User.Read.All application permission.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Implementing the client 
+
+
+
+<p>The client is implemented using Azure.Identity and Graph SDK. We have two setups, one for the production and all other Azure deployments and one for development. The managed identity is used everywhere except the dev deployments and only this can be used. The local dev uses an Azure App registration with the client credentials flow. The GetGraphClientWithManagedIdentity method returns the  GraphServiceClient Graph SDK client setup for the correct deployment. The correct ChainedTokenCredential is used to secure the client. It is important that only the correct managed identity for the exact resource can be used in production. No secret or certificates is required for this solution, the managed identity and Azure takes care of this. The GraphServiceClient is for the application and handles the HttpClient creation so the service is created as a singleton.</p>
+
+
+  using Azure.Identity;
+using Microsoft.Graph;
+
+namespace GraphManagedIdentity;
+
+public class GraphApplicationClientService
+{
+    private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment _environment;
+    private GraphServiceClient? _graphServiceClient;
+
+    public GraphApplicationClientService(IConfiguration configuration, IHostEnvironment environment)
+    {
+        _configuration = configuration;
+        _environment = environment;
+    }
+
+    /// &lt;summary&gt;
+    /// gets a singleton instance of the GraphServiceClient
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public GraphServiceClient GetGraphClientWithManagedIdentityOrDevClient()
+    {
+        if (_graphServiceClient != null)
+            return _graphServiceClient;
+
+        string[] scopes = new[] { "https://graph.microsoft.com/.default" };
+
+        var chainedTokenCredential = GetChainedTokenCredentials();
+        _graphServiceClient = new GraphServiceClient(chainedTokenCredential, scopes);
+
+        return _graphServiceClient;
+    }
+
+    private ChainedTokenCredential GetChainedTokenCredentials()
+    {
+        if (!_environment.IsDevelopment())
+        {
+            return new ChainedTokenCredential(new ManagedIdentityCredential());
+        }
+        else // dev env
+        {
+            var tenantId = _configuration["AzureAd:TenantId"];
+            var clientId = _configuration.GetValue&lt;string&gt;("AzureAd:ClientId");
+            var clientSecret = _configuration.GetValue&lt;string&gt;("AzureAd:ClientSecret");
+
+            var options = new TokenCredentialOptions
+            {
+                AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+            };
+
+            // https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
+            var devClientSecretCredential = new ClientSecretCredential(
+                tenantId, clientId, clientSecret, options);
+
+            var chainedTokenCredential = new ChainedTokenCredential(devClientSecretCredential);
+
+            return chainedTokenCredential;
+        }
+    }
+}
+  
+
+
+<p>The service is added to the IoC and can be used anywhere in the application. Once deployed, the managed identity is used, otherwise the dev setup runs.</p>
+
+
+  builder.Services.AddSingleton&lt;GraphApplicationClientService&gt;();
+builder.Services.AddScoped&lt;AadGraphSdkApplicationClient&gt;();
+  
+
+
+<p>I use it in a service then:</p>
+
+
+  using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
+using Microsoft.Graph;
+using System.Security.Cryptography.X509Certificates;
+
+namespace GraphClientCrendentials;
+
+public class AadGraphSdkApplicationClient
+{
+    private readonly IConfiguration _configuration;
+    private readonly GraphApplicationClientService _graphService;
+
+    public AadGraphSdkApplicationClient(IConfiguration configuration, GraphApplicationClientService graphService)
+    {
+        _configuration = configuration;
+        _graphService = graphService;
+    }
+
+    public async Task&lt;int&gt; GetUsersAsync()
+    {
+        var graphServiceClient = _graphService.GetGraphClientWithClientSecretCredential();
+
+        IGraphServiceUsersCollectionPage users = await graphServiceClient.Users
+            .Request()
+            .GetAsync();
+
+        return users.Count;
+    }
+}
+  
+
+
+ Dev setup 
+
+
+
+<p>An Azure App registration is used to implement the OAuth client credentials flow and uses the Graph SDK client in development. The Graph application is added to the single tenant Azure App registration. An enterprise application is created from this.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The ChainedTokenCredential uses the app.settings and the user secrets to configure the client. The client uses the OAuth client credentials flow to acquire an access token. I normally use secrets for development for simplicity but if more security is required, a certificate can be used and the secret/certificate can be used directly from an Azure KeyVault.</p>
+
+
+    "AzureAd": {
+    "TenantId": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
+    "ClientId": "3606b25d-f670-4bab-ab70-437460143d89"
+    //"ClientSecret": "add secret to the user secrets"
+    //"CertificateName": "[Or instead of client secret: Enter here the name of a certificate (from the user cert store) as registered with your application]",
+    //"Certificate": {
+    //  "SourceType": "KeyVault",
+    //  "KeyVaultUrl": "&lt;VaultUri&gt;",
+    //  "KeyVaultCertificateName": "&lt;CertificateName&gt;"
+    //}
+  },
+  
+
+
+ Using Azure SDK and Graph SDK directly 
+
+
+
+<p>A Microsoft Graph client can be setup to to use the client credentials flow to initialize the Graph SDK GraphServiceClient. This is a good way of creating the OAuth client credentials flow if it is used outside the Azure tenant. It is recommended to use a certificate and this is normally stored in an Azure Key Vault. This uses the OAuth client credentials flow and uses the client assertions to acquire a new access token. </p>
+
+
+
+<p></p>
+
+
+
+<p>The flow can be setup to use a secret:</p>
+
+
+  private GraphServiceClient GetGraphClientWithClientSecretCredential()
+{
+	string[] scopes = new[] { "https://graph.microsoft.com/.default" };
+	var tenantId = _configuration["AzureAd:TenantId"];
+
+	// Values from app registration
+	var clientId = _configuration.GetValue&lt;string&gt;("AzureAd:ClientId");
+	var clientSecret = _configuration.GetValue&lt;string&gt;("AzureAd:ClientSecret");
+
+	var options = new TokenCredentialOptions
+	{
+		AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+	};
+
+	// https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
+	var clientSecretCredential = new ClientSecretCredential(
+		tenantId, clientId, clientSecret, options);
+
+	return new GraphServiceClient(clientSecretCredential, scopes);
+}
+  
+
+
+<p>Or setup to use a certificate:</p>
+
+
+  private async Task&lt;GraphServiceClient&gt; GetGraphClientWithClientCertificateCredentialAsync()
+{
+	string[] scopes = new[] { "https://graph.microsoft.com/.default" };
+	var tenantId = _configuration["AzureAd:TenantId"];
+
+	var options = new TokenCredentialOptions
+	{
+		AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+	};
+
+	// Values from app registration
+	var clientId = _configuration.GetValue&lt;string&gt;("AzureAd:ClientId");
+
+	var certififacte = await GetCertificateAsync();
+	var clientCertificateCredential = new ClientCertificateCredential(
+		tenantId, clientId, certififacte, options);
+
+	// var clientCertificatePath = _configuration.GetValue&lt;string&gt;("AzureAd:CertificateName");
+	// https://learn.microsoft.com/en-us/dotnet/api/azure.identity.clientcertificatecredential?view=azure-dotnet
+	// var clientCertificateCredential = new ClientCertificateCredential(
+	//    tenantId, clientId, clientCertificatePath, options);
+
+	return new GraphServiceClient(clientCertificateCredential, scopes);
+}
+
+private async Task&lt;X509Certificate2&gt; GetCertificateAsync()
+{
+	var identifier = _configuration["AzureAd:ClientCertificates:0:KeyVaultCertificateName"];
+
+	if (identifier == null)
+		throw new ArgumentNullException(nameof(identifier));
+
+	var vaultBaseUrl = _configuration["AzureAd:ClientCertificates:0:KeyVaultUrl"];
+	if(vaultBaseUrl == null)
+		throw new ArgumentNullException(nameof(vaultBaseUrl));
+
+	var secretClient = new SecretClient(vaultUri: new Uri(vaultBaseUrl), credential: new DefaultAzureCredential());
+
+	// Create a new secret using the secret client.
+	var secretName = identifier;
+	//var secretVersion = "";
+	KeyVaultSecret secret = await secretClient.GetSecretAsync(secretName);
+
+	var privateKeyBytes = Convert.FromBase64String(secret.Value);
+
+	var certificateWithPrivateKey = new X509Certificate2(privateKeyBytes,
+		string.Empty, X509KeyStorageFlags.MachineKeySet);
+
+	return certificateWithPrivateKey;
+}
+  
+
+
+<p>I usually use a secret for development and a certificate for production.</p>
+
+
+
+ Using Microsoft.Identity.Client and MSAL 
+
+
+
+<p>A third way of implementing the Graph client is to use Microsoft.Identity.Client or Microsoft.Identity.Web. This uses the ConfidentialClientApplicationBuilder to create a new IConfidentialClientApplication instance and can use a secret or a certificate to acquire the access token. </p>
+
+
+
+<p>Microsoft.Identity.Client with a secret:</p>
+
+
+   var app = ConfidentialClientApplicationBuilder.Create(config.ClientId)
+    .WithClientSecret(config.ClientSecret)
+    .WithAuthority(new Uri(config.Authority))
+    .Build();
+
+app.AddInMemoryTokenCache();
+  
+
+
+<p>or with a certificate and client assertions:</p>
+
+
+   var app = ConfidentialClientApplicationBuilder.Create(config.ClientId)
+    .WithCertificate(certificate)
+    .WithAuthority(new Uri(config.Authority))
+    .Build(); 
+  
+app.AddInMemoryTokenCache();
+  
+
+
+<p>The GraphServiceClient can be created using the DelegateAuthenticationProvider. As I understand you should avoid using the DelegateAuthenticationProvider if possible.</p>
+
+
+  GraphServiceClient graphServiceClient =
+    new GraphServiceClient("https://graph.microsoft.com/V1.0/", 
+        new DelegateAuthenticationProvider(async (requestMessage) =&gt;
+        {
+            // Retrieve an access token for Microsoft Graph (gets a fresh token if needed).
+            AuthenticationResult result = await app.AcquireTokenForClient(scopes)
+                .ExecuteAsync();
+
+            // Add the access token in the Authorization header of the API request.
+            requestMessage.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", result.AccessToken);
+        }));
+}
+  
+
+
+ Notes 
+
+
+
+<p>There are three different ways of creating Microsoft Graph application clients and it is sometimes hard to understand when you should use which. This is not for the delegated clients. In an ASP.NET Core application you would use Microsoft.Identity.Web for a delegated client which then uses Microsoft Graph on behalf of the user. System assigned managed identities do not require managing secrets or certificates but can only be used in the same tenant. The client credentials flow can be used from anywhere. Microsoft recommends using certificates when using the client credentials flow. </p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/app-service/scenario-secure-app-access-microsoft-graph-as-app?tabs=azure-powershell">https://learn.microsoft.com/en-us/azure/app-service/scenario-secure-app-access-microsoft-graph-as-app?tabs=azure-powershell</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/develop/sample-v2-code#service–daemon">https://learn.microsoft.com/en-us/azure/active-directory/develop/sample-v2-code#service–daemon</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/1-Call-MSGraph">https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/1-Call-MSGraph</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS">https://learn.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS</a></p>
+
+
+
+<p><a href="https://oceanleaf.ch/azure-managed-identity/">https://oceanleaf.ch/azure-managed-identity/</a></p>
+
+
+
+<p><a href="https://learningbydoing.cloud/blog/stop-using-client-secrets-start-using-managed-identities/">https://learningbydoing.cloud/blog/stop-using-client-secrets-start-using-managed-identities/</a></p>
+
+
+
+<p><a href="https://github.com/Azure/azure-sdk-for-net">https://github.com/Azure/azure-sdk-for-net</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet">https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/01/mi-aad-03-1.png?w=733'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:56 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/01/16/how-to-be.html'> How to Be Less Harsh with Yourself (and Others): Ram Dass on</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   How to Be Less Harsh with Yourself (and Others): Ram Dass on the Spiritual Lessons of Trees. 
+ .. and great lessons they are … 
+ 
+ “When you go out into the woods and you look at trees, you see all these different trees. And some of them are bent, and some of them are straight, and some of them are evergreens, and some of them are whatever. And you look at the tree and you allow it. You see why it
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://www.themarginalian.org/2023/01/13/ram-dass-tree/">How to Be Less Harsh with Yourself (and Others): Ram Dass on the Spiritual Lessons of Trees.</a></p>
+<p>.. and great lessons they are …</p>
+<blockquote>
+<p>“When you go out into the woods and you look at trees, you see all these different trees. And some of them are bent, and some of them are straight, and some of them are evergreens, and some of them are whatever. And you look at the tree and you allow it. You see why it is the way it is.”</p>
+</blockquote>
+<blockquote>
+<p>“The minute you get near humans, you lose all that. And you are constantly saying, “You’re too this, or I’m too this.” That judging mind comes in. And so I practice turning people into trees. Which means appreciating them just the way they are.</p>
+</blockquote>
+<p>via the inimitable Maria Popova</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:14 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/01/16/totally-informal-twitter.html'> Totally Informal Twitter to Mastodon comparison. 
+ I posted </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Totally Informal Twitter to Mastodon comparison. 
+ I posted this on Twitter today. 
+  
+ and over there - with multiple thousands of followers across my accounts … as you can see - donuts. 
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/4c3b48d55e.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Totally Informal Twitter to Mastodon comparison.</p>
+<p>I posted this on Twitter today.</p>
+<p></p>
+<p>and over there - with multiple thousands of followers across my accounts … as you can see - donuts.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/4c3b48d55e.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:28 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/01/16/airplay-not-working.html'> AirPlay Not Working with HomePod Mini? Try This Stupid Trick</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   AirPlay Not Working with HomePod Mini? Try This Stupid Trick 
+ 
+ “Unplug the HomePod Mini from the wall or outlet, then plug it back into the power source.” 
+ 
+ The fact that this fixes the problem is one thing. The fact that it constitutes advice - a totally different thing. 
+ Surely “Switch it off - switch it on again” has been the staple of all tech support for several decades. 
+ Who in the OSX
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://osxdaily.com/2023/01/15/homepod-mini-not-showing-as-airplay-device-try-this-fix/">AirPlay Not Working with HomePod Mini? Try This Stupid Trick</a></p>
+<blockquote>
+<p>“Unplug the HomePod Mini from the wall or outlet, then plug it back into the power source.”</p>
+</blockquote>
+<p>The fact that this fixes the problem is one thing. The fact that it constitutes advice - a totally different thing.</p>
+<p>Surely “Switch it off - switch it on again” has been the staple of all tech support for several decades.</p>
+<p>Who in the OSXDaily readership needs to be told to try this?</p>
+<p>OK OK - yes - SEO!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:19 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://john.philpin.com/2023/01/16/is-the-eurovision.html'>🎵 Is The Eurovision Song Contest Designed To Be An 'Equal Opportunity' Employer?</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   That is the only thing I can think of that created the news that caused me to write this post! 
+ 
+ This is nothing like a PiL track. It is also nothing like a John Lydon track. That said, 
+ 
+ “Public Image Ltd. (PiL) have been selected for the 67th annual Eurovision Song Contest airing on February 3. The band will represent Ireland with their new single ‘Hawaii.’.” 
+ 
+ The NME and American Songwri
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>That is the only thing I can think of that created the news that caused me to write this post!</p>
+ 
+<p><a href="https://songwhip.com/public-image-ltd/hawaii">This is nothing like a PiL track</a>. It is also nothing like a John Lydon track. That said,</p>
+<blockquote>
+<p>“Public Image Ltd. (PiL) have been selected for the 67th annual Eurovision Song Contest airing on February 3. The band will represent Ireland with their new single ‘Hawaii.’.”</p>
+</blockquote>
+<p>The <a href="https://www.nme.com/news/music/john-lydon-dedicates-eurovision-entry-hawaii-to-wife-3380808">NME</a> and <a href="https://americansongwriter.com/former-sex-pistol-john-lydon-enters-eurovision-pil-song-hawaii/">American Songwriter</a> are both ‘kind of saying’ that;</p>
+**Public Image Ltd are representing Ireland in the next Eurovision song contest.**
+<p>‘kind of’ because i THINK that there is an Irish ‘run off’ in February before the final decision to compete in May(?)
+<a href="https://americansongwriter.com/former-sex-pistol-john-lydon-enters-eurovision-pil-song-hawaii/">This article</a> is one of many providing a little back story to the song.</p>
+<blockquote>
+<p>The song … is a love letter to Lydon’s wife. Nora Forster, Lydon’s wife of nearly 45 years (who) was diagnosed with Alzheimer’s disease in 2018.</p>
+</blockquote>
+<p>It goes on ..</p>
+<blockquote>
+<p>“A deeply personal track for Lydon, ‘Hawaii’ is sobering reflection of the couple’s life together. The song is punctuated by one of their most special memories, a trip they once took together. Some begin again / We’re here / You and me … Remember me / I remember you / Hawaii. Written by Lydon, “Hawaii” professes the power of love through the good and the most traumatic of times.</p>
+</blockquote>
+<p>All good. No problem. Sorry to read about his wife’s diagnosis. The song is nice enough - though to these untrained ears a little schmaltzy - if not to say ‘derivative’ - as in ever since Elvis went to Hawaii, songwriters have been picking up their instruments and writing <a href="https://www.ranker.com/list/the-best-songs-with-hawaii-in-the-title/ranker-music">yet another song about Hawaii</a>. John is no different.</p>
+<p>But here’s the thing</p>
+<p>1] Lydon was born in London. Yes to Irish parents (and holds an Irish passport) but he also has American citizenship and is on record as saying “I view myself as British first and foremost.”</p>
+<p>Let me take you back to Eurovision ’81. The winner? Buck’s Fizz, with a song called ‘<a href="https://www.youtube.com/watch?v=h4-lKMGII_k">Making Your Mind Up</a>’ .. maybe John should acquaint himself with a little Eurovision history and decide who he is.</p>
+<p>2] An entire song called Hawaii - whoever thought of doing that … <a href="https://www.ranker.com/list/the-best-songs-with-hawaii-in-the-title/ranker-music">oh wait</a> - to represent IRELAND - the home of some of the greatest writers and musicians in the world. Is there really not a real Irish choice?</p>
+<p>Fun fact - Ireland is the ONLY entry ever to win the competition with the same singer songwriter - not only that he wrote a third song … that also won.</p>
+<p>3] The chintzy Hawaiian sound does a massive disservice to the real music that emerges from those islands.</p>
+<p>Just on Maui … there are superb professional musicians that I know, including;</p>
+<p>🔸 <a href="http://randallrospond.com">Randall Rospond</a><br>
+🔸 <a href="https://mauitomcat.com">Tom Conway</a><br>
+🔸 <a href="http://www.gailswanson.com">Gail Swanson</a><br>
+🔸 <a href="https://www.facebook.com/jamiegallomusic/">Jamie Gallo</a> (sorry - Facebook link)<br>
+🔸 <a href="https://vinceesquire.com">Vince Esquire</a><br>
+🔸 <a href="https://kanekoa.live">Kanekoa</a></p>
+<p>Not to mention Alana Cini, Joel Katz, Peter Kater, Chris Sendrey, John Grover and so many others I know and love - and even that list doesn’t include even more famous musical residents like</p>
+<p>🔸 Willie Nelson<br>
+🔸 Lukas Nelson<br>
+🔸 Alice Cooper<br>
+🔸 Mick Fleetwood<br>
+🔸 Lily Meola<br>
+🔸 Steven Tyler<br>
+🔸 Kris Kristoferson (I think - he certainly used to.)</p>
+<p>None of them … NONE .. produce music that the world associates with that Hawaiian sound. Even a ‘Ukulele band like Kanekoa play their Ukuleles less like Tiny Tim and more like well - Led Zeppelin.</p>
+<p>Kanekoa : <a href="https://kanekoa.live/music/">Going to California</a></p>
+<p>Led Zeppelin :  <a href="https://www.last.fm/music/Led+Zeppelin/_/Going+to+California">Going to California - </a></p>
+<p>I don’t dislike his song - but I really hope somebody Irish with Irish music wins the chance to represent their country and that yet another piece of misappropriated Hawaiiana is stopped from taking the world by storm.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:15 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -816,7 +1658,7 @@
 
 <div class='item-footer'>
    01:44 &bull;
-   16 minutes ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -877,7 +1719,7 @@
 
 <div class='item-footer'>
    01:13 &bull;
-   an hour ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -956,7 +1798,7 @@
 
 <div class='item-footer'>
    00:31 &bull;
-   an hour ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1028,7 +1870,7 @@
 
 <div class='item-footer'>
    20:31 &bull;
-   5 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1155,7 +1997,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    19:45 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1228,7 +2070,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    18:38 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1297,7 +2139,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    17:36 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1364,7 +2206,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    10:11 &bull;
-   16 hours ago
+   23 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1425,7 +2267,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    05:13 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1497,7 +2339,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    03:31 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2203,7 +3045,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    15:34 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2275,7 +3117,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    14:34 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2335,7 +3177,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    14:34 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2401,7 +3243,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    14:01 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3227,7 +4069,7 @@ select
 
 <div class='item-footer'>
    16:06 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3289,7 +4131,7 @@ select
 
 <div class='item-footer'>
    15:44 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3357,7 +4199,7 @@ select
 
 <div class='item-footer'>
    15:41 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3894,303 +4736,6 @@ select
 
 
 <h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/01/13/including-goodbye-pork.html'> Including ‘Goodbye Pork Pie Hat’ here reminded me of Bert an</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Including ‘Goodbye Pork Pie Hat’ here reminded me of Bert and John from 68 - and later Pentangle - one of my ‘gateway entries’. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://john.philpin.com/2023/01/13/some-reminders-of.html">Including ‘Goodbye Pork Pie Hat’ here</a> reminded me of <a href="https://www.youtube.com/watch?v=WfeXvvQ98y8">Bert and John from 68</a> - and later Pentangle - one of my <a href="https://albumwhale.com/john-philpin-3c343a30/gateway-drugs">‘gateway entries’</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:21 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/01/13/january-th-follow.html'> January 13th. 
-  
-  
- 
- 
- Follow The Daily Stoic 
- All The P</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   January 13th. 
-  
-  
- 
- 
- Follow The Daily Stoic 
- All The Posts 
- RSS Feed 
-
- 
- If one really catches your eye, don’t forget to click on ‘the date’ below - there may be additional commentary. 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/0d619c037f.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>January 13th.</p>
-<p></p>
-<p></p>
- 
- 
-<p>Follow The Daily Stoic</p>
-<p><a href="https://john.philpin.com/categories/a-year-of-stoicism">All The Posts</a></p>
-<p><a href="https://john.philpin.com/categories/a-year-of-stoicism/feed.xml">RSS Feed</a></p>
-
- 
-<p>If one really catches your eye, don’t forget to click on ‘the date’ below - there may be additional commentary.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/0d619c037f.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:11 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/01/13/some-reminders-of.html'> Some reminders of how awesome Mr Beck was … 
- With Roger Wat</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Some reminders of how awesome Mr Beck was … 
- With Roger Waters on Amused To Death 
- Goodbye Pork Pie Hat / Brush With The Blues 
- Live at the Hollywood Bowl 
- Induction to the Rock and Roll Hall Of Fame 
- Live at Ronnie Scott’s 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Some reminders of how awesome Mr Beck was …</p>
-<p><a href="https://www.youtube.com/watch?v=OccmcfZ9ZnY">With Roger Waters on Amused To Death</a></p>
-<p><a href="https://www.youtube.com/watch?v=w1s7jpdjiEw">Goodbye Pork Pie Hat / Brush With The Blues</a></p>
-<p><a href="https://www.youtube.com/watch?v=cGg7mr6RGYM">Live at the Hollywood Bowl</a></p>
-<p><a href="https://www.youtube.com/watch?v=EHKsg3NIIgQ">Induction to the Rock and Roll Hall Of Fame</a></p>
-<p><a href="https://youtube.com/watch?v=8bUlXDJcv-k">Live at Ronnie Scott’s</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:58 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/01/13/it-just-won.html'> It just won a Golden Globe for ‘best original song’ - it is </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   It just won a Golden Globe for ‘best original song’ - it is mesmerizing.  
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.youtube.com/watch?v=OsU0CGZoV8E">It just won a Golden Globe for ‘best original song’ - it is mesmerizing. </a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:56 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://blogs.harvard.edu/doc/'>Doc Searls Weblog</a>
 </h4>
 
@@ -4228,26 +4773,28 @@ select
 
 <p><a href="https://www.flickr.com/photos/docsearls/3032967955/"></a></p>
 <p>Gibraltar Peak isn’t the highest landform overlooking Santa Barbara. At 2180 feet, it’s about halfway up the south flank of the Santa Ynez Mountains. But it does provide an excellent vantage for FM stations that want the least obstructed view of the market’s population. That’s why more local signals come from here than from any other site in the region.</p>
-<p>Except for now: a time that began with the storm last Tuesday. That’s when power lines feeding the peak were broken by falling rocks that also closed Gibraltar road. Here is a list of signals that have been knocked off the air (and are still off, as of the latest edit, on Sunday, January 15 at 5PM):</p>
+<p>Except for now: a time that began with the storm last Tuesday. That’s when power lines feeding the peak were broken by falling rocks that also closed Gibraltar road. Here is a list of signals that have been knocked off the air (and are still off, as of the latest edit, on Sunday, January 15 at 11:15PM):</p>
  
  88.7 KDRW, which has a studio in Santa Barbara, but mostly relays <a href="https://www.kcrw.com/">KCRW</a> from Santa Monica 
  89.5 KSBX, which relays <a href="https://www.kcbx.org/">KCBX</a> from San Luis Obispo* 
  89.9 K210AD, which relays <a href="https://www.kpcc.org/">KPCC</a> from Pasadena by way of KJAI from Ojai 
  90.3 KMRO-FM2, a booster for <a href="https://en.wikipedia.org/wiki/KMRO">KMRO</a> in Camarillo 
  91.5 K218CP, which relays <a href="https://en.wikipedia.org/wiki/CSN_International">KAWZ</a> from Twin Falls, Idaho 
+ 93.7 KDB, which relays KUSC from Los Angeles (down after running on generator power for 5 days) 
  96.9&nbsp;K245DD, which relays <a href="http://am1290kzsb.com/">KZSB</a>/1290 AM in Santa Barbara 
  97.9 K250BS, which relays <a href="http://www.ktms.com/">KTMS</a>/990 AM in Santa Barbara (and is on a KTMS tower, farther up the slope) 
  98.7 K254AH, which relays <a href="https://www.kpfk.org/">KPFK</a> from Los Angeles 
  102.3 KK272DT, the FM side of <a href="https://www.kclu.org/">KCLU</a>/1340 in Santa Barbara and KCLU/88.3 in Thousand Oaks 
  
-<p>KDB/93.7, which relays <a href="https://www.kusc.org/">KUSC</a> from Los Angeles, is also on Gibraltar Peak but closer to Gibraltar Road and apparently fed by a different electrical service path. It’s still on the air, as are KTMS/990AM, KTYD/99.9FM, and K231CR/94.1, which relays <a href="https://oldschool1490.com/">KOSJ</a>/1490AM, all of which are a short distance farther up Gibraltar Road. (In the other box in the photo above.)</p>
+<p>KTMS/990AM, KTYD/99.9FM, and K231CR/94.1, which relays <a href="https://oldschool1490.com/">KOSJ</a>/1490AM, are still on the air as of Sunday night at 11:15pm. Those are are a short distance farther up Gibraltar Road. (In the other box in the photo above.)</p>
 <p>Here is a guide to substitute signals for some of the stations:</p>
  
  KCRW/KDRW can be heard on KCRU/89.1 from Oxnard (actually, Laguna Peak, in Pt. Magu State Park) 
+ KDB can be heard on KDSC/91.1 from Thousand Oaks (actually off Sulphur Mountain Road, south of Ojai) 
  KCLU can be heard on 1340 AM from Santa Barbara and 88.3 FM from Thousand Oaks 
- KPCC can be heard on KJAI/89.5 from Ojai 
+ KPCC can be heard on KJAI/89.5 from Ojai (also transmitting from Sulphur Mountai Road) 
  KSBX/KCBX can be heard on 90.9 from Solvang (actually Broadcast Peak) 
- KPFK can be heard on its home signal (biggest in the U.S.) at 90.7 
+ KPFK can be heard on its home signal (biggest in the U.S.) from Mount Wilson in Los Angeles at 90.7 
  KZSB can be heard on 1290 AM from Santa Barbara 
  KMRO can still be heard on its Camarillo main transmitter on 90.3 
  
@@ -4290,7 +4837,7 @@ select
 
 <div class='item-footer'>
    19:21 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4356,7 +4903,7 @@ select
 
 <div class='item-footer'>
    17:07 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4432,7 +4979,7 @@ select
 
 <div class='item-footer'>
    15:39 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4601,7 +5148,7 @@ select
 
 <div class='item-footer'>
    18:57 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4661,7 +5208,7 @@ select
 
 <div class='item-footer'>
    16:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4733,7 +5280,7 @@ select
 
 <div class='item-footer'>
    15:56 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4795,7 +5342,7 @@ select
 
 <div class='item-footer'>
    15:35 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4855,7 +5402,7 @@ select
 
 <div class='item-footer'>
    14:52 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5089,7 +5636,7 @@ select
 
 <div class='item-footer'>
    21:38 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5161,7 +5708,7 @@ select
 
 <div class='item-footer'>
    18:36 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5233,7 +5780,7 @@ select
 
 <div class='item-footer'>
    17:21 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5298,7 +5845,7 @@ select
 
 <div class='item-footer'>
    16:46 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5362,7 +5909,7 @@ select
 
 <div class='item-footer'>
    14:37 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5678,7 +6225,7 @@ select
 
 <div class='item-footer'>
    21:22 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5774,7 +6321,7 @@ select
 
 <div class='item-footer'>
    19:29 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5847,7 +6394,7 @@ select
 
 <div class='item-footer'>
    18:40 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5971,7 +6518,7 @@ select
 
 <div class='item-footer'>
    17:38 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6041,7 +6588,7 @@ select
 
 <div class='item-footer'>
    17:30 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6117,7 +6664,7 @@ select
 
 <div class='item-footer'>
    16:54 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6189,7 +6736,7 @@ select
 
 <div class='item-footer'>
    15:43 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6260,7 +6807,7 @@ select
 
 <div class='item-footer'>
    15:30 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6379,7 +6926,7 @@ select
 
 <div class='item-footer'>
    14:47 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7747,7 +8294,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    18:52 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7879,7 +8426,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    20:19 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8209,7 +8756,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    16:24 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8441,7 +8988,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    17:20 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8517,7 +9064,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    14:10 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8874,7 +9421,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    19:04 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9601,7 +10148,7 @@ Datasette 0.60: The annotated release notes - improve
 
 <div class='item-footer'>
    20:35 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9671,7 +10218,7 @@ Datasette 0.60: The annotated release notes - improve
 
 <div class='item-footer'>
    17:31 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9983,7 +10530,7 @@ order by
 
 <div class='item-footer'>
    18:40 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10057,7 +10604,7 @@ order by
 
 <div class='item-footer'>
    15:02 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10129,7 +10676,7 @@ order by
 
 <div class='item-footer'>
    20:56 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10630,7 +11177,7 @@ order by
 
 <div class='item-footer'>
    20:06 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10818,7 +11365,7 @@ end tell
 
 <div class='item-footer'>
    19:59 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11279,7 +11826,7 @@ group by
 
 <div class='item-footer'>
    14:51 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11347,7 +11894,7 @@ group by
 
 <div class='item-footer'>
    19:55 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11479,7 +12026,7 @@ group by
 
 <div class='item-footer'>
    14:54 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -22836,633 +23383,6 @@ public class AdminModel : PageModel
 
 <div class='item-footer'>
    23:25 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 03. October 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/10/03/implement-the-on-behalf-of-flow-between-an-azure-ad-protected-api-and-an-api-protected-using-openiddict/'>Implement the On Behalf Of flow between an Azure AD protected API and an API protected using OpenIddict</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to implement the On Behalf Of flow between two APIs, one using Azure AD to authorize the HTTP requests and a second API protected using OpenIddict. The Azure AD protected API uses the On Behalf Of flow (OBO) to get a new OpenIddict delegated access token using the AAD delegated access […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to implement the On Behalf Of flow between two APIs, one using Azure AD to authorize the HTTP requests and a second API protected using OpenIddict. The Azure AD protected API uses the On Behalf Of flow (OBO) to get a new OpenIddict delegated access token using the AAD delegated access token. An ASP.NET Core Razor page application using a confidential client is used to get the Azure AD access token with an access_as_user scope. By using the OBO flow, delegated and application authorization mixing can be avoided and the trust between systems can be reduced.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/OnBehalfFlowOidcDownstreamApi">https://github.com/damienbod/OnBehalfFlowOidcDownstreamApi</a></p>
-
-
-
-<p>Architecture Setup</p>
-
-
-
-<p>We have a solution setup using OpenIddict as the identity provider. This could be any OpenID Connect server. We have APIs implemented and secured using users from this system and protected with the OpenIddict identity provider. With some Azure AD system constraints and new collaboration requirements, we need to support users from Azure AD. Due to this, our users from Azure AD need to use the APIs protected with the OpenIddict identity provider. The On Behalf Of flow is used to support this. An new Azure AD protected API is used to accept the Azure AD access token used for accessing the “protected” APIs. This token is used to get a new OpenIddict delegated access token which can be used for the existing APIs.  For this to work, the users must exist in both systems. We match the accounts using an email. You could also use the Azure OID and save this to the existing system. It is harder to add custom IDs to Azure AD from other identity providers. A second way of implementing this would be to use the OAuth token exchange RFC 8693. This supports much more than we require. I based the implementation on the Microsoft documentation. By using the OBO flow, delegated access tokens can be used everyway and the trust required can be reduced between the APIs. I try to use delegated user access tokens whenever possible. Application access tokens should be avoided for UIs or user delegated flows.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Implement the OBO client 
-
-
-
-<p>The Azure AD protected API uses the On Behalf Of flow to get a new access token to access the downstream API protected with the OpenIddict identity provider. The Azure AD delegated user access token is used to acquire a new access token.</p>
-
-
-  [HttpGet]
-public async Task&lt;IEnumerable&lt;string&gt;?&gt; Get()
-{
-	var scopeRequiredByApi = new string[] { "access_as_user" };
-	HttpContext.VerifyUserHasAnyAcceptedScope(scopeRequiredByApi);
-
-	var aadBearerToken = Request.Headers[HeaderNames.Authorization]
-		.ToString().Replace("Bearer ", "");
-
-	var dataFromDownstreamApi = await _apiService
-		.GetApiDataAsync(aadBearerToken);
-		
-	return dataFromDownstreamApi;
-}
-  
-
-
-<p>The GetApiTokenObo method is used to get the access token from a distributed cache or from the OpenIddict identity provider using the OBO flow. With the new user access token, the protected API can be used.</p>
-
-
-  var client = _clientFactory.CreateClient();
-
-client.BaseAddress = new Uri(_downstreamApi.Value.ApiBaseAddress);
-
-var access_token = await _apiTokenClient.GetApiTokenObo(
-	_downstreamApi.Value.ClientId,
-	_downstreamApi.Value.ScopeForAccessToken,
-	_downstreamApi.Value.ClientSecret,
-	aadAccessToken
-);
-
-client.SetBearerToken(access_token);
-
-var response = await client.GetAsync("api/values");
-if (response.IsSuccessStatusCode)
-{
-	var data = await JsonSerializer.DeserializeAsync&lt;List&lt;string&gt;&gt;(
-	await response.Content.ReadAsStreamAsync());
-
-	if(data != null)
-		return data;
-
-	return new List&lt;string&gt;();
-}
-  
-
-
-<p>The GetApiTokenOboAad method uses the OBO helper library to acquire the new access token. The GetDelegatedApiTokenOboModel parameter class is used to define the required values. </p>
-
-
-  private async Task&lt;AccessTokenItem&gt; GetApiTokenOboAad(string clientId,
-	string scope, string clientSecret, string aadAccessToken)
-{
-	var oboHttpClient = _httpClientFactory.CreateClient();
-	oboHttpClient.BaseAddress = new Uri(
-		_downstreamApiConfigurations.Value.IdentityProviderUrl);
-
-	var oboSuccessResponse = await RequestDelegatedAccessToken
-		.GetDelegatedApiTokenObo(
-		new GetDelegatedApiTokenOboModel
-		{
-			Scope = scope,
-			AccessToken = aadAccessToken,
-			ClientSecret = clientSecret,
-			ClientId = clientId,
-			EndpointUrl = "/connect/obotoken",
-			OboHttpClient = oboHttpClient
-		}, _logger);
-
-	if (oboSuccessResponse != null)
-	{
-		return new AccessTokenItem
-		{
-			ExpiresIn = DateTime.UtcNow.AddSeconds(oboSuccessResponse.ExpiresIn),
-			AccessToken = oboSuccessResponse.AccessToken
-		};
-	}
-
-	_logger.LogError("no success response from OBO access token request");
-	throw new ApplicationException("no success response from OBO access token request");
-}
-  
-
-
-<p>The  GetDelegatedApiTokenObo method implements the OBO client request. The parameters are passed in the body of the HTTP POST request as defined on the Microsoft documentation. The requests returns a success response or an error response.</p>
-
-
-  public static async Task&lt;OboSuccessResponse?&gt; GetDelegatedApiTokenObo(
-	GetDelegatedApiTokenOboModel reqData, ILogger logger)
-{
-	if (reqData.OboHttpClient == null)
-		throw new ArgumentException("Httpclient missing, is null");
-
-	// Content-Type: application/x-www-form-urlencoded
-	var oboTokenExchangeBody = new[]
-	{
-		new KeyValuePair&lt;string, string&gt;("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
-		new KeyValuePair&lt;string, string&gt;("client_id", reqData.ClientId),
-		new KeyValuePair&lt;string, string&gt;("client_secret", OboExtentions.ToSha256(reqData.ClientSecret)),
-		new KeyValuePair&lt;string, string&gt;("assertion", reqData.AccessToken),
-		new KeyValuePair&lt;string, string&gt;("scope", reqData.Scope),
-		new KeyValuePair&lt;string, string&gt;("requested_token_use", "on_behalf_of"),
-	};
-
-	var response = await reqData.OboHttpClient.PostAsync(reqData.EndpointUrl, 
-		new FormUrlEncodedContent(oboTokenExchangeBody));
-
-	if (response.IsSuccessStatusCode)
-	{
-		var tokenResponse = await JsonSerializer.DeserializeAsync&lt;OboSuccessResponse&gt;(
-		await response.Content.ReadAsStreamAsync());
-		return tokenResponse;
-	}
-	if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-	{
-		// Unauthorized error
-		var errorResult = await JsonSerializer.DeserializeAsync&lt;OboErrorResponse&gt;(
-	   await response.Content.ReadAsStreamAsync());
-
-		if(errorResult != null)
-		{
-			logger.LogInformation("{error} {error_description} {correlation_id} {trace_id}",
-				errorResult.error,
-				errorResult.error_description,
-				errorResult.correlation_id,
-				errorResult.trace_id);
-		}
-		else
-		{
-			logger.LogInformation("RequestDelegatedAccessToken Error, Unauthorized unknown reason");
-		}
-	}
-	else
-	{
-		// unknown error, log
-		logger.LogInformation("RequestDelegatedAccessToken Error unknown reason");
-	}
-
-	return null;
-}
-  
-
-
-<p>The following HTTP POST request is sent to the identity provider supporting the OBO flow. As you can see, a secret (or certificate) is used so only a trusted application can implement an OBO client. </p>
-
-
-  // Content-Type: application/x-www-form-urlencoded
-
-grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
-&amp;client_id={clientId}
-&amp;client_secret={clientSecret}
-&amp;assertion={accessToken}
-&amp;scope={scope}
-&amp;requested_token_use=on_behalf_of
-  
-
-
- Implement the OBO token exchange 
-
-
-
-<p>The identity provider supporting the OBO flow needs to accept the POST request, validate the request and issue a new access token using the correct signature. It might be possible to integrate this flow better into the different identity providers, I kept this separate which would make it easier to re-use on different IDPs. All you need is the correct signature created from the certificate used by the identity provider. The Exchange method needs to validate the request correctly. The access token sent in the assertion parameter needs full validation included the signature, issuer and audience. You should not allow unspecific access tokens to be used. The method also validates the client ID and a client secret to validate the trusted application which sent the request. You could also use a certificate for this which can then use client assertions as well.</p>
-
-
-
-<p></p>
-
-
-
-<p>Logging is added and PII logs are also logged if this feature is activate. Once all the parameters are validated, the CreateDelegatedAccessTokenPayloadModel class is used to create the new user access token using the data from the payload and the original valid AAD access token. </p>
-
-
-  [AllowAnonymous]
-[HttpPost("~/connect/obotoken"), Produces("application/json")]
-public async Task&lt;IActionResult&gt; Exchange([FromForm] OboPayload oboPayload)
-{
-	var (Valid, Reason) = ValidateOboRequestPayload.IsValid(oboPayload, _oboConfiguration);
-
-	if(!Valid)
-	{
-		return UnauthorizedValidationParametersFailed(oboPayload, Reason);
-	}
-
-	// get well known endpoints and validate access token sent in the assertion
-	var configurationManager = new ConfigurationManager&lt;OpenIdConnectConfiguration&gt;(
-		_oboConfiguration.AccessTokenMetadataAddress, 
-		new OpenIdConnectConfigurationRetriever());
-
-	var wellKnownEndpoints =  await configurationManager.GetConfigurationAsync();
-
-	var accessTokenValidationResult = ValidateOboRequestPayload.ValidateTokenAndSignature(
-		oboPayload.assertion,
-		_oboConfiguration,
-		wellKnownEndpoints.SigningKeys);
-	
-	if(!accessTokenValidationResult.Valid)
-	{
-		return UnauthorizedValidationTokenAndSignatureFailed(
-			oboPayload, accessTokenValidationResult);
-	}
-
-	// get claims from aad token and re use in OpenIddict token
-	var claimsPrincipal = accessTokenValidationResult.ClaimsPrincipal;
-
-	var name = ValidateOboRequestPayload.GetPreferredUserName(claimsPrincipal);
-	var isNameAnEmail = ValidateOboRequestPayload.IsEmailValid(name);
-	if(!isNameAnEmail)
-	{
-		return UnauthorizedValidationPrefferedUserNameFailed();
-	}
-
-	// validate user exists
-	var user = await _userManager.FindByNameAsync(name);
-	if (user == null)
-	{
-		return UnauthorizedValidationNoUserExistsFailed();
-	}
-
-	// use data and return new access token
-	var (ActiveCertificate, _) = await Startup.GetCertificates(_environment, _configuration);
-
-	var tokenData = new CreateDelegatedAccessTokenPayloadModel
-	{
-		Sub = Guid.NewGuid().ToString(),
-		ClaimsPrincipal = claimsPrincipal,
-		SigningCredentials = ActiveCertificate,
-		Scope = _oboConfiguration.ScopeForNewAccessToken,
-		Audience = _oboConfiguration.AudienceForNewAccessToken,
-		Issuer = _oboConfiguration.IssuerForNewAccessToken,
-		OriginalClientId = _oboConfiguration.AccessTokenAudience
-	};
-
-	var accessToken = CreateDelegatedAccessTokenPayload.GenerateJwtTokenAsync(tokenData);
-
-	_logger.LogInformation("OBO new access token returned sub {sub}", tokenData.Sub);
-
-	if(IdentityModelEventSource.ShowPII)
-	{
-		_logger.LogDebug("OBO new access token returned for sub {sub} for user {Username}", tokenData.Sub,
-			ValidateOboRequestPayload.GetPreferredUserName(claimsPrincipal));
-	}
-
-	return Ok(new OboSuccessResponse
-	{
-		ExpiresIn = 60 * 60,
-		AccessToken = accessToken,
-		Scope = oboPayload.scope
-	});
-}
-  
-
-
-<p>The OboErrorResponse response can be created using the error result from the validation. The PII data is only logged if the application is allowed to log this. This is not set in productive deployments.</p>
-
-
-  private IActionResult UnauthorizedValidationParametersFailed(
-	OboPayload oboPayload, string Reason)
-{
-	var errorResult = new OboErrorResponse
-	{
-		error = "Validation request parameters failed",
-		error_description = Reason,
-		timestamp = DateTime.UtcNow,
-		correlation_id = Guid.NewGuid().ToString(),
-		trace_id = Guid.NewGuid().ToString(),
-	};
-
-	_logger.LogInformation("{error} {error_description} {correlation_id} {trace_id}",
-		errorResult.error,
-		errorResult.error_description,
-		errorResult.correlation_id,
-		errorResult.trace_id);
-
-	if (IdentityModelEventSource.ShowPII)
-	{
-		_logger.LogDebug("OBO new access token returned for assertion {assertion}", oboPayload.assertion);
-	}
-
-	return Unauthorized(errorResult);
-}
-  
-
-
-<p>The GenerateJwtTokenAsync method creates a new OpenIddict user access token with the correct signature. We could also create a reference token or any other type of access token if required. The claims  can be added as required and these claims are validated in the downstream API protected using OpenIddict.</p>
-
-
-  public static string GenerateJwtTokenAsync(CreateDelegatedAccessTokenPayloadModel payload)
-{
-	SigningCredentials signingCredentials = new X509SigningCredentials(payload.SigningCredentials);
-
-	var alg = signingCredentials.Algorithm;
-
-	//{
-	//  "alg": "RS256",
-	//  "kid": "....",
-	//  "typ": "at+jwt",
-	//}
-
-	var subject = new ClaimsIdentity(new[] {
-			new Claim("sub", payload.Sub),              
-			new Claim("scope", payload.Scope),
-			new Claim("act", $"{{ \"sub\": \"{payload.OriginalClientId}\" }}", JsonClaimValueTypes.Json )
-		});
-
-	if(payload.ClaimsPrincipal != null)
-	{
-		var name = ValidateOboRequestPayload.GetPreferredUserName(payload.ClaimsPrincipal);
-		var azp = ValidateOboRequestPayload.GetAzp(payload.ClaimsPrincipal);
-		var azpacr = ValidateOboRequestPayload.GetAzpacr(payload.ClaimsPrincipal);
-
-		if(!string.IsNullOrEmpty(name))
-			subject.AddClaim(new Claim("name", name));
-
-		if (!string.IsNullOrEmpty(name))
-			subject.AddClaim(new Claim("azp", azp));
-
-		if (!string.IsNullOrEmpty(name))
-			subject.AddClaim(new Claim("azpacr", azpacr));
-	}
-
-	var tokenHandler = new JwtSecurityTokenHandler();
-	var tokenDescriptor = new SecurityTokenDescriptor
-	{       
-		Subject = subject,
-		Expires = DateTime.UtcNow.AddHours(1),
-		IssuedAt = DateTime.UtcNow,
-		Issuer = "https://localhost:44318/",
-		Audience = payload.Audience,
-		SigningCredentials = signingCredentials,
-		TokenType = "at+jwt"
-	};
-
-	if (tokenDescriptor.AdditionalHeaderClaims == null)
-	{
-		tokenDescriptor.AdditionalHeaderClaims = new Dictionary&lt;string, object&gt;();
-	}
-
-	if (!tokenDescriptor.AdditionalHeaderClaims.ContainsKey("alg"))
-	{
-		tokenDescriptor.AdditionalHeaderClaims.Add("alg", alg);
-	}
-
-	var token = tokenHandler.CreateToken(tokenDescriptor);
-
-	return tokenHandler.WriteToken(token);
-}
-  
-
-
-<p>The following token will be created:</p>
-
-
-  {
-  "alg": "RS256",
-  "kid": "5626CE6A8F4F5FCD79C6642345282CA76D337548",
-  "x5t": "VibOao9PX815xmQjRSgsp20zdUg",
-  "typ": "at+jwt"
-}.{
-  "sub": "8ec43e8d-1873-49ab-a4e2-744ed40586a2",
-  "name": "-upn or email of user--",
-  "scope": "--requested validated scope in OBO request--",
-  "azp": "azp value from AAD token",
-  "azpacr": "1", // AAD auth type,  1 == used client secret
-  "act": {
-    "sub": "--Guid from the AAD app registration client ID used for the API--"
-  },
-  "nbf": 1664533888,
-  "exp": 1664537488,
-  "iat": 1664533888,
-  "iss": "https://localhost:44318/",
-  "aud": "--aud from configuration--"
-}.[Signature]
-  
-
-
- Token Exchange validation 
-
-
-
-<p>The validate class checks both the POST request parameters as well as the signature and the claims of the Azure AD access  token. It is important to validate this fully.</p>
-
-
-  public static (bool Valid, string Reason) IsValid(OboPayload oboPayload, OboConfiguration oboConfiguration)
-{
-	if(!oboPayload.requested_token_use.ToLower().Equals("on_behalf_of"))
-	{
-		return (false, "obo requested_token_use parameter has an incorrect value, expected on_behalf_of");
-	};
-
-	if (!oboPayload.grant_type.ToLower().Equals("urn:ietf:params:oauth:grant-type:jwt-bearer"))
-	{
-		return (false, "obo grant_type parameter has an incorrect value, expected urn:ietf:params:oauth:grant-type:jwt-bearer");
-	};
-
-	if (!oboPayload.client_id.Equals(oboConfiguration.ClientId))
-	{
-		return (false, "obo client_id parameter has an incorrect value");
-	};
-
-	if (!oboPayload.client_secret.Equals(OboExtentions.ToSha256(oboConfiguration.ClientSecret)))
-	{
-		return (false, "obo client secret parameter has an incorrect value");
-	};
-
-	if (!oboPayload.scope.ToLower().Equals(oboConfiguration.ScopeForNewAccessToken.ToLower()))
-	{
-		return (false, "obo scope parameter has an incorrect value");
-	};
-
-	return (true, string.Empty);
-}
-
-public static (bool Valid, string Reason, ClaimsPrincipal? ClaimsPrincipal) 
-	ValidateTokenAndSignature(
-		string jwtToken, 
-		OboConfiguration oboConfiguration, 
-		ICollection&lt;SecurityKey&gt; signingKeys)
-{
-	try
-	{
-		var validationParameters = new TokenValidationParameters
-		{
-			RequireExpirationTime = true,
-			ValidateLifetime = true,
-			ClockSkew = TimeSpan.FromMinutes(1),
-			RequireSignedTokens = true,
-			ValidateIssuerSigningKey = true,
-			IssuerSigningKeys = signingKeys,
-			ValidateIssuer = true,
-			ValidIssuer = oboConfiguration.AccessTokenAuthority,
-			ValidateAudience = true, 
-			ValidAudience = oboConfiguration.AccessTokenAudience
-		};
-
-		ISecurityTokenValidator tokenValidator = new JwtSecurityTokenHandler();
-
-		var claimsPrincipal = tokenValidator.ValidateToken(jwtToken, validationParameters, out var _);
-
-		return (true, string.Empty, claimsPrincipal);
-	}
-	catch (Exception ex)
-	{
-		return (false, $"Access Token Authorization failed {ex.Message}", null);
-	}
-}
-
-public static string GetPreferredUserName(ClaimsPrincipal claimsPrincipal)
-{
-	string preferredUsername = string.Empty;
-	var preferred_username = claimsPrincipal.Claims.FirstOrDefault(t =&gt; t.Type == "preferred_username");
-	if (preferred_username != null)
-	{
-		preferredUsername = preferred_username.Value;
-	}
-
-	return preferredUsername;
-}
-
-public static string GetAzpacr(ClaimsPrincipal claimsPrincipal)
-{
-	string azpacr = string.Empty;
-	var azpacrClaim = claimsPrincipal.Claims.FirstOrDefault(t =&gt; t.Type == "azpacr");
-	if (azpacrClaim != null)
-	{
-		azpacr = azpacrClaim.Value;
-	}
-
-	return azpacr;
-}
-
-public static string GetAzp(ClaimsPrincipal claimsPrincipal)
-{
-	string azp = string.Empty;
-	var azpClaim = claimsPrincipal.Claims.FirstOrDefault(t =&gt; t.Type == "azp");
-	if (azpClaim != null)
-	{
-		azp = azpClaim.Value;
-	}
-
-	return azp;
-}
-  
-
-
-<p></p>
-
-
-
- What about OAuth token exchange (RFC 8693) 
-
-
-
-<p>OAuth token exchange (RFC 8693) can also be used to implement this feature and it does not vary too much from this implementation. I will probably do a second demo using the OAuth specifications. The OBO flow is like a subset of the OAuth RFC with some features, claims implemented differently. Every identity provider seems to implement these things differently or with different levels of support, so IDPs which can be adapted are usually the best choice. Inter-opt between identity providers is not so easy and not well documented. The OBO flow is a Microsoft specific flow which is close to the OAuth token exchange RFC specification.</p>
-
-
-
-<p></p>
-
-
-
-<p>Improvements</p>
-
-
-
-<p>I would love feedback on how to improve this or pull requests in the github repo. </p>
-
-
-
-<p>Links</p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-on-behalf-of-flow">https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-on-behalf-of-flow</a></p>
-
-
-
-<p><a href="https://documentation.openiddict.com/configuration/application-permissions.html">https://documentation.openiddict.com/configuration/application-permissions.html</a></p>
-
-
-
-<p><a href="https://datatracker.ietf.org/doc/html/rfc8693">https://datatracker.ietf.org/doc/html/rfc8693</a></p>
-
-
-
-<p><a href="https://stackoverflow.com/questions/61536846/difference-between-jwt-bearer-and-token-exchange-grant-types">https://stackoverflow.com/questions/61536846/difference-between-jwt-bearer-and-token-exchange-grant-types</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/09/obo_aad_openiddict_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:13 &bull;
    3 months ago
 </div>
 
