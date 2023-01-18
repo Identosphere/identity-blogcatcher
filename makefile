@@ -1,4 +1,4 @@
-.PHONY: merge build orgsfeed test testorg try
+.PHONY: merge build orgsfeed test testorg try web3
 
 merge:
 	pluto m planetid.ini -t planetid -o docs
@@ -22,6 +22,10 @@ build:
 try:
 	rm try.db
 	pluto --verbose b try.ini -t planetid -o try
+
+web3:
+	pluto m web3.ini -t web3 -o test
+
 
 test:
 	pluto m planetid.ini -t planetid -o test
