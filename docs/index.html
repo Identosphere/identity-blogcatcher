@@ -711,7 +711,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:58 AM January 23, 2023 (UTC)</sup>
+<sup>Last Update 9:37 AM January 23, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -724,6 +724,413 @@
  <h2 class='new-date'>
   Monday, 23. January 2023
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/01/23/basic-authentication-in-asp-net-core/'>Basic Authentication in ASP.NET Core</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how basic authentication could be implemented in an ASP.NET Core application. This is not the recommended way to implement security for user flows as the password is always sent with each request but the flow is sometimes required to implement a standard or you sometimes need to support one side of an […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how basic authentication could be implemented in an ASP.NET Core application. This is not the recommended way to implement security for user flows as the password is always sent with each request but the flow is sometimes required to implement a standard or you sometimes need to support one side of an authentication flow which requires this.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/OAuthGrantExchangeOidcDownstreamApi">https://github.com/damienbod/OAuthGrantExchangeOidcDownstreamApi</a></p>
+
+
+
+<p></p>
+
+
+
+ Client implementation 
+
+
+
+<p>An client implementation needs to send an authorization header with a clientId and a clientSecret separated using the “:” char and encoded using base64. The secret is hashed using SHA256 so as not to send the original secret in the request but this does not really improve the security much, it just prevents the original application secret being shared. The request is sent using HTTPS and so the headers are encrypted.</p>
+
+
+  private static string CreateBasicAuthenticationHeader(
+	GetDelegatedApiTokenOAuthTokenExchangeModel reqData)
+{
+	var builder = new StringBuilder()
+		.Append(reqData.ClientId)
+		.Append(':')
+		.Append(OauthTokenExchangeExtentions
+			.ToSha256(reqData.ClientSecret));
+
+	var credentials = Convert.ToBase64String(
+		Encoding.ASCII.GetBytes(builder.ToString()));
+
+	return credentials;
+}
+  
+
+
+<p>The ShA256 hash is implemented using a simple method which returns a base64 string of this.</p>
+
+
+  public static string ToSha256(string text)
+{
+	using var sha256 = SHA256.Create();
+	var bytes = Encoding.UTF8.GetBytes(text);
+	var hash = sha256.ComputeHash(bytes);
+
+	return Convert.ToBase64String(hash);
+}
+  
+
+
+<p>The credentials are sent using the Authentication header.</p>
+
+
+  string credentials = CreateBasicAuthenticationHeader(reqData);
+
+httpClient.DefaultRequestHeaders.Authorization =
+new AuthenticationHeaderValue("Basic", credentials);
+  
+
+
+<p></p>
+
+
+
+ Server implementation 
+
+
+
+<p>The server part of the flow is implemented using the idunno.Authentication.Basic Nuget package. The credentials are validated using the same hash and checked against the expected values from the configuration.</p>
+
+
+  services.AddAuthentication(BasicAuthenticationDefaults.AuthenticationScheme)
+.AddBasic(options =&gt;
+{
+	options.Realm = "oauthtokenexchange";
+	options.Events = new BasicAuthenticationEvents
+	{
+		OnValidateCredentials = context =&gt;
+		{
+			var config = context.HttpContext.RequestServices
+				.GetService&lt;IOptions&lt;OauthTokenExchangeConfiguration&gt;&gt;();
+			
+			if(ValidateBasicAuthentication.IsValid(context.Username, 
+				context.Password, config.Value))
+			{ 
+				var claims = new[]
+				{
+					new Claim( ClaimTypes.NameIdentifier, 
+						context.Username, 
+						ClaimValueTypes.String, 
+						context.Options.ClaimsIssuer),
+					new Claim( ClaimTypes.Name, 
+						context.Username, 
+						ClaimValueTypes.String, 
+						context.Options.ClaimsIssuer)
+				};
+
+				context.Principal = new ClaimsPrincipal(
+					new ClaimsIdentity(claims, context.Scheme.Name));
+				context.Success();
+			}
+
+			return Task.CompletedTask;
+		}
+	};
+});
+  
+
+
+<p>The ValidateBasicAuthentication class checks the used credentials. </p>
+
+
+  public static class ValidateBasicAuthentication
+{
+    public static bool  IsValid(
+		string clientId, 
+		string clientSecret, 
+		OauthTokenExchangeConfiguration oauthTokenExchangeConfiguration)
+    {
+        if(!clientId.Equals(oauthTokenExchangeConfiguration.ClientId))
+        {
+            return false;
+        };
+
+        if (!clientSecret.Equals(
+			OauthTokenExchangeExtentions.ToSha256(
+				oauthTokenExchangeConfiguration.ClientSecret)))
+        {
+            return false;
+        };
+
+        return true;
+    }
+}
+  
+
+
+<p>The basic authentication can be validated in the authorize attribute using the correct scheme.</p>
+
+
+  [Authorize(AuthenticationSchemes = BasicAuthenticationDefaults.AuthenticationScheme)]
+[HttpPost("~/connect/oauthTokenExchangetoken"), Produces("application/json")]
+public async Task&lt;IActionResult&gt; Exchange([FromForm] OauthTokenExchangePayload oauthTokenExchangePayload)
+{
+	// business
+}
+  
+
+
+<p>This works well but sending the password and the name on ever request is not always the best way of implementing authentication. This should only be used if required when implementing a standard. There are better ways and more secure ways of securing APIs.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://github.com/blowdart/idunno.Authentication/tree/dev/src/idunno.Authentication.Basic">https://github.com/blowdart/idunno.Authentication/tree/dev/src/idunno.Authentication.Basic</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:49 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/01/23/i-died-today.html'> I Died Today. 
+ … not me - someone else. 
+ P O W E R F U L 
+</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I Died Today. 
+ … not me - someone else. 
+ P O W E R F U L 
+ I will come back to this at some point because I want to say something - but not right now. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://www.gatherwithjim.com/blog/2023-1-19-i-died-today">I Died Today.</a></p>
+<p>… not me - someone else.</p>
+<p>P O W E R F U L</p>
+<p>I will come back to this at some point because I want to say something - but not right now.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:35 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.sakimura.org'>@_Nat Zone</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.sakimura.org/2023/01/5150/'>1月26日(木)22時〜「NIST SP800-63-4（案）」を配信しながらダラダラ読む会</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  １年近く公表が遅れていた米国 NIST SP800…
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>１年近く公表が遅れていた米国 NIST SP800-63-4 のプレ・ドラフトが12月に公開され、3/24までパブリックコメント受付中です。バージョン3である「SP800-63-3」に比べて、対象範囲がかなり広くなっています。この観点からはちょっと足りないところがあり、その点を著者の一人に「○○がすっぽり落ちてない？」と聞いたところ、「認識はしていてこれから書く予定だ」ということでした。「すべてのコメントは歓迎だ」とのことです。 </p>
+
+
+
+<p>SP800-63は米国連邦政府向けの基準ですが、各国の関連規格にも大きな影響を与えています。日本の政府の基準もその中の一つです。おりしも日本政府もこのあたりの改定を考えているようですので、SP800-63をちゃんと勉強しておくことは意味があります。 </p>
+
+
+
+<p>そこで、２回ほどに分けてSP800-63-4を読んでみようと思います。２回にわけるのは、関係する文書は</p>
+
+
+
+ 
+ SP800-63-4 <a href="https://www.youtube.com/redirect?event=video_description&amp;redir_token=QUFFLUhqbWhCZlRoc1Z0cVVNeHRlN3NlbnhrOUhoSV96Z3xBQ3Jtc0tsa1F0YWRndlFjNm9iRzZaeTNSTVF0U2dVeVF4V1F6SE9HSUR4eUhEaTVEX2ZfM1BBbm9aVVNTVlJfVVFvRTV1dFd2a19WOEpUUjNublRRRXZ4TEE4amdpNWMydGVKZmRQVjRONW9fRC0xT2VDTkoyQQ&amp;q=https%3A%2F%2Fnvlpubs.nist.gov%2Fnistpubs%2FSpecialPublications%2FNIST.SP.800-63-4.ipd.pdf&amp;v=tLBicXDUZew">https://nvlpubs.nist.gov/nistpubs/Spe…</a>  
+
+
+
+ SP800-63A-4 <a href="https://www.youtube.com/redirect?event=video_description&amp;redir_token=QUFFLUhqbkhPRzdLSnJ5NkpyeTJTeGpsMExvWVJsakFEd3xBQ3Jtc0ttaWdBNXhUbW5mSzdWZUxxNk5RRzBUX0otYlNhTnhyVVR6V2VBa1NPN1F3eEJzbmk5aUFtSjNSWHNQdWRyblplTEtzVnFoSFZ0Wnp3bE5fY3BHbzNuXzlmWGt1QmhoTEljYVlXZklqVVNUQ3lzTVNWcw&amp;q=https%3A%2F%2Fdoi.org%2F10.6028%2FNIST.SP.800-63A-4.ipd&amp;v=tLBicXDUZew">https://doi.org/10.6028/NIST.SP.800-6…</a>  
+
+
+
+ SP800-63B-4 <a href="https://www.youtube.com/redirect?event=video_description&amp;redir_token=QUFFLUhqa0xOTXdkNlZZbms3RGg1RTAwXy1vQ3FDaWZoZ3xBQ3Jtc0trTGhHREJjMzRfZm9nUVkzWjZjXzRwcDJXaUtIYVYzejQyZWQ2UWdjaktKY1JWYzRGVmFOdUIxODBpZi1LN2FFclNzbEJtb0hlTENIMGQ0T2ZNNnhmbGNyNzlOanZZdkRCV2ZDNm5vSEtRSlI2RzAyWQ&amp;q=https%3A%2F%2Fdoi.org%2F10.6028%2FNIST.SP.800-63B-4.ipd&amp;v=tLBicXDUZew">https://doi.org/10.6028/NIST.SP.800-6…</a>  
+
+
+
+ SP800-63C-4 <a href="https://www.youtube.com/redirect?event=video_description&amp;redir_token=QUFFLUhqa01xeS16bzRxVy1Vc05yVWtHS3VITEtVdFJHUXxBQ3Jtc0ttZ1FFWVhqelBfTTBUMW83Mk80U243X2lmV0Nad0ZZX2x4UjFMeGZJdC1IMDNpMUd6R01xajhac3ZTUU0yRG43bG9VLUNRMWp0WjJrdkI4R2JjdGxGNW1HcVJkOE51T29VU1A2Qmo0V3VIRE5hbGhaWQ&amp;q=https%3A%2F%2Fdoi.org%2F10.6028%2FNIST.SP.800-63C-4.ipd&amp;v=tLBicXDUZew">https://doi.org/10.6028/NIST.SP.800-6…</a>  
+ 
+
+
+
+<p>の４冊もあり、どう考えても１回では終わらないからです。 </p>
+
+
+
+<p>これらは、OpenID Foundation ジャパンで日本語訳も鋭意作成中のようで、配信までに多少日本語で読めるようになったものも揃っているかもしれません。使えるようであれば、それを副読本にしながらやろうかと思います。 </p>
+
+
+
+<p>パブコメが 3/24 までと時間に余裕があるのになぜ今やるかというと、今月末に日本政府<a href="https://www.sakimura.org/2023/01/5150/#easy-footnote-bottom-1-5150" title="政府と言ったら日本のことだろとお思いになるかもしれませんが、わたし自身は海外の政府にもちょこちょこ呼ばれるので…">1</a>の某官庁の関連会議があるからです。</p>
+
+
+
+<p>チャット参加もビデオ参加<a href="https://www.sakimura.org/2023/01/5150/#easy-footnote-bottom-2-5150" title="直接存じ上げている方に限ります">2</a>も可能です。 ビデオ参加には mmhmm を使います。mmhmmで参加したい方はリンクをお送りしますのでご連絡ください。チャットは<a href="https://www.youtube.com/@NatSakimura100">このYoutubeチャンネル</a>にチャンネル登録して１分以上たてば参加できるはず。ただ、前回直前に登録した方はチャットを送れなかったという事例もあるので、事前に登録することをおすすめします。</p>
+
+
+
+ 
+
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:02 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -781,7 +1188,7 @@
 
 <div class='item-footer'>
    01:58 &bull;
-   2 minutes ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -853,7 +1260,7 @@
 
 <div class='item-footer'>
    01:56 &bull;
-   4 minutes ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -916,7 +1323,7 @@
 
 <div class='item-footer'>
    01:47 &bull;
-   13 minutes ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -977,7 +1384,7 @@
 
 <div class='item-footer'>
    01:45 &bull;
-   14 minutes ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1047,7 +1454,7 @@
 
 <div class='item-footer'>
    00:03 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1113,7 +1520,7 @@
 
 <div class='item-footer'>
    19:47 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1177,7 +1584,7 @@
 
 <div class='item-footer'>
    17:44 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1246,7 +1653,7 @@
 
 <div class='item-footer'>
    17:42 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1308,7 +1715,7 @@
 
 <div class='item-footer'>
    16:59 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1378,7 +1785,7 @@
 
 <div class='item-footer'>
    03:12 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2269,7 +2676,7 @@ Who are the experts you follow in various domains? Can I cherrypick from your li
 
 <div class='item-footer'>
    15:18 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3643,68 +4050,7 @@ want to return to the golden age of skeuomorphic design …</p>
 
 <div class='item-footer'>
    21:24 &bull;
-   2 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/01/21/gawd-we-know.html'> Gawd … we know .. we know .. FFS .. stop going on about it. </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Gawd … we know .. we know .. FFS .. stop going on about it. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Gawd … we know .. we know .. FFS .. stop going on about it.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:19 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3768,7 +4114,7 @@ want to return to the golden age of skeuomorphic design …</p>
 
 <div class='item-footer'>
    18:33 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3891,7 +4237,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    14:51 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4391,7 +4737,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    18:25 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4468,7 +4814,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    17:46 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4544,7 +4890,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    16:27 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4616,7 +4962,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    16:27 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4746,7 +5092,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    19:42 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4824,7 +5170,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    16:56 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4900,7 +5246,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    14:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4969,7 +5315,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    14:44 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5038,7 +5384,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    14:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5177,7 +5523,7 @@ I love Moose Munch! But I'm also in awe of its chutzpah.</p>
 
 <div class='item-footer'>
    18:34 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5249,7 +5595,7 @@ I love Moose Munch! But I'm also in awe of its chutzpah.</p>
 
 <div class='item-footer'>
    17:48 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5319,7 +5665,7 @@ I love Moose Munch! But I'm also in awe of its chutzpah.</p>
 
 <div class='item-footer'>
    17:23 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5405,7 +5751,7 @@ I love Moose Munch! But I'm also in awe of its chutzpah.</p>
 
 <div class='item-footer'>
    14:46 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5471,7 +5817,7 @@ The post <a href="https://realestatecafe.com/mlking-afterglow-what-if-we-weaponi
 
 <div class='item-footer'>
    14:10 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5543,7 +5889,7 @@ The post <a href="https://realestatecafe.com/mlking-afterglow-what-if-we-weaponi
 
 <div class='item-footer'>
    20:28 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5804,7 +6150,7 @@ The username column gives the node its identity. Note also the property instance
 
 <div class='item-footer'>
    18:29 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5872,7 +6218,7 @@ The username column gives the node its identity. Note also the property instance
 
 <div class='item-footer'>
    17:08 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6454,7 +6800,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    20:31 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6581,7 +6927,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    19:45 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6654,7 +7000,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    18:38 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6788,7 +7134,7 @@ datasette-openai - custom
 
 <div class='item-footer'>
    14:01 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7404,7 +7750,7 @@ Embeddings</a>, via <a href="https://twitter.com/mathemagic1an/status/1615378778
 
 <div class='item-footer'>
    15:41 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7639,7 +7985,7 @@ Embeddings</a>, via <a href="https://twitter.com/mathemagic1an/status/1615378778
 
 <div class='item-footer'>
    19:21 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7705,7 +8051,7 @@ Embeddings</a>, via <a href="https://twitter.com/mathemagic1an/status/1615378778
 
 <div class='item-footer'>
    17:07 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8025,7 +8371,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    16:46 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8265,7 +8611,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    21:22 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8361,7 +8707,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    19:29 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8481,7 +8827,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    17:38 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8551,7 +8897,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    17:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8670,7 +9016,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    14:47 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9974,7 +10320,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    18:52 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10106,7 +10452,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    20:19 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10436,7 +10782,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    16:24 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10666,7 +11012,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    14:10 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10939,7 +11285,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    19:04 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11668,7 +12014,7 @@ Datasette 0.60: The annotated release notes - improve
 
 <div class='item-footer'>
    20:35 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11738,7 +12084,7 @@ Datasette 0.60: The annotated release notes - improve
 
 <div class='item-footer'>
    17:31 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12052,7 +12398,7 @@ order by
 
 <div class='item-footer'>
    18:40 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12126,7 +12472,7 @@ order by
 
 <div class='item-footer'>
    15:02 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12198,7 +12544,7 @@ order by
 
 <div class='item-footer'>
    20:56 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15462,7 +15808,7 @@ where
 
 <div class='item-footer'>
    08:05 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20058,98 +20404,6 @@ a good time to talk about it!</p><p>Links:</p>  <a href="https://gitlab.com/dust
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.sakimura.org'>@_Nat Zone</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.sakimura.org/2022/11/5054/'>イーロン・マスク、Twitterは銀行になると社員向けに語る</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Twitter は銀行サービスを提供する Twit…
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- Twitter は銀行サービスを提供する 
-
-
-
-<p>Twitterの新オーナーであるイーロン・マスク<a href="https://www.sakimura.org/2022/11/5054/#easy-footnote-bottom-1-5054" title="Elon Mask">1</a>氏が、第１回社員向けミーティングで、Twitter は銀行・(国際)決済カンパニーになると語ったようです。Paypal 2.0 ですね。</p>
-
-
-
-<p>イーロン・マスク氏はオンライン銀行のX.com<a href="https://www.sakimura.org/2022/11/5054/#easy-footnote-bottom-2-5054" title="2017年にマスク氏は ドメイン X.com をPaypalから買い戻しています。">2</a>を1999年に創業して、翌年 confinitiy と合併させて PayPal を作ったので、彼にとっては土地勘がある世界。当時は email しかなかったけどこれだけユーザ数のいるDMのプラットフォームがあるなら、それをベースにやればベターなものができると。もともと銀行を作ったくらいだから既存の金融機関とのつなぎもしっかりつなぎこむ。多分、殆ど透過的になるのではないでしょうか。送金や決済のプラットフォームとしてかなり便利になりそうです。国際送金もこれでできるようになると色々影響が大きいですね。ただ、KYCが課題ですね。 </p>
-
-
-
- Twitter は動画サービスも提供し、クリエーターにより良い収益機会を与える 
-
-
-
-<p>また、動画も長い動画も挙げられるようにするようです。今はYoutube などに上げてそのリンクを置くしか無いが、twitter で完結できるようにする。 そして、クリエーターはYoutubeなどから得られるよりも大きな収益を得られるようにするようです。ユーザー体験的にはtiktokのようなものを考えているよう。</p>
-
-
-
- リモートワークについて 
-
-
-
-<p>その他リモートワークについても語っています。原則出社、パフォーマンスが出る人はリモートでも良い。このポリシーはSpace X や Tesla と共通、とのこと。</p>
-
-
-
-<p>上記に関する詳細は The Verge の「<a href="https://www.theverge.com/2022/11/10/23452196/elon-musk-twitter-employee-meeting-q-and-a">Inside Elon Musk’s first meeting with Twitter employees</a>』からご参照ください。</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:22 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Saturday, 12. November 2022
  </h2>
@@ -22762,403 +23016,6 @@ In my discussions of verifiable credentials, I assume DIDs are the underlying id
 
 <div class='item-footer'>
    23:03 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 10. October 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/10/10/force-phishing-resistant-authentication-in-an-asp-net-core-application-using-azure-ad/'>Force phishing resistant authentication in an ASP.NET Core application using Azure AD</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to force a phishing resistant authentication for an ASP.NET Core application using Azure AD and a conditional access policy which forces a phishing resistant authentication using a conditional access authentication context. The ASP.NET Core application forces this by requiring the acrs claim in the id_token with the value of c4 which […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to force a phishing resistant authentication for an ASP.NET Core application using Azure AD and a conditional access policy which forces a phishing resistant authentication using a conditional access authentication context. The ASP.NET Core application forces this by requiring the acrs claim in the id_token with the value of c4 which is the authentication context created for this in this tenant.</p>
-
-
-
-<p>Code <a href="https://github.com/damienbod/AspNetCoreAzureADCAE">https://github.com/damienbod/AspNetCoreAzureADCAE</a></p>
-
-
-
-<p>The following five steps are required to set this up. I used Microsoft Entra for this but Graph can be used as well which makes automatization and infrastructure as code (IaC) deployments possible.</p>
-
-
-
- 
- Step 1 Authentication method definition 
-
-
-
- Step 2 Create an CA Auth context 
-
-
-
- Step 3 Create a policy to use the Azure AD CA Auth context 
-
-
-
- Step 4 Define the Azure App registration 
-
-
-
- Step 5 Use inside an ASP.NET Core application 
- 
-
-
-
- Step 1 Authentication method definition 
-
-
-
-<p>Using <a href="https://entra.microsoft.com">https://entra.microsoft.com</a>, you can create a custom authentication method, or re-use some of the given standard definitions. A phishing resistant authentication method is already defined in the portal. You can also create a custom method that for example only accepts your company specific FIDO2 keys.</p>
-
-
-
-
-
-
-
-<p>Creating a specific authentication method allows you to choose a specific authentication method. The phishing resistant default definition is a pre-defined authentication method.</p>
-
-
-
-
-
-
-
- Step 2 Create an CA Auth context 
-
-
-
-<p>An authentication context needs to be created to force a policy in the ASP.NET Core application. Create a new authentication context using the Microsoft Entra.</p>
-
-
-
-<p></p>
-
-
-
-
-
-
-
-<p>Add the naming of the policy and the authentication context identifier. I used c4 for my phishing resistant requirement.</p>
-
-
-
-
-
-
-
-<p>You could also create the authentication context using Microsoft Graph. I created the <a href="https://github.com/damienbod/AspNetCoreAzureADCAE/tree/main/CaeAdministrationTool">CaeAdministrationTool</a> application in the demo repo showing how to implement this.</p>
-
-
-
- Step 3 Create a policy to use the Azure AD CA Auth context 
-
-
-
-<p>You can create the conditional access policy to use the authentication context and force the authentication method as requires. Create a new policy.</p>
-
-
-
-
-
-
-
-<p>Select the created authentication context in the Cloud apps or actions.</p>
-
-
-
-
-
-
-
-<p>In the access controls, grant access to users that authenticate with a phishing resistant authentication.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>Using this policy, a user must authentication with one of the phishing resistant methods.</p>
-
-
-
- Step 4 Define the Azure App registration 
-
-
-
-<p>The ASP.NET Core application requires an Azure App registration with the correct configuration to authenticate with Azure AD and the use conditional access policy. The application must validate the CA and not a downstream API. This means we need to validate this in the id_token. This is done using the xms_cc claim. You can add this in the App registration manifest.</p>
-
-
-  "optionalClaims": {
-	"idToken": [
-		{
-			"name": "xms_cc",
-			"source": null,
-			"essential": false,
-			"additionalProperties": []
-		}
-	],
-	"accessToken": [],
-	"saml2Token": []
-},
-  
-
-
-<p>Microsoft.Identity.Web is used to implement the authentication for Azure AD. The app.settings requires the ClientCapabilities value with the cp1 value.</p>
-
-
-  "AzureAd": {
-	"Instance": "https://login.microsoftonline.com/",
-	"Domain": "damienbodsharepoint.onmicrosoft.com",
-	"TenantId": "5698af84-5720-4ff0-bdc3-9d9195314244",
-	"ClientId": "daffd2e8-3718-4ac4-b971-c7f1bb570375",
-	"CallbackPath": "/signin-oidc",
-    "ClientCapabilities": [ "cp1" ]
-	//"ClientSecret":  "--in-user-secrets-or-key-vault--"
-},
-  
-
-
-<p>You can check some of the standard settings required for the Web application Azure App registration using the manifest definition. The docs for this can be found on the Microsoft.Identity.Web Github repo Wiki.</p>
-
-
-  "oauth2AllowIdTokenImplicitFlow": true,
-"optionalClaims": {
-	"idToken": [
-		{
-			"name": "xms_cc",
-			"source": null,
-			"essential": false,
-			"additionalProperties": []
-		}
-	],
-	"accessToken": [],
-	"saml2Token": []
-},
-"replyUrlsWithType": [
-	{
-		"url": "https://localhost:44414/signin-oidc",
-		"type": "Web"
-	}
-],
-"signInAudience": "AzureADMyOrg",
-  
-
-
- Step 5 Use inside an ASP.NET Core application 
-
-
-
-<p>The application must validate if the id_token and the corresponding claims identity has the acrs claim with the value c4 which represents the authentication context created for the phishing resistant conditional access policy. If this is configured correctly, a phishing resistant authentication is required to use the application.</p>
-
-
-  using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
-using System;
-using System.Linq;
-
-namespace RazorCaePhishingResistant;
-
-/// &lt;summary&gt;
-/// Claims challenges, claims requests, and client capabilities
-/// 
-/// https://docs.microsoft.com/en-us/azure/active-directory/develop/claims-challenge
-/// 
-/// Applications that use enhanced security features like Continuous Access Evaluation (CAE) 
-/// and Conditional Access authentication context must be prepared to handle claims challenges.
-/// &lt;/summary&gt;
-public class CaeClaimsChallengeService
-{
-    private readonly IConfiguration _configuration;
-
-    public CaeClaimsChallengeService(IConfiguration configuration)
-    {
-        _configuration = configuration;
-    }
-
-    public string? CheckForRequiredAuthContextIdToken(string authContextId, HttpContext context)
-    {
-        if (!string.IsNullOrEmpty(authContextId))
-        {
-            string authenticationContextClassReferencesClaim = "acrs";
-
-            if (context == null || context.User == null || context.User.Claims == null || !context.User.Claims.Any())
-            {
-                throw new ArgumentNullException(nameof(context), "No Usercontext is available to pick claims from");
-            }
-
-            var acrsClaim = context.User.FindAll(authenticationContextClassReferencesClaim).FirstOrDefault(x =&gt; x.Value == authContextId);
-
-            if (acrsClaim?.Value != authContextId)
-            {
-                string clientId = _configuration.GetSection("AzureAd").GetSection("ClientId").Value;
-                var cae = "{\"id_token\":{\"acrs\":{\"essential\":true,\"value\":\"" + authContextId + "\"}}}";
-
-                return cae;
-            }
-        }
-
-        return null;
-    }
-}
-  
-
-
-<p>The admin page requires a strong authentication. If this is missing, a challenge is returned informing the identity provider (AAD) which claim is required to use the application. This is specified in the OpenID Connect shared signal and events specifications.</p>
-
-
-  using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.RazorPages;
-using System.Collections.Generic;
-
-namespace RazorCaePhishingResistant.Pages;
-
-public class AdminModel : PageModel
-{
-    private readonly CaeClaimsChallengeService _caeClaimsChallengeService;
-
-    public AdminModel( CaeClaimsChallengeService caeClaimsChallengeService)
-    {
-        _caeClaimsChallengeService = caeClaimsChallengeService;
-    }
-
-    [BindProperty]
-    public IEnumerable&lt;string&gt;? Data { get; private set; }
-
-    public IActionResult OnGet()
-    {
-        // if CAE claim missing in id token, the required claims challenge is returned
-        // C4 is used in the phishing resistant policy
-        var claimsChallenge = _caeClaimsChallengeService
-            .CheckForRequiredAuthContextIdToken(AuthContextId.C4, HttpContext);
-
-        if (claimsChallenge != null)
-        {
-            var properties = new AuthenticationProperties { RedirectUri = "/admin" };
-
-            properties.Items["claims"] = claimsChallenge;
-            return Challenge(properties);
-        }
-
-        Data = new List&lt;string&gt;()
-        {
-            "Admin data 1",
-            "Admin data 2"
-        };
-
-        return Page();
-    }
-}
-  
-
-
-<p>Now the admin page of the application requires the correct authentication. You could force this for the complete application or just a single page of the app. If the user does not authenticate using a phishing resistant authentication or cannot use this, the application page cannot be used. This is really useful when deploying administration applications to tenants which do not enforce this for all users.</p>
-
-
-
- Notes 
-
-
-
-<p>This works really well and you can force a phishing resistant authentication from the application.  MFA using the authenticator app will not work and the users of of Azure AD and applications using Azure AD have more protection. </p>
-
-
-
- Links 
-
-
-
-<p><a href="https://entra.microsoft.com/#view/Microsoft_AAD_IAM/AuthenticationMethodsMenuBlade/~/AuthStrengths">https://entra.microsoft.com/#view/Microsoft_AAD_IAM/AuthenticationMethodsMenuBlade/~/AuthStrengths</a></p>
-
-
-
-<p><a href="https://danielchronlund.com/2022/01/07/the-attackers-guide-to-azure-ad-conditional-access/">https://danielchronlund.com/2022/01/07/the-attackers-guide-to-azure-ad-conditional-access/</a></p>
-
-
-
-<p><a href="https://entra.microsoft.com">https://entra.microsoft.com</a></p>
-
-
-
-<p><a href="https://cloudbrothers.info/en/azure-attack-paths/">https://cloudbrothers.info/en/azure-attack-paths/</a></p>
-
-
-
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-
-
-
-<p><a href="https://openid.net/wg/sse/">OpenID Connect Signals and Events</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/10/phishing_resistent_ca_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:37 &bull;
    3 months ago
 </div>
 
