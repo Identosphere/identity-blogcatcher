@@ -711,7 +711,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:56 AM January 30, 2023 (UTC)</sup>
+<sup>Last Update 9:38 AM January 30, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -724,6 +724,821 @@
  <h2 class='new-date'>
   Monday, 30. January 2023
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/01/30/using-multi-tenant-aad-delegated-apis-from-different-tenants/'>Using multi-tenant AAD delegated APIs from different tenants</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post looks at implementing and using Azure AD multiple tenant applications from different tenants. A service principal needs to be created for the tenant using the multi-tenant API and consent needs to be given for the API scope. The API will accept tokens from different issuers which need to be validated. It is important […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post looks at implementing and using Azure AD multiple tenant applications from different tenants. A service principal needs to be created for the tenant using the multi-tenant API and consent needs to be given for the API scope. The API will accept tokens from different issuers which need to be validated. It is important that all tenants allowed to use the API are validated. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AadMutliApis">https://github.com/damienbod/AadMutliApis</a></p>
+
+
+
+<p></p>
+
+
+
+ Setup API Azure App Registration 
+
+
+
+<p>A multi-tenant API Azure App registration is used to expose the scope which is required to use the API. The API is implemented using ASP.NET Core and validates this claim in the JWT token as well as other claims. V2 tokens are required and only delegated access tokens are created from this App registration. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Implement the API 
+
+
+
+<p>An ASP.NET Core application implements the API and the security logic validating the access token. An explicit list of issuers can use the API The API validates that a secret is required to authenticate and the client that requested the access token is also validated. The authorization handler validates that the token have a scope claim which means that it is a delegated access token (if produced by Azure AD). Great care has to be taken when using mutli-tenant app registrations because any tenant can use this but not any tenant should be allowed to use the API.</p>
+
+
+  services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =&gt;
+    {
+        options.MetadataAddress = aadMetadataAddress;
+        //options.Authority = issuert1;
+        options.Audience = aud;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateIssuerSigningKey = true,
+            ValidAudiences = new List&lt;string&gt; { aud },
+            ValidIssuers = new List&lt;string&gt; { issuert1 }
+        };
+    });
+
+services.AddSingleton&lt;IAuthorizationHandler, ValidTenantsAndClientsHandler&gt;();
+
+services.AddAuthorization(policies =&gt;
+{
+    policies.AddPolicy("ValidTenantsAndClients", p =&gt;
+    {
+        // only delegated trusted  known clients allowed to use the API
+        p.Requirements.Add(new ValidTenantsAndClientsRequirement());
+
+        // Validate id of application for which the token was created
+        p.RequireClaim("azp", azpClientId);
+
+        // client secret = 1, 2 if certificate is used
+        p.RequireClaim("azpacr", "1");
+    });
+});
+
+services.AddControllers(options =&gt;
+{
+    var policy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
+        .Build();
+    options.Filters.Add(new AuthorizeFilter(policy));
+});
+  
+
+
+<p>The handler validates that the scope claim has the expected value. Together with the rest of the validation, it is possible the validate that the access token is intended for this API.</p>
+
+
+  public class ValidTenantsAndClientsHandler 
+	: AuthorizationHandler&lt;ValidTenantsAndClientsRequirement&gt;
+{
+
+    protected override Task HandleRequirementAsync(
+		AuthorizationHandlerContext context, 
+		ValidTenantsAndClientsRequirement requirement)
+    {
+        if (context == null)
+            throw new ArgumentNullException(nameof(context));
+        if (requirement == null)
+            throw new ArgumentNullException(nameof(requirement));
+
+        var scopeClaim = context.User.Claims.FirstOrDefault(t =&gt; t.Type == "scope");
+
+        if (scopeClaim != null)
+        {
+            var scopes = scopeClaim.Value.Split(" ", 
+				StringSplitOptions.RemoveEmptyEntries);
+				
+            if (scopes.Any(t =&gt; t == "access_as_user"))
+            {
+                context.Succeed(requirement);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+}
+  
+
+
+ Setup Service Principal for other tenants 
+
+
+
+<p>Now that the application is ready and the App registration exists, a service principal can be created for this Azure App registration in the target tenant.  </p>
+
+
+  Connect-AzureAD -TenantId '&lt;UI-tenantId&gt;'                                            
+
+New-AzureADServicePrincipal -AppId 'AppId-from-multi-tenant-api'
+  
+
+
+ Give consent in your tenant to the Enterprise applications 
+
+
+
+<p>The service principal can be found in the Enterprise applications blade.</p>
+
+
+
+ 
+ Open the Enterprise Applications blade 
+
+
+
+ Find your enterprise application using the Guid ObjectId from the Powershell script 
+
+
+
+ Open the permissions blade 
+
+
+
+ Grant Admin consent if you require to use local tenant permissions 
+ 
+
+
+
+<p></p>
+
+
+
+ Using and consent 
+
+
+
+<p>To use the UI application and the multi-tenant API, consent must be given, usually by a tenant administrator on behalf of all users in this tenant. Different consents screens are displayed depending on the Azure tenant policies and the person using the application.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>Once consent ahs been given, this can be viewed in the API permissions of the Enterprise application created for the target tenant.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The extra step of explicitly allowing the tenants that can use the API has advantages. You can continue to use delegated scopes and implement token exchange protocols for the downstream APIs where required. This is a secure way of connecting software systems using different identity providers if implemented correctly. A disadvantage with the approach is that each admin must give consent to use the API on their tenant.</p>
+
+
+
+ Links 
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2023/01/02/azure-ad-multi-tenant-azure-app-registration-consent/">Azure AD Multi tenant Azure App registration&nbsp;consent</a></blockquote>
+ 
+
+
+
+<p><a href="https://stackoverflow.com/questions/60929155/how-to-create-service-principal-of-multi-tenant-application">https://stackoverflow.com/questions/60929155/how-to-create-service-principal-of-multi-tenant-application</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/01/multi-tenant-api-consent_03.png?w=832'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:26 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.vice.com/en/article/z34ane/neo-nazi-homeschool-ohio'>Inside a US Neo-Nazi Homeschool Network With Thousands of Members</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ “Since the group began in October 2021 it has openly embraced Nazi ideology and promoted white supremacy, while proudly discouraging parents from letting their white children play with or have any contact with people of any other race. Admins and members use racist, homophobic, and antisemitic slurs without shame, and quote Hitler and other Nazi leaders daily in a channel open
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>“Since the group began in October 2021 it has openly embraced Nazi ideology and promoted white supremacy, while proudly discouraging parents from letting their white children play with or have any contact with people of any other race. Admins and members use racist, homophobic, and antisemitic slurs without shame, and quote Hitler and other Nazi leaders daily in a channel open to the public.”  <a href="https://werd.io/tag/Society">#Society</a></p>
+            <p>[<a href="https://www.vice.com/en/article/z34ane/neo-nazi-homeschool-ohio">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:18 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://aeon.co/essays/the-tragedy-of-the-commons-is-a-false-and-dangerous-myth'>The tragedy of the commons is a false and dangerous myth</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ “Even before Hardin’s ‘The Tragedy of the Commons’ was published, however, the young political scientist Elinor Ostrom had proven him wrong. While Hardin speculated that the tragedy of the commons could be avoided only through total privatisation or total government control, Ostrom had witnessed groundwater users near her native Los Angeles hammer out a system for sharing thei
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>“Even before Hardin’s ‘The Tragedy of the Commons’ was published, however, the young political scientist Elinor Ostrom had proven him wrong. While Hardin speculated that the tragedy of the commons could be avoided only through total privatisation or total government control, Ostrom had witnessed groundwater users near her native Los Angeles hammer out a system for sharing their coveted resource.”  <a href="https://werd.io/tag/Society">#Society</a></p>
+            <p>[<a href="https://aeon.co/essays/the-tragedy-of-the-commons-is-a-false-and-dangerous-myth">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:04 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/01/29/atmospheric-river-swamps.html'> Atmospheric River swamps Auckland, its Mayor and our climate</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Atmospheric River swamps Auckland, its Mayor and our climate debate. 
+ 
+ Remember, Friday-night’s deluge happened after a year in which: 
+ 
+ The list is revealed in the link.  
+What do Kiwis think? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://open.substack.com/pub/thekaka/p/dawn-chorus-atmospheric-river-swamps">Atmospheric River swamps Auckland, its Mayor and our climate debate.</a></p>
+<blockquote>
+<p>Remember, Friday-night’s deluge happened after a year in which:</p>
+</blockquote>
+<p>The list is revealed in the link. <br>
+What do Kiwis think?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:01 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/01/29/wait-now-tom.html'> WAIT … now Tom Verlaine?… what the hell is going on … anothe</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   WAIT … now Tom Verlaine?… what the hell is going on … another awesome musician we lay to rest. 
+ R.I.P. Tom. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://open.substack.com/pub/pattismith/p/remembering-tom">WAIT … now Tom Verlaine?</a>… what the hell is going on … another awesome musician we lay to rest.</p>
+<p>R.I.P. Tom.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:53 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2023/im-worried-i-have-delayed-onset-long'>I’m worried I have delayed onset long ...</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I’m worried I have delayed onset long covid. I’ve had very strong fatigue, shortness of breath, congestion, and muscle aches for weeks. I can tell that having these symptoms while taking care of a baby is not going to be a walk in the park. Really hoping I can overcome them.  
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I’m worried I have delayed onset long covid. I’ve had very strong fatigue, shortness of breath, congestion, and muscle aches for weeks. I can tell that having these symptoms while taking care of a baby is not going to be a walk in the park. Really hoping I can overcome them. </p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:44 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2023/Jan/30/datasette-scraper/#atom-everything'>datasette-scraper, and other weeknotes</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   In addition to exploring the new MusicCaps training and evaluation data I've been working on the big Datasette JSON refactor, and getting excited about a Datasette project that I didn't work on at all. 
+ datasette-scraper 
+ The best thing about a plugin system is that you can wake up one day and your software has grown extra features without you even having to review a pull request. 
+ Colin Dellow
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2023/datasette-scraper.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>In addition to exploring <a href="https://simonwillison.net/2023/Jan/27/exploring-musiccaps/">the new MusicCaps training and evaluation data</a> I've been working on the big Datasette JSON refactor, and getting excited about a Datasette project that I didn't work on at all.</p>
+ datasette-scraper 
+<p>The best thing about a plugin system is that you can wake up one day and your software has grown extra features without you even having to review a pull request.</p>
+<p>Colin Dellow's <a href="https://github.com/cldellow/datasette-scraper">datasette-scraper</a> - first released a few weeks ago - takes that a step further: it's a plugin that builds an entire custom application on top of Datasette.</p>
+<p>It's really cool!</p>
+<p>Colin has a <a href="https://www.youtube.com/watch?v=zrSGnz7ErNI">ten minute demo</a> up on YouTube which is well worth checking out.</p>
+<p><a href="https://www.youtube.com/watch?v=zrSGnz7ErNI"></a></p>
+<p>The plugin implements a website crawler which can crawl pages, build up a queue (using <code>sitemap.xml</code> if it's available), then fetch and cache the content - storing its progress and the resulting data in a SQLite database hosted by Datasette.</p>
+<p>It uses some really neat tricks to customize various pieces of the Datasette interface to provide an interface for configuring and controlling the crawler.</p>
+<p>Most impressively of all, it implements its own plugin hooks... which means you can use small custom plugins to define how you would like data to be extracted from the pages you are crawling.</p>
+<p>Colin has a bunch of other Datasette plugins that are worth checking out too:</p>
+ 
+ 
+<a href="https://github.com/cldellow/datasette-rewrite-sql">datasette-rewrite-sql</a> monkey-patches Datasette's database connection code (since there's no appropriate plugin hook there yet) to provide its own hook for further plugin functions that can rewrite SQL queries before they get executed. 
+ 
+<a href="https://github.com/cldellow/datasette-ersatz-table-valued-functions">datasette-ersatz-table-valued-functions</a> (ersatz (adj.): made or used as a substitute, typically an inferior one, for something else.) is a delightfully gnarly hack which supports custom table-valued SQL functions in SQLite, despite Python's <code>sqlite3</code> module not providing those. It works by rewriting a SQL query against a function that returns JSON to use a <a href="https://github.com/cldellow/ersatz-table-valued-functions">gnarly CTE and json_each()</a> combo instead. 
+ 
+<a href="https://github.com/cldellow/datasette-ui-extras">datasette-ui-extras</a> is brand new: it tweaks the Datasette default interface in various ways, adding features like sticky header and facets in a sidebar. I'm so excited to see someone experimenting with changes to the default UI in this way, and I fully expect that some of the ideas Colin is playing with here will make it into Datasette core in the future. 
+ 
+ Progress on ?_extra= 
+<p>I finally started making progress on <a href="https://github.com/simonw/datasette/issues/262">Datasette issue #262: Add ?_extra= mechanism for requesting extra properties in JSON</a> - first opened back in May 2018!</p>
+<p>This is the key step on the journey to slimming down Datasette's default JSON representation for tables and queries.</p>
+<p>I want to return this by default:</p>
+  {
+    "ok": true,
+    "rows": [
+        {"id": 1, "title": "Example 1"},
+        {"id": 2, "title": "Example 2"},
+        {"id": 3, "title": "Example 3"}
+    ],
+    "next": null
+}  
+<p>Then allow users to specify all kinds of extra information - the table schema, the suggested facets, information on columns, the underlying SQL query... all by adding on <code>?_extra=x</code> parameters to the URL.</p>
+<p>This turns out to be a lot of work: I'm having to completely refactor the internals of the most complicated part of Datasette's codebase.</p>
+<p>Still lots more to go, but I'm happy to finally be making progress here.</p>
+ Improved Datasette examples 
+<p>The Datasette website has long had an <a href="https://datasette.io/examples">Examples</a> page linked to from the top navigation - and analytics show that it's one of the most visited pages on the site.</p>
+<p>I finally gave that page the upgrade it needed. It now starts with illustrated examples that have been selected to help highlight what Datasette can do - both the variety of problems it can be used to solve, and the way plugins can be used to add extra functionality.</p>
+<p></p>
+ shot-scraper 1.1 
+<p>I implemented the new screenshots for the examples page using my <a href="https://shot-scraper.datasette.io/">shot-scraper</a> screenshot automation tool.</p>
+<p>The screenshots are taken by a GitHub Actions workflow in the <a href="https://github.com/simonw/datasette-screenshots">datasette-screenshots</a> repository.</p>
+<p>I <a href="https://github.com/simonw/datasette-screenshots/commit/70d5a7adff89d66ee959867cfe32893eb59ad2b7">added 5 new screenshot definitions</a> to the YAML that powers that workflow, which is used by the <a href="https://shot-scraper.datasette.io/en/stable/multi.html">shot-scraper multi</a> command.</p>
+<p>In working with <code>shot-scraper</code> I spotted a couple of opportunities for small improvements, <a href="https://github.com/simonw/shot-scraper/releases/tag/1.1">version 1.1</a> with the following changes:</p>
+<blockquote>
+ 
+ New <code>--log-console</code> option for logging the output of calls to <code>console.log()</code> to standard error. <a href="https://github.com/simonw/shot-scraper/issues/101">#101</a>
+ 
+ New <code>--skip</code> and <code>--fail</code> options to specify what should happen if an HTTP 4xx or 5xx error is encountered while trying to load the page. <code>--skip</code> will ignore the error and either exit cleanly or move on to the next screenshot (in the case of <code>multi</code>). <code>--fail</code> will cause the tool to return a non-zero exit code, useful for running in CI environments. <a href="https://github.com/simonw/shot-scraper/issues/102">#102</a>
+ 
+ 
+</blockquote>
+ datasette-granian 
+<p><a href="https://github.com/emmett-framework/granian">Granian</a> is a new web server for running Python WSGI and ASGI applications, written in Rust.</p>
+<p>A while ago I built <a href="https://datasette.io/plugins/datasette-gunicorn">datasette-gunicorn</a>, a plugin which adds a <code>datasette gunicorn my.db</code> command for serving Datasette using the <a href="https://gunicorn.org/">Gunicorn</a> WSGI server.</p>
+<p><a href="https://github.com/simonw/datasette-granian">datasette-granian</a> now provides the same thing using Granian. It's an alpha release because I haven't actually used it in production yet, but it seems to work well and it adds yet another option for people who want to deploy Datasette.</p>
+<p>Creator of Granian Giovanni Barillari <a href="https://github.com/emmett-framework/granian/issues/35">was really helpful</a> in helping me figure out how to dynamically serve a freshly configured ASGI application rather than just passing a module path to the <code>granian</code> CLI command.</p>
+ datasette-faiss 0.2 
+<p>I <a href="https://simonwillison.net/2023/Jan/13/semantic-search-answers/">introduced datasette-faiss</a> a few weeks ago. It's a plugin that suppors fast vector similarity lookups within Datasette using the <a href="https://github.com/facebookresearch/faiss">FAISS</a> vector search library by Facebook Research.</p>
+<p>The first release of the plugin created a FAISS index on server startup for each table that contains an embeddings column. Any similarity searches would then be run against that entire table.</p>
+<p>But what if you want to combine those searches with other filters in a query? For example, first filter to every article published in 2022, then run a similarity search on what's left.</p>
+<p>In <a href="https://github.com/simonw/datasette-faiss/releases/tag/0.2">datasette-faiss 0.2</a> I introduced two new SQLite aggregate functions: <code>faiss_agg()</code> and <code>faiss_agg_with_scores()</code>, that are designed to handle this case.</p>
+<p>The new functions work by constructing a new FAISS index from scratch every time they are called, covering just the rows that were processed by the aggregation.</p>
+<p>This is best illustrated with an example. The following query first selects the embeddings for just the blog entries published in 2022, then uses those to find items that are most similar to the provided ID.</p>
+  with entries_2022 as (
+  select
+    id,
+    embedding
+  from
+    blog_entry_embeddings
+  where
+    id in (select id from blog_entry where created like '2022%')
+),
+faiss as (
+  select
+    faiss_agg(
+      id,
+      embedding,
+      (select embedding from blog_entry_embeddings where id = :id),
+      10
+    ) as results
+  from
+    entries_2022
+),
+ids as (
+  select
+    value as id
+  from
+    json_each(faiss.results),
+    faiss
+)
+select
+  blog_entry.id,
+  blog_entry.title,
+  blog_entry.created
+from
+  ids
+  join blog_entry on ids.id = blog_entry.id  
+<p><a href="https://datasette.simonwillison.net/simonwillisonblog?sql=with+entries_2022+as+%28%0D%0A++select%0D%0A++++id%2C%0D%0A++++embedding%0D%0A++from%0D%0A++++blog_entry_embeddings%0D%0A++where%0D%0A++++id+in+%28select+id+from+blog_entry+where+created+like+%272022%25%27%29%0D%0A%29%2C%0D%0Afaiss+as+%28%0D%0A++select%0D%0A++++faiss_agg%28%0D%0A++++++id%2C%0D%0A++++++embedding%2C%0D%0A++++++%28select+embedding+from+blog_entry_embeddings+where+id+%3D+%3Aid%29%2C%0D%0A++++++10%0D%0A++++%29+as+results%0D%0A++from%0D%0A++++entries_2022%0D%0A%29%2C%0D%0Aids+as+%28%0D%0A++select%0D%0A++++value+as+id%0D%0A++from%0D%0A++++json_each%28faiss.results%29%2C%0D%0A++++faiss%0D%0A%29%0D%0Aselect%0D%0A++blog_entry.id%2C%0D%0A++blog_entry.title%2C%0D%0A++blog_entry.created%0D%0Afrom%0D%0A++ids%0D%0A++join+blog_entry+on+ids.id+%3D+blog_entry.id&amp;id=8214">You can try the query out here</a>.</p>
+ Releases this week 
+ 
+ 
+<a href="https://github.com/simonw/shot-scraper">shot-scraper</a>: <a href="https://github.com/simonw/shot-scraper/releases/tag/1.1">1.1</a> - (<a href="https://github.com/simonw/shot-scraper/releases">25 releases total</a>) - 2023-01-30
+<br>A command-line utility for taking automated screenshots of websites 
+ 
+<a href="https://github.com/simonw/datasette-render-markdown">datasette-render-markdown</a>: <a href="https://github.com/simonw/datasette-render-markdown/releases/tag/2.1.1">2.1.1</a> - (<a href="https://github.com/simonw/datasette-render-markdown/releases">10 releases total</a>) - 2023-01-27
+<br>Datasette plugin for rendering Markdown 
+ 
+<a href="https://github.com/simonw/datasette-youtube-embed">datasette-youtube-embed</a>: <a href="https://github.com/simonw/datasette-youtube-embed/releases/tag/0.1">0.1</a> - 2023-01-27
+<br>Turn YouTube URLs into embedded players in Datasette 
+ 
+<a href="https://github.com/simonw/datasette-granian">datasette-granian</a>: <a href="https://github.com/simonw/datasette-granian/releases/tag/0.1a0">0.1a0</a> - 2023-01-20
+<br>Run Datasette using the Granian HTTP server 
+ 
+<a href="https://github.com/simonw/datasette-faiss">datasette-faiss</a>: <a href="https://github.com/simonw/datasette-faiss/releases/tag/0.2">0.2</a> - (<a href="https://github.com/simonw/datasette-faiss/releases">2 releases total</a>) - 2023-01-19
+<br>Maintain a FAISS index for specified Datasette tables 
+ 
+ TIL this week 
+ 
+ <a href="https://til.simonwillison.net/git/rewrite-repo-remove-secrets">Rewriting a Git repo to remove secrets from the history</a> 
+ <a href="https://til.simonwillison.net/sqlite/pragma-function-list">SQLite pragma_function_list()</a> 
+ <a href="https://til.simonwillison.net/python/lxml-m1-mac">Installing lxml for Python on an M1/M2 Mac</a> 
+ <a href="https://til.simonwillison.net/sqlite/cte-values">Combining CTEs and VALUES in SQLite</a> 
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2023/datasette-scraper.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:52 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -798,7 +1613,7 @@ Search
 
 <div class='item-footer'>
    01:40 &bull;
-   17 minutes ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -880,7 +1695,7 @@ Search
 
 <div class='item-footer'>
    23:40 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -957,7 +1772,7 @@ Search
 
 <div class='item-footer'>
    23:38 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1042,7 +1857,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    23:30 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1119,7 +1934,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    23:12 &bull;
-   3 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1180,7 +1995,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    22:58 &bull;
-   3 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1256,7 +2071,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    21:13 &bull;
-   5 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1332,7 +2147,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    18:15 &bull;
-   8 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1392,7 +2207,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    12:52 &bull;
-   13 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1475,7 +2290,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    05:42 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1543,7 +2358,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    05:23 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1622,7 +2437,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    04:53 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1697,7 +2512,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    04:49 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1773,7 +2588,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    04:47 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1843,7 +2658,7 @@ Schrödinger’s cat</p>
 
 <div class='item-footer'>
    03:40 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -3452,7 +4267,7 @@ from
 
 <div class='item-footer'>
    21:34 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3525,7 +4340,7 @@ from
 
 <div class='item-footer'>
    16:30 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3589,7 +4404,7 @@ from
 
 <div class='item-footer'>
    14:10 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4053,7 +4868,7 @@ But the text that I read in these dashboards is image-free for now. And I think 
 
 <div class='item-footer'>
    21:01 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4119,7 +4934,7 @@ But the text that I read in these dashboards is image-free for now. And I think 
 
 <div class='item-footer'>
    19:45 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4179,7 +4994,7 @@ But the text that I read in these dashboards is image-free for now. And I think 
 
 <div class='item-footer'>
    19:36 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4244,7 +5059,7 @@ But the text that I read in these dashboards is image-free for now. And I think 
 
 <div class='item-footer'>
    19:26 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4322,7 +5137,7 @@ But the text that I read in these dashboards is image-free for now. And I think 
 
 <div class='item-footer'>
    16:41 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4625,7 +5440,7 @@ But the text that I read in these dashboards is image-free for now. And I think 
 
 <div class='item-footer'>
    21:10 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4700,7 +5515,7 @@ Happy Birthday to me</p>
 
 <div class='item-footer'>
    20:47 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4766,7 +5581,7 @@ Happy Birthday to me</p>
 
 <div class='item-footer'>
    20:20 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4827,7 +5642,7 @@ Happy Birthday to me</p>
 
 <div class='item-footer'>
    19:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4891,7 +5706,7 @@ Happy Birthday to me</p>
 
 <div class='item-footer'>
    17:49 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4960,7 +5775,7 @@ Happy Birthday to me</p>
 
 <div class='item-footer'>
    17:39 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5284,159 +6099,6 @@ Happy Birthday to me</p>
 
 <div class='item-footer'>
    01:01 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/01/25/the-why-of.html'> 🔗 The Why of the Guns  
- 
- This is how Jim Crow rolls on in </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   🔗 The Why of the Guns  
- 
- This is how Jim Crow rolls on in the 21st century. Yes, it’s about the guns. But the guns are about the racism. If my fellow men weren’t so damned racist, so scared of “the other,” they wouldn’t be getting killy, fewer people would be getting killed, and de-escalation could begin. 
- 
- 
- As it is, you’re safer in Kyiv. &nbsp; 
- 
- 💬 Dana Blankenhorn 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://danafblankenhorn.substack.com/p/the-why-of-the-guns">🔗 The Why of the Guns </a></p>
-<blockquote>
-<p>This is how Jim Crow rolls on in the 21st century. Yes, it’s about the guns. But the guns are about the racism. If my fellow men weren’t so damned racist, so scared of “the other,” they wouldn’t be getting killy, fewer people would be getting killed, and de-escalation could begin.</p>
-</blockquote>
-<blockquote>
-<p>As it is, you’re safer in Kyiv. &nbsp;</p>
-</blockquote>
-<p>💬 Dana Blankenhorn</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:24 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/01/25/martini-shot-digital.html'> 🎙️Martini Shot: Digital Absolution 
- It’s hard for Rob Long </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   🎙️Martini Shot: Digital Absolution 
- It’s hard for Rob Long to go wrong in 10 minutes. He doesn’t. 
- Theme? Reorganizing life - like we all do! 
- This 
- 
- “One of my Things actions is to add a new project to OmniFocus” 
- 
- clearly reveals problems that I and many others have! 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://overcast.fm/+os7ebUx50">🎙️Martini Shot: Digital Absolution</a></p>
-<p>It’s hard for Rob Long to go wrong in 10 minutes. He doesn’t.</p>
-<p>Theme? Reorganizing life - like we all do!</p>
-<p>This</p>
-<blockquote>
-<p>“One of my Things actions is to add a new project to OmniFocus”</p>
-</blockquote>
-<p>clearly reveals problems that I and many others have!</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:21 &bull;
    5 days ago
 </div>
 
@@ -5774,148 +6436,7 @@ Happy Birthday to me</p>
 
 <div class='item-footer'>
    20:51 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://francine.substack.com/p/warning-do-not-other-me-because-of'>Warning: Do not “other” me because of my age</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- “But I hate this new attention lavished on aging. Why? Because it “others” me. It puts me in a separate category from the rest of the world, and that is not how I think, feel, act, or want to be seen. All of a sudden I am not smart, pretty, successful, talented, or part of the family. I am “old.” I am somebody’s responsibility. I have to be told when to stop driving, and my ch
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>“But I hate this new attention lavished on aging. Why? Because it “others” me. It puts me in a separate category from the rest of the world, and that is not how I think, feel, act, or want to be seen. All of a sudden I am not smart, pretty, successful, talented, or part of the family. I am “old.” I am somebody’s responsibility. I have to be told when to stop driving, and my checkbook can be taken away. I am a candidate for Senior Living (banishment to a place full of other old people).”  <a href="https://werd.io/tag/Technology">#Technology</a></p>
-            <p>[<a href="https://francine.substack.com/p/warning-do-not-other-me-because-of">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:22 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://abcnews.go.com/US/2023-doomsday-clock-announcement-expect/story?id=96495463'>2023 'Doomsday Clock' moved 10 seconds closer to catastrophe</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- “Scientists revealed on Tuesday that the "Doomsday Clock" has been moved up to 90 seconds before midnight -- the closest humanity has ever been to armageddon.” But everything else is going so well.  #Society 
-             [Link] 
-         
-     
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>“Scientists revealed on Tuesday that the "Doomsday Clock" has been moved up to 90 seconds before midnight -- the closest humanity has ever been to armageddon.” But everything else is going so well.  <a href="https://werd.io/tag/Society">#Society</a></p>
-            <p>[<a href="https://abcnews.go.com/US/2023-doomsday-clock-announcement-expect/story?id=96495463">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:53 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6180,79 +6701,6 @@ over, say, UML or traditional ERA diagram styles. IMHO&nbsp;:-))</p>
 
 
 <h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://futurism.com/seo-spammers-google-cnet-ai-generated-articles'>SEO Spammers Are Absolutely Thrilled Google Isn't Cracking Down on CNET's AI-Generated Articles</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- “The implication was clear: that tools like ChatGPT will now allow scofflaws to pollute the internet with near-infinite quantities of bot-generated garbage, and that CNET have now paved the way. In a way, it served as a perfect illustration of a recent warning by Stanford and Georgetown academics that AI tech could rapidly start to fill the internet with endless quantities of 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>“The implication was clear: that tools like ChatGPT will now allow scofflaws to pollute the internet with near-infinite quantities of bot-generated garbage, and that CNET have now paved the way. In a way, it served as a perfect illustration of a recent warning by Stanford and Georgetown academics that AI tech could rapidly start to fill the internet with endless quantities of misinformation and profiteering.”  <a href="https://werd.io/tag/AI">#AI</a></p>
-            <p>[<a href="https://futurism.com/seo-spammers-google-cnet-ai-generated-articles">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:08 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://hyperonomy.com/'>Hyperonomy Digital Identity Lab</a>
 </h4>
 
@@ -6335,7 +6783,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    14:42 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6944,7 +7392,7 @@ public async Task&lt;IActionResult&gt; Exchange([FromForm] OauthTokenExchangePay
 
 <div class='item-footer'>
    19:47 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7172,7 +7620,7 @@ Who are the experts you follow in various domains? Can I cherrypick from your li
 
 <div class='item-footer'>
    19:53 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7236,7 +7684,7 @@ Who are the experts you follow in various domains? Can I cherrypick from your li
 
 <div class='item-footer'>
    18:59 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7427,7 +7875,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    14:51 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7790,7 +8238,7 @@ I don't think accounts are going away anytime soon simply because they are a nec
 
 <div class='item-footer'>
    17:46 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7948,7 +8396,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    16:56 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8020,7 +8468,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    17:23 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8110,7 +8558,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    14:46 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8176,7 +8624,7 @@ The post <a href="https://realestatecafe.com/mlking-afterglow-what-if-we-weaponi
 
 <div class='item-footer'>
    14:10 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8248,7 +8696,7 @@ The post <a href="https://realestatecafe.com/mlking-afterglow-what-if-we-weaponi
 
 <div class='item-footer'>
    20:28 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8510,7 +8958,7 @@ The username column gives the node its identity. Note also the property instance
 
 <div class='item-footer'>
    18:29 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8578,7 +9026,7 @@ The username column gives the node its identity. Note also the property instance
 
 <div class='item-footer'>
    17:08 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9099,78 +9547,6 @@ app.AddInMemoryTokenCache();
 
 
  <h2 class='new-date'>
-  Sunday, 15. January 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2023/Jan/15/simulate-broken-db/#atom-everything'>How to simulate a broken database connection for testing in Django</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   How to simulate a broken database connection for testing in Django 
- Neil Kakkar explores the options using unittest.patch() and then settles on a neater pattern using "with connection.execute_wrapper(QueryTimeoutWrapper()):" to simulate the exact exception he needs to test against. 
-
-     Via Lobsters 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://neilkakkar.com/test-database-connection-django.html">How to simulate a broken database connection for testing in Django</a></p>
-<p>Neil Kakkar explores the options using unittest.patch() and then settles on a neater pattern using "with connection.execute_wrapper(QueryTimeoutWrapper()):" to simulate the exact exception he needs to test against.</p>
-
-    <p>Via <a href="https://lobste.rs/s/t0hd2c/how_simulate_broken_database_connection">Lobsters</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:31 &bull;
-   14 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Saturday, 14. January 2023
  </h2>
 
@@ -9228,7 +9604,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    14:01 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9465,7 +9841,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    19:21 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9531,7 +9907,7 @@ app.AddInMemoryTokenCache();
 
 <div class='item-footer'>
    17:07 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9787,7 +10163,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    16:46 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9885,7 +10261,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    19:29 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10009,7 +10385,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    17:38 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10083,7 +10459,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    17:30 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10202,7 +10578,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    14:47 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11510,7 +11886,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    18:52 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11642,7 +12018,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    20:19 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11972,7 +12348,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    16:24 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12128,7 +12504,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    14:10 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12271,7 +12647,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    19:04 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12749,7 +13125,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    20:35 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12823,7 +13199,7 @@ return Ok(new OauthTokenExchangeSuccessResponse
 
 <div class='item-footer'>
    04:34 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22635,208 +23011,6 @@ Describing Internet business in physical terms is like standing at the Dawn of L
 
 <div class='item-footer'>
    00:17 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 17. October 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2022/10/17/is-scanning-qr-codes-for-authentication-safe/'>Is scanning QR Codes for authentication safe?</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article explains why cross device authentication has security issues as it is subject to phishing attacks unless further authentication is used in the client. Scanning QR Codes for authentication does not protect against phishing and leaves the users open to having their session stolen. Phishing There a many forms of phishing and this is […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article explains why cross device authentication has security issues as it is subject to phishing attacks unless further authentication is used in the client. Scanning QR Codes for authentication does not protect against phishing and leaves the users open to having their session stolen. </p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Phishing 
-
-
-
-<p>There a many forms of phishing and this is one of the biggest problems the industry needs to solve at present. As a service or software provider, it is not correct for you to expect your clients to be wise enough, not to fall for a phishing attack. We need and must create systems where phishing is not possible. At present the industry provides three solutions to protect against phishing; FIDO2, certificate authentication using PKI and windows for business authentication. FIDO2 will become much more user friendly once the new hardware devices have built in FIDO2 keys and the rollout of passkeys is supported by most of the big service providers.</p>
-
-
-
-<p>When using cross device authentication, it is not possible to protect against phishing, or at least we have no known solution for this at present. </p>
-
-
-
- Phishing in Self sovereign identity 
-
-
-
-<p>Users authenticating on HTTPS websites using verifiable credentials stored on your wallet are still vulnerable to phishing attacks. This can be improved by using FIDO2 as a second factor to the SSI authentication. The DIDComm communication between agents has strong protection against phishing but this does not protect against phishing when started using a QR Code from a separate device.</p>
-
-
-
-<p>Self sovereign identity phishing scenario using HTTPS websites:</p>
-
-
-
- 
- User opens a phishing website in the browser using HTTPS and clicks the fake sign-in 
-
-
-
- Phishing service initializes the authentication using a correct SSI sign-in on the correct website using HTTPS and gets presented with a QR Code (URI link) for a digital wallet to complete. 
-
-
-
- Phishing service presents this back on the phishing website to the victim. 
-
-
-
- Victim scans the QR Code using the digital wallet and completes the authentication using the agent in the digital wallet, DIDComm V2, trusted registry etc. 
-
-
-
- When the victim completes the sign-in using the out of band digital wallet and agent, the HTTPS website being used by the attacker gets updated with the session of the victim. 
- 
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>This can only be prevented by using the browser client-side origin as part of the flow, signing this and returning this back to the server to be validated, thus preventing this type of phishing attack. This cannot be prevented unless the origin from the client browser is used and validated in the authentication process. The browser client-side origin is not used in the SSI login.</p>
-
-
-
-<p>Here’s the same problem description:&nbsp;<a href="https://www.youtube.com/watch?v=6tpmyLf88pU&amp;t=1496s">Risk Mitigation for Cross Device Flows</a></p>
-
-
-
- Phishing in cross device 
-
-
-
-<p>In general, any cross device authentication does not protect against phishing. You need further authentication in the browser/agent client where the session is running.</p>
-
-
-
- Comparing apples and oranges 
-
-
-
-<p>A lot of people pushing these systems compare this form of authentication with single factor password authentication. This type of cross device authentication is much better than password authentication, this is correct, but the industry has already solved this and for any good enterprise systems or secure systems, users can no longer use single password authentication, this is a solved problem. It is just not rolled out to the wider public for the consumer market. Introducing another system will not solve this either.</p>
-
-
-
-<p></p>
-
-
-
-<p>The cross device application running on the separate device can authenticate its part of the authentication flow correctly and this step in the authentication process is ok and cannot be phished if implemented correctly like for example using Didcomm V2 and trust registries but this does not solve the phishing weakness when starting from a HTTPS website with a QR Code scanned from the original device.</p>
-
-
-
- Workarounds 
-
-
-
-<p>Use a phishing resistant authentication like FIDO2, PKI solution using certificates or Windows for business.  Once authenticated, the QR Code can be scanned in a safe way and the cross device authentication can be used for example to verify an identity. This works because you are already inside a secure session and the same session will get updated with the scanned data then.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://datatracker.ietf.org/doc/draft-kasselman-cross-device-security/">https://datatracker.ietf.org/doc/draft-kasselman-cross-device-security/</a></p>
-
-
-
- 
-  
- 
-
-
-
- 
-<blockquote><a href="https://damienbod.com/2021/10/11/challenges-to-self-sovereign-identity/">Challenges to Self Sovereign&nbsp;Identity</a></blockquote>
- 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-authentication-flows">https://learn.microsoft.com/en-us/azure/active-directory/develop/msal-authentication-flows</a></p>
-
-
-
-<p><a href="https://docs.oasis-open.org/esat/sqrap/v1.0/cs01/sqrap-v1.0-cs01.html#_Toc103082217">https://docs.oasis-open.org/esat/sqrap/v1.0/cs01/sqrap-v1.0-cs01.html#_Toc103082217</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2022/10/phishing_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:19 &bull;
    3 months ago
 </div>
 
