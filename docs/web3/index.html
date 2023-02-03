@@ -376,7 +376,7 @@
 
 </div>
 </div>
-<sup>Last Update 7:42 AM February 03, 2023 (UTC)</sup>
+<sup>Last Update 2:42 PM February 03, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Web3 | Identosphere Blogcatcher</h1>
@@ -389,6 +389,793 @@
  <h2 class='new-date'>
   Friday, 03. February 2023
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://zfnd.org/'>Zcash Foundation</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://zfnd.org/frost-performance/'>FROST Performance</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   In this post, we briefly describe the threshold signature scheme FROST, and present benchmark results for our FROST implementation. We also describe one optimization that greatly improves its speed, especially for scenarios with a large number of signers. 
+ The post FROST Performance appeared first on zcash foundation. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ 
+									 
+						 
+					 
+			 
+								 
+				 
+			 by Conrado Gouvêa 		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>In this post, we briefly describe the threshold signature scheme FROST, and present benchmark results for our FROST implementation. We also describe one optimization that greatly improves its speed, especially for scenarios with a large number of signers (e.g. 12 times faster in a t=667 out of n=1000 scenario).</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			 What is FROST?  		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>FROST is an efficient threshold Schnorr signature scheme <a href="https://eprint.iacr.org/2020/852">invented</a> by Chelsea Komlo (at the University of Waterloo and Chief Scientist at the Zcash Foundation) and Ian Goldberg (at the University of Waterloo). FROST is in the process of becoming an <a href="https://datatracker.ietf.org/doc/draft-irtf-cfrg-frost/">IETF RFC</a>.</p><p>Threshold signatures make use of a single private key that is split into shares that are held by multiple participants. A subset of the participants (e.g. 3 out of 5, or whatever threshold is specified at key generation) can generate a signature that can be verified by the group public key, as if it were signed by the original unsplit private key. The key can be generated centrally before being split and distributed to the participants (referred to as “trusted dealer”), or a decentralized key generation (DKG) protocol can be used, which means that no single party ever possesses the entire private key. It has many applications, such as allowing multiple entities to manage a cryptocurrency wallet in a safer and more resilient manner. FROST defines a two-round signing protocol, and is consequently the most efficient Schnorr threshold protocol in the literature today.</p><p>Schnorr has several advantages over the more traditional ECDSA signature: it’s much simpler; easier to implement in a secure manner; and is compatible with modern signatures schemes such as EdDSA. A significant upside is that it is also compatible with Zcash spend signatures (i.e. the signature that authorizes a Zcash shielded transaction), and this is one of our main use cases for FROST.</p><p>Currently, the RFC is close to completion. We have also completed a <a href="https://github.com/ZcashFoundation/frost/">Rust implementation</a> of all ciphersuites specified in the RFC, and are now doing final cleanups and improvements prior to the first release of the crates (which will then be audited). A <a href="https://github.com/ZcashFoundation/zips/blob/zip-frost/zip-0312.rst">ZIP</a> has been drafted, which describes how FROST can be used to create Zcash spend authorization signatures, and Chelsea is working on an associated security proof (for the re-randomizable version of FROST).</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			 Benchmarking and Investigating the Aggregate step
+ 		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>When we presented FROST at Zcon3 (check out the <a href="https://www.youtube.com/watch?v=cAfTTfblzoU">research</a> and <a href="https://www.youtube.com/watch?v=VE-1aTuwpzI">implementation</a> talks), we were asked how FROST performed in larger settings, such as a 667-of-1000 signers. (This is motivated by a mechanism proposed by Christopher Goes for <a href="https://forum.zcashcommunity.com/t/proposed-architecture-for-a-zcash-namada-ibc-ecosystem-ethereum-ecosystem-non-custodial-bridge-using-frost-multisignatures/42749">bridging Zcash with other ecosystems using FROST</a>.) We set out to benchmark our Rust implementation, and I was a bit surprised about one particular step, “Aggregate”.</p><p>The FROST scheme can be split into steps: Key Generation, Round 1, Round 2, and Aggregate. Key Generation only needs to be done once, while the rest are carried out each time the group wishes to generate a new signature. In the Round 1 step, the participant generates commitments which are broadcast to all other participants via a Coordinator. In the Round 2 step, using these commitments and their respective key shares generated during Key Generation, they produce a signature share which is sent to the Coordinator. Finally, the Coordinator carries out the final step, Aggregate, which produces the final signatures from all the signatures shares received.</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			 Initial Benchmarks 		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>The initial benchmark for the Ristretto255 suite looked like the following. (Benchmarks were run on an AMD Ryzen 9 5900X 3.7GHZ, Ubuntu 22.04, Rust 1.66.0.)</p>						 
+				 
+				 
+				 
+												
+																					
+										
+									 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>(Note that Round 1 and 2 timings in this post refer to per-signer timings, while Key Generation and Aggregate are performed by the Coordinator.)</p><p>It was expected that the timings would increase with the larger number of participants (with the exception of Round 1, which does not depend on that number), but the Aggregate timings appeared too high, surpassing 400ms for the 667-of-1000 case (which may not seem much but it’s unusual for a signing procedure).</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			 Optimized Benchmarks 		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>I intended to investigate this slow code, but I didn’t even need to. Coincidentally, while the RFC was in the last call for feedback, Tim Ruffing <a href="https://mailarchive.ietf.org/arch/msg/cfrg/QQhyjvvcoaqLslaX3gWwABqHN-s/">pointed out</a> that Aggregate can be sped up significantly. Originally, it was specified that each share received from the participants should be verified (each signature share can be verified separately to ensure it is correct) and then aggregated. Tim’s observation is that the shares can be simply aggregated and the final signature verified with the group public key. If the verification fails, then it’s possible to find which participant generated an incorrect share by verifying them one by one (if desired). This greatly speeds up the case where all shares are correct, which should be the most common.</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+																														 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>Aggregate is now more than 3 times faster for the 7 of 10 scenario, more than 4 times faster for the 67 of 100 scenario, and more than 12 times faster for the 667 of 1000 scenario! The Aggregate performance is now very similar to the Round 2 step, which makes sense since they have a very similar structure.</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			 Ciphersuite Benchmarks 		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>Here’s the Aggregate performance comparison for all ciphersuites, in three different scenarios:</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+																														 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+																														 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+																														 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			 Examining Overall Performance 		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>With the benchmark machinery in place (we used <a href="https://github.com/bheisler/criterion.rs">criterion.rs</a>) we can provide benchmark results for all supported ciphersuites in different scenarios. These all use the optimization described above.</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+																														 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+																														 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+																														 
+				 
+				 
+				 
+							<p>The same data in table format:</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			
+<p></p> ed25519 <p></p>
+
+    
+        &nbsp;
+        Key Generation<br>with Dealer
+        Round 1
+        Round 2
+        Aggregate
+    
+    
+        2-of-3
+        0.24
+        0.08
+        0.12
+        0.22
+    
+    
+        7-of-10
+        0.73
+        0.08
+        0.39
+        0.45
+    
+    
+        67-of-100
+        7.7
+        0.08
+        3.64
+        3.28
+    
+    
+        667-of-1000
+        181.45
+        0.08
+        36.92
+        31.88
+    
+		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			
+<p></p> ristretto255  <p></p>
+
+    
+        &nbsp;
+        Key Generation<br>with Dealer
+        Round 1
+        Round 2
+        Aggregate
+    
+    
+        2-of-3
+        0.24
+        0.08
+        0.13
+        0.22
+    
+    
+        7-of-10
+        0.71
+        0.08
+        0.42
+        0.47
+    
+    
+        67-of-100
+        7.61
+        0.08
+        3.77
+        3.40
+    
+    
+        667-of-1000
+        179.43
+        0.08
+        38.32
+        32.54
+    
+		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			
+<p></p> secp256k1 <p></p>
+
+    
+        &nbsp;
+        Key Generation<br>with Dealer
+        Round 1
+        Round 2
+        Aggregate
+    
+    
+        2-of-3
+        0.26
+        0.09
+        0.15
+        0.25
+    
+    
+        7-of-10
+        0.78
+        0.09
+        0.48
+        0.52
+    
+    
+        67-of-100
+        7.50
+        0.09
+        4.41
+        3.82
+    
+    
+        667-of-1000
+        123.74
+        0.09
+        46.11
+        37.48
+    
+		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			
+<p></p> p256 <p></p>
+
+    
+        &nbsp;
+        Key Generation<br>with Dealer
+        Round 1
+        Round 2
+        Aggregate
+    
+    
+        2-of-3
+        0.56
+        0.18
+        0.33
+        0.58
+    
+    
+        7-of-10
+        1.71
+        0.19
+        1.08
+        1.24
+    
+    
+        67-of-100
+        16.51
+        0.18
+        10.03
+        9.38
+    
+    
+        667-of-1000
+        206.85
+        0.19
+        97.49
+        90.82
+    
+		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			
+<p></p> ed448 <p></p>
+
+    
+        &nbsp;
+        Key Generation<br>with Dealer
+        Round 1
+        Round 2
+        Aggregate
+    
+    
+        2-of-3
+        1.56
+        0.51
+        0.75
+        1.39
+    
+    
+        7-of-10
+        4.56
+        0.53
+        2.36
+        2.88
+    
+    
+        67-of-100
+        46.05
+        0.52
+        21.04
+        20.37
+    
+    
+        667-of-1000
+        693.45
+        0.53
+        211.68
+        197.00
+    
+		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			 Conclusion 		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>FROST is a highly performant threshold signature scheme. We described an optimization for its “Aggregate” step, pointed out by Tim Ruffing in his review of the RFC draft, which made it 12 times faster in the 667 of 1000 scenario. With that, the Round 2 and Aggregate steps (recall that Key Generation only runs once, and Round 1 is almost negligible in all scenarios) each take less than 100ms for all ciphersuites, except Ed448, in the 667 of 1000 scenario (which is an uncommonly large one).</p>						 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+			 Appendix: Point Multiplications in FROST Steps 		 
+				 
+					 
+		 
+							 
+		 
+				 
+						 
+					 
+			 
+								 
+				 
+							<p>The time-consuming part of each step is elliptic curve point multiplication. It can be classified into three categories: random point multiplication, where the point being multiplied is unknown in advance; and fixed point multiplication, where the point is known in advance (usually, the “generator”).</p><p>Here’s a breakdown of what each step requires:</p>  Key Generation with Trusted Dealer  One fixed point multiplication to derive the group public key from the group private key;  One fixed point multiplication per MIN_PARTICIPANTS to derive a commitment for each polynomial coefficient;  One fixed point multiplication per MAX_PARTICIPANTS to derive their individual public keys.  Total: (1 + MIN_PARTICIPANTS + MAX_PARTICIPANTS) fixed point multiplications      Round 1<br>  Two fixed point multiplications to generate commitments to the pair of nonces.  Total: 2 fixed point multiplications    Round 2  One random point multiplication per NUM_PARTICIPANTS to compute the group commitment.  Total: NUM_PARTICIPANTS random point multiplications    Aggregate<br>  One random point multiplication per NUM_PARTICIPANTS to compute the group commitment. If the Coordinator is also a participant, they could reuse the value from Round 2, but we didn’t assume that in our benchmark (and our implementation does not support this for now);  One random point multiplication and one fixed point multiplication to verify the aggregated signature;  Verifying all shares (i.e. in our original approach, or to find a corrupt signer if the aggregated signature failed) additionally requires one random point multiplication per NUM_PARTICIPANTS to compute each commitment share and then one random and one fixed point multiplication per NUM_PARTICIPANTS to actually verify each share.  Total (with optimization): (NUM_PARTICIPANTS + 1) random point multiplications and 1 fixed point multiplication. To identify a corrupt signer: up to 2*NUM_PARTICIPANTS random point multiplications and NUM_PARTICIPANTS fixed point multiplications.  Total (before optimization): 3*NUM_PARTICIPANTS random point multiplications and NUM_PARTICIPANTS fixed point multiplications.    						 
+				 
+					 
+		 
+							 
+		 
+							 
+		<p>The post <a href="https://zfnd.org/frost-performance/">FROST Performance</a> appeared first on <a href="https://zfnd.org">zcash foundation</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://zfnd.org/wp-content/uploads/2023/02/times-by-size-and-function-ristretto255-all-shares.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   12:28 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://a16z.com/'>a16z Podcast</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://a16z.simplecast.com/episodes/healthspan-lifespan-and-the-biology-of-aging-oiQB_m3i'>Healthspan, Lifespan, and the Biology of Aging</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   In this cross-over episode from Bio Eats World,&nbsp;Kristen Fortney, cofounder and CEO of BioAge, joins Vijay Pande, founding partner of a16z Bio + Health, and Olivia Webb, editorial lead, to discuss the biology of aging, how she started a company, and some fun things — like how long a hypothetical venture capitalist can expect to live.  &nbsp;  Resources:  Greg Egan, whose writing inspired Krist
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>In this cross-over episode from Bio Eats World,&nbsp;Kristen Fortney, cofounder and CEO of BioAge, joins Vijay Pande, founding partner of a16z Bio + Health, and Olivia Webb, editorial lead, to discuss the biology of aging, how she started a company, and some fun things — like how long a hypothetical venture capitalist can expect to live.</p><p>&nbsp;</p><p>Resources:</p><p>Greg Egan, whose writing inspired Kristen, has a list of his books on his <a href="https://www.gregegan.net/">website</a></p><p>&nbsp;</p><p>Stay Updated:&nbsp;</p><p>Find us on Twitter: <a href="https://twitter.com/a16z">https://twitter.com/a16z</a></p><p>Find us on LinkedIn: <a href="https://www.linkedin.com/company/a16z">https://www.linkedin.com/company/a16z</a></p><p>Subscribe on your favorite podcast app: <a href="https://a16z.simplecast.com/">https://a16z.simplecast.com/</a></p><p>Follow our host: <a href="https://twitter.com/stephsmithio">https://twitter.com/stephsmithio</a></p><p>Please note that the content here is for informational purposes only; should NOT be taken as legal, business, tax, or investment advice or be used to evaluate any investment or security; and is not directed at any investors or potential investors in any a16z fund. For more details please see a16z.com/disclosures.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   11:00 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://podcast.banklesshq.com/'>bankless</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://sites.libsyn.com/247424/rollup-bitcoin-nfts-canto-fomc-interest-rates-blur-opensea-royalties'>ROLLUP: Bitcoin NFTs | Canto | FOMC Interest Rates | Blur OpenSea Royalties</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   1st Week of February, 2023   ------  📣 MetaMask Learn&nbsp;  https://bankless.cc/metamaskshow&nbsp;   ------  🚀 JOIN BANKLESS PREMIUM:&nbsp;  https://newsletter.banklesshq.com/subscribe&nbsp;   ------  BANKLESS SPONSOR TOOLS:&nbsp;   🐙KRAKEN | MOST-TRUSTED CRYPTO EXCHANGE  https://bankless.cc/kraken&nbsp;   🦄UNISWAP | ON-CHAIN MARKETPLACE  https://bankless.cc/uniswap&nbsp;   ⚖️ ARBITRUM | SCALING 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>1st Week of February, 2023</p> <p>------ 📣 MetaMask Learn&nbsp; <a href="https://bankless.cc/metamaskshow">https://bankless.cc/metamaskshow</a>&nbsp;</p> <p>------ 🚀 JOIN BANKLESS PREMIUM:&nbsp; <a href="https://newsletter.banklesshq.com/subscribe">https://newsletter.banklesshq.com/subscribe</a>&nbsp;</p> <p>------ BANKLESS SPONSOR TOOLS:&nbsp;</p> <p>🐙KRAKEN | MOST-TRUSTED CRYPTO EXCHANGE <a href="https://bankless.cc/kraken">https://bankless.cc/kraken</a>&nbsp;</p> <p>🦄UNISWAP | ON-CHAIN MARKETPLACE <a href="https://bankless.cc/uniswap">https://bankless.cc/uniswap</a>&nbsp;</p> <p>⚖️ ARBITRUM | SCALING ETHEREUM <a href="https://bankless.cc/Arbitrum">https://bankless.cc/Arbitrum</a>&nbsp;</p> <p>🚁 EARNIFI | CLAIM YOUR UNCLAIMED AIRDROPS <a href="https://bankless.cc/earnifi">https://bankless.cc/earnifi&nbsp;</a>&nbsp;</p> <p>👻 PHANTOM | CROSS-CHAIN WALLET <a href="https://bankless.cc/phantom">https://bankless.cc/phantom</a>&nbsp;</p> <p>------ Topics Covered</p> <p>0:00 Intro</p> <p>4:30 MARKETS 7:30 ETH Supply <a href="https://ultrasound.money/">https://ultrasound.money/</a>&nbsp;  10:20 FOMC Meeting <a href="https://www.bloomberg.com/news/live-blog/2023-01-31/fomc-rate-decision-and-fed-chair-news-conference"> https://www.bloomberg.com/news/live-blog/2023-01-31/fomc-rate-decision-and-fed-chair-news-conference</a>&nbsp;  13:00 Markets and Inflation <a href="https://twitter.com/TrustlessState/status/1620063534880264192">https://twitter.com/TrustlessState/status/1620063534880264192</a>&nbsp;  14:45 Tokens Up Layer 2: <a href="https://imgur.com/sGYGc7h">https://imgur.com/sGYGc7h</a>&nbsp;  DeFi: <a href="https://imgur.com/BnzQve7">https://imgur.com/BnzQve7</a>&nbsp;  17:20 Canto <a href="https://variant.fund/articles/canto-a-layer-1-incentive-experiment/"> https://variant.fund/articles/canto-a-layer-1-incentive-experiment/</a>&nbsp;  20:20 dYdX Lockup <a href="https://twitter.com/spreekaway/status/1618671588907581440">https://twitter.com/spreekaway/status/1618671588907581440</a>&nbsp;  25:00 $COIN&nbsp; <a href="https://imgur.com/gfboGPU">https://imgur.com/gfboGPU</a>&nbsp;  25:40 ChatGPT <a href="https://therug.mirror.xyz/hUQt2XF1roaocALWW1QdM45NzY7YkDFooKpRre9yRwI"> https://therug.mirror.xyz/hUQt2XF1roaocALWW1QdM45NzY7YkDFooKpRre9yRwI</a>&nbsp;</p> <p>29:00 Bitcoin NFTs <a href="https://metaversal.banklesshq.com/p/bitcoin-nfts">https://metaversal.banklesshq.com/p/bitcoin-nfts</a>&nbsp;  Visualizer: <a href="https://mempool.space/block/0000000000000000000515e202c8ae73c8155fc472422d7593af87aa74f2cf3d"> https://mempool.space/block/0000000000000000000515e202c8ae73c8155fc472422d7593af87aa74f2cf3d</a>&nbsp;  33:40 Controversy Casey: <a href="https://twitter.com/rodarmor/status/1619516796176039937">https://twitter.com/rodarmor/status/1619516796176039937</a>&nbsp;  Eric Wall: <a href="https://twitter.com/ercwl/status/1619720558362660864">https://twitter.com/ercwl/status/1619720558362660864</a>&nbsp;  DrNick: <a href="https://twitter.com/drnicka/status/1620002472986308610">https://twitter.com/drnicka/status/1620002472986308610</a>&nbsp;</p> <p>41:45 FTX Creditors <a href="https://www.theblock.co/post/205859/ftx-creditor-list-includes-star-athletes-crypto-firms-state-governments"> https://www.theblock.co/post/205859/ftx-creditor-list-includes-star-athletes-crypto-firms-state-governments</a>&nbsp;  Bail Pay: <a href="https://twitter.com/watcherguru/status/1620206663268700160">https://twitter.com/watcherguru/status/1620206663268700160</a>&nbsp;  Witness: <a href="https://twitter.com/tier10k/status/1620132741038886912">https://twitter.com/tier10k/status/1620132741038886912</a>&nbsp;  Contact: <a href="https://cointelegraph.com/news/federal-judge-bars-sbf-from-contacting-ftx-and-alameda-employees-using-signal"> https://cointelegraph.com/news/federal-judge-bars-sbf-from-contacting-ftx-and-alameda-employees-using-signal</a>&nbsp;  Compliance: <a href="https://www.coindesk.com/video/sbfs-mother-and-brother-not-cooperating-with-financial-probe-ftx-lawyers-say/"> https://www.coindesk.com/video/sbfs-mother-and-brother-not-cooperating-with-financial-probe-ftx-lawyers-say/</a>&nbsp;  Mark Wahlberg: <a href="https://watcher.guru/news/ftx-and-binance-doc-in-the-works-from-fortune-mark-wahlberg"> https://watcher.guru/news/ftx-and-binance-doc-in-the-works-from-fortune-mark-wahlberg</a>&nbsp;</p> <p>51:00 OFAC Compliant Blocks <a href="https://twitter.com/sassal0x/status/1618819502761992193">https://twitter.com/sassal0x/status/1618819502761992193</a>&nbsp;  MEV Watch: <a href="https://www.mevwatch.info/">https://www.mevwatch.info/</a>&nbsp;  Relay Market: <a href="https://mevboost.pics/">https://mevboost.pics/</a>&nbsp; 53:25 Staking Withdrawal <a href="https://www.theblock.co/post/207231/ethereum-staking-withdrawal-testnet-for-shanghai-upgrade-goes-live-tomorrow"> https://www.theblock.co/post/207231/ethereum-staking-withdrawal-testnet-for-shanghai-upgrade-goes-live-tomorrow</a>&nbsp;  54:15 Optimism Bedrock <a href="https://twitter.com/optimismFND/status/1620905414769668097">https://twitter.com/optimismFND/status/1620905414769668097</a>&nbsp;  David: <a href="https://twitter.com/TrustlessState/status/1621181863380324353">https://twitter.com/TrustlessState/status/1621181863380324353</a>&nbsp;  55:40 RPL vs LDO <a href="https://twitter.com/nixorokish/status/1620061177551417349">https://twitter.com/nixorokish/status/1620061177551417349</a>&nbsp;  57:55 ImmutableX Passport <a href="https://www.immutable.com/products/passport">https://www.immutable.com/products/passport</a>&nbsp;  59:00 Harmony <a href="https://www.dlnews.com/articles/defi/harmony-execs-mismanaged-funds-and-bullied-workers-ex-staff-claim/"> https://www.dlnews.com/articles/defi/harmony-execs-mismanaged-funds-and-bullied-workers-ex-staff-claim/</a>&nbsp;  1:03:55 Blur vs OpenSea <a href="https://mobile.twitter.com/pandajackson42/status/1620081523646148613"> https://mobile.twitter.com/pandajackson42/status/1620081523646148613</a>&nbsp;  Royalties: <a href="https://twitter.com/ljin18/status/1620490983610945538">https://twitter.com/ljin18/status/1620490983610945538</a>&nbsp;  1:09:00 Cardano Stablecoin <a href="https://cointelegraph.com/news/ada-backed-algorithmic-stablecoin-djed-launched-on-cardano"> https://cointelegraph.com/news/ada-backed-algorithmic-stablecoin-djed-launched-on-cardano</a>&nbsp;  1:09:20 Worldcoin <a href="https://twitter.com/worldcoin/status/1618948582769582080">https://twitter.com/worldcoin/status/1618948582769582080</a>&nbsp;  1:10:50 Celsius Withdrawals <a href="https://www.coindesk.com/policy/2023/02/01/bankrupt-lending-platform-celsius-names-users-eligible-to-withdraw-assets/"> https://www.coindesk.com/policy/2023/02/01/bankrupt-lending-platform-celsius-names-users-eligible-to-withdraw-assets/</a>&nbsp;  1:11:35 Twitter Money <a href="https://cointelegraph.com/news/elon-musk-wants-twitter-payments-system-built-with-crypto-in-mind"> https://cointelegraph.com/news/elon-musk-wants-twitter-payments-system-built-with-crypto-in-mind</a>&nbsp;  1:12:20 Amazon NFT <a href="https://blockworks.co/news/amazon-nft-marketplace-web3">https://blockworks.co/news/amazon-nft-marketplace-web3</a>&nbsp;</p> <p>1:15:00 Questions from the Nation Daniel Allan: <a href="https://twitter.com/imdanielallan/status/1617932612668108807">https://twitter.com/imdanielallan/status/1617932612668108807</a>&nbsp;</p> <p>1:22:30 TAKES 1:23:00 McDonalds <a href="https://twitter.com/McDonalds/status/1618691421091024897">https://twitter.com/McDonalds/status/1618691421091024897</a>&nbsp;  1:24:10 Max Pain <a href="https://twitter.com/RyanSAdams/status/1620792397746814976">https://twitter.com/RyanSAdams/status/1620792397746814976</a>&nbsp;  1:26:10 Purity in Isolation <a href="https://twitter.com/RyanSAdams/status/1620971450579693569">https://twitter.com/RyanSAdams/status/1620971450579693569</a>&nbsp;  1:30:00 Blockspace Middlemen <a href="https://twitter.com/litocoen/status/1621097714191855616">https://twitter.com/litocoen/status/1621097714191855616</a>&nbsp;  1:30:40 Influencers <a href="https://twitter.com/jediblocmates/status/1620413105095475201">https://twitter.com/jediblocmates/status/1620413105095475201</a>&nbsp;</p> <p>1:32:30 What David’s Bullish on <a href="https://twitter.com/TrustlessState/status/1621175981301174274">https://twitter.com/TrustlessState/status/1621175981301174274</a>&nbsp;  1:34:45 What Ryan’s Bullish on</p> <p>1:35:30 MEME of the Week <a href="https://twitter.com/eth_valid/status/1620443912254152705?s=20">https://twitter.com/eth_valid/status/1620443912254152705?s=20</a>&nbsp;</p> <p>----- Not financial or tax advice. This channel is strictly educational and is not investment advice or a solicitation to buy or sell any assets or to make any financial decisions. This video is not tax advice. Talk to your accountant. Do your own research.</p> <p>Disclosure. From time-to-time I may add links in this newsletter to products I use. I may receive commission if you make a purchase through one of these links. Additionally, the Bankless writers hold crypto assets. See our investment disclosures here: <a href="https://www.bankless.com/disclosures">https://www.bankless.com/disclosures</a>&nbsp;</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   10:32 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -442,7 +1229,7 @@
 
 <div class='item-footer'>
    06:22 &bull;
-   an hour ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -502,7 +1289,7 @@
 
 <div class='item-footer'>
    05:36 &bull;
-   2 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -562,7 +1349,7 @@
 
 <div class='item-footer'>
    05:25 &bull;
-   2 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -626,7 +1413,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    05:20 &bull;
-   2 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -737,7 +1524,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    04:58 &bull;
-   3 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -803,7 +1590,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    00:16 &bull;
-   7 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -879,7 +1666,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    22:17 &bull;
-   9 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -949,7 +1736,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    20:48 &bull;
-   11 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1032,7 +1819,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    18:44 &bull;
-   13 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1097,7 +1884,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    18:37 &bull;
-   13 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1255,7 +2042,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    17:59 &bull;
-   14 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1444,7 +2231,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    17:18 &bull;
-   14 hours ago
+   21 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1526,7 +2313,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    14:05 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1830,7 +2617,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    20:41 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1896,7 +2683,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    19:28 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1970,7 +2757,7 @@ An image of Corintis’ microfluidic cooling channels on a&nbsp;CPU<p>For more t
 
 <div class='item-footer'>
    19:27 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2034,7 +2821,7 @@ An image of Corintis’ microfluidic cooling channels on a&nbsp;CPU<p>For more t
 
 <div class='item-footer'>
    18:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2098,7 +2885,7 @@ An image of Corintis’ microfluidic cooling channels on a&nbsp;CPU<p>For more t
 
 <div class='item-footer'>
    16:15 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2178,7 +2965,7 @@ An image of Corintis’ microfluidic cooling channels on a&nbsp;CPU<p>For more t
 
 <div class='item-footer'>
    16:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2240,7 +3027,7 @@ An image of Corintis’ microfluidic cooling channels on a&nbsp;CPU<p>For more t
 
 <div class='item-footer'>
    16:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2302,7 +3089,7 @@ An image of Corintis’ microfluidic cooling channels on a&nbsp;CPU<p>For more t
 
 <div class='item-footer'>
    14:26 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2755,7 +3542,7 @@ An image of Corintis’ microfluidic cooling channels on a&nbsp;CPU<p>For more t
 
 <div class='item-footer'>
    22:19 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2821,7 +3608,7 @@ An image of Corintis’ microfluidic cooling channels on a&nbsp;CPU<p>For more t
 
 <div class='item-footer'>
    19:57 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4221,7 +5008,7 @@ Introducing Verida&nbsp;One<p>We’re proud to introduce <a href="https://verida
 
 <div class='item-footer'>
    23:52 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4481,7 +5268,7 @@ Polychain Capital.
 
 <div class='item-footer'>
    21:09 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5167,7 +5954,7 @@ Metaverse’
 
 <div class='item-footer'>
    00:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6334,7 +7121,7 @@ in 2022.
 
 <div class='item-footer'>
    20:02 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8774,7 +9561,7 @@ byrne at clari HQ in front of a wall of portraits of team members holding person
 
 <div class='item-footer'>
    00:47 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8840,7 +9627,7 @@ byrne at clari HQ in front of a wall of portraits of team members holding person
 
 <div class='item-footer'>
    20:15 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9357,7 +10144,7 @@ $REUNI token in February. Whitelisting for presale is now open.
 
 <div class='item-footer'>
    23:52 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10363,7 +11150,7 @@ Products Engineering at Solana Labs.
 
 <div class='item-footer'>
    00:00 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11881,7 +12668,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    20:43 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11941,7 +12728,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    20:17 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12001,7 +12788,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    19:45 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12460,7 +13247,7 @@ collective action.
 
 <div class='item-footer'>
    23:00 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12749,7 +13536,7 @@ Read more about the open call: <a href="https://t.co/6XI42qpa6J">https://t.co/6X
 
 <div class='item-footer'>
    23:52 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12883,7 +13670,7 @@ our DMs each week and didn’t make it to The Defiant’s content platforms.&nbs
 
 <div class='item-footer'>
    23:08 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12945,7 +13732,7 @@ our DMs each week and didn’t make it to The Defiant’s content platforms.&nbs
 
 <div class='item-footer'>
    22:17 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13007,7 +13794,7 @@ our DMs each week and didn’t make it to The Defiant’s content platforms.&nbs
 
 <div class='item-footer'>
    21:13 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13592,7 +14379,7 @@ our DMs each week and didn’t make it to The Defiant’s content platforms.&nbs
 
 <div class='item-footer'>
    00:00 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13660,7 +14447,7 @@ Winklevoss and Silbert
 
 <div class='item-footer'>
    23:15 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13720,7 +14507,7 @@ Winklevoss and Silbert
 
 <div class='item-footer'>
    21:37 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13782,7 +14569,7 @@ Blockchain at Microsoft.
 
 <div class='item-footer'>
    20:35 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15100,7 +15887,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    00:00 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15166,7 +15953,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    19:48 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15720,7 +16507,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    00:09 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16141,7 +16928,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    23:52 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16209,7 +16996,7 @@ hottest NFTs.
 
 <div class='item-footer'>
    20:52 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17220,7 +18007,7 @@ TUOMAS ARTMAN</blockquote>
 
 <div class='item-footer'>
    02:19 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -17286,7 +18073,7 @@ TUOMAS ARTMAN</blockquote>
 
 <div class='item-footer'>
    11:30 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -19697,206 +20484,6 @@ Insight… <a href="https://t.co/uHTGRvVrjM">https://t.co/uHTGRvVrjM</a> <a href
 
 <div class='item-footer'>
    16:09 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://pantherprotocol.io/'>Panther Protocol</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.pantherprotocol.io/advanced-staking-live/'>Panther completes the decentralized launch of its protocol’s v0.5, a DAO-led effort</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Panther's v0.5, also known as Advanced Staking, is now live!
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p><p>December 8th, 2022. Panther, a cross-chain application that will allow retail users as well as institutions to access DeFi privately and compliantly, has launched its v0.5. This was achieved by the protocol’s community in conjunction with Panther Ventures Limited, a Web3 development company destined to develop the blockchain technology and zero-knowledge components of Panther.<br></p><p>Panther Ventures Limited collaborators developed the protocol’s software and released it under a <a href="https://www.coindesk.com/tech/2021/03/23/uniswap-v3-introduces-new-license-to-spoil-future-sushis/">BUSL License</a>, which grants users the right to copy, modify, create derivative works, redistribute, and make non-production use of the Licensed Work. The Licensed Work will eventually be made available under an Open-Source License, as stated in this License.<br></p><p>The development of Panther’s v0.5 was also aided by the Panther Foundation, which focuses on promoting privacy and fostering the Panther ecosystem. The Panther community discussed and established the terms for v0.5’s launch and voted upon them on the protocol’s <a href="https://snapshot.org/#/pantherprotocol.eth">Snapshot.org space</a>. <br></p><p>Besides issuing rewards through its staking solution, Panther’s v0.5 will allow Panther’s community of contributors to test the technological primitives that will be used by the Mainnet launch of the full protocol to enable confidential DeFi. This allows Panther to start testing and utilizing key technical components of the main protocol incrementally. <br></p><p>Panther’s upcoming version 1.0 will allow retail users as well as institutions to interact with DeFi without undergoing the risk of having their transaction history being exposed or copied by leveraging zero-knowledge proofs. <br></p><p>This will be a major milestone that will offer a solution to the biggest challenge facing DeFi: onboarding institutions, legacy players, and FinTechs into the Web3 financial paradigm compliantly and confidentially.<br></p><p>To access Panther's v0.5 and learn more about the technical components of Panther, <a href="https://www.pantherprotocol.io/">visit the project’s website</a>.<br></p><p>Press contact: press@pantherprotocol.io<br></p> About Panther <p>Panther is a decentralized protocol that enables interoperable privacy in DeFi using zero-knowledge proofs.</p><p>Users can mint fully-collateralized, composable tokens called zAssets, which can be used to execute private, trusted DeFi transactions across multiple blockchains.</p><p>Panther helps investors protect their personal financial data and trading strategies, and provides financial institutions with a clear path to compliantly participate in DeFi.</p><p><a href="https://pantherprotocol.io">Website</a> · <a href="https://www.pantherprotocol.io/resources/Panther-Protocol-One-Pager.png">One-pager</a> · <a href="https://www.pantherprotocol.io/resources/Panther_Litepaper_v1_0.pdf">Lite Paper</a> · <a href="https://twitter.com/zkpanther">Twitter</a> · <a href="https://t.me/joinchat/GJ64F-nRiIF86Cxn">Telegram</a> · <a href="https://discord.gg/WZuRnMCZ4c">Discord</a><br></p> About Panther Ventures Limited <p>Panther Ventures Limited (PVL) is a non-profit organization dedicated to developing Panther Protocol informed by its community.<br></p> About the Panther Foundation <p>The Panther Foundation supports Panther’s purpose to promote privacy, fostering Panther’s ecosystem and development.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blog.pantherprotocol.io/content/images/2022/12/Frame_7965.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:40 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.pantherprotocol.io/panther-ventures-limited-welcomes-asheesh-birla-ripple-founding-member-as-an-advisor/'>Panther Ventures Limited welcomes Asheesh Birla, Ripple founding member, as an advisor.</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Panther’s leading developer welcomes Asheesh Birla, Ripple founding member, as an advisor to further compliant privacy in Web3.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Today, Panther Ventures Limited, a Web3 development company leading the development of Panther Protocol, is welcoming Asheesh Birla as an advisor. With his decade-long history in the cryptocurrency and blockchain space, he brings a wealth of knowledge and experience that will be invaluable to our mission: creating a privacy layer for DeFi.</p><p>Birla currently serves on the board of Ripple, and has been part of Ripple's founding team since 2013, serving as General Manager of RippleNet until last June. He also invests in early stage projects through Angel Track, having previously built up successful portfolios with Bitso, Nium, Azimo, Moneygram, Thomson Reuters, and Kno (acquired by Intel). Additionally, Asheesh lectures at Wharton School University, Pennsylvania.</p><p>As Panther Co-Founder, Chief Scientist and CTO Anish Mohammed expressed, "Asheesh has had a ring side in the evolution of web3/crypto for past decade. I’m personally excited to continue our collaboration from the Ripple days and look forward to leveraging his 9+ years of crypto expertise and experience in Panther.”</p><p>The Panther DAO and community is making rapid strides towards releasing v1 of Panther Protocol –a compliant gateway that offers private DeFi access to both retail users and institutes alike. Thus, it's vital we build an elite team comprised of esteemed experts from around the world specializing in zero-knowledge technology.<br><br></p><p>Birla has expressed his utmost confidence in the Panther project's goal of providing private financial services, particularly within DeFi. He likened its potential to that of Ripple’s early days; citing a proficient design cognizant about mixing compliant laws with advanced blockchain technology as integral for success.<br></p><p>“I am incredibly optimistic about Panther becoming a leader in the regulated DeFi privacy segment, which is rapidly evolving and can be positively impacted by the project’s upcoming products. Panther Ventures reminds me of Ripple’s early days, with a highly capable team that understands the importance of combining solid legal grounds and state-of-the-art blockchain technology.“ &nbsp;—- Asheesh Birla.<br></p> About Panther <p>Panther is a decentralized protocol that enables interoperable privacy in DeFi using zero-knowledge proofs.</p><p>Users can mint fully-collateralized, composable tokens called zAssets, which can be used to execute private, trusted DeFi transactions across multiple blockchains.</p><p>Panther helps investors protect their personal financial data and trading strategies, and provides financial institutions with a clear path to compliantly participate in DeFi. </p><p><a href="https://pantherprotocol.io/">Website</a> · <a href="https://www.pantherprotocol.io/resources/Panther-Protocol-One-Pager.png">One-pager</a> · <a href="https://www.pantherprotocol.io/resources/Panther_Litepaper_v1_0.pdf">Lite Paper</a> · <a href="https://twitter.com/zkpanther">Twitter</a> · <a href="https://t.me/joinchat/GJ64F-nRiIF86Cxn">Telegram</a> · <a href="https://discord.gg/WZuRnMCZ4c">Discord</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blog.pantherprotocol.io/content/images/2022/12/Panther2.jpg.optimal.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:39 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://a16z.com/'>a16z Podcast</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://a16z.simplecast.com/episodes/pay-without-borders-UCYY_VAv'>Pay Without Borders with Deel, GitLab, and Safetywing</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   The predecessor to the office was Florence’s Uffizi Gallery – an admin building to the Medici mercantile empire. That was in… 1560. In the centuries to come, work was revolutionized, with perhaps the most well-known inflection of Ford Motors adopting the 40-hour work week in 1926. The cubicle? We have Robert Propst to thank for that, entering the picture in 1968.&nbsp;  It wasn’t until the 80s whe
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>The predecessor to the office was Florence’s Uffizi Gallery – an admin building to the Medici mercantile empire. That was in… 1560. In the centuries to come, work was revolutionized, with perhaps the most well-known inflection of Ford Motors adopting the 40-hour work week in 1926. The cubicle? We have Robert Propst to thank for that, entering the picture in 1968.&nbsp;</p><p>It wasn’t until the 80s when the Internet appeared on the scene and wifi released in 1997, forever changing the way people live and work. Since then, companies have continued to adopt many of the practices from the 20th century, despite the possibilities being fundamentally different.</p><p>COVID sent a shock into that system, forcing many people to adopt a distributed model and despite much debate about what the future holds, this episode will highlight the many ways that companies are continuing to adapt.</p><p>Will companies shift toward more asynchronous work? How will a distributed model shift the way we hire? How will companies attract top talent, and is remote the only benefit that matters? What workers and companies will come out on top of this sea change?</p><p>And of course… is the office dead? We’ll address these questions, and much more!</p><p>Topics covered:</p>  00:00 - History of remote work  3:27 - Is the office dead?  7:05 - Async vs sync  16:18 - Building culture remotely  27:15 - Attracting top talent  31:16 - The evolution of benefits  36:04 - Remote work vs work  39:29 - Location-based pay  46:36 - Open salaries  51:23 - Vetting top talent  55:32 - The need to adapt  58:39 - Rewriting the rules  1:03:09 - Infrastructure gaps  <p>Resources:&nbsp;</p><p>GitLab’s Remote Handbook: <a href="https://about.gitlab.com/handbook/">https://about.gitlab.com/handbook/</a></p><p>Deel’s Salary Insights Tool: <a href="https://www.deel.com/salary-insights">https://www.deel.com/salary-insights</a></p><p>Deel’s State of Global Hiring report: <a href="https://www.deel.com/state-of-global-hiring-2022">https://www.deel.com/state-of-global-hiring-2022</a></p><p>Deel:</p>  Deel’s website: <a href="https://www.deel.com/">https://www.deel.com/</a>  Deel on Twitter: <a href="https://twitter.com/deel">https://twitter.com/deel</a>  Alex on Twitter: <a href="https://twitter.com/Bouazizalex">https://twitter.com/Bouazizalex</a>  <p>SafetyWing</p>  SafetyWing’s website: <a href="https://safetywing.com/">https://safetywing.com/</a>  SafetyWing on Twitter: <a href="https://twitter.com/safetywing">https://twitter.com/safetywing</a>  Sondre on Twitter: <a href="https://twitter.com/SRasch">https://twitter.com/SRasch</a>  <p>GitLab:&nbsp;</p>  GitLab’s website: <a href="https://about.gitlab.com/">https://about.gitlab.com/</a>  GitLab on Twitter: <a href="https://twitter.com/gitlab">https://twitter.com/gitlab</a>  Darren on Twitter: <a href="https://twitter.com/darrenmurph">https://twitter.com/darrenmurph</a>  <p>&nbsp;</p><p>Stay Updated:&nbsp;</p><p>Find us on Twitter: <a href="https://twitter.com/a16z">https://twitter.com/a16z</a></p><p>Find us on LinkedIn: <a href="https://www.linkedin.com/company/a16z">https://www.linkedin.com/company/a16z</a></p><p>Subscribe on your favorite podcast app: <a href="https://a16z.simplecast.com/">https://a16z.simplecast.com/</a></p><p>Follow our host: <a href="https://twitter.com/stephsmithio">https://twitter.com/stephsmithio</a></p><p>Please note that the content here is for informational purposes only; should NOT be taken as legal, business, tax, or investment advice or be used to evaluate any investment or security; and is not directed at any investors or potential investors in any a16z fund. For more details please see a16z.com/disclosures.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   11:00 &bull;
    1 months ago
 </div>
 
