@@ -696,7 +696,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:56 AM March 15, 2023 (UTC)</sup>
+<sup>Last Update 9:37 AM March 15, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -709,6 +709,179 @@
  <h2 class='new-date'>
   Wednesday, 15. March 2023
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/'>Mastodon timelines for teams</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Welcome to episode 17 of the Steampipe+Mastodon series, in which we introduce a new subplot: timeline history. So far, the examples I’ve shown and discussed work with current timelines. We’ve seen SQL queries that fetch results from realtime calls to the Mastodon API, and Steampipe dashboards that display those results. But Steampipe isn’t just an … Continue reading Mastodon timelines for teams
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>
+Welcome to episode 17 of the Steampipe+Mastodon series, in which we introduce a new subplot: timeline history. So far, the examples I’ve shown and discussed work with current timelines. We’ve seen SQL queries that fetch results from realtime calls to the Mastodon API, and Steampipe dashboards that display those results. But Steampipe isn’t just an API siphon, it’s also a Postgres database. As such it supports the transient tables created by Steampipe’s foreign data wrapper and plugins, but also enables you to create your own native tables as well. And you can use those native tables to accumulate data from the transient foreign tables.</p>
+<p>
+Because saving and searching Mastodon data is a controversial topic in the fediverse — none of us wants to recapitulate Big Social — I’ve focused thus far on queries that explore recent Mastodon flow, of which there are plenty more to write. But nobody should mind me remembering my own home timeline, so a few weeks ago I made a tool to read it hourly and add new toots to a Postgres table. </p>
+<p>
+Before you can add any toots to a table, of course, you’ve got to create that table. Here’s how I made this one.</p>
+ create table mastodon_home_timeline as 
+  select * from mastodon_toot_home limit 200
+ 
+<p>
+Once created, the table can be updated with new toots like so.</p>
+ with data as (
+  select
+    account,
+    -- more
+    -- columns
+    username
+  from
+    mastodon_toot_home
+  limit 200
+)
+insert into mastodon_home_timeline (
+  account,
+    -- more
+    -- columns
+  username
+)
+select
+  *
+from 
+  data
+where 
+  id not in ( select t.id from mastodon_home_timeline t )
+ 
+<p>
+To run that query from a crontab, on a machine where Steampipe is installed, save it as mastodon_home_timeline.sql, then schedule it.</p>
+ 15 * * * * cd /home/jon/mastodon; steampipe query mastodon_home_timeline.sql
+ 
+<p>
+That’s it! Now the number reported by select count(*) from mastodon_home_timeline is growing hourly.</p>
+<p>
+I’ve only been collecting toots for a couple of weeks, and haven’t yet begun to explore that data yet; we’ll see what happens when we get there. Meanwhile, though, I want to show how such exploration can be a team exercise. </p>
+<p>
+A friend of mine, whom I’ll call Elvis, shares my interest in teasing out connections among people, servers, and hashtags. He could capture his own timeline using the method shown here. But since we’ll be looking at this data together, we agreed that I’ll gather both our timelines. To enable that, he shared a (revokable) Mastodon API token that I’ve used to configure Steampipe with credentials for both our accounts.</p>
+ connection "mastodon_social_jon" {
+    plugin = "mastodon"
+    server = "https://mastodon.social"
+    access_token = "..."
+}
+
+connection "mastodon_social_elvis" {
+    plugin = "mastodon"
+    server = "https://mastodon.social"
+    access_token = "..."
+}
+ 
+<p>
+Steampipe’s foreign data wrapper turns each of these named connections into its own Postgres schema. Athough we happen to share the same home server, by the way, we needn’t. A team collaborating like this could pool timelines from mastodon.social and hachyderm.io and fosstodon.org and any other Mastodon-API-compatible server.</p>
+<p>
+(You can do the same thing with AWS or Slack or GitHub or other kind of account by defining <a href="https://steampipe.io/docs/managing/connections#querying-multiple-connections">multiple connections</a>. Steampipe makes API calls concurrently across parallel connections.)</p>
+<p>
+With this configuration I can read my timeline like so.</p>
+ select * from mastodon_social_jon.mastodon_toot_home limit 200
+ 
+<p>
+And Elvis’ like so.</p>
+ select * from mastodon_social_elvis.mastodon_toot_home limit 200
+ 
+<p>
+If I want to query both in realtime, for example to count the combined total, I can use a SQL UNION. Or I can define umbrella connection that <a href="https://steampipe.io/docs/managing/connections#using-aggregators">aggregates</a> these two.</p>
+ connection "all_mastodon" {
+    plugin = "mastodon"
+    type = "aggregator"
+    connections = [ "mastodon_social_jon", "mastodon_social_elvis" ]
+}
+
+connection "mastodon_social_jon" {
+    plugin = "mastodon"
+    server = "https://mastodon.social"
+    access_token = "..."
+}
+
+connection "mastodon_social_elvis" {
+    plugin = "mastodon"
+    server = "https://mastodon.social"
+    access_token = "..."
+}
+ 
+<p>
+Now the query select * from all_mastodon.mastodon_toot_home limit 200 makes API calls on behalf of both accounts — in parallel — and combines the results. When we follow the resulting URLs in order to reply or boost, we’ll do so as individual identities. And we’ll be able to use Steampipe queries and dashboards in that same single-user mode. But we’ll also be able to pool our timelines and point our queries and dashboards at the combined history. </p>
+<p>
+Will that prove interesting? Useful? That remains to be seen. I think it’s one of many experiments worth trying as the fediverse sorts itself out. And I see Steampipe as one laboratory in which to run such experiments. With SQL as the abstraction over APIs, aggregation of connections, and <a href="https://www.infoworld.com/article/3668032/visualizing-the-hacker-news-api-with-hcl-and-sql.html">dashboards as code</a>, you have all the ingredients needed to iterate rapidly, at low cost, toward shared Mastodon spaces tailored for teams or groups.</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/">https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/</a><br>
+2 <a href="https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/">https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/</a><br>
+3 <a href="https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/">https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/</a><br>
+4 <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/</a><br>
+5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
+6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
+7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a><br>
+10 <a href="https://blog.jonudell.net/2023/01/21/working-with-mastodon-lists/">https://blog.jonudell.net/2023/01/21/working-with-mastodon-lists/</a><br>
+11 <a href="https://blog.jonudell.net/2023/01/26/images-considered-harmful-sometimes/">https://blog.jonudell.net/2023/01/26/images-considered-harmful-sometimes/</a><br>
+12 <a href="https://blog.jonudell.net/2023/02/02/mapping-the-wider-fediverse/">https://blog.jonudell.net/2023/02/02/mapping-the-wider-fediverse/</a><br>
+13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
+14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
+15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:57 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -764,7 +937,7 @@
 
 <div class='item-footer'>
    00:20 &bull;
-   2 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -867,7 +1040,7 @@
 
 <div class='item-footer'>
    21:49 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -933,7 +1106,7 @@
 
 <div class='item-footer'>
    21:39 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1003,7 +1176,7 @@
 
 <div class='item-footer'>
    20:35 &bull;
-   5 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1087,7 +1260,7 @@
 
 <div class='item-footer'>
    20:14 &bull;
-   6 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1153,7 +1326,7 @@
 
 <div class='item-footer'>
    20:05 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1223,7 +1396,7 @@
 
 <div class='item-footer'>
    19:58 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1294,7 +1467,7 @@
 
 <div class='item-footer'>
    19:56 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1358,7 +1531,7 @@
 
 <div class='item-footer'>
    19:51 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1434,7 +1607,7 @@
 
 <div class='item-footer'>
    18:48 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1498,7 +1671,7 @@
 
 <div class='item-footer'>
    17:02 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1578,7 +1751,7 @@
 
 <div class='item-footer'>
    16:06 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1639,7 +1812,7 @@
 
 <div class='item-footer'>
    16:03 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1715,7 +1888,7 @@
 
 <div class='item-footer'>
    15:49 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1777,7 +1950,7 @@
 
 <div class='item-footer'>
    15:32 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1879,7 +2052,7 @@
 
 <div class='item-footer'>
    14:33 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2419,7 +2592,7 @@ I would recommend the movie "The Shawshank Redemption" because it is an excellen
 
 <div class='item-footer'>
    14:41 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2495,7 +2668,7 @@ I would recommend the movie "The Shawshank Redemption" because it is an excellen
 
 <div class='item-footer'>
    14:40 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2568,7 +2741,7 @@ I would recommend the movie "The Shawshank Redemption" because it is an excellen
 
 <div class='item-footer'>
    13:53 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3037,7 +3210,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    20:30 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3112,7 +3285,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    18:50 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3176,7 +3349,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    18:22 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3241,7 +3414,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    17:42 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3317,7 +3490,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    17:41 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3395,7 +3568,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    16:10 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3760,7 +3933,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    19:15 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3836,7 +4009,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    17:38 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3916,7 +4089,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    16:50 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4460,7 +4633,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    21:13 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4524,7 +4697,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    18:02 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4604,7 +4777,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    17:34 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4678,7 +4851,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    14:37 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5550,7 +5723,7 @@ Fediverse, because there is much to celebrate! Join us?)</p>
 
 <div class='item-footer'>
    16:01 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5626,7 +5799,7 @@ Fediverse, because there is much to celebrate! Join us?)</p>
 
 <div class='item-footer'>
    15:59 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6082,7 +6255,7 @@ Computing device
 
 <div class='item-footer'>
    19:24 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6150,7 +6323,7 @@ Computing device
 
 <div class='item-footer'>
    19:07 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6220,7 +6393,7 @@ Computing device
 
 <div class='item-footer'>
    18:25 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6328,7 +6501,7 @@ the business? population that
 
 <div class='item-footer'>
    18:06 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6407,7 +6580,7 @@ the business? population that
 
 <div class='item-footer'>
    17:24 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6471,7 +6644,7 @@ the business? population that
 
 <div class='item-footer'>
    16:43 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6535,7 +6708,7 @@ the business? population that
 
 <div class='item-footer'>
    16:33 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6611,7 +6784,7 @@ the business? population that
 
 <div class='item-footer'>
    15:58 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6922,7 +7095,8 @@ But I hope that some of us, at least, will learn to thrive in diverse networks o
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -7231,7 +7405,7 @@ But I hope that some of us, at least, will learn to thrive in diverse networks o
 
 <div class='item-footer'>
    19:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7301,7 +7475,7 @@ But I hope that some of us, at least, will learn to thrive in diverse networks o
 
 <div class='item-footer'>
    18:56 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7377,7 +7551,7 @@ But I hope that some of us, at least, will learn to thrive in diverse networks o
 
 <div class='item-footer'>
    15:26 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7530,7 +7704,7 @@ X-Powered-By: Express
 
 <div class='item-footer'>
    15:17 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7680,7 +7854,7 @@ X-Powered-By: Express
 
 <div class='item-footer'>
    19:57 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7752,7 +7926,7 @@ X-Powered-By: Express
 
 <div class='item-footer'>
    16:44 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7824,7 +7998,7 @@ X-Powered-By: Express
 
 <div class='item-footer'>
    16:16 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7894,7 +8068,7 @@ X-Powered-By: Express
 
 <div class='item-footer'>
    16:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8318,7 +8492,7 @@ private DateTime? GetFromCache(string key)
 
 <div class='item-footer'>
    15:48 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8390,7 +8564,7 @@ private DateTime? GetFromCache(string key)
 
 <div class='item-footer'>
    14:29 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8456,7 +8630,7 @@ The post <a href="https://realestatecafe.com/livestream-mit-generative-ai-summit
 
 <div class='item-footer'>
    14:12 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8520,7 +8694,7 @@ The post <a href="https://realestatecafe.com/livestream-mit-generative-ai-summit
 
 <div class='item-footer'>
    14:09 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8658,7 +8832,7 @@ The post <a href="https://realestatecafe.com/livestream-mit-generative-ai-summit
 
 <div class='item-footer'>
    15:31 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8726,7 +8900,7 @@ The post <a href="https://realestatecafe.com/livestream-mit-generative-ai-summit
 
 <div class='item-footer'>
    19:36 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9114,7 +9288,7 @@ alone!</p><p>Links:</p>  <p>Making dehydrated meals overview (Christine's Kitche
 
 <div class='item-footer'>
    14:36 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9180,7 +9354,7 @@ alone!</p><p>Links:</p>  <p>Making dehydrated meals overview (Christine's Kitche
 
 <div class='item-footer'>
    20:12 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9240,7 +9414,7 @@ alone!</p><p>Links:</p>  <p>Making dehydrated meals overview (Christine's Kitche
 
 <div class='item-footer'>
    18:10 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9306,7 +9480,7 @@ alone!</p><p>Links:</p>  <p>Making dehydrated meals overview (Christine's Kitche
 
 <div class='item-footer'>
    14:07 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9884,7 +10058,8 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -10105,7 +10280,7 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 
 <div class='item-footer'>
    18:49 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10173,7 +10348,7 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 
 <div class='item-footer'>
    14:14 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10337,7 +10512,7 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 
 <div class='item-footer'>
    19:56 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10403,7 +10578,7 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 
 <div class='item-footer'>
    17:34 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10463,7 +10638,7 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 
 <div class='item-footer'>
    15:37 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10835,7 +11010,7 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 
 <div class='item-footer'>
    14:00 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11175,7 +11350,7 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 
 <div class='item-footer'>
    17:45 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11761,7 +11936,7 @@ to be able to do an in-person event later this year.</p>
 
 <div class='item-footer'>
    21:36 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12067,7 +12242,8 @@ My Steampipe + Mastodon adventure notwithstanding, let’s hold on to that large
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -12162,7 +12338,7 @@ My Steampipe + Mastodon adventure notwithstanding, let’s hold on to that large
 
 <div class='item-footer'>
    15:37 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12564,7 +12740,7 @@ public IActionResult Logout()
 
 <div class='item-footer'>
    07:45 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -13297,7 +13473,8 @@ We’re in one of those Internet moments of rapid innovation, when new conventio
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -13929,7 +14106,8 @@ The blocking server list column shows an interesting mix of consensus and variat
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -15028,7 +15206,8 @@ But the text that I read in these dashboards is image-free for now. And I think 
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -15821,7 +16000,8 @@ Who are the experts you follow in various domains? Can I cherrypick from your li
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -16511,7 +16691,8 @@ The username column gives the node its identity. Note also the property instance
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -19597,7 +19778,8 @@ return Ok(new OauthTokenExchangeSuccessResponse
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -19839,7 +20021,7 @@ The post <a href="https://realestatecafe.com/compensation-revolution-in-real-est
 
 <div class='item-footer'>
    02:55 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20006,7 +20188,8 @@ order by
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -20800,7 +20983,8 @@ group by
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -21147,7 +21331,8 @@ I’ve got this picture on the side, and the code on the side, and this part dra
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -21262,7 +21447,8 @@ order by
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -22366,7 +22552,8 @@ and can also be used in places where, for example, firewalls prevent event pushi
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -23346,7 +23533,8 @@ Now I need to write that #introduction!
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -24474,7 +24662,8 @@ Fediverse     high        medium        high        medium    medium
 13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
 14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
-16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a></p>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a></p>
    
   
   
@@ -25668,84 +25857,6 @@ a good time to talk about it!</p><p>Links:</p>  <a href="https://gitlab.com/dust
 
 <div class='item-footer'>
    10:41 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Tuesday, 08. November 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://medium.com/@benwerd'>Werdmüller on Medium</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://benwerd.medium.com/its-time-to-be-heard-301662dbc9a2?source=rss-3b16402f5b9d------2'>It’s time to be heard</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-      Voting is not a right to take lightly.  Continue reading on Medium »  
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/0*cP1cW9UvhYrLPlcF.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   <p><a href="https://benwerd.medium.com/its-time-to-be-heard-301662dbc9a2?source=rss-3b16402f5b9d------2"></a></p><p>Voting is not a right to take lightly.</p><p><a href="https://benwerd.medium.com/its-time-to-be-heard-301662dbc9a2?source=rss-3b16402f5b9d------2">Continue reading on Medium »</a></p> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*cP1cW9UvhYrLPlcF.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:41 &bull;
    4 months ago
 </div>
 
