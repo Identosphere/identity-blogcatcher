@@ -706,7 +706,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:37 PM April 11, 2023 (UTC)</sup>
+<sup>Last Update 1:48 AM April 12, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -717,8 +717,1025 @@
 
 
  <h2 class='new-date'>
+  Wednesday, 12. April 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2023/Apr/12/code-interpreter/#atom-everything'>Running Python micro-benchmarks using the ChatGPT Code Interpreter alpha</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Today I wanted to understand the performance difference between two Python implementations of a mechanism to detect changes to a SQLite database schema. I rendered the difference between the two as this chart: 
+  
+ From start to finish, this entire benchmarking exercise took me less than five minutes - because ChatGPT did almost all of the work for me. 
+ ChatGPT Code Interpreter alpha 
+ I ran the 
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2023/sqlite-md5-benchmark.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Today I wanted to understand the performance difference between two Python implementations of a mechanism to detect changes to a SQLite database schema. I rendered the difference between the two as this chart:</p>
+<p></p>
+<p>From start to finish, this entire benchmarking exercise took me less than five minutes - because ChatGPT did almost all of the work for me.</p>
+ ChatGPT Code Interpreter alpha 
+<p>I ran the benchmark using the new ChatGPT "Code Interpreter" alpha, which I recently gained access to, presumably due to being in the alpha <a href="https://simonwillison.net/2023/Mar/24/datasette-chatgpt-plugin/">for ChatGPT Plugins</a>.</p>
+<p>Code Interpreter mode provides ChatGPT with a single additional tool: it can now generate Python code and execute it in a restricted sandbox. The sandbox does not have network access and only has access to a set of pre-approved libraries. One of those libraries is <code>matplotlib.pyplot</code>, and it knows how to both render and display charts using it.</p>
+<p>Here's the initial prompt I sent it:</p>
+<blockquote>
+<p>In Python create an in-memory SQLite database with 100 tables each with 10 columns.</p>
+<p>Time how long it takes to execute <code>PRAGMA schema_version</code> against that database 100 times.</p>
+<p>Then add another 100 tables and time PRAGMA schema_version 100 times again.</p>
+<p>Now run the whole benchmark a second time, but instead of <code>PRAGMA schema_version</code> time how long it takes to run hashlib.md5(db.execute("select group_concat(sql) from sqlite_master").fetchall()[0]).hexdigest() instead</p>
+</blockquote>
+ Background - why compare these two things? 
+<p>A bit of background on this. <a href="https://datasette.io/">Datasette</a> needs to detect any time a SQLite schema changes - which could happen if a table is added or altered in some way. It needs to know so it can update its own <a href="https://docs.datasette.io/en/stable/internals.html#the-internal-database">in-memory cache of the schema</a>, in order to (eventually) power fast table search across all known databases.</p>
+<p>SQLite has a neat mechanism for doing this: you can run <code>PRAGMA schema_version</code> and it will return a number that increments every time the schema changes. This is a very fast operation.</p>
+<p>I'm currently investigating a <a href="https://github.com/simonw/sqlite-utils/issues/235">confounding bug</a> where a user has reported the error message "attempt to write a readonly database" when this <code>PRAGMA schema_version</code> read operation is executed.</p>
+<p>I'm still investigating, but this could mean that I need to find an alternative way of detecting changes to the schema.</p>
+<p>One option is to calculate an MD5 hash of the full schema of the database, using the following:</p>
+ schema = db.execute(
+    "select group_concat(sql) from sqlite_master"
+).fetchall()[0]
+hash = hashlib.md5(schema).hexdigest() 
+<p>I can then compare that hash to the previous hash to see if the schema has changed.</p>
+<p>The question I wanted to answer was how much of a performance hit this would represent - especially for databases with large number of tables.</p>
+<p>Hence my desire to run a quick micro-benchmark.</p>
+ ChatGPT's initial benchmark 
+<p>ChatGPT started by writing the following:</p>
+ import sqlite3
+import time
+import hashlib
+
+# Define a function to create tables and run benchmarks
+def run_benchmark(db, num_tables, num_columns, benchmark_query):
+    # Start timing
+    start_time = time.time()
+    
+    # Create tables
+    for i in range(num_tables):
+        columns = ', '.join([f"col{j} INTEGER" for j in range(num_columns)])
+        db.execute(f"CREATE TABLE table{i} ({columns})")
+    
+    # Benchmark
+    for i in range(100):
+        if benchmark_query == "PRAGMA schema_version":
+            db.execute("PRAGMA schema_version")
+        else:
+            hashlib.md5(db.execute("SELECT group_concat(sql) FROM sqlite_master").fetchall()[0][0].encode()).hexdigest()
+    
+    # Calculate time taken
+    elapsed_time = time.time() - start_time
+    return elapsed_time
+
+# Initialize in-memory SQLite database
+db = sqlite3.connect(":memory:")
+
+# Run the first benchmark
+benchmark1_time1 = run_benchmark(db, num_tables=100, num_columns=10, benchmark_query="PRAGMA schema_version")
+benchmark1_time2 = run_benchmark(db, num_tables=100, num_columns=10, benchmark_query="PRAGMA schema_version")
+
+# Run the second benchmark
+db2 = sqlite3.connect(":memory:")
+benchmark2_time1 = run_benchmark(db2, num_tables=100, num_columns=10, benchmark_query="hashlib.md5")
+benchmark2_time2 = run_benchmark(db2, num_tables=100, num_columns=10, benchmark_query="hashlib.md5")
+
+benchmark1_time1, benchmark1_time2, benchmark2_time1, benchmark2_time2 
+<p>This is a pretty solid attempt at a benchmark! It has good comments, abstracts the two benchmarks into a single function and runs that function twice to test against a total of 200 tables.</p>
+<p>Then it ran the code... and this happened:</p>
+<p></p>
+<p>It ran the code it generated... and got a <code>OperationalError: table table0 already exists</code> error.</p>
+<p>That's because it ran that <code>run_benchmark()</code> function twice against the same database, and the function attempted to re-create a table it had created the first time.</p>
+<p>But it didn't just stop at the error... it output an explanation of what it thought would happen, and then without any input from me wrote a second version of the benchmark script:</p>
+ # Define a function to create tables and run benchmarks
+def run_benchmark(db, num_tables, num_columns, benchmark_query, initial_table_index=0):
+    # Start timing
+    start_time = time.time()
+    
+    # Create tables
+    for i in range(initial_table_index, initial_table_index + num_tables):
+        columns = ', '.join([f"col{j} INTEGER" for j in range(num_columns)])
+        db.execute(f"CREATE TABLE table{i} ({columns})")
+    
+    # Benchmark
+    for i in range(100):
+        if benchmark_query == "PRAGMA schema_version":
+            db.execute("PRAGMA schema_version")
+        else:
+            hashlib.md5(db.execute("SELECT group_concat(sql) FROM sqlite_master").fetchall()[0][0].encode()).hexdigest()
+    
+    # Calculate time taken
+    elapsed_time = time.time() - start_time
+    return elapsed_time
+
+# Initialize in-memory SQLite databases
+db1 = sqlite3.connect(":memory:")
+db2 = sqlite3.connect(":memory:")
+
+# Run the first benchmark with PRAGMA schema_version
+benchmark1_time1 = run_benchmark(db1, num_tables=100, num_columns=10, benchmark_query="PRAGMA schema_version")
+benchmark1_time2 = run_benchmark(db1, num_tables=100, num_columns=10, benchmark_query="PRAGMA schema_version", initial_table_index=100)
+
+# Run the second benchmark with hashlib.md5
+benchmark2_time1 = run_benchmark(db2, num_tables=100, num_columns=10, benchmark_query="hashlib.md5")
+benchmark2_time2 = run_benchmark(db2, num_tables=100, num_columns=10, benchmark_query="hashlib.md5", initial_table_index=100)
+
+benchmark1_time1, benchmark1_time2, benchmark2_time1, benchmark2_time2 
+<p>And this time it worked!</p>
+<p></p>
+ Adding a chart 
+<p>This is a very solid answer to my question. I checked it through and it oll looks good - I would have written more-or-less the same thing, but it would have taken me a lot longer to do it.</p>
+<p>So I asked it for a plot:</p>
+<blockquote>
+<p>Plot those benchmark results over time on a chart</p>
+</blockquote>
+<p>It wrote more code. ChatGPT writes and executes code in the same code session, so it had access to the variables that it had previously populated:</p>
+ import matplotlib.pyplot as plt
+
+# Data for benchmark results
+benchmark1_times = [benchmark1_time1, benchmark1_time2]
+benchmark2_times = [benchmark2_time1, benchmark2_time2]
+
+# x-axis representing the number of tables at each benchmark
+num_tables = [100, 200]
+
+# Plotting the benchmark results
+plt.plot(num_tables, benchmark1_times, label='PRAGMA schema_version', marker='o')
+plt.plot(num_tables, benchmark2_times, label='hashlib.md5', marker='o')
+
+# Labels and title
+plt.xlabel('Number of Tables')
+plt.ylabel('Time (seconds)')
+plt.title('Benchmark Results Over Time')
+plt.legend()
+
+# Show the plot
+plt.show() 
+<p>I'm not very good at using the <code>matplotlib</code> charting libraries - I have to painstakingly piece everything together every time I use them. ChatGPT just did it.</p>
+<p>Here's the chart it drew me:</p>
+<p></p>
+<p>This chart looks pretty good at first glance - it has an appropriate title, axis labels and a legend.</p>
+<p>In terms of information density though it's rubbish. Charting just two points for each of the implementations, at 100 tables and 200 tables, is hardly worth visualizing at all.</p>
+<p>So I fed it a final prompt:</p>
+<blockquote>
+<p>Run the benchmark again in order to draw a better chart with measurements for every point between 1 and 200 tables</p>
+</blockquote>
+<p>And that resulted in the chart I showed at the top of my post:</p>
+<p></p>
+<p>Here's the code it wrote:</p>
+ # Define a function to create tables and run a single benchmark iteration
+def run_single_benchmark(db, num_tables, num_columns, benchmark_query, initial_table_index=0):
+    # Start timing
+    start_time = time.time()
+    
+    # Create tables
+    for i in range(initial_table_index, initial_table_index + num_tables):
+        columns = ', '.join([f"col{j} INTEGER" for j in range(num_columns)])
+        db.execute(f"CREATE TABLE table{i} ({columns})")
+    
+    # Benchmark
+    if benchmark_query == "PRAGMA schema_version":
+        db.execute("PRAGMA schema_version")
+    else:
+        hashlib.md5(db.execute("SELECT group_concat(sql) FROM sqlite_master").fetchall()[0][0].encode()).hexdigest()
+    
+    # Calculate time taken
+    elapsed_time = time.time() - start_time
+    return elapsed_time
+
+# Initialize in-memory SQLite databases
+db1 = sqlite3.connect(":memory:")
+db2 = sqlite3.connect(":memory:")
+
+# Lists to store benchmark results
+benchmark1_times = []
+benchmark2_times = []
+
+# Run the benchmarks for every point between 1 and 200 tables
+for num in range(1, 201):
+    # Run the benchmark with PRAGMA schema_version
+    benchmark1_time = run_single_benchmark(db1, num_tables=1, num_columns=10, benchmark_query="PRAGMA schema_version", initial_table_index=num-1)
+    benchmark1_times.append(benchmark1_time)
+    
+    # Run the benchmark with hashlib.md5
+    benchmark2_time = run_single_benchmark(db2, num_tables=1, num_columns=10, benchmark_query="hashlib.md5", initial_table_index=num-1)
+    benchmark2_times.append(benchmark2_time)
+
+# x-axis representing the number of tables at each benchmark
+num_tables = list(range(1, 201))
+
+# Plotting the benchmark results
+plt.plot(num_tables, benchmark1_times, label='PRAGMA schema_version', marker='.')
+plt.plot(num_tables, benchmark2_times, label='hashlib.md5', marker='.')
+
+# Labels and title
+plt.xlabel('Number of Tables')
+plt.ylabel('Time (seconds)')
+plt.title('Benchmark Results Over Time')
+plt.legend()
+
+# Show the plot
+plt.show() 
+ Full transcript 
+<p>The entire project was completed using just the three prompts listed above!</p>
+<p>I used <a>my Observable notebook</a> to convert the ChatGPT transcript JSON (extracted using the Network pane in the browser tools) to Markdown, and pasted it into this Gist: <a href="https://gist.github.com/simonw/2fc46effbfbe49e6de0bcfdc9e31b235">https://gist.github.com/simonw/2fc46effbfbe49e6de0bcfdc9e31b235</a></p>
+<p>(I like using "secret" Gists to share this kind of thing because they are automatically marked by GitHub as <code>&lt;meta name="robots" content="noindex"&gt;</code> - which should hopefully prevent them from polluting the web with LLM-generated content. Though I've pasted a LOT of ChatGPT-written code into this search-indexed blog entry in this particular case.)</p>
+ A really weird kind of intern 
+<p>Here's another analogy for large language models (since we can never have too many of those). It honestly feels a little  like having a coding intern, with a strange set of characteristics:</p>
+ 
+ They've read and memorized all of the world's public coding documentation, though they stopped reading in September 2021. 
+ They're unbelievably fast - they take just seconds to output entire programs from scratch. 
+ If their code produces an error they can read the error message and attempt to update their code to fix it. 
+ They won't argue with you. That's not necessarily a good thing: if you ask them to build something that's clearly a bad idea they'll likely just go ahead and do it anyway. 
+ They respond incredibly well to feedback - they'll apply it within seconds. 
+ You have to know how to prompt them. I've got pretty good at this now, but it takes a lot of trial and error, and I think requires a pretty deep understanding of how they work. 
+ You have to closely review EVERYTHING they do. 
+ They work for free. 
+ 
+<p>And of course, they have zero understanding of anything at all. They're a next-token-predicting machine with an unimaginably large training set.</p>
+<p>The fact they can do even a fraction of the things they can do is, quite frankly, unbelievable. I'm still not sure I believe it myself.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2023/sqlite-md5-benchmark.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:14 &bull;
+   36 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/04/11/unstable-rob-lowe.html'> 📺 Unstable 
+ Rob Lowe and his son. Written by his son. Think</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   📺 Unstable 
+ Rob Lowe and his son. Written by his son. Think Eugene Levy. Except I’m a fan of Eugene … but have now tried Schitts Creek 3 times … and am still not there. So I wasn’t expecting too much when I started up this puppy. That’s the key I guess. Lower the expectations. Not bad at all, though shades of Mythic Quest? 
+ Information on Reelgood 
+ ‘All’ My TV Shows 
+ &nbsp; 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/dd49da922d.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>📺 Unstable</p>
+<p>Rob Lowe and his son. Written by his son. Think Eugene Levy. Except I’m a fan of Eugene … but have now tried Schitts Creek 3 times … and am still not there. So I wasn’t expecting too much when I started up this puppy. That’s the key I guess. Lower the expectations. Not bad at all, though shades of Mythic Quest?</p>
+<p><a href="https://reelgood.com/show/unstable-2023">Information on Reelgood</a></p>
+<p><a href="https://john.philpin.com/categories/myshows/">‘All’ My TV Shows</a></p>
+<p>&nbsp;</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/dd49da922d.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   00:14 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/04/11/mythic-quest-im.html'> 📺 Mythic Quest 
+ I’m not a gamer, but it’s not really to do </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   📺 Mythic Quest 
+ I’m not a gamer, but it’s not really to do with games. It’s another sitcom based in the office. Not a bad way to while away some time. 
+ Information on Reelgood 
+ ‘All’ My TV Shows 
+ &nbsp; 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/538dbca8f3.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>📺 Mythic Quest</p>
+<p>I’m not a gamer, but it’s not really to do with games. It’s another sitcom based in the office. Not a bad way to while away some time.</p>
+<p><a href="https://reelgood.com/show/mythic-quest-2020">Information on Reelgood</a></p>
+<p><a href="https://john.philpin.com/categories/myshows/">‘All’ My TV Shows</a></p>
+<p>&nbsp;</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/538dbca8f3.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   00:13 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Tuesday, 11. April 2023
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/04/11/jax-disappears-into.html'> Jax disappears into store and returns 30 minutes later. 
+ Me</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Jax disappears into store and returns 30 minutes later. 
+ Me - did you get what you needed? 
+ Jax - no - a complete waste of time. 
+ I didn’t have the courage to ask what was in the large carrier bag she carried out of the store - that she definitely did not have when she went in. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Jax disappears into store and returns 30 minutes later.</p>
+<p>Me - did you get what you needed?</p>
+<p>Jax - no - a complete waste of time.</p>
+<p>I didn’t have the courage to ask what was in the large carrier bag she carried out of the store - that she definitely did not have when she went in.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:48 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.jonudell.net'>Jon Udell</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/'>Migrating Mastodon lists</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  My original Mastodon account was on mastodon.social. I chose it because it’s the largest instance, it’s operated by the developers of the service, and it runs the reference implementation of the software. I wanted to experience the fediverse, initially, as most people do, then consider whether to migrate to another server — and if so, … Continue reading Migrating Mastodon lists
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>
+My original Mastodon account was on <a href="https://mastodon.social">mastodon.social</a>. I chose it because it’s the largest instance, it’s operated by the developers of the service, and it runs the reference implementation of the software. I wanted to experience the fediverse, initially, as most people do, then consider whether to migrate to another server — and if so, to which one.</p>
+<p>
+Last week I migrated to <a href="https://social.coop">social.coop</a> which, like <a href="https://cosocial.ca">cosocial.ca</a>, it what <a href="https://tinysubversions.com/">Darius Kazemi</a> calls a <a href="https://elk.zone/social.coop/@darius@friend.camp/110147686846784173">community-owned independent social media site</a>. I don’t think the acronym COISMS will fly, but the business model is just what I’ve been looking for. I don’t want to use  “free” services that make me the product they sell. I want to pay for a service that’s funded by my dollars, not by my data. That’s why I bailed on Gmail years ago, in favor of Fastmail, and it’s why I’m happy to spend $10/month — the price of a couple of cappucinos — to support the people who keep the lights on at social.coop and maintain civility.</p>
+<p>
+The <a href="https://docs.joinmastodon.org/user/moving/">instructions</a> for migrating from one server offer two paths: Profile redirect and Profile move. I chose the former, because I assumed I would retain API access to mastodon.social post-migration, and thus have the option to use Steampipe to query both accounts. Why do that? You can’t migrate your posts from the old server to the new one, only your followers and (optionally) your follows, bookmarks, blocks, and mutes. Steampipe can connect to two different Mastodon servers at the same time, so I figured I could run queries against both.</p>
+ Lessons learned 
+<p>
+That turned out to be a wrong assumption. I can reactivate my mastodon.social account by turning off the redirection, but I’m vague on the implications of doing that. Meanwhile it’s still possible to export my posts, so I can always reacquire them that way if needed. </p>
+<p>
+Here was another wrong assumption. I think that if I’d chosen to move my account, instead of redirect it, my profile would have transferred to the new server. Instead it was on me to fill out the new profile. I’d created @judell@social.coop but, when I kicked off the migration, I hadn’t yet completed the profile. So when followers were notified that judell@social.coop was now following them, there was no picture or bio or verified website. That led some people to think it was a bogus account and block it. It wasn’t a catastrophe, and I’ve spoken with a few of them to resolve the matter, but it was an unforced error that would have been easy to avoid.</p>
+ The view from here 
+<p>
+Here’s a comparison of weekly activity on two servers, by way of the <a href="https://github.com/turbot/steampipe-mod-mastodon-insights/blob/main/server.sp">server dashboard</a>.</p>
+<p>
+<a href="https://i0.wp.com/jonudell.net/images/mastodon-social-vs-social-coop-weekly-activity.png?ssl=1"></a></p>
+<p>
+What’s it like moving to a server with only 1% of the flow that happens on mastodon.social? Not too different! Because I’ve moved my followers and follows, and because I interact primarily with the home timeline and with lists, the experience is mostly the same. For example, here’s the graph of <a href="https://github.com/turbot/steampipe-mod-mastodon-insights/blob/main/boosts_federated.sp">boost relationships</a> among servers in my home timeline. It looks just like it did before.</p>
+<p>
+<a href="https://jonudell.net/images/server-neighborhoods-from-social-coop"></a></p>
+<p>
+It’s wonderful to have a portable social graph that you can bring along as you move around in the fediverse. The key differences are that I’m meeting new people, and spending more time on the local timeline. On a big server like mastodon.social the local timeline feels like the Twitter firehose, for those who remember when that was still a thing you could watch. I’d look at it occasionally, because it could be a source of useful serendipity, but mostly it was just too random. The local timeline on social.coop is still somewhat random, but I find it more useful — not only because it represents a far smaller population but also because the people who’ve signed up share a common interest in the coop model. </p>
+ I want my lists 
+<p>
+There was, however, one big obstacle. You can export lists from the old server and import them into the new server, but there’s no export/import for the accounts you’ve assigned to those lists. Since I <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">rely heavily on lists</a> to navigate Mastodon flow in a focused and intentional way, this was a problem I really needed to fix. I tried Eliot Nash’s <a href="https://github.com/fadookie/masto-list-importer">masto-list-importer</a> but when I tried to transfer my 460 person/list mappings I hit API rate limits. So instead I worked out a Steampipe-based solution which is a useful alternative, and also a good way to illustrate the steps involved.</p>
+<p>
+Let’s assume that I want to migrate again, from social.coop to fosstodon.org. I’ve exported the names of my lists from social.coop, and imported them to fosstodon.org. Now I need to populate those lists. The SQL solution I came up with proceeds by steps, each being a common table expression (CTE) that accomplishes one part of a complex transformation, then passes results to the next step. </p>
+<p>
+Step 1: Gather the accounts assigned to each social.coop list.</p>
+<p>
+We start by joining two tables to enumerate accounts assigned to each list.</p>
+   with accounts_by_list as (
+  select 
+    a.acct as old_account,
+    a.id as old_account_id,
+    l.id as old_list_id,
+    l.title as title
+  from
+    social_coop.mastodon_my_list l
+  join
+     social_coop.mastodon_list_account a
+  on
+    l.id = a.list_id
+)
+select * from accounts_by_list
+ 
+<p>
+The output, in accounts_by_list, is effectively a temporary table that you can review to make sure the results are as expected. The ability to verify the output of each phase of a CTE pipeline, before sending it to the next phase, is a key advantage of this approach. Nested subqueries are much harder to debug!</p>
+<p>
+Step 2: Map the accounts on social.coop to accounts on fosstodon.org</p>
+<p>
+Two transformations happen in this phase. If an account is a bare username, say personA, then it’s a social.coop account. On fosstodon.org that same account will be represented as personA@social.coop. Conversely if personB@fosstodon.org exists on social.coop, that account becomes the bare username personB there. All other accounts (e.g. personC@hachyderm.io pass through unchanged.</p>
+ with accounts_by_list as (
+  -- as above
+),
+adjusted_accounts_by_list as (
+  select
+    old_account,
+    old_account_id,
+    old_list_id,
+    title,
+    case 
+      when old_account !~ '@' then old_account || '@social.coop' 
+      when old_account ~ '@fosstodon.org' then replace(old_account, '@fosstodon.org', '')
+      else old_account
+    end as new_account
+  from
+     accounts_by_list
+)
+select * from adjusted_accounts_by_list
+ 
+<p>
+Step 3: Map the list titles to the new server.</p>
+<p>
+The names of the lists are the same in both places, but their ids differ. For example, my Fediverse list is 1043 on social.coop and 6771. To invoke the API call that <a href="https://docs.joinmastodon.org/methods/lists/#accounts-add">adds someone to a list</a>, we’ll need to use the latter id.</p>
+ with accounts_by_list as (
+  -- as above
+),
+adjusted_accounts_by_list as (
+  -- as above
+),
+adjusted_list_ids as (
+  select
+    a.*,
+    l.id as new_list_id
+  from
+    adjusted_accounts_by_list a
+  join
+    fosstodon.mastodon_my_list l
+  on
+    a.title = l.title
+)
+select * from adjusted_list_ids
+ 
+<p>
+Step 4: Map the account ids to the new server.</p>
+<p>
+Like lists, accounts on the new server also have different ids, and those are also required for the API call. We can find the new ids by joining the new_account column from step one with the table fosstodon.mastodon_my_following.</p>
+ with accounts_by_list as (
+  -- as above
+),
+adjusted_accounts_by_list as (
+  -- as above
+),
+adjusted_list_ids as (
+  -- as above
+,
+),
+adjusted_account_ids as (
+  select 
+    a.*,
+    f.id as new_account_id
+  from
+    adjusted_list_ids a
+  join
+    fosstodon.mastodon_my_following f
+  on
+    f.acct = a.new_account
+)
+select * from adjusted_account_ids
+ 
+<p>
+Step 5: Build the API calls</p>
+<p>
+There are lots of ways to skin this cat. Because you can use Steampipe <a href="https://steampipe.io/blog/steampipe-as-component">as a component</a>, you could use any programming language with a Postgres driver to run this query, and call the Mastodon API with the appropriate list and account ids.</p>
+<p>
+And then, of course, there’s always curl.</p>
+ with accounts_by_list as (
+  -- as above
+),
+adjusted_accounts_by_list as (
+  -- as above
+),
+adjusted_list_ids as (
+  -- as above
+),
+adjusted_account_ids as (
+  -- as above
+)
+select
+  'curl -X POST -H "Authorization: Bearer ***" https://fosstodon.org/api/v1/lists/' ||
+  new_list_id ||
+  '/accounts/?' ||
+  'account_ids[]=' ||
+  new_account_id ||
+  '; sleep 1;' as command
+ 
+<p>
+To avoid throttling, I appended sleep 1 to each line. I saved the query in migrate-lists.sql, and exported the output to a file.</p>
+ steampipe query --output csv migrate-lists.sql &gt; migrate.sh
+ 
+<p>
+That was close, but not quite right. The output looked like this:</p>
+ command
+"curl -X POST -H ""Authorization: Bearer ***"" https://fosstodon.org/api/v1/lists/6771/accounts/?account_ids[]=279462; sleep 1;"
+"curl -X POST -H ""Authorization: Bearer ***"" https://fosstodon.org/api/v1/lists/6771/accounts/?account_ids[]=109283421559929728; sleep 1;"
+ 
+<p>
+I need to remove the header line, remove the double quotes on either end of each line, and deduplicate the pairs of double quotes. For that I turned to ChatGPT (v4). It took a few tries to get it right, but soon enough it produced a working bash script that I’m very glad I did not have to write.</p>
+ #!/bin/bash
+
+# read the original script from migrate.sh and store it in an array
+readarray -t original_script &lt; migrate.sh
+
+# remove the first line of the original script
+modified_script=("${original_script[@]:1}")
+
+# loop through the modified script array and replace double double-quotes with a single double-quote and remove double quotes at the beginning and end of each line
+for (( i=0; i&lt;${#modified_script[@]}; i++ )); do
+    modified_script[$i]=$(sed 's/""/"/g' &lt;&lt;&lt; "${modified_script[$i]}")
+    modified_script[$i]=$(sed 's/^"//' &lt;&lt;&lt; "${modified_script[$i]}")
+    modified_script[$i]=$(sed 's/"$//' &lt;&lt;&lt; "${modified_script[$i]}")
+done
+
+# print out the modified script with newlines
+printf '%s\n' "${modified_script[@]}"
+ 
+<p>
+And that did the trick. With my lists now fully populated on social.coop, I'm now reading Mastodon from my new home server in the same list-oriented way as I was on the old one. </p>
+<p>
+If you move servers and want to migrate the people on your lists, you should definitely try <a href="https://www.eliotlash.com/masto-list-importer/">masto-list-importer</a> first, and consider the method here as fallback if that doesn't work for you. I agree with Eliot Nash that list transfer ought to be baked into the Mastodon UI. People rightly complain that it can be hard to find the people you want to follow and topics you want to explore. You can follow hashtags but that can be too random. Assigning people to topical lists strikes a good balance. But only if those list assignments are portable!</p>
+<p>—<br>
+1 <a href="https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/">https://blog.jonudell.net/2022/11/28/autonomy-packet-size-friction-fanout-and-velocity/</a><br>
+2 <a href="https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/">https://blog.jonudell.net/2022/12/06/mastodon-steampipe-and-rss/</a><br>
+3 <a href="https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/">https://blog.jonudell.net/2022/12/10/browsing-the-fediverse/</a><br>
+4 <a href="https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/">https://blog.jonudell.net/2022/12/17/a-bloomberg-terminal-for-mastodon/</a><br>
+5 <a href="https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/">https://blog.jonudell.net/2022/12/19/create-your-own-mastodon-ux/</a><br>
+6 <a href="https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/">https://blog.jonudell.net/2022/12/22/lists-and-people-on-mastodon/</a><br>
+7 <a href="https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/">https://blog.jonudell.net/2022/12/29/how-many-people-in-my-mastodon-feed-also-tweeted-today/</a><br>
+8 <a href="https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/">https://blog.jonudell.net/2022/12/31/instance-qualified-mastodon-urls/</a><br>
+9 <a href="https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/">https://blog.jonudell.net/2023/01/16/mastodon-relationship-graphs/</a><br>
+10 <a href="https://blog.jonudell.net/2023/01/21/working-with-mastodon-lists/">https://blog.jonudell.net/2023/01/21/working-with-mastodon-lists/</a><br>
+11 <a href="https://blog.jonudell.net/2023/01/26/images-considered-harmful-sometimes/">https://blog.jonudell.net/2023/01/26/images-considered-harmful-sometimes/</a><br>
+12 <a href="https://blog.jonudell.net/2023/02/02/mapping-the-wider-fediverse/">https://blog.jonudell.net/2023/02/02/mapping-the-wider-fediverse/</a><br>
+13 <a href="https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/">https://blog.jonudell.net/2023/02/06/protocols-apis-and-conventions/</a><br>
+14 <a href="https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/">https://blog.jonudell.net/2023/02/14/news-in-the-fediverse/</a><br>
+15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
+16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
+17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/jonudell.net/images/mastodon-social-vs-social-coop-weekly-activity.png?w=656&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:21 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.windley.com/'>Phil Windleys Technometria</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.technometria.com/p/oauth-and-fine-grained-access-control'>OAuth and Fine-grained Access Control</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Some of the following is excerpted from my new book Learning Digital Identity from O'Reilly Media. OAuth was invented for a very specific purpose: to allow people to control access to resources associated with their accounts, without requiring that they share authentication factors. A primary use case for OAuth is accessing data in an account using an API. For example, the
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Some of the following is excerpted from my new book <a href="http://www.amazon.com/exec/obidos/ASIN/1098117697/technometria-20">Learning Digital Identity</a> from O'Reilly Media.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F01c94532-ab60-4f7f-a7bb-8dcd45f5ca65_502x644.png">    </a> <p>OAuth was invented for a very specific purpose: to allow people to control access to resources associated with their accounts, without requiring that they share authentication factors. A primary use case for OAuth is accessing data in an account using an API. For example, the <a href="https://receiptify.herokuapp.com/">Receiptify service</a> creates a list of your recent listening history on Spotify, Last.fm, or Apple Music that looks like a shopping receipt. Here's a sample receipt of some of my listening history.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fa4c2b8fd-a1e1-458b-92b5-40960c62ef92_272x722.png">    </a>Receiptify Listening History <p>Before OAuth, if Alice (the resource owner) wanted Receiptify (the client) to have access to her history on Spotify (the resource server), she'd give Receiptify her username and password on Spotify. Receiptify would store the username and password and impersonate Alice each time it needs to access Spotify on her behalf. By using Alice's username and password, Receiptify would demonstrate that it had Alice's implicit permission to access her data on Spotify. This is sometimes called the "password antipattern" and it has several serious drawbacks:</p>  <p>The resource server can't differentiate between the user and other servers accessing the API.</p>  <p>Storing passwords on other servers increases the risk of a security breach.</p>  <p>Granular permissions are hard to support since the resource server doesn't know who is logging in.</p>  <p>Passwords are difficult to revoke and must be updated in multiple places when changed.</p>  <p>OAuth was designed to fix these problems by making the resource server part of the flow that delegates access. This design lets the resource server ask the resource owner what permissions to grant and records them for the specific client requesting access. Moreover, the client can be given its own credential, apart from those that the resource owner has or those used by other clients the user might have authorized.</p> OAuth Scopes <p>The page that allows the owner to grant or deny permission might display what permissions the RS is requesting. This isn't freeform text written by a UX designer; rather, it's controlled by scopes. A scope is a bundle of permissions that the client asks for when requesting the token, coded by the developer who wrote the client.</p><p>The following screenshots show the permissions screens that I, as the owner of my Twitter account, see for two different applications, Revue and Thread Reader.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Ff580db76-f7a9-495e-a8a5-dc322c8c717b_1105x686.png">    </a>OAuth Scopes Displayed in the Permission Screen <p>There are several things to note about these authorization screens. First, Twitter is presenting these screens, not the clients (note the URL in the browser window). Second, the two client applications are asking for quite different scopes. Revue wants permission to update my profile as well as post and delete tweets, while Thread Reader is only asking for read-only access to my account. Finally, Twitter is making it clear to me who is requesting access. At the bottom of the page, Twitter warns me to be careful and to check the permissions that the client is asking for.</p> Fine-Grained Permissions <p>Scopes were designed so that the service offering an API could define the relatively course-grained permissions needed to access it. So, Twitter, for example, has scopes like <code>tweet.read</code> and <code>tweet:write</code>. As shown above, when a service wants to use the API for my Twitter account, it has to ask for specific scopes—if it only wants to read my tweets, it would ask for <code>tweet:read</code>. Once granted, they can be used with the API endpoint to gain access.</p><p>But OAuth-style scopes aren't the best tool for fine-grained permissioning in applications. To see why, imagine you are building a photo sharing app that allows a photographer like Alice to grant her friends Betty and Charlie permission to view her vacation photos. Unlike the Twitter API, where the resources are fairly static (users and tweets, for example) and you're granting permissions to a fairly small number of applications on an infrequent basis, the photo sharing app has an indeterminant number of resources that change frequently. Consequently, the app would need to have many scopes and update them each time a user grants new permissions on a photo album to some other user. A large photo sharing service might have a million users and 50 million photo albums—that's a lot of potential scopes.</p><p>Policy-based Access Control (PBAC) systems, on the other hand, were built for this kind of permissioning. As I wrote in <a href="https://www.windley.com/archives/2023/03/not_all_pbac_is_abac_access_management_patterns.shtml">Not all PBAC is ABAC</a>, your app design and how you choose to express policies make a big difference in the number of policies you need to write. But regardless, PBAC systems, with good policy stores, can manage policies and the information needed to build the authorization context much more easily than you'll usually find in an OAuth-based system.</p><p>So, if you're looking to allow client applications to access your API on behalf of your customers, then OAuth is the right tool. But if you're building an application that allows sharing between its users of whatever resources they build, then you need the fine-grained permissioning that a policy-based access control system provides.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F01c94532-ab60-4f7f-a7bb-8dcd45f5ca65_502x644.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:26 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/04/11/the-line-between.html'> 
+ “The line between a fire tweet and the incoherent rambling</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ “The line between a fire tweet and the incoherent ramblings of a madmen is thinner than ever.” 
+ 
+ 💬 Ryan Broderick 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<blockquote>
+<p>“The line between a fire tweet and the incoherent ramblings of a madmen is thinner than ever.”</p>
+</blockquote>
+<p>💬 Ryan Broderick</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:52 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/04/11/its-another-day.html'> It’s another day of being invisible </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   It’s another day of being invisible 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>It’s another day of being invisible</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:07 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -772,7 +1789,7 @@
 
 <div class='item-footer'>
    18:20 &bull;
-   19 minutes ago
+   7 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -834,7 +1851,7 @@
 
 <div class='item-footer'>
    17:54 &bull;
-   an hour ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -894,7 +1911,7 @@
 
 <div class='item-footer'>
    16:47 &bull;
-   2 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -959,7 +1976,7 @@
 
 <div class='item-footer'>
    15:56 &bull;
-   3 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1020,7 +2037,7 @@
 
 <div class='item-footer'>
    14:08 &bull;
-   5 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1081,7 +2098,7 @@
 
 <div class='item-footer'>
    13:53 &bull;
-   5 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1149,7 +2166,7 @@
 
 <div class='item-footer'>
    10:18 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1217,7 +2234,7 @@
 
 <div class='item-footer'>
    19:17 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1279,7 +2296,7 @@
 
 <div class='item-footer'>
    19:15 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1363,7 +2380,7 @@
 
 <div class='item-footer'>
    18:41 &bull;
-   24 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1833,7 +2850,7 @@
 
 <div class='item-footer'>
    07:14 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1901,7 +2918,7 @@
 
 <div class='item-footer'>
    02:11 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2713,90 +3730,6 @@
 <article class='item'>
 
 
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/04/09/sherwood-true-story.html'> 📺 Sherwood 
- True Story - with artistic license. Couple of m</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   📺 Sherwood 
- True Story - with artistic license. Couple of my favorite actors in it, which is why I gave it a shot. Turns out it also includes an actor called Adeel Akhtar .. who I didn’t spot at the time - but IMHO saved a movie I watched last night. (Link to come.) 
- Information on Reelgood 
- ‘All’ My TV Shows 
- &nbsp; 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/9fb10e23ec.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>📺 Sherwood</p>
-<p>True Story - with artistic license. Couple of my favorite actors in it, which is why I gave it a shot. Turns out it also includes an actor called <a href="https://en.wikipedia.org/wiki/Adeel_Akhtar">Adeel Akhtar</a> .. who I didn’t spot at the time - but IMHO saved a movie I watched last night. (Link to come.)</p>
-<p><a href="https://reelgood.com/show/sherwood-2022">Information on Reelgood</a></p>
-<p><a href="https://john.philpin.com/categories/myshows/">‘All’ My TV Shows</a></p>
-<p>&nbsp;</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/9fb10e23ec.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:52 &bull;
-   2 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
 <h4 class='feed-title'>
   <a href='https://blogs.harvard.edu/doc/'>Doc Searls Weblog</a>
 </h4>
@@ -2867,88 +3800,6 @@
 
 <div class='item-footer'>
    13:06 &bull;
-   2 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2023/04/08/174119.html'>From Obsidian - Redux</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Sorry about all the posts and deletes. This one is staying! 
- 
- ‘From Obsidian’ is a new category on this ‘public journal’.
-Not sure yet how it will pan out - but my thinking is kinda as follows … 
- 1] don’t want to pay $120 a year to synch your obsidian with a web site (quite apart from what a second web site will cost you). 
-2] don’t have the technical chops to deal with github (which is a recog
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Sorry about all the posts and deletes. This one is staying!</p>
- 
-<p>‘From Obsidian’ is a new category on this ‘public journal’.
-Not sure yet how it will pan out - but my thinking is kinda as follows …</p>
-<p>1] don’t want to pay $120 a year to synch your obsidian with a web site (quite apart from what a second web site will cost you).<br>
-2] don’t have the technical chops to deal with github (which is a recognized and free solution that solves that first problem)</p>
-<p>THEN</p>
-<p>3] this might just be what you need</p>
-<p>BUT</p>
-<p>4] this is really for more the ‘occasional publisher’ than those who have vast libraries and want to share it all with the world.</p>
-<p>What do you think?</p>
- 
- Test Lines 
-<p>Line One - April 8th - 17:14
-Line Two - April 8th - 17:37
-Line Three - April 8th - 17:40</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:41 &bull;
    3 days ago
 </div>
 
@@ -2962,241 +3813,6 @@ Line Three - April 8th - 17:40</p>
  <h2 class='new-date'>
   Saturday, 08. April 2023
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2023/04/08/identity-is-here.html'>Identity 2.5 Is Here</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   This is a new identity newsletter from my Kiwi friend Alan Mayo - it’s the start of a journey he is embarking on talking about Identity 2.5. …. wait what? … 2.5? 
- Don’t fret - I’m not going to steal Alan’s thunder and get into what ‘2.5’ is - but Alan and I have had enough conversations for me to know that if you have an interest in identity - this short series is going to be well worth your time
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This is <a href="https://open.substack.com/pub/identity25/p/1-identity-from-the-start">a new identity newsletter from my Kiwi friend Alan Mayo</a> - it’s the start of a journey he is embarking on talking about Identity 2.5. …. wait what? … 2.5?</p>
-<p>Don’t fret - I’m not going to steal Alan’s thunder and get into what ‘2.5’ is - but Alan and I have had enough conversations for me to know that if you have an interest in identity - this short series is going to be well worth your time and his 2.5 solution is really rather clever.</p>
-<blockquote>
-<p>“This is about Identity, not Digital Identity.”</p>
-</blockquote>
-<p>And no - that is not code for the newsletter being deeply philosophical - exploring the Id etc … but rather recognizing the challenge that most tech conversation is about digital identity and essentially ignores ‘real world’ identity … and this is true even if the blockchain does finally solve identity.</p>
-<p>Que?</p>
-<p>Let’s assume that we crack ‘digital identity’ - and in case you don’t know - we are a long way off that - but stick with me - ‘when’ it is solved what happens when you (say) catch a plane, phone a call center, walk into a store, visit a bank, get a mortgage … then what?</p>
-<p>If you have explored these scenarios, you already know that it’s a mess and digital identity is not going to solve for those scenarios - except by morphing the real and digital worlds. Beyond that, ‘real world identity’ is</p>
- 
- 
-<p>inconsistent</p>
- 
- across industries and markets 
- across multiple organizations 
- even in a single organization 
- 
- 
- 
-<p>unreliable</p>
- 
- 
-<p>hardly secure</p>
- 
- 
-<p>random</p>
- 
- 
-<p>… which typically means that organizations have to create - and support - multiple workflows and systems.</p>
- Use Cases 
- A Gas Company Call Center 
-<p>A certain Gas company in Southern California has a ‘call center’ security level that goes as follows …</p>
- 
- I tell them ‘my’ name … any name 
- To validate who I am … I have to tell them ‘my’ address 
- 
-<p>That’s it. At that point I am free to meddle with that account as much as I like.</p>
-<p>How do I know this? Because I have done that three times in the past week. THREE times. I am not asked for ‘social’ - though why that is ever considered secure in this day and age is beyond me. The number I call from is detected at their end - and it is NOT the phone number they have on the record for that account. That doesn’t matter. No secret questions were asked. No texts sent to the number on record.</p>
-<p>Full disclosure - I did this for a friend who was traveling and had full knowledge and permission from him (the account holder). Why? Because it was a simple issue that needed to be resolved. BUT had I used my real name I wouldn’t have even been able to have a conversation - because my information wouldn’t have correlated.</p>
-<p>Bottom line however - if you find anyone else’s gas bill you could play havoc.</p>
- DMV Identity 
-<p>I wrote a piece recently called <a href="https://john.philpin.com/2023/02/14/an-afternoon-with.html">An Afternoon With Kafka</a></p>
-<p>It was meant to be a fun piece describing the trials and tribulations of renewing my US drivers license. In the end I got my license.</p>
-<p>Key point … the official address they have on record for me required me to prove my identity by providing third party utility bills. BUT, that address is up in Northern California - and I am currently in SOUTHERN California - so I asked if they could send my license to a local SoCal address.</p>
-<p>No problem …. it was done - BUT - in DMVland,  what that means is that my US Drivers license now has that temporary, non official address on it and I did not have to prove it was connected to me.</p>
-<p>I was asked recently to show my license to ‘prove my identity’. I ignored the oxymoron, showed them my license and they dutifully wrote down the address. On that occasion, it made no difference - but what happens if that address was important?</p>
-<p>Most people would look at the ‘official government doc’ and take it at face value.</p>
- 
- Identity is clearly a mess. 
- 
-<p>Ok - that’s it - <a href="https://identity25.substack.com/">do please subscribe</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:51 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/04/08/stoic.html'> Stoic 0408 </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Stoic 0408 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Stoic 0408</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   17:41 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/04/08/some-people-are.html'> Some people are just too sensitive. Waaaay too sensitive. </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Some people are just too sensitive. Waaaay too sensitive. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Some people are just too sensitive. Waaaay too sensitive.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:52 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -4127,7 +4743,7 @@ Line Three - April 8th - 17:40</p>
 
 <div class='item-footer'>
    13:10 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4197,7 +4813,7 @@ Line Three - April 8th - 17:40</p>
 
 <div class='item-footer'>
    12:16 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4319,7 +4935,7 @@ Line Three - April 8th - 17:40</p>
 
 <div class='item-footer'>
    06:42 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5373,68 +5989,6 @@ llm 'Ten names for cheesecakes'
 <article class='item'>
 
 
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2023/Apr/4/trurl-manipulates-urls/#atom-everything'>trurl manipulates URLs</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   trurl manipulates URLs 
- Brand new command-line tool from curl creator Daniel Stenberg: The tr stands for translate or transpose, and the tool provides various mechanisms for normalizing URLs, adding query strings, changing the path or hostname and other similar modifications. I've tried designing APis for this kind of thing in the past - Datasette includes some clumsily named functions such as pa
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://daniel.haxx.se/blog/2023/04/03/introducing-trurl/">trurl manipulates URLs</a></p>
-<p>Brand new command-line tool from curl creator Daniel Stenberg: The tr stands for translate or transpose, and the tool provides various mechanisms for normalizing URLs, adding query strings, changing the path or hostname and other similar modifications. I've tried designing APis for this kind of thing in the past - Datasette includes some clumsily named functions such as path_with_removed_args() - and it's a deceptively deep set of problems.<br>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:08 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
 <h4 class='feed-title'>
   <a href='https://werd.io'>Ben Werdmüller</a>
 </h4>
@@ -5907,7 +6461,8 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -6138,7 +6693,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    13:17 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6210,7 +6765,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    11:52 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6277,7 +6832,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    11:18 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6591,7 +7146,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    12:53 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7253,7 +7808,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    13:27 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8069,7 +8624,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    13:25 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9151,7 +9706,7 @@ themselves. And we won’t cry for them very much.</p>
 
 <div class='item-footer'>
    13:18 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9580,7 +10135,8 @@ Will that prove interesting? Useful? That remains to be seen. I think it’s one
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -10347,7 +10903,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    21:58 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -10422,7 +10978,7 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 
 <div class='item-footer'>
    18:50 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16227,7 +16783,8 @@ But I hope that some of us, at least, will learn to thrive in diverse networks o
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -17865,7 +18422,8 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -18020,7 +18578,7 @@ Enabling SQL to query diverse APIs in a common way is one of Steampipe’s core 
 
 <div class='item-footer'>
    18:49 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -19522,7 +20080,8 @@ My Steampipe + Mastodon adventure notwithstanding, let’s hold on to that large
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -20689,7 +21248,8 @@ We’re in one of those Internet moments of rapid innovation, when new conventio
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -21323,7 +21883,8 @@ The blocking server list column shows an interesting mix of consensus and variat
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -23702,7 +24263,8 @@ But the text that I read in these dashboards is image-free for now. And I think 
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -24497,7 +25059,8 @@ Who are the experts you follow in various domains? Can I cherrypick from your li
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -25099,7 +25662,8 @@ The username column gives the node its identity. Note also the property instance
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -26946,7 +27510,8 @@ Michael Herman, Trusted Digital Web Project, Hyperonomy Digital Identity Lab, Pa
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -27357,7 +27922,8 @@ order by
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -27508,7 +28074,7 @@ order by
 
 <div class='item-footer'>
    00:20 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -28233,7 +28799,8 @@ group by
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -28658,7 +29225,8 @@ I’ve got this picture on the side, and the code on the side, and this part dra
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -28775,7 +29343,8 @@ order by
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -29881,7 +30450,8 @@ and can also be used in places where, for example, firewalls prevent event pushi
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -30935,7 +31505,8 @@ Now I need to write that #introduction!
 15 <a href="https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/">https://blog.jonudell.net/2023/02/26/mapping-people-and-tags-on-mastodon/</a><br>
 16 <a href="https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/">https://blog.jonudell.net/2023/03/07/visualizing-mastodon-server-moderation/</a><br>
 17 <a href="https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/">https://blog.jonudell.net/2023/03/14/mastodon-timelines-for-teams/</a><br>
-18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a></p>
+18 <a href="https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/">https://blog.jonudell.net/2023/04/03/the-mastodon-plugin-is-now-available-on-the-steampipe-hub/</a><br>
+19 <a href="https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/">https://blog.jonudell.net/2023/04/11/migrating-mastodon-lists/</a></p>
    
   
   
@@ -31137,148 +31708,6 @@ Now I need to write that #introduction!
 
 <div class='item-footer'>
    18:54 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.informationanswers.com'>Information Answers</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.informationanswers.com/2022/12/06/gder-anyone/'>GDER Anyone?</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  I was asked to give a talk last week on how I thought the ‘data intermediaries’ space would evolve over the next few years. I used […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  I was asked to give a talk last week on how I thought the ‘data intermediaries’ space would evolve over the next few years. I used […]
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:25 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 05. December 2022
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://medium.com/@benwerd'>Werdmüller on Medium</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://benwerd.medium.com/work-im-proud-of-7eb615618f25?source=rss-3b16402f5b9d------2'>Work I’m proud of</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-      Building a more diverse news media  Continue reading on Medium »  
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/0*s4zIwzPTeLHzf1l9.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   <p><a href="https://benwerd.medium.com/work-im-proud-of-7eb615618f25?source=rss-3b16402f5b9d------2"></a></p><p>Building a more diverse news media</p><p><a href="https://benwerd.medium.com/work-im-proud-of-7eb615618f25?source=rss-3b16402f5b9d------2">Continue reading on Medium »</a></p> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*s4zIwzPTeLHzf1l9.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:06 &bull;
    4 months ago
 </div>
 
