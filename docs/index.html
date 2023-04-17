@@ -711,12 +711,643 @@
 
 </div>
 </div>
-<sup>Last Update 1:49 AM April 17, 2023 (UTC)</sup>
+<sup>Last Update 9:38 AM April 17, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 17. April 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/04/17/provision-azure-iot-hub-devices-using-dps-and-x-509-certificates-in-asp-net-core/'>Provision Azure IoT Hub devices using DPS and X.509 certificates in ASP.NET Core</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to provision Azure IoT hub devices using Azure IoT hub device provisioning services (DPS) and ASP.NET Core. The devices are setup using chained certificates created using .NET Core and managed in the web application. The data is persisted in a database using EF Core and the certificates are generated using the […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to provision Azure IoT hub devices using Azure IoT hub device provisioning services (DPS) and ASP.NET Core. The devices are setup using chained certificates created using .NET Core and managed in the web application. The data is persisted in a database using EF Core and the certificates are generated using the <a href="https://www.nuget.org/packages/CertificateManager">CertificateManager</a> Nuget package. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AzureIoTHubDps">https://github.com/damienbod/AzureIoTHubDps</a></p>
+
+
+
+<p></p>
+
+
+
+ Setup 
+
+
+
+<p>To setup a new Azure IoT Hub DPS, enrollment group and devices, the web application creates a new certificate using an ECDsa private key and the .NET Core APIs. The data is stored in two pem files, one for the public certificate and one for the private key. The pem public certificate file is downloaded from the web application and uploaded to the certificates blade in Azure IoT Hub DPS. The web application persists the data to a database using EF Core and SQL. A new certificate is created from the DPS root certificate and used to create a DPS enrollment group. The certificates are chained from the original DPS certificate. New devices are registered and created using the enrollment group. Another new device certificate chained from the enrollment group certificate is created per device and used in the DPS. The Azure IoT Hub DPS creates a new IoT Hub device using the linked IoT Hubs. Once the IoT hub is running, the private key from the device certificate is used to authenticate the device and send data to the server. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>When the ASP.NET Core web application is started, users can create new certificates, enrollment groups and add devices to the groups. I plan to extend the web application to add devices, delete devices, and delete groups. I plan to add authorization for the different user types and better paging for the different UIs.  At present all certificates use ECDsa private keys but this can easily be changed to other types. This depends on the type of root certificate used. </p>
+
+
+
+<p></p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The application is secured using Microsoft.Identity.Web and requires an authenticated user. This can be setup in the program file or in the startup extensions. I use EnableTokenAcquisitionToCallDownstreamApi to force the OpenID Connect code flow. The configuration is read from the default AzureAd app.settings and the whole application is required to be authenticated. When the enable and disable flows are added, I will add different users with different authorization levels.</p>
+
+
+  builder.Services.AddDistributedMemoryCache();
+
+builder.Services.AddAuthentication(
+	OpenIdConnectDefaults.AuthenticationScheme)
+	.AddMicrosoftIdentityWebApp(
+		builder.Configuration.GetSection("AzureAd"))
+	.EnableTokenAcquisitionToCallDownstreamApi()
+	.AddDistributedTokenCaches();
+  
+
+
+<p></p>
+
+
+
+ Create an Azure IoT Hub DPS certificate 
+
+
+
+<p>The web application is used to create devices using certificates and DPS enrollment groups. The DpsCertificateProvider class is used to create the root self signed certificate for the DPS enrollment groups. The NewRootCertificate from the CertificateManager Nuget package is used to create the certificate using an ECDsa private key. This package wraps the default .NET APIs for creating certificates and adds a layer of abstraction. You could just use the lower level APIs directly. The certificate is exported to two separate pem files and persisted to the database.</p>
+
+
+  public class DpsCertificateProvider
+{
+    private readonly CreateCertificatesClientServerAuth _createCertsService;
+    private readonly ImportExportCertificate _iec;
+    private readonly DpsDbContext _dpsDbContext;
+
+    public DpsCertificateProvider(CreateCertificatesClientServerAuth ccs,
+        ImportExportCertificate importExportCertificate,
+        DpsDbContext dpsDbContext)
+    {
+        _createCertsService = ccs;
+        _iec = importExportCertificate;
+        _dpsDbContext = dpsDbContext;
+    }
+
+    public async Task&lt;(string PublicPem, int Id)&gt; CreateCertificateForDpsAsync(string certName)
+    {
+        var certificateDps = _createCertsService.NewRootCertificate(
+            new DistinguishedName { CommonName = certName, Country = "CH" },
+            new ValidityPeriod { ValidFrom = DateTime.UtcNow, ValidTo = DateTime.UtcNow.AddYears(50) },
+            3, certName);
+
+        var publicKeyPem = _iec.PemExportPublicKeyCertificate(certificateDps);
+
+        string pemPrivateKey = string.Empty;
+        using (ECDsa? ecdsa = certificateDps.GetECDsaPrivateKey())
+        {
+            pemPrivateKey = ecdsa!.ExportECPrivateKeyPem();
+            FileProvider.WriteToDisk($"{certName}-private.pem", pemPrivateKey);
+        }
+ 
+        var item = new DpsCertificate
+        {
+            Name = certName,
+            PemPrivateKey = pemPrivateKey,
+            PemPublicKey = publicKeyPem
+        };
+
+        _dpsDbContext.DpsCertificates.Add(item);
+
+        await _dpsDbContext.SaveChangesAsync();
+
+        return (publicKeyPem, item.Id);
+    }
+
+    public async Task&lt;List&lt;DpsCertificate&gt;&gt; GetDpsCertificatesAsync()
+    {
+        return await _dpsDbContext.DpsCertificates.ToListAsync();
+    }
+
+    public async Task&lt;DpsCertificate?&gt; GetDpsCertificateAsync(int id)
+    {
+        return await _dpsDbContext.DpsCertificates.FirstOrDefaultAsync(item =&gt; item.Id == id);
+    }
+}
+  
+
+
+<p>Once the root certificate is created, you can download the public pem file from the web application and upload it to the Azure IoT Hub DPS portal. This needs to be verified. You could also use a CA created certificate for this, if it is possible to create child chained certificates. The enrollment groups are created from this root certificate.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Create an Azure IoT Hub DPS enrollment group 
+
+
+
+<p>Devices can be created in different ways in the Azure IoT Hub. We use a DPS enrollment group with certificates to create the Azure IoT devices. The DpsEnrollmentGroupProvider is used to create the enrollment group certificate. This uses the root certificate created in the previous step and chains the new group certificate from this. The enrollment group is used to add devices. Default values are defined for the enrollment group and the pem files are saved to the database. The root certificate is read from the database and the chained enrollment group certificate uses an ECDsa private key like the root self signed certificate.</p>
+
+
+
+<p>The CreateEnrollmentGroup method is used to set the initial values of the IoT Hub Device. The ProvisioningStatus is set to enabled. This means when the device is registered, it will be enabled to send messages. You could also set this to disabled and enable it after when the device gets used by an end client for the first time. A MAC or a serial code from the device hardware could be used to enable the IoT Hub device. By waiting till the device is started by the end client, you could choose a IoT Hub optimized for this client.</p>
+
+
+  public class DpsEnrollmentGroupProvider
+{
+    private IConfiguration Configuration { get;set;}
+
+    private readonly ILogger&lt;DpsEnrollmentGroupProvider&gt; _logger;
+    private readonly DpsDbContext _dpsDbContext;
+    private readonly ImportExportCertificate _iec;
+    private readonly CreateCertificatesClientServerAuth _createCertsService;
+    private readonly ProvisioningServiceClient _provisioningServiceClient;
+    
+    public DpsEnrollmentGroupProvider(IConfiguration config, ILoggerFactory loggerFactory,
+        ImportExportCertificate importExportCertificate,
+        CreateCertificatesClientServerAuth ccs,
+        DpsDbContext dpsDbContext)
+    {
+        Configuration = config;
+        _logger = loggerFactory.CreateLogger&lt;DpsEnrollmentGroupProvider&gt;();
+        _dpsDbContext = dpsDbContext;
+        _iec = importExportCertificate;
+        _createCertsService = ccs;
+
+        _provisioningServiceClient = ProvisioningServiceClient.CreateFromConnectionString(
+                  Configuration.GetConnectionString("DpsConnection"));
+    }
+
+    public async Task&lt;(string Name, int Id)&gt; CreateDpsEnrollmentGroupAsync(
+        string enrollmentGroupName, string certificatePublicPemId)
+    {
+        _logger.LogInformation("Starting CreateDpsEnrollmentGroupAsync...");
+        _logger.LogInformation("Creating a new enrollmentGroup...");
+
+        var dpsCertificate = _dpsDbContext.DpsCertificates
+            .FirstOrDefault(t =&gt; t.Id == int.Parse(certificatePublicPemId));
+
+        var rootCertificate = X509Certificate2.CreateFromPem(
+               dpsCertificate!.PemPublicKey, dpsCertificate.PemPrivateKey);
+
+        // create an intermediate for each group
+        var certName = $"{enrollmentGroupName}";
+        var certDpsGroup = _createCertsService.NewIntermediateChainedCertificate(
+            new DistinguishedName { CommonName = certName, Country = "CH" },
+            new ValidityPeriod { ValidFrom = DateTime.UtcNow, ValidTo = DateTime.UtcNow.AddYears(50) },
+            2, certName, rootCertificate);
+
+        // get the public key certificate for the enrollment
+        var pemDpsGroupPublic = _iec.PemExportPublicKeyCertificate(certDpsGroup);
+
+        string pemDpsGroupPrivate = string.Empty;
+        using (ECDsa? ecdsa = certDpsGroup.GetECDsaPrivateKey())
+        {
+            pemDpsGroupPrivate = ecdsa!.ExportECPrivateKeyPem();
+            FileProvider.WriteToDisk($"{enrollmentGroupName}-private.pem", pemDpsGroupPrivate);
+        }
+
+        Attestation attestation = X509Attestation.CreateFromRootCertificates(pemDpsGroupPublic);
+        EnrollmentGroup enrollmentGroup = CreateEnrollmentGroup(enrollmentGroupName, attestation);
+
+        _logger.LogInformation("{enrollmentGroup}", enrollmentGroup);
+        _logger.LogInformation("Adding new enrollmentGroup...");
+
+        EnrollmentGroup enrollmentGroupResult = await _provisioningServiceClient
+            .CreateOrUpdateEnrollmentGroupAsync(enrollmentGroup);
+
+        _logger.LogInformation("EnrollmentGroup created with success.");
+        _logger.LogInformation("{enrollmentGroupResult}", enrollmentGroupResult);
+
+        DpsEnrollmentGroup newItem = await PersistData(enrollmentGroupName, 
+            dpsCertificate, pemDpsGroupPublic, pemDpsGroupPrivate);
+
+        return (newItem.Name, newItem.Id);
+    }
+
+    private async Task&lt;DpsEnrollmentGroup&gt; PersistData(string enrollmentGroupName, 
+        DpsCertificate dpsCertificate, string pemDpsGroupPublic, string pemDpsGroupPrivate)
+    {
+        var newItem = new DpsEnrollmentGroup
+        {
+            DpsCertificateId = dpsCertificate.Id,
+            Name = enrollmentGroupName,
+            DpsCertificate = dpsCertificate,
+            PemPublicKey = pemDpsGroupPublic,
+            PemPrivateKey = pemDpsGroupPrivate
+        };
+
+        _dpsDbContext.DpsEnrollmentGroups.Add(newItem);
+        dpsCertificate.DpsEnrollmentGroups.Add(newItem);
+
+        await _dpsDbContext.SaveChangesAsync();
+        return newItem;
+    }
+
+    private static EnrollmentGroup CreateEnrollmentGroup(string enrollmentGroupName, Attestation attestation)
+    {
+        return new EnrollmentGroup(enrollmentGroupName, attestation)
+        {
+            ProvisioningStatus = ProvisioningStatus.Enabled,
+            ReprovisionPolicy = new ReprovisionPolicy
+            {
+                MigrateDeviceData = false,
+                UpdateHubAssignment = true
+            },
+            Capabilities = new DeviceCapabilities
+            {
+                IotEdge = false
+            },
+            InitialTwinState = new TwinState(
+                new TwinCollection("{ \"updatedby\":\"" + "damien" + "\", \"timeZone\":\"" + TimeZoneInfo.Local.DisplayName + "\" }"),
+                new TwinCollection("{ }")
+            )
+        };
+    }
+
+    public async Task&lt;List&lt;DpsEnrollmentGroup&gt;&gt; GetDpsGroupsAsync(int? certificateId = null)
+    {
+        if (certificateId == null)
+        {
+            return await _dpsDbContext.DpsEnrollmentGroups.ToListAsync();
+        }
+
+        return await _dpsDbContext.DpsEnrollmentGroups
+            .Where(s =&gt; s.DpsCertificateId == certificateId).ToListAsync();
+    }
+
+    public async Task&lt;DpsEnrollmentGroup?&gt; GetDpsGroupAsync(int id)
+    {
+        return await _dpsDbContext.DpsEnrollmentGroups
+            .FirstOrDefaultAsync(d =&gt; d.Id == id);
+    }
+}
+  
+
+
+<p></p>
+
+
+
+ Register a device in the enrollment group 
+
+
+
+<p>The DpsRegisterDeviceProvider class creates a new device chained certificate using the enrollment group certificate and creates this using the ProvisioningDeviceClient. The transport ProvisioningTransportHandlerAmqp is set in this example. There are different transport types possible and you need to chose the one which best meets your needs. The device certificate uses an ECDsa private key and stores everything to the database. The PFX for windows is stored directly to the file system. I use pem files and create the certificate from these in the device client sending data to the hub and this is platform independent. The create PFX file requires a password to use it.</p>
+
+
+  public class DpsRegisterDeviceProvider
+{
+    private IConfiguration Configuration { get; set; }
+    private readonly ILogger&lt;DpsRegisterDeviceProvider&gt; _logger;
+    private readonly DpsDbContext _dpsDbContext;
+    private readonly ImportExportCertificate _iec;
+    private readonly CreateCertificatesClientServerAuth _createCertsService;
+
+    public DpsRegisterDeviceProvider(IConfiguration config, 
+        ILoggerFactory loggerFactory,
+        ImportExportCertificate importExportCertificate,
+        CreateCertificatesClientServerAuth ccs,
+        DpsDbContext dpsDbContext)
+    {
+        Configuration = config;
+        _logger = loggerFactory.CreateLogger&lt;DpsRegisterDeviceProvider&gt;();
+        _dpsDbContext = dpsDbContext;
+        _iec = importExportCertificate;
+        _createCertsService = ccs;
+    }
+
+    public async Task&lt;(int? DeviceId, string? ErrorMessage)&gt; RegisterDeviceAsync(
+        string deviceCommonNameDevice, string dpsEnrollmentGroupId)
+    {
+        int? deviceId = null;
+        var scopeId = Configuration["ScopeId"];
+
+        var dpsEnrollmentGroup = _dpsDbContext.DpsEnrollmentGroups
+           .FirstOrDefault(t =&gt; t.Id == int.Parse(dpsEnrollmentGroupId));
+
+        var certDpsEnrollmentGroup = X509Certificate2.CreateFromPem(
+            dpsEnrollmentGroup!.PemPublicKey, dpsEnrollmentGroup.PemPrivateKey);
+
+        var newDevice = new DpsEnrollmentDevice
+        {
+            Password = GetEncodedRandomString(30),
+            Name = deviceCommonNameDevice.ToLower(),
+            DpsEnrollmentGroupId = dpsEnrollmentGroup.Id,
+            DpsEnrollmentGroup = dpsEnrollmentGroup
+        };
+
+        var certDevice = _createCertsService.NewDeviceChainedCertificate(
+          new DistinguishedName { CommonName = $"{newDevice.Name}" },
+          new ValidityPeriod { ValidFrom = DateTime.UtcNow, ValidTo = DateTime.UtcNow.AddYears(50) },
+          $"{newDevice.Name}", certDpsEnrollmentGroup);
+
+        var deviceInPfxBytes = _iec.ExportChainedCertificatePfx(newDevice.Password, 
+            certDevice, certDpsEnrollmentGroup);
+
+        // This is required if you want PFX exports to work.
+        newDevice.PathToPfx = FileProvider.WritePfxToDisk($"{newDevice.Name}.pfx", deviceInPfxBytes);
+
+        // get the public key certificate for the device
+        newDevice.PemPublicKey = _iec.PemExportPublicKeyCertificate(certDevice);
+        FileProvider.WriteToDisk($"{newDevice.Name}-public.pem", newDevice.PemPublicKey);
+
+        using (ECDsa? ecdsa = certDevice.GetECDsaPrivateKey())
+        {
+            newDevice.PemPrivateKey = ecdsa!.ExportECPrivateKeyPem();
+            FileProvider.WriteToDisk($"{newDevice.Name}-private.pem", newDevice.PemPrivateKey);
+        }
+
+        // setup Windows store deviceCert 
+        var pemExportDevice = _iec.PemExportPfxFullCertificate(certDevice, newDevice.Password);
+        var certDeviceForCreation = _iec.PemImportCertificate(pemExportDevice, newDevice.Password);
+
+        using (var security = new SecurityProviderX509Certificate(certDeviceForCreation, new X509Certificate2Collection(certDpsEnrollmentGroup)))
+
+        // To optimize for size, reference only the protocols used by your application.
+        using (var transport = new ProvisioningTransportHandlerAmqp(TransportFallbackType.TcpOnly))
+        //using (var transport = new ProvisioningTransportHandlerHttp())
+        //using (var transport = new ProvisioningTransportHandlerMqtt(TransportFallbackType.TcpOnly))
+        //using (var transport = new ProvisioningTransportHandlerMqtt(TransportFallbackType.WebSocketOnly))
+        {
+            var client = ProvisioningDeviceClient.Create("global.azure-devices-provisioning.net",
+                scopeId, security, transport);
+
+            try
+            {
+                var result = await client.RegisterAsync();
+                _logger.LogInformation("DPS client created: {result}", result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("DPS client created: {result}", ex.Message);
+                return (null, ex.Message);
+            }
+        }
+
+        _dpsDbContext.DpsEnrollmentDevices.Add(newDevice);
+        dpsEnrollmentGroup.DpsEnrollmentDevices.Add(newDevice);
+        await _dpsDbContext.SaveChangesAsync();
+
+        deviceId = newDevice.Id;
+        return (deviceId, null);
+    }
+
+    private static string GetEncodedRandomString(int length)
+    {
+        var base64 = Convert.ToBase64String(GenerateRandomBytes(length));
+        return base64;
+    }
+
+    private static byte[] GenerateRandomBytes(int length)
+    {
+        var byteArray = new byte[length];
+        RandomNumberGenerator.Fill(byteArray);
+        return byteArray;
+    }
+
+    public async Task&lt;List&lt;DpsEnrollmentDevice&gt;&gt; GetDpsDevicesAsync(int? dpsEnrollmentGroupId)
+    {
+        if(dpsEnrollmentGroupId == null)
+        {
+            return await _dpsDbContext.DpsEnrollmentDevices.ToListAsync();
+        }
+
+        return await _dpsDbContext.DpsEnrollmentDevices.Where(s =&gt; s.DpsEnrollmentGroupId == dpsEnrollmentGroupId).ToListAsync();
+    }
+
+    public async Task&lt;DpsEnrollmentDevice?&gt; GetDpsDeviceAsync(int id)
+    {
+        return await _dpsDbContext.DpsEnrollmentDevices
+            .Include(device =&gt; device.DpsEnrollmentGroup)
+            .FirstOrDefaultAsync(d =&gt; d.Id == id);
+    }
+}
+  
+
+
+<p></p>
+
+
+
+ Download certificates and use 
+
+
+
+<p>The private and the public pem files are used to setup the Azure IoT Hub device and send data from the device to the server. A HTML form is used to download the files. The form sends a post request to the file download API.</p>
+
+
+  &lt;form action="/api/FileDownload/DpsDevicePublicKeyPem" method="post"&gt;
+	&lt;input type="hidden" value="@Model.DpsDevice.Id" id="Id" name="Id" /&gt;
+	&lt;button type="submit" style="padding-left:0" class="btn btn-link"&gt;Download Public PEM&lt;/button&gt;
+&lt;/form&gt;
+  
+
+
+<p>The DpsDevicePublicKeyPemAsync method implements the file download. The method gets the data from the database and returns this as pem file.</p>
+
+
+  [HttpPost("DpsDevicePublicKeyPem")]
+public async Task&lt;IActionResult&gt; DpsDevicePublicKeyPemAsync([FromForm] int id)
+{
+	var cert = await _dpsRegisterDeviceProvider
+		.GetDpsDeviceAsync(id);
+	if (cert == null) throw new ArgumentNullException(nameof(cert));
+	if (cert.PemPublicKey == null) 
+		throw new ArgumentNullException(nameof(cert.PemPublicKey));
+
+	return File(Encoding.UTF8.GetBytes(cert.PemPublicKey),
+		"application/octet-stream",
+		$"{cert.Name}-public.pem");
+}
+  
+
+
+<p>The device UI displays the data and allows the authenticated user to download the files.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The CertificateManager and the Microsoft.Azure.Devices.Client Nuget packages are used to implement the IoT Hub device client. The pem files with the public certificate and the private key can be loaded into a X509Certificate instance. This is then used to send the data using the DeviceAuthenticationWithX509Certificate class. The SendEvent method sends the data using the IoT Hub device Message class.</p>
+
+
+  var serviceProvider = new ServiceCollection()
+	.AddCertificateManager()
+	.BuildServiceProvider();
+var iec = serviceProvider.GetService&lt;ImportExportCertificate&gt;();
+
+#region pem
+
+var deviceNamePem = "robot1-feed";
+
+var certPem = File.ReadAllText($"{_pathToCerts}{deviceNamePem}-public.pem");
+var eccPem = File.ReadAllText($"{_pathToCerts}{deviceNamePem}-private.pem");
+var cert = X509Certificate2.CreateFromPem(certPem, eccPem);
+
+// setup deviceCert windows store export 
+var pemDeviceCertPrivate = iec!.PemExportPfxFullCertificate(cert);
+var certDevice = iec.PemImportCertificate(pemDeviceCertPrivate);
+
+#endregion pem
+
+var auth = new DeviceAuthenticationWithX509Certificate(deviceNamePem, certDevice);
+var deviceClient = DeviceClient.Create(iotHubUrl, auth, transportType);
+
+if (deviceClient == null)
+{
+	Console.WriteLine("Failed to create DeviceClient!");
+}
+else
+{
+	Console.WriteLine("Successfully created DeviceClient!");
+	SendEvent(deviceClient).Wait();
+}
+  
+
+
+ Notes 
+
+
+
+<p>Using certificates in .NET and windows is complicated due to how the private keys are handled and loaded. The private keys need to be exported or imported into the stores etc. This is not an easy API to get working and the docs for this are confusing. </p>
+
+
+
+<p>This type of device transport and the default setup for the device would need to be adapted for your system. In this example, I used ECDsa certificates but you could also use RSA based keys. The root certificate could be replaced with a CA issued one. I created long living certificates because I do not want the devices to stop working in the field. This should be moved to a configuration. A certificate rotation flow would make sense as well.</p>
+
+
+
+<p>In the follow up articles, I plan to save the events in hot and cold path events and implement device enable, disable flows. I also plan to write about the device twins. The device twins is a excellent way of sharing data in both directions. </p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://github.com/Azure/azure-iot-sdk-csharp">https://github.com/Azure/azure-iot-sdk-csharp</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/AspNetCoreCertificates">https://github.com/damienbod/AspNetCoreCertificates</a></p>
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2020/01/29/creating-certificates-for-x-509-security-in-azure-iot-hub-using-net-core/">Creating Certificates for X.509 security in Azure IoT Hub using .NET&nbsp;Core</a></blockquote>
+ 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/iot-hub/troubleshoot-error-codes">https://learn.microsoft.com/en-us/azure/iot-hub/troubleshoot-error-codes</a></p>
+
+
+
+<p><a href="https://stackoverflow.com/questions/52750160/what-is-the-rationale-for-all-the-different-x509keystorageflags/52840537#52840537">https://stackoverflow.com/questions/52750160/what-is-the-rationale-for-all-the-different-x509keystorageflags/52840537#52840537</a></p>
+
+
+
+<p><a href="https://github.com/dotnet/runtime/issues/19581">https://github.com/dotnet/runtime/issues/19581</a></p>
+
+
+
+<p><a href="https://www.nuget.org/packages/CertificateManager">https://www.nuget.org/packages/CertificateManager</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/iot-hub/">Azure IoT Hub Documentation | Microsoft Learn</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/04/dps_iothub_web_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:19 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -779,7 +1410,7 @@
 
 <div class='item-footer'>
    22:25 &bull;
-   3 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -847,7 +1478,7 @@
 
 <div class='item-footer'>
    19:57 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -927,7 +1558,7 @@
 
 <div class='item-footer'>
    16:50 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -988,7 +1619,7 @@
 
 <div class='item-footer'>
    15:34 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1135,7 +1766,7 @@
 
 <div class='item-footer'>
    15:10 &bull;
-   11 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1468,7 +2099,7 @@ END;
 
 <div class='item-footer'>
    15:21 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1532,7 +2163,7 @@ END;
 
 <div class='item-footer'>
    13:44 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1806,7 +2437,7 @@ END;
 
 <div class='item-footer'>
    21:24 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1875,7 +2506,7 @@ END;
 
 <div class='item-footer'>
    21:20 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1941,7 +2572,7 @@ END;
 
 <div class='item-footer'>
    18:33 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2001,7 +2632,7 @@ END;
 
 <div class='item-footer'>
    18:08 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2066,7 +2697,7 @@ END;
 
 <div class='item-footer'>
    17:51 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2130,7 +2761,7 @@ END;
 
 <div class='item-footer'>
    17:43 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2316,7 +2947,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    17:35 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2406,7 +3037,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    17:14 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2478,7 +3109,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    16:50 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2544,7 +3175,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    15:35 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2609,7 +3240,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    15:12 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2670,7 +3301,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    15:07 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2731,7 +3362,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    15:00 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2795,7 +3426,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    14:11 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2932,7 +3563,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    19:20 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2992,7 +3623,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    19:08 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3054,7 +3685,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    17:28 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3119,7 +3750,7 @@ assistant: Here is that translated into pirate:</p>
 
 <div class='item-footer'>
    14:35 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4144,7 +4775,7 @@ Enabling the DID WG to develop specific DID methods will actively undermine the 
 
 <div class='item-footer'>
    14:38 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4205,7 +4836,7 @@ Enabling the DID WG to develop specific DID methods will actively undermine the 
 
 <div class='item-footer'>
    14:37 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5314,7 +5945,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    21:07 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5378,7 +6009,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    18:20 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5440,7 +6071,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    17:54 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5500,7 +6131,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    16:47 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5565,7 +6196,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    15:56 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5701,7 +6332,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    19:17 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5763,7 +6394,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    19:15 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5847,7 +6478,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    18:41 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5911,7 +6542,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    16:59 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6303,7 +6934,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    19:32 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6425,7 +7056,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    16:34 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6489,7 +7120,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    13:56 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6631,7 +7262,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    13:54 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6969,7 +7600,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    20:44 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7031,7 +7662,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    14:49 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7498,7 +8129,7 @@ new developer has to learn everything from scratch
 
 <div class='item-footer'>
    21:20 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7721,7 +8352,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    20:03 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7797,7 +8428,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    19:53 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7866,7 +8497,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    14:27 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8316,7 +8947,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    20:29 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8828,7 +9459,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    21:30 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8906,7 +9537,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    17:50 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8976,7 +9607,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    14:27 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9558,7 +10189,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    21:07 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9632,7 +10263,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    16:44 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9718,7 +10349,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    16:38 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9794,7 +10425,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    13:55 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9866,7 +10497,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    21:26 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10060,7 +10691,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    15:17 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10586,7 +11217,7 @@ audience. I have added a few annotations in square brackets to provide context.<
 
 <div class='item-footer'>
    15:43 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18614,7 +19245,7 @@ The blocking server list column shows an interesting mix of consensus and variat
 
 <div class='item-footer'>
    03:05 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20962,516 +21593,6 @@ The username column gives the node its identity. Note also the property instance
 
 <div class='item-footer'>
    18:29 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/01/16/implementing-secure-microsoft-graph-application-clients-in-asp-net-core/'>Implementing secure Microsoft Graph application clients in ASP.NET Core</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  The article looks at the different way a Microsoft Graph application client can be implemented and secured in an ASP.NET Core application or a .NET application. This type of client is intended for applications or application logic where no user is involved. Code: https://github.com/damienbod/MicrosoftGraphAppToAppSecurity Accessing Microsoft Graph can be initialized for app-to-app (application perm
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>The article looks at the different way a Microsoft Graph application client can be implemented and secured in an ASP.NET Core application or a .NET application. This type of client is intended for applications or application logic where no user is involved. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/MicrosoftGraphAppToAppSecurity">https://github.com/damienbod/MicrosoftGraphAppToAppSecurity</a></p>
-
-
-
-<p>Accessing Microsoft Graph can be initialized for app-to-app (application permissions) security in three different ways. The flows can only be used in a trusted host. The different implementation types are as follows:</p>
-
-
-
- 
- Using Managed Identities 
-
-
-
- Using Azure SDK and Graph SDK directly with client credentials 
-
-
-
- Using Microsoft.Identity.Client and MSAL to acquire an access token which can be used directly against Microsoft Graph or using GraphServiceClient with the DelegateAuthenticationProvider class 
- 
-
-
-
- Using Managed Identities 
-
-
-
-<p>Using managed identities for the Azure deployments is the most secure of the three ways to implement this client. This is because no secret or certificates are shared and so cannot be abused and there is no need for secret rotation. </p>
-
-
-
- Setup 
-
-
-
-<p>We use a web application deployed to an Azure App Service to setup the security. A managed identity is created for this Azure resource. If the Azure App Service is deleted, so is the managed identity and the assigned Graph roles. Only this Azure resource can use the managed identity. </p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>Once the Azure resource is created, the Graph App roles can be assigned to the managed identity.</p>
-
-
-
- Powershell scripting 
-
-
-
-<p>I created the Powershell script using a blog from Microsoft. This powershell script finds the managed identity and assigns the User.Read.All application permission to the managed identity.</p>
-
-
-  $TenantID = "&lt;your-tenant-id&gt;"
-$DisplayNameServicePrincpal ="&lt;your-azure-app-registration-or-other-azure-resource&gt;"
-$GraphAppId = "00000003-0000-0000-c000-000000000000"
-$PermissionName = "User.Read.All"
-
-Connect-AzureAD -TenantId $TenantID
-
-$sp = (Get-AzureADServicePrincipal -Filter "displayName eq '$DisplayNameServicePrincpal'")
-
-Write-Host $sp
-
-$GraphServicePrincipal = Get-AzureADServicePrincipal -Filter "appId eq '$GraphAppId'"
-
-$AppRole = $GraphServicePrincipal.AppRoles | Where-Object {$_.Value -eq $PermissionName -and $_.AllowedMemberTypes -contains "Application"}
-
-New-AzureAdServiceAppRoleAssignment -ObjectId $sp.ObjectId -PrincipalId $sp.ObjectId -ResourceId $GraphServicePrincipal.ObjectId -Id $AppRole.Id
-  
-
-
-<p>This can be checked in the Azure portal using the Enterprise applications blade and filtering for managed identities.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The permissions contains the Graph User.Read.All application permission.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Implementing the client 
-
-
-
-<p>The client is implemented using Azure.Identity and Graph SDK. We have two setups, one for the production and all other Azure deployments and one for development. The managed identity is used everywhere except the dev deployments and only this can be used. The local dev uses an Azure App registration with the client credentials flow. The GetGraphClientWithManagedIdentity method returns the  GraphServiceClient Graph SDK client setup for the correct deployment. The correct ChainedTokenCredential is used to secure the client. It is important that only the correct managed identity for the exact resource can be used in production. No secret or certificates is required for this solution, the managed identity and Azure takes care of this. The GraphServiceClient is for the application and handles the HttpClient creation so the service is created as a singleton.</p>
-
-
-  using Azure.Identity;
-using Microsoft.Graph;
-
-namespace GraphManagedIdentity;
-
-public class GraphApplicationClientService
-{
-    private readonly IConfiguration _configuration;
-    private readonly IHostEnvironment _environment;
-    private GraphServiceClient? _graphServiceClient;
-
-    public GraphApplicationClientService(IConfiguration configuration, IHostEnvironment environment)
-    {
-        _configuration = configuration;
-        _environment = environment;
-    }
-
-    /// &lt;summary&gt;
-    /// gets a singleton instance of the GraphServiceClient
-    /// &lt;/summary&gt;
-    /// &lt;returns&gt;&lt;/returns&gt;
-    public GraphServiceClient GetGraphClientWithManagedIdentityOrDevClient()
-    {
-        if (_graphServiceClient != null)
-            return _graphServiceClient;
-
-        string[] scopes = new[] { "https://graph.microsoft.com/.default" };
-
-        var chainedTokenCredential = GetChainedTokenCredentials();
-        _graphServiceClient = new GraphServiceClient(chainedTokenCredential, scopes);
-
-        return _graphServiceClient;
-    }
-
-    private ChainedTokenCredential GetChainedTokenCredentials()
-    {
-        if (!_environment.IsDevelopment())
-        {
-            return new ChainedTokenCredential(new ManagedIdentityCredential());
-        }
-        else // dev env
-        {
-            var tenantId = _configuration["AzureAd:TenantId"];
-            var clientId = _configuration.GetValue&lt;string&gt;("AzureAd:ClientId");
-            var clientSecret = _configuration.GetValue&lt;string&gt;("AzureAd:ClientSecret");
-
-            var options = new TokenCredentialOptions
-            {
-                AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
-            };
-
-            // https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
-            var devClientSecretCredential = new ClientSecretCredential(
-                tenantId, clientId, clientSecret, options);
-
-            var chainedTokenCredential = new ChainedTokenCredential(devClientSecretCredential);
-
-            return chainedTokenCredential;
-        }
-    }
-}
-  
-
-
-<p>The service is added to the IoC and can be used anywhere in the application. Once deployed, the managed identity is used, otherwise the dev setup runs.</p>
-
-
-  builder.Services.AddSingleton&lt;GraphApplicationClientService&gt;();
-builder.Services.AddScoped&lt;AadGraphSdkApplicationClient&gt;();
-  
-
-
-<p>I use it in a service then:</p>
-
-
-  using Azure.Identity;
-using Azure.Security.KeyVault.Secrets;
-using Microsoft.Graph;
-using System.Security.Cryptography.X509Certificates;
-
-namespace GraphClientCrendentials;
-
-public class AadGraphSdkApplicationClient
-{
-    private readonly IConfiguration _configuration;
-    private readonly GraphApplicationClientService _graphService;
-
-    public AadGraphSdkApplicationClient(IConfiguration configuration, GraphApplicationClientService graphService)
-    {
-        _configuration = configuration;
-        _graphService = graphService;
-    }
-
-    public async Task&lt;int&gt; GetUsersAsync()
-    {
-        var graphServiceClient = _graphService.GetGraphClientWithClientSecretCredential();
-
-        IGraphServiceUsersCollectionPage users = await graphServiceClient.Users
-            .Request()
-            .GetAsync();
-
-        return users.Count;
-    }
-}
-  
-
-
- Dev setup 
-
-
-
-<p>An Azure App registration is used to implement the OAuth client credentials flow and uses the Graph SDK client in development. The Graph application is added to the single tenant Azure App registration. An enterprise application is created from this.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The ChainedTokenCredential uses the app.settings and the user secrets to configure the client. The client uses the OAuth client credentials flow to acquire an access token. I normally use secrets for development for simplicity but if more security is required, a certificate can be used and the secret/certificate can be used directly from an Azure KeyVault.</p>
-
-
-    "AzureAd": {
-    "TenantId": "7ff95b15-dc21-4ba6-bc92-824856578fc1",
-    "ClientId": "3606b25d-f670-4bab-ab70-437460143d89"
-    //"ClientSecret": "add secret to the user secrets"
-    //"CertificateName": "[Or instead of client secret: Enter here the name of a certificate (from the user cert store) as registered with your application]",
-    //"Certificate": {
-    //  "SourceType": "KeyVault",
-    //  "KeyVaultUrl": "&lt;VaultUri&gt;",
-    //  "KeyVaultCertificateName": "&lt;CertificateName&gt;"
-    //}
-  },
-  
-
-
- Using Azure SDK and Graph SDK directly 
-
-
-
-<p>A Microsoft Graph client can be setup to to use the client credentials flow to initialize the Graph SDK GraphServiceClient. This is a good way of creating the OAuth client credentials flow if it is used outside the Azure tenant. It is recommended to use a certificate and this is normally stored in an Azure Key Vault. This uses the OAuth client credentials flow and uses the client assertions to acquire a new access token. </p>
-
-
-
-<p></p>
-
-
-
-<p>The flow can be setup to use a secret:</p>
-
-
-  private GraphServiceClient GetGraphClientWithClientSecretCredential()
-{
-	string[] scopes = new[] { "https://graph.microsoft.com/.default" };
-	var tenantId = _configuration["AzureAd:TenantId"];
-
-	// Values from app registration
-	var clientId = _configuration.GetValue&lt;string&gt;("AzureAd:ClientId");
-	var clientSecret = _configuration.GetValue&lt;string&gt;("AzureAd:ClientSecret");
-
-	var options = new TokenCredentialOptions
-	{
-		AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
-	};
-
-	// https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
-	var clientSecretCredential = new ClientSecretCredential(
-		tenantId, clientId, clientSecret, options);
-
-	return new GraphServiceClient(clientSecretCredential, scopes);
-}
-  
-
-
-<p>Or setup to use a certificate:</p>
-
-
-  private async Task&lt;GraphServiceClient&gt; GetGraphClientWithClientCertificateCredentialAsync()
-{
-	string[] scopes = new[] { "https://graph.microsoft.com/.default" };
-	var tenantId = _configuration["AzureAd:TenantId"];
-
-	var options = new TokenCredentialOptions
-	{
-		AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
-	};
-
-	// Values from app registration
-	var clientId = _configuration.GetValue&lt;string&gt;("AzureAd:ClientId");
-
-	var certififacte = await GetCertificateAsync();
-	var clientCertificateCredential = new ClientCertificateCredential(
-		tenantId, clientId, certififacte, options);
-
-	// var clientCertificatePath = _configuration.GetValue&lt;string&gt;("AzureAd:CertificateName");
-	// https://learn.microsoft.com/en-us/dotnet/api/azure.identity.clientcertificatecredential?view=azure-dotnet
-	// var clientCertificateCredential = new ClientCertificateCredential(
-	//    tenantId, clientId, clientCertificatePath, options);
-
-	return new GraphServiceClient(clientCertificateCredential, scopes);
-}
-
-private async Task&lt;X509Certificate2&gt; GetCertificateAsync()
-{
-	var identifier = _configuration["AzureAd:ClientCertificates:0:KeyVaultCertificateName"];
-
-	if (identifier == null)
-		throw new ArgumentNullException(nameof(identifier));
-
-	var vaultBaseUrl = _configuration["AzureAd:ClientCertificates:0:KeyVaultUrl"];
-	if(vaultBaseUrl == null)
-		throw new ArgumentNullException(nameof(vaultBaseUrl));
-
-	var secretClient = new SecretClient(vaultUri: new Uri(vaultBaseUrl), credential: new DefaultAzureCredential());
-
-	// Create a new secret using the secret client.
-	var secretName = identifier;
-	//var secretVersion = "";
-	KeyVaultSecret secret = await secretClient.GetSecretAsync(secretName);
-
-	var privateKeyBytes = Convert.FromBase64String(secret.Value);
-
-	var certificateWithPrivateKey = new X509Certificate2(privateKeyBytes,
-		string.Empty, X509KeyStorageFlags.MachineKeySet);
-
-	return certificateWithPrivateKey;
-}
-  
-
-
-<p>I usually use a secret for development and a certificate for production.</p>
-
-
-
- Using Microsoft.Identity.Client and MSAL 
-
-
-
-<p>A third way of implementing the Graph client is to use Microsoft.Identity.Client or Microsoft.Identity.Web. This uses the ConfidentialClientApplicationBuilder to create a new IConfidentialClientApplication instance and can use a secret or a certificate to acquire the access token. </p>
-
-
-
-<p>Microsoft.Identity.Client with a secret:</p>
-
-
-   var app = ConfidentialClientApplicationBuilder.Create(config.ClientId)
-    .WithClientSecret(config.ClientSecret)
-    .WithAuthority(new Uri(config.Authority))
-    .Build();
-
-app.AddInMemoryTokenCache();
-  
-
-
-<p>or with a certificate and client assertions:</p>
-
-
-   var app = ConfidentialClientApplicationBuilder.Create(config.ClientId)
-    .WithCertificate(certificate)
-    .WithAuthority(new Uri(config.Authority))
-    .Build(); 
-  
-app.AddInMemoryTokenCache();
-  
-
-
-<p>The GraphServiceClient can be created using the DelegateAuthenticationProvider. As I understand you should avoid using the DelegateAuthenticationProvider if possible.</p>
-
-
-  GraphServiceClient graphServiceClient =
-    new GraphServiceClient("https://graph.microsoft.com/V1.0/", 
-        new DelegateAuthenticationProvider(async (requestMessage) =&gt;
-        {
-            // Retrieve an access token for Microsoft Graph (gets a fresh token if needed).
-            AuthenticationResult result = await app.AcquireTokenForClient(scopes)
-                .ExecuteAsync();
-
-            // Add the access token in the Authorization header of the API request.
-            requestMessage.Headers.Authorization =
-                new AuthenticationHeaderValue("Bearer", result.AccessToken);
-        }));
-}
-  
-
-
- Notes 
-
-
-
-<p>There are three different ways of creating Microsoft Graph application clients and it is sometimes hard to understand when you should use which. This is not for the delegated clients. In an ASP.NET Core application you would use Microsoft.Identity.Web for a delegated client which then uses Microsoft Graph on behalf of the user. System assigned managed identities do not require managing secrets or certificates but can only be used in the same tenant. The client credentials flow can be used from anywhere. Microsoft recommends using certificates when using the client credentials flow. </p>
-
-
-
- Links 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/app-service/scenario-secure-app-access-microsoft-graph-as-app?tabs=azure-powershell">https://learn.microsoft.com/en-us/azure/app-service/scenario-secure-app-access-microsoft-graph-as-app?tabs=azure-powershell</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/develop/sample-v2-code#service–daemon">https://learn.microsoft.com/en-us/azure/active-directory/develop/sample-v2-code#service–daemon</a></p>
-
-
-
-<p><a href="https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/1-Call-MSGraph">https://github.com/Azure-Samples/active-directory-dotnetcore-daemon-v2/tree/master/1-Call-MSGraph</a></p>
-
-
-
-<p><a href="https://oceanleaf.ch/azure-managed-identity/">https://oceanleaf.ch/azure-managed-identity/</a></p>
-
-
-
-<p><a href="https://learningbydoing.cloud/blog/stop-using-client-secrets-start-using-managed-identities/">https://learningbydoing.cloud/blog/stop-using-client-secrets-start-using-managed-identities/</a></p>
-
-
-
-<p><a href="https://github.com/Azure/azure-sdk-for-net">https://github.com/Azure/azure-sdk-for-net</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet">https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS">https://learn.microsoft.com/en-us/graph/sdks/choose-authentication-providers?tabs=CS</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/01/mi-aad-03-1.png?w=733'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:56 &bull;
    3 months ago
 </div>
 
