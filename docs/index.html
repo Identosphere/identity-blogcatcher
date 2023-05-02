@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:48 AM May 02, 2023 (UTC)</sup>
+<sup>Last Update 9:37 AM May 02, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -729,6 +729,196 @@
  <h2 class='new-date'>
   Tuesday, 02. May 2023
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2023/May/2/download-esm/#atom-everything'>download-esm: a tool for downloading ECMAScript modules</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I've built a new CLI tool, download-esm, which takes the name of an npm package and will attempt to download the ECMAScript module version of that package, plus all of its dependencies, directly from the jsDelivr CDN - and then rewrite all of the import statements to point to those local copies. 
+ Why I built this 
+ I have somewhat unconventional tastes when it comes to JavaScript. 
+ I really, rea
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2023/observable-plot-download-esm.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I've built a new CLI tool, <a href="https://github.com/simonw/download-esm">download-esm</a>, which takes the name of an <a href="https://www.npmjs.com/">npm</a> package and will attempt to download the ECMAScript module version of that package, plus all of its dependencies, directly from the <a href="https://www.jsdelivr.com/">jsDelivr</a> CDN - and then rewrite all of the import statements to point to those local copies.</p>
+ Why I built this 
+<p>I have somewhat unconventional tastes when it comes to JavaScript.</p>
+<p>I really, really dislike having to use a local build script when I'm working with JavaScript code. I've tried plenty, and inevitably I find that six months later I return to the project and stuff doesn't work any more - dependencies need updating, or my Node.js is out of date, or the build tool I'm using has gone out of fashion.</p>
+<p>Julia Evans captured how I feel about this really clearly in <a href="https://jvns.ca/blog/2023/02/16/writing-javascript-without-a-build-system/">Writing Javascript without a build system</a>.</p>
+<p>I just want to drop some <code>.js</code> files into a directory, load them into an HTML file and start writing code.</p>
+<p>Working the way I want to work is becoming increasingly difficult over time. Many modern JavaScript packages assume you'll be using <code>npm</code> and a set of build tools, and their documentation gets as far as <code>npm install package</code> and then moves on to more exciting things.</p>
+<p>Some tools do offer a second option: a CDN link. This is great, and almost what I want... but when I'm building software for other people (<a href="https://datasette.io/plugins">Datasette plugins</a> for example) I like to include the JavaScript dependencies in my installable package, rather than depending on a CDN staying available at that URL forever more.</p>
+<p>This is a key point: I don't want to depend on a fixed CDN. If you're happy using a CDN then <code>download-esm</code> is not a useful tool for you.</p>
+<p>Usually, that CDN link is enough: I can download the <code>.js</code> file from the CDN, stash it in my own directory and get on with my project.</p>
+<p>This is getting increasingly difficult now, thanks to the growing popularity of ECMAScript modules.</p>
+ ECMAScript modules 
+<p>I love the general idea of ECMAScript modules, which have been supported by all of the major browsers for a few years now.</p>
+<p>If you're not familiar with them, they let you do things like this (example from the Observable Plot <a href="https://observablehq.com/plot/getting-started">getting started guide</a>):</p>
+  &lt;div id="myplot"&gt;&lt;/div&gt;
+&lt;script type="module"&gt;
+import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
+
+const plot = Plot.rectY(
+    {length: 10000},
+    Plot.binX(
+        {y: "count"},
+        {x: Math.random}
+    )
+).plot();
+const div = document.querySelector("#myplot");
+div.append(plot);
+&lt;/script&gt;  
+<p>This is beautiful. You can import code on-demand, which makes lazy loading easier. Modules can themselves import other modules, and the browser will download them in parallel over HTTP/2 and cache them for future use.</p>
+<p>There's one big catch here: downloading these files from the CDN and storing them locally is surprisingly fiddly.</p>
+<p>Observable Plot for example has 40 nested dependency modules. And downloading all 40 isn't enough, because most of those modules include their own references that look like this:</p>
+  export*from"/npm/d3-array@3.2.3/+esm";
+export*from"/npm/d3-axis@3.0.0/+esm";  
+<p>These references all need to be rewritten to point to the local copies of the modules.</p>
+ Inspiration from Observable Plot 
+<p>I opened an issue on the Observable Plot repository: <a href="https://github.com/observablehq/plot/issues/1496">Getting started documentation request: Vanilla JS with no CDN</a>.</p>
+<p>An hour later Mike Bostock <a href="https://github.com/observablehq/plot/commit/90a3876c037dc40e436ff4ad9c403f0681e4c203">committed a fix</a> linking to UMB bundles for <code>d3.js</code> and <code>plot3.js</code> - which is a good solution, but doesn't let me import them as modules. But he also posted <a href="https://github.com/observablehq/plot/issues/1496#issuecomment-1526116800">this intriguing comment</a>:</p>
+<blockquote>
+<p>I think maybe the answer here is that someone should write a “downloader” tool that downloads the compiled ES modules from jsDelivr (or other CDN) and rewrites the import statements to use relative paths. Then you could just download this URL</p>
+<p><a href="https://cdn.jsdelivr.net/npm/@observablehq/plot/+esm">https://cdn.jsdelivr.net/npm/@observablehq/plot/+esm</a></p>
+<p>and you’d get the direct dependencies</p>
+<p><a href="https://cdn.jsdelivr.net/npm/d3@7.8.4/+esm">https://cdn.jsdelivr.net/npm/d3@7.8.4/+esm</a> <a href="https://cdn.jsdelivr.net/npm/isoformat@0.2.1/+esm">https://cdn.jsdelivr.net/npm/isoformat@0.2.1/+esm</a> <a href="https://cdn.jsdelivr.net/npm/interval-tree-1d@1.0.4/+esm">https://cdn.jsdelivr.net/npm/interval-tree-1d@1.0.4/+esm</a></p>
+<p>and the transitive dependencies and so on as separate files.</p>
+</blockquote>
+<p>So I built that!</p>
+ download-esm 
+<p>The new tool I've built is called <a href="https://pypi.org/project/download-esm/">download-esm</a>. You can install it using <code>pip install download-esm</code>, or <code>pipx install download-esm</code>, or even <code>rye install download-esm</code> if that's your <a href="https://til.simonwillison.net/python/rye">new installation tool of choice</a>.</p>
+<p>Once installed, you can attempt to download the ECMAScript module version of any <code>npm</code> package - plus its dependencies - like this:</p>
+  download-esm @observablehq/plot plot/  
+<p>This will download the module versions of every file, rewrite their imports and save them in the <code>plot/</code> directory.</p>
+<p>When I run the above I get the following from <code>ls plot/</code>:</p>
+  binary-search-bounds-2-0-5.js
+d3-7-8-4.js
+d3-array-3-2-0.js
+d3-array-3-2-1.js
+d3-array-3-2-3.js
+d3-axis-3-0-0.js
+d3-brush-3-0-0.js
+d3-chord-3-0-1.js
+d3-color-3-1-0.js
+d3-contour-4-0-2.js
+d3-delaunay-6-0-4.js
+d3-dispatch-3-0-1.js
+d3-drag-3-0-0.js
+d3-dsv-3-0-1.js
+d3-ease-3-0-1.js
+d3-fetch-3-0-1.js
+d3-force-3-0-0.js
+d3-format-3-1-0.js
+d3-geo-3-1-0.js
+d3-hierarchy-3-1-2.js
+d3-interpolate-3-0-1.js
+d3-path-3-1-0.js
+d3-polygon-3-0-1.js
+d3-quadtree-3-0-1.js
+d3-random-3-0-1.js
+d3-scale-4-0-2.js
+d3-scale-chromatic-3-0-0.js
+d3-selection-3-0-0.js
+d3-shape-3-2-0.js
+d3-time-3-1-0.js
+d3-time-format-4-1-0.js
+d3-timer-3-0-1.js
+d3-transition-3-0-1.js
+d3-zoom-3-0-0.js
+delaunator-5-0-0.js
+internmap-2-0-3.js
+interval-tree-1d-1-0-4.js
+isoformat-0-2-1.js
+observablehq-plot-0-6-6.js
+robust-predicates-3-0-1.js  
+<p>Then to use Observable Plot you can put this in an <code>index.html</code> file in the same directory:</p>
+  &lt;div id="myplot"&gt;&lt;/div&gt;
+&lt;script type="module"&gt;
+import * as Plot from "./observablehq-plot-0-6-6.js";
+const plot = Plot.rectY(
+    {length: 10000}, Plot.binX({y: "count"}, {x: Math.random})
+).plot();
+const div = document.querySelector("#myplot");
+div.append(plot);
+&lt;/script&gt;  
+<p>Then run <code>python3 -m http.server</code> to start a server on port 8000 (ECMAScript modules don't work directly from opening files), and open <code>http://localhost:8000/</code> in your browser.</p>
+<p></p>
+ How it works 
+<p>There's honestly not a lot to this. It's 100 lines of Python <a href="https://github.com/simonw/download-esm/blob/0.1a0/download_esm/cli.py">in this file</a> - most of the work is done by some regular expressions, which were themselves mostly written by ChatGPT.</p>
+<p>I shipped the first alpha release as soon as it could get Observable Plot working, because that was my initial reason for creating the project.</p>
+<p>I have an <a href="https://github.com/simonw/download-esm/issues/2">open issue</a> inviting people to help test it with other packages. That issue includes my own comments of stuff I've tried with it so far.</p>
+<p>So far I've successfully used it for <a href="https://www.npmjs.com/package/preact">preact</a> and <a href="https://www.npmjs.com/package/htm">htm</a>, for <a href="https://www.npmjs.com/package/codemirror">codemirror</a> and partially for <a href="https://www.npmjs.com/package/monaco-editor">monaco-editor</a> - though Monaco breaks when you attempt to enable syntax highlighting, as it attempts to dynamically load additional modules from the wrong place.</p>
+ Your help needed 
+<p>It seems very unlikely to me that no-one has solved this problem - I would be delighted if I could retire <code>download-esm</code> in favour of some other solution.</p>
+<p>If this tool does turn out to fill a new niche, I'd love to make it more robust. I'm not a frequent JavaScript developer so I'm certain there are all sorts of edge-cases and capabilities I haven't thought of.</p>
+<p><a href="https://github.com/simonw/download-esm">Contributions welcome</a>!</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2023/observable-plot-download-esm.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:47 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -795,7 +985,7 @@
 
 <div class='item-footer'>
    00:32 &bull;
-   an hour ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -863,7 +1053,7 @@
 
 <div class='item-footer'>
    21:32 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -972,7 +1162,7 @@
 
 <div class='item-footer'>
    21:02 &bull;
-   5 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1079,7 +1269,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    18:37 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1155,7 +1345,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    17:45 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1221,7 +1411,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    17:44 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1286,7 +1476,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    16:10 &bull;
-   10 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1347,7 +1537,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    16:09 &bull;
-   10 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1416,7 +1606,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    16:08 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1477,7 +1667,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    15:50 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1538,7 +1728,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    15:47 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1599,7 +1789,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    15:45 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1674,7 +1864,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    15:19 &bull;
-   11 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1749,7 +1939,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    15:18 &bull;
-   11 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1822,7 +2012,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    15:02 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1891,7 +2081,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    14:21 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1956,7 +2146,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    14:20 &bull;
-   12 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2055,7 +2245,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    13:46 &bull;
-   12 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2128,7 +2318,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    13:33 &bull;
-   12 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2202,7 +2392,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    13:11 &bull;
-   13 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2506,7 +2696,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    06:12 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2571,7 +2761,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    05:20 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2698,7 +2888,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    05:12 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2786,7 +2976,7 @@ Web LLM which pulls off the same trick but for vicuna-7b-v1, a genuinel
 
 <div class='item-footer'>
    04:08 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -3834,7 +4024,7 @@ where
 
 <div class='item-footer'>
    17:43 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3982,7 +4172,7 @@ where
 
 <div class='item-footer'>
    19:34 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4048,7 +4238,7 @@ where
 
 <div class='item-footer'>
    14:24 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4316,7 +4506,7 @@ where
 
 <div class='item-footer'>
    15:50 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4446,7 +4636,7 @@ where
 
 <div class='item-footer'>
    18:04 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4538,7 +4728,7 @@ where
 
 <div class='item-footer'>
    14:56 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4810,7 +5000,7 @@ where
 
 <div class='item-footer'>
    19:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4874,7 +5064,7 @@ where
 
 <div class='item-footer'>
    17:57 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5260,7 +5450,7 @@ Original Art
 
 <div class='item-footer'>
    20:29 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5426,7 +5616,7 @@ Original Art
 
 <div class='item-footer'>
    17:07 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5845,7 +6035,7 @@ Source Link: <a href="https://apps.dtic.mil/sti/pdfs/ADA253949.pdf">https://apps
 
 <div class='item-footer'>
    21:03 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5909,7 +6099,7 @@ Source Link: <a href="https://apps.dtic.mil/sti/pdfs/ADA253949.pdf">https://apps
 
 <div class='item-footer'>
    20:41 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5969,7 +6159,7 @@ Source Link: <a href="https://apps.dtic.mil/sti/pdfs/ADA253949.pdf">https://apps
 
 <div class='item-footer'>
    16:38 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6033,7 +6223,7 @@ Source Link: <a href="https://apps.dtic.mil/sti/pdfs/ADA253949.pdf">https://apps
 
 <div class='item-footer'>
    15:32 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6333,7 +6523,7 @@ these capabilities.
 
 <div class='item-footer'>
    17:03 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6484,7 +6674,7 @@ these capabilities.
 
 <div class='item-footer'>
    15:47 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7145,7 +7335,7 @@ open("/tmp/sizes.json", "w").write(json.dumps(output, indent=2))
 
 <div class='item-footer'>
    18:57 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7207,7 +7397,7 @@ open("/tmp/sizes.json", "w").write(json.dumps(output, indent=2))
 
 <div class='item-footer'>
    17:13 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7271,7 +7461,7 @@ open("/tmp/sizes.json", "w").write(json.dumps(output, indent=2))
 
 <div class='item-footer'>
    14:28 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7335,7 +7525,7 @@ open("/tmp/sizes.json", "w").write(json.dumps(output, indent=2))
 
 <div class='item-footer'>
    14:21 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8201,74 +8391,6 @@ early days, but very promising.</p>
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2023/Apr/16/stable-diffusion-and-dreambooth/#atom-everything'>How I Used Stable Diffusion and Dreambooth to Create A Painted Portrait of My Dog</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   How I Used Stable Diffusion and Dreambooth to Create A Painted Portrait of My Dog 
- I like posts like this that go into detail in terms of how much work it takes to deliberately get the kind of result you really want using generative AI tools. Jake Dahn trained a Dreambooth model from 40 photos of Queso - his photogenic Golden Retriever - using Replicate, then gathered the prompts from ten images 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.shruggingface.com/blog/how-i-used-stable-diffusion-and-dreambooth-to-create-a-painted-portrait-of-my-dog">How I Used Stable Diffusion and Dreambooth to Create A Painted Portrait of My Dog</a></p>
-<p>I like posts like this that go into detail in terms of how much work it takes to deliberately get the kind of result you really want using generative AI tools. Jake Dahn trained a Dreambooth model from 40 photos of Queso - his photogenic Golden Retriever - using Replicate, then gathered the prompts from ten images he liked on Lexica and generated over 1,000 different candidate images, picked his favourite, used Draw Things img2img resizing to expand the image beyond the initial crop, then Automatic1111 inpainting to tweak the ears, then Real-ESRGAN 4x+ to upscale for the final print.</p>
-
-    <p>Via <a href="https://news.ycombinator.com/item?id=35592847">Hacker News</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:57 &bull;
-   15 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Friday, 14. April 2023
  </h2>
@@ -8325,7 +8447,7 @@ early days, but very promising.</p>
 
 <div class='item-footer'>
    14:11 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9724,7 +9846,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    13:54 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10062,7 +10184,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    20:44 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10124,7 +10246,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    14:49 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10591,7 +10713,7 @@ new developer has to learn everything from scratch
 
 <div class='item-footer'>
    21:20 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10814,7 +10936,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    20:03 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10890,7 +11012,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    19:53 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10959,7 +11081,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    14:27 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11409,7 +11531,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    20:29 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11602,7 +11724,7 @@ If you’re curious about the Steampipe + Mastodon combo, install the <a href="h
 
 <div class='item-footer'>
    02:21 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -23675,7 +23797,7 @@ to be able to do an in-person event later this year.</p>
 
 <div class='item-footer'>
    04:29 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -32152,7 +32274,7 @@ order by
 
 <div class='item-footer'>
    03:38 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
