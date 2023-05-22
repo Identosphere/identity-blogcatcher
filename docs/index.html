@@ -716,12 +716,265 @@
 
 </div>
 </div>
-<sup>Last Update 1:56 AM May 22, 2023 (UTC)</sup>
+<sup>Last Update 9:37 AM May 22, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 22. May 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/05/22/blazor-and-csp/'>Blazor and CSP</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post looks at the a recent fix for Blazor which I think is of massive importance. You can now develop with Blazor in Visual Studio (Preview) using a strong CSP. Code: https://github.com/damienbod/Hostedblazor8Aad When developing applications, the development environment should be as close as possible to the target production deployment. As a rule, the more […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post looks at the a recent fix for Blazor which I think is of massive importance. You can now develop with Blazor in Visual Studio (Preview) using a strong CSP. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/Hostedblazor8Aad">https://github.com/damienbod/Hostedblazor8Aad</a></p>
+
+
+
+<p>When developing applications, the development environment should be as close as possible to the target production deployment. As a rule, the more these two differ, the more effort you have. You should always develop with HTTPS and you should always use the same CSP in development as in production. (apart from the URLs) This prevents developers adding unsecure scripts and styles before it gets expensive to remove them. This also helps you not deploying unsecure HTTP links, or references to CDNs which cannot be used or using iframes anywhere. All of this reduces the development effort and reduces to overall cost of the project. It is a very bad idea to develop in HTTP and even worse to deploy HTTP. </p>
+
+
+
+<p>Visual Studio issue CSP fix:</p>
+
+
+
+<p><a href="https://developercommunity.visualstudio.com/t/browserlink-CSP-support-NET-7/10061464">https://developercommunity.visualstudio.com/t/browserlink-CSP-support-NET-7/10061464</a></p>
+
+
+
+<p>Before this fix, when using a good CSP definition, the hot reload did not work and the console displayed warnings. To remove this you had to use a weak CSP and this is a bad idea because you would need to fix your CSP issues after deploying. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>After this fix, you can develop and deploy using the same CSP definition and also develop using hot reload with an active CSP. </p>
+
+
+
+ How to define good security headers 
+
+
+
+<p>The best way to secure your session in Blazor is to use the <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package and add this to the Server part of the Blazor application. Modern secure Blazor applications use the BFF security architecture. By using BFF, no sensitive data is stored in the browser. The NetEscapades.AspNetCore.SecurityHeaders package makes it easy to apply all the required headers in one place.</p>
+
+
+
+<p>Once the package is part of the project, you can define the headers for Blazor as follows:</p>
+
+
+  namespace HostedBlazorAad.Server;
+
+public static class SecurityHeadersDefinitions
+{
+    public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev, string? idpHost)
+    {
+        if(idpHost == null)
+        {
+            throw new ArgumentNullException(nameof(idpHost));
+        }
+
+        var policy = new HeaderPolicyCollection()
+            .AddFrameOptionsDeny()
+            .AddXssProtectionBlock()
+            .AddContentTypeOptionsNoSniff()
+            .AddReferrerPolicyStrictOriginWhenCrossOrigin()
+            .AddCrossOriginOpenerPolicy(builder =&gt; builder.SameOrigin())
+            .AddCrossOriginResourcePolicy(builder =&gt; builder.SameOrigin())
+            .AddCrossOriginEmbedderPolicy(builder =&gt; builder.RequireCorp())
+            .AddContentSecurityPolicy(builder =&gt;
+            {
+                builder.AddObjectSrc().None();
+                builder.AddBlockAllMixedContent();
+                builder.AddImgSrc().Self().From("data:");
+                builder.AddFormAction().Self().From(idpHost);
+                builder.AddFontSrc().Self();
+                builder.AddStyleSrc().Self();
+                builder.AddBaseUri().Self();
+                builder.AddFrameAncestors().None();
+
+                // due to Blazor
+                builder.AddScriptSrc()
+                    .Self()
+                    .WithHash256("v8v3RKRPmN4odZ1CWM5gw80QKPCCWMcpNeOmimNL2AA=")
+                    //.WasmUnsafeEval(); // cannot use in .NET due to scripts
+                    .UnsafeEval();
+            })
+            .RemoveServerHeader()
+            .AddPermissionsPolicy(builder =&gt;
+            {
+                builder.AddAccelerometer().None();
+                builder.AddAutoplay().None();
+                builder.AddCamera().None();
+                builder.AddEncryptedMedia().None();
+                builder.AddFullscreen().All();
+                builder.AddGeolocation().None();
+                builder.AddGyroscope().None();
+                builder.AddMagnetometer().None();
+                builder.AddMicrophone().None();
+                builder.AddMidi().None();
+                builder.AddPayment().None();
+                builder.AddPictureInPicture().None();
+                builder.AddSyncXHR().None();
+                builder.AddUsb().None();
+            });
+
+        if (!isDev)
+        {
+            // maxAge = one year in seconds
+            policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
+        }
+
+        policy.ApplyDocumentHeadersToAllResponses();
+
+        return policy;
+    }
+}
+  
+
+
+<p>In the actual .NET 8 preview version and .NET 7 version, there is an issue preventing Blazor applications using the WasmUnsafeEval. UnsafeEval is still required. It would be nice if we could use a CSP with a nonce but at present, this is not possible with the actual Blazor version. This is something which can be improved.</p>
+
+
+
+<p>The headers are applied the to all responses including static files.</p>
+
+
+  var app = builder.Build();
+
+if (env.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+    app.UseWebAssemblyDebugging();
+}
+else
+{
+    app.UseExceptionHandler("/Error");
+}
+
+app.UseSecurityHeaders(
+    SecurityHeadersDefinitions.GetHeaderPolicyCollection(env.IsDevelopment(),
+        configuration["AzureAd:Instance"]));
+
+app.UseHttpsRedirection();
+app.UseBlazorFrameworkFiles();
+app.UseStaticFiles();
+
+app.UseRouting();
+
+app.UseNoUnauthorizedRedirect("/api");
+
+app.UseAuthentication();
+app.UseAuthorization();
+  
+
+
+ Notes 
+
+
+
+<p>The CSP can still be improved, it is not perfect, but this requires changes in Blazor and the application hosting. At least we can still use the same CSP as in production.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
+
+
+
+<p><a href="https://developercommunity.visualstudio.com/t/browserlink-CSP-support-NET-7/10061464">https://developercommunity.visualstudio.com/t/browserlink-CSP-support-NET-7/10061464</a></p>
+
+
+
+<p><a href="https://github.com/dotnet/aspnetcore/issues/34428">https://github.com/dotnet/aspnetcore/issues/34428</a></p>
+
+
+
+<p><a href="https://github.com/dotnet/AspNetCore.Docs/pull/29294">https://github.com/dotnet/AspNetCore.Docs/pull/29294</a></p>
+
+
+
+<p><a href="https://report-uri.com/home/hash/">https://report-uri.com/home/hash/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/03/net8_aad_blazor_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:57 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -786,7 +1039,7 @@
 
 <div class='item-footer'>
    21:39 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -850,7 +1103,7 @@
 
 <div class='item-footer'>
    21:35 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -915,7 +1168,7 @@
 
 <div class='item-footer'>
    18:55 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -979,7 +1232,7 @@
 
 <div class='item-footer'>
    18:53 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1042,7 +1295,7 @@
 
 <div class='item-footer'>
    18:25 &bull;
-   8 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1113,7 +1366,7 @@
 
 <div class='item-footer'>
    17:34 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1181,7 +1434,7 @@
 
 <div class='item-footer'>
    17:33 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1242,7 +1495,7 @@
 
 <div class='item-footer'>
    17:30 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1303,7 +1556,7 @@
 
 <div class='item-footer'>
    16:01 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1364,7 +1617,7 @@
 
 <div class='item-footer'>
    15:26 &bull;
-   11 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1463,7 +1716,7 @@
 
 <div class='item-footer'>
    14:47 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2568,7 +2821,7 @@
 
 <div class='item-footer'>
    15:19 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2634,7 +2887,7 @@
 
 <div class='item-footer'>
    14:36 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2706,7 +2959,7 @@
 
 <div class='item-footer'>
    14:05 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2774,7 +3027,7 @@
 
 <div class='item-footer'>
    13:09 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2846,7 +3099,7 @@
 
 <div class='item-footer'>
    13:05 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2918,7 +3171,7 @@
 
 <div class='item-footer'>
    12:14 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2985,7 +3238,7 @@
 
 <div class='item-footer'>
    19:11 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3053,7 +3306,7 @@
 
 <div class='item-footer'>
    19:11 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3117,7 +3370,7 @@
 
 <div class='item-footer'>
    18:35 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3216,7 +3469,7 @@
 
 <div class='item-footer'>
    18:06 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3284,7 +3537,7 @@
 
 <div class='item-footer'>
    15:42 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3346,7 +3599,7 @@
 
 <div class='item-footer'>
    15:34 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3422,7 +3675,7 @@
 
 <div class='item-footer'>
    14:22 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3778,7 +4031,7 @@
 
 <div class='item-footer'>
    21:27 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3844,7 +4097,7 @@
 
 <div class='item-footer'>
    21:14 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4035,7 +4288,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    21:04 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4100,7 +4353,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    20:21 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4176,7 +4429,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    17:19 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4246,7 +4499,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    16:57 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4324,7 +4577,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    15:24 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4396,7 +4649,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    15:14 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4468,7 +4721,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    15:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4536,7 +4789,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    14:01 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4686,7 +4939,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    21:38 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5047,7 +5300,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    15:24 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5119,7 +5372,7 @@ async () =&gt; {
 
 <div class='item-footer'>
    15:04 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5193,7 +5446,7 @@ I tried Midjourney to create the cover photo for this post “robot peering in t
 
 <div class='item-footer'>
    14:37 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5575,7 +5828,7 @@ I tried Midjourney to create the cover photo for this post “robot peering in t
 
 <div class='item-footer'>
    20:54 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5639,7 +5892,7 @@ I tried Midjourney to create the cover photo for this post “robot peering in t
 
 <div class='item-footer'>
    19:42 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5705,7 +5958,7 @@ I tried Midjourney to create the cover photo for this post “robot peering in t
 
 <div class='item-footer'>
    19:11 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5775,7 +6028,7 @@ I tried Midjourney to create the cover photo for this post “robot peering in t
 
 <div class='item-footer'>
    17:39 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5845,7 +6098,7 @@ I tried Midjourney to create the cover photo for this post “robot peering in t
 
 <div class='item-footer'>
    15:25 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6178,7 +6431,7 @@ Morgan Lemmer-Webber!</p><p>Links:</p>  <a href="https://f-droid.org/">F-Droid</
 
 <div class='item-footer'>
    14:17 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6593,7 +6846,7 @@ May 8th, 2023</p>
 
 <div class='item-footer'>
    19:28 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6661,7 +6914,7 @@ May 8th, 2023</p>
 
 <div class='item-footer'>
    18:38 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6727,7 +6980,7 @@ May 8th, 2023</p>
 
 <div class='item-footer'>
    18:14 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6882,7 +7135,7 @@ May 8th, 2023</p>
 
 <div class='item-footer'>
    21:24 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6949,7 +7202,7 @@ May 8th, 2023</p>
 
 <div class='item-footer'>
    16:28 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7011,7 +7264,7 @@ May 8th, 2023</p>
 
 <div class='item-footer'>
    16:21 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7074,7 +7327,7 @@ May 8th, 2023</p>
 
 <div class='item-footer'>
    16:16 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7210,7 +7463,7 @@ Now write a poem about a panda
 
 <div class='item-footer'>
    15:51 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7555,7 +7808,7 @@ Now write a poem about a panda
 
 <div class='item-footer'>
    19:50 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7615,7 +7868,7 @@ Now write a poem about a panda
 
 <div class='item-footer'>
    18:43 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7746,7 +7999,7 @@ Now write a poem about a panda
 
 <div class='item-footer'>
    15:44 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7958,7 +8211,7 @@ Source Link: <a href="https://celiafarber.substack.com/p/diana-wests-critique-of
 
 <div class='item-footer'>
    20:22 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8024,7 +8277,7 @@ Source Link: <a href="https://celiafarber.substack.com/p/diana-wests-critique-of
 
 <div class='item-footer'>
    19:04 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8090,7 +8343,7 @@ Source Link: <a href="https://celiafarber.substack.com/p/diana-wests-critique-of
 
 <div class='item-footer'>
    17:35 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8275,7 +8528,7 @@ this hasn’t passed, it’s present.</p>
 
 <div class='item-footer'>
    16:36 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8371,7 +8624,7 @@ this hasn’t passed, it’s present.</p>
 
 <div class='item-footer'>
    15:19 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8453,7 +8706,7 @@ JSON Proof Token (JPT) is a compact, URL-safe, privacy-preserving representation
 
 <div class='item-footer'>
    14:59 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8945,7 +9198,7 @@ Source Link: <a href="http://documents.sifma.org/uploadedFiles/documents_sifma_o
 
 <div class='item-footer'>
    16:52 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9014,7 +9267,7 @@ High assurant digital i
 
 <div class='item-footer'>
    15:51 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9604,7 +9857,7 @@ High assurant digital i
 
 <div class='item-footer'>
    15:50 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9670,7 +9923,7 @@ High assurant digital i
 
 <div class='item-footer'>
    17:57 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -24267,302 +24520,6 @@ Photo by <a href="https://unsplash.com/@blakeweyland?utm_source=medium&amp;utm_m
 
 
 <h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/02/20/using-hangfire-with-asp-net-core/'>Using Hangfire with ASP.NET Core</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article looks at setting up Hangfire with ASP.NET Core and an SQL server. Hangfire provides a solution to run recurring jobs and background jobs with an excellent dashboard to monitor the events. Code: https://github.com/damienbod/AspNetCoreHangfire History 2023-02-21 Fix Delete background job to delete recurring job, feedback from Alex The ASP.NET Core application uses two Hangfire […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article looks at setting up Hangfire with ASP.NET Core and an SQL server. Hangfire provides a solution to run recurring jobs and background jobs with an excellent dashboard to monitor the events.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreHangfire">https://github.com/damienbod/AspNetCoreHangfire</a></p>
-
-
-
-<p>History</p>
-
-
-
-<p>2023-02-21 Fix Delete background job to delete recurring job, feedback from Alex</p>
-
-
-
-<p></p>
-
-
-
-<p>The ASP.NET Core application uses two Hangfire Nuget packages to integrate the event handling into the solution.</p>
-
-
-
- 
- Hangfire.AspNetCore 
-
-
-
- Hangfire.SqlServer 
- 
-
-
-
-<p></p>
-
-
-
-<p>The program file initializes the services and adds the middleware to the project. The SQL Server is setup using the extension methods from the Hangfire Nuget packages and uses a connection string from the app settings in development.</p>
-
-
-  public static void Main(string[] args)
-{
-	var builder = WebApplication.CreateBuilder(args);
-	var services = builder.Services;
-	var configuration = builder.Configuration;
-	var env = builder.Environment;
-
-	services.AddHangfire(hangfire =&gt;
-	{
-		hangfire.SetDataCompatibilityLevel(CompatibilityLevel.Version_170);
-		hangfire.UseSimpleAssemblyNameTypeSerializer();
-		hangfire.UseRecommendedSerializerSettings();
-		hangfire.UseColouredConsoleLogProvider();
-		hangfire.UseSqlServerStorage(
-                     configuration.GetConnectionString("HangfireConn"), 
-			new SqlServerStorageOptions
-			{
-				CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
-				SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
-				QueuePollInterval = TimeSpan.Zero,
-				UseRecommendedIsolationLevel = true,
-				DisableGlobalLocks = true 
-			});
-
-		var server = new BackgroundJobServer(new BackgroundJobServerOptions
-		{
-			ServerName = "hangfire-test",
-		});
-	});
-	
-	// other services...
-
-	var app = builder.Build();
-
-
-	app.UseHangfireDashboard();
-
-	// more middleware...
-
-	app.Run();
-}
-  
-
-
-<p></p>
-
-
-
- SQL database setup 
-
-
-
-<p>The SQL database is setup using the Hangfire documentation.</p>
-
-
-
-<p><a href="https://docs.hangfire.io/en/latest/configuration/using-sql-server.html">https://docs.hangfire.io/en/latest/configuration/using-sql-server.html</a></p>
-
-
-
-<p>The hangfire <a href="https://github.com/HangfireIO/Hangfire/blob/master/src/Hangfire.SqlServer/Install.sql">script</a> can be found in the hangfire repository. I also added a copy of this script in the demo repository: hangfire-default-install.sql</p>
-
-
-
- Create a recurring job 
-
-
-
-<p>Now that Hangfire is setup, jobs can be created. I use a class to implement the method called after a Hangfire event has been fired. The method must be reentrant and needs to handle the exceptions.</p>
-
-
-  public class MyRecurringJob : IMyRecurringJob
-{
-    public void DoSomethingReentrant()
-    {
-        Console.WriteLine("IMyRecurringJob doing something");
-    }
-}
-  
-
-
-<p>The job can be created using the RecurringJob.AddOrUpdate method. This adds the job to the SQL database.</p>
-
-
-  RecurringJob.AddOrUpdate&lt;IMyRecurringJob&gt;(
-   job =&gt; job.DoSomethingReentrant(), Cron.Hourly);
-  
-
-
- Create a background job 
-
-
-
-<p>A Hnagfire background job can be created using the BackgroundJob.Enqueue method. The methods have various parameters which can be used anc covers most of the event, job requirements which can exist. </p>
-
-
-  BackgroundJob.Enqueue&lt;IMyBackgroundJob&gt;(x =&gt; x.DoSomethingReentrant());
-  
-
-
- Delete recurring jobs 
-
-
-
-<p>Deleting the jobs is required if you deploy regularly as different instances are created and new recurring jobs are created then. The following code makes it possible to delete the recurring jonbs.</p>
-
-
-  using (var connection = JobStorage.Current.GetConnection())
-{
-	foreach (var recurringJob in connection.GetRecurringJobs())
-	{
-		RecurringJob.RemoveIfExists(recurringJob.Id);
-	}
-}
-  
-
-
- Running the applications 
-
-
-
-<p>When the applications are created and different jobs can be created or deleted. </p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Hangfire Dashboard 
-
-
-
-<p>Hangfire provides an excellent dashboard which can display the running or failed jobs and the different server setups.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Notes 
-
-
-
-<p>This is just the basic setup of Hangfire. You can integrate Hangfire in various ways into a solution, but KISS should always be followed. Using events inside solutions is already complicated and requires extra tools to monitor and debug. You should also only use this if the business logic requires this. To use Hangfire inside a professional solution, you would need to add security to the dashboard, probably inject services inside the code that executes the jobs which has problems, add logging and the executing code must be reentrant due to retries. </p>
-
-
-
-<p></p>
-
-
-
-<p>Hangfire is a great tool as with many other tools, solutions for this type of problem. The jobs need to be reentrant. For long running workflows which require persistence, maybe other tools would be the better choice, for example Azure durable functions or power automate. Background services also work really good for simple jobs. ASP.NET Core Quartz can also be used. All these tools are very good and you should try to choose the one which best fits your needs and follows the KISS principal.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://docs.hangfire.io/">https://docs.hangfire.io/</a></p>
-
-
-
-<p><a href="https://docs.hangfire.io/en/latest/getting-started/aspnet-core-applications.html">https://docs.hangfire.io/en/latest/getting-started/aspnet-core-applications.html</a></p>
-
-
-
-<p><a href="https://github.com/HangfireIO/Hangfire/blob/27ab355ff1cd72a06af51fc6d2f4599a87c3b4b8/src/Hangfire.SqlServer/DefaultInstall.sql">https://github.com/HangfireIO/Hangfire/blob/27ab355ff1cd72a06af51fc6d2f4599a87c3b4b8/src/Hangfire.SqlServer/DefaultInstall.sql</a></p>
-
-
-
-<p><a href="https://jonhilton.net/simple-background-jobs-with-hangfire-and-aspnet-core/">https://jonhilton.net/simple-background-jobs-with-hangfire-and-aspnet-core/</a></p>
-
-
-
-<p><a href="https://codeopinion.com/background-tasks/">https://codeopinion.com/background-tasks</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/01/aspnetcorehangfire_01.png?w=733'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:30 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://reb00ted.org/'>reb00ted</a>
 </h4>
 
@@ -25889,7 +25846,7 @@ We’re in one of those Internet moments of rapid innovation, when new conventio
 
 <div class='item-footer'>
    03:56 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
