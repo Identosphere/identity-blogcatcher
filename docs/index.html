@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 2:12 AM June 12, 2023 (UTC)</sup>
+<sup>Last Update 9:38 AM June 12, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -729,6 +729,461 @@
  <h2 class='new-date'>
   Monday, 12. June 2023
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/06/12/reset-user-account-passwords-using-microsoft-graph-and-application-permissions/'>Reset user account passwords using Microsoft Graph and application permissions in ASP.NET Core</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to reset a password for tenant members using a Microsoft Graph application client in ASP.NET Core. An Azure App registration is used to define the application permission for the Microsoft Graph client and the User Administrator role is assigned to the Azure Enterprise application created from the Azure App registration. Code: […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to reset a password for tenant members using a Microsoft Graph application client in ASP.NET Core. An Azure App registration is used to define the application permission for the Microsoft Graph client and the User Administrator role is assigned to the Azure Enterprise application created from the Azure App registration.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/azuerad-reset">https://github.com/damienbod/azuerad-reset</a></p>
+
+
+
+<p></p>
+
+
+
+ Create an Azure App registration with the Graph permission 
+
+
+
+<p>An Azure App registration was created which requires a secret or a certificate. The Azure App registration has the application User.ReadWrite.All permission and is used to assign the Azure role. This client is only for application clients and not delegated clients.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Assign the User Administrator role to the App Registration 
+
+
+
+<p>The User Administrator role is assigned to the Azure App registration (Azure Enterprise application pro tenant). You can do this by using the User Administrator Assignments and and new one can be added. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>Choose the Azure App registration corresponding Enterprise application and assign the role to be always active. </p>
+
+
+
+<p></p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Create the Microsoft Graph application client 
+
+
+
+<p>In the ASP.NET Core application, a new Graph application can be created using the Microsoft Graph SDK and Azure Identity. The GetChainedTokenCredentials is used to authenticate using a managed identity for the production deployment or a user secret in development. You could also use a certificate. This is the managed identity from the Azure App service where the application is deployed in production.</p>
+
+
+  using Azure.Identity;
+using Microsoft.Graph;
+
+namespace SelfServiceAzureAdPasswordReset;
+
+public class GraphApplicationClientService
+{
+    private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment _environment;
+    private GraphServiceClient? _graphServiceClient;
+
+    public GraphApplicationClientService(IConfiguration configuration, IHostEnvironment environment)
+    {
+        _configuration = configuration;
+        _environment = environment;
+    }
+
+    /// &lt;summary&gt;
+    /// gets a singleton instance of the GraphServiceClient
+    /// &lt;/summary&gt;
+    public GraphServiceClient GetGraphClientWithManagedIdentityOrDevClient()
+    {
+        if (_graphServiceClient != null)
+            return _graphServiceClient;
+
+        string[] scopes = new[] { "https://graph.microsoft.com/.default" };
+
+        var chainedTokenCredential = GetChainedTokenCredentials();
+        _graphServiceClient = new GraphServiceClient(chainedTokenCredential, scopes);
+
+        return _graphServiceClient;
+    }
+
+    private ChainedTokenCredential GetChainedTokenCredentials()
+    {
+        if (!_environment.IsDevelopment())
+        {
+            // You could also use a certificate here
+            return new ChainedTokenCredential(new ManagedIdentityCredential());
+        }
+        else // dev env
+        {
+            var tenantId = _configuration["AzureAdGraph:TenantId"];
+            var clientId = _configuration.GetValue&lt;string&gt;("AzureAdGraph:ClientId");
+            var clientSecret = _configuration.GetValue&lt;string&gt;("AzureAdGraph:ClientSecret");
+
+            var options = new TokenCredentialOptions
+            {
+                AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+            };
+
+            // https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
+            var devClientSecretCredential = new ClientSecretCredential(
+                tenantId, clientId, clientSecret, options);
+
+            var chainedTokenCredential = new ChainedTokenCredential(devClientSecretCredential);
+
+            return chainedTokenCredential;
+        }
+    }
+}
+  
+
+
+ Reset the password Microsoft Graph SDK 4 
+
+
+
+<p>Once the client is authenticated, Microsoft Graph SDK can be used to implement the logic. You need to decide if SDK 4 or SDK 5 is used to implement the Graph client. Most applications must still use Graph SDK 4 but no docs exist for this anymore. Refer to Stackoverflow or try and error. The application has one method to get the user and a second one to reset the password and force a change on the next authentication. This is ok for low level security, but TAP with a strong authentication should always be used if possible. </p>
+
+
+  using Microsoft.Graph;
+using System.Security.Cryptography;
+
+namespace SelfServiceAzureAdPasswordReset;
+
+public class UserResetPasswordApplicationGraphSDK4
+{
+    private readonly GraphApplicationClientService _graphApplicationClientService;
+
+    public UserResetPasswordApplicationGraphSDK4(GraphApplicationClientService graphApplicationClientService)
+    {
+        _graphApplicationClientService = graphApplicationClientService;
+    }
+
+    private async Task&lt;string&gt; GetUserIdAsync(string email)
+    {
+        var filter = $"startswith(userPrincipalName,'{email}')";
+
+        var graphServiceClient = _graphApplicationClientService
+            .GetGraphClientWithManagedIdentityOrDevClient();
+
+        var users = await graphServiceClient.Users
+            .Request()
+            .Filter(filter)
+            .GetAsync();
+
+        return users.CurrentPage[0].Id;
+    }
+
+    public async Task&lt;string?&gt; ResetPassword(string email)
+    {
+        var graphServiceClient = _graphApplicationClientService
+            .GetGraphClientWithManagedIdentityOrDevClient();
+
+        var userId = await GetUserIdAsync(email);
+
+        if (userId == null)
+        {
+            throw new ArgumentNullException(nameof(email));
+        }
+
+        var password = GetRandomString();
+
+        await graphServiceClient.Users[userId].Request()
+        .UpdateAsync(new User
+        {
+            PasswordProfile = new PasswordProfile
+            {
+                Password = password,
+                ForceChangePasswordNextSignIn = true
+            }
+        });
+
+        return password;
+    }
+
+    private static string GetRandomString()
+    {
+        var random = $"{GenerateRandom()}{GenerateRandom()}{GenerateRandom()}{GenerateRandom()}-AC";
+        return random;
+    }
+
+    private static int GenerateRandom()
+    {
+        return RandomNumberGenerator.GetInt32(100000000, int.MaxValue);
+    }
+}
+  
+
+
+<p></p>
+
+
+
+ Reset the password Microsoft Graph SDK 5 
+
+
+
+<p>Microsoft Graph SDK 5 can also be used to implement the logic to reset the password and force a change on the next signin.</p>
+
+
+  using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using System.Security.Cryptography;
+
+namespace SelfServiceAzureAdPasswordReset;
+
+public class UserResetPasswordApplicationGraphSDK5
+{
+    private readonly GraphApplicationClientService _graphApplicationClientService;
+
+    public UserResetPasswordApplicationGraphSDK5(GraphApplicationClientService graphApplicationClientService)
+    {
+        _graphApplicationClientService = graphApplicationClientService;
+    }
+
+    private async Task&lt;string?&gt; GetUserIdAsync(string email)
+    {
+        var filter = $"startswith(userPrincipalName,'{email}')";
+
+        var graphServiceClient = _graphApplicationClientService
+            .GetGraphClientWithManagedIdentityOrDevClient();
+
+        var result = await graphServiceClient.Users.GetAsync((requestConfiguration) =&gt;
+        {
+            requestConfiguration.QueryParameters.Top = 10;
+            if (!string.IsNullOrEmpty(email))
+            {
+                requestConfiguration.QueryParameters.Search = $"\"userPrincipalName:{email}\"";
+            }
+            requestConfiguration.QueryParameters.Orderby = new string[] { "displayName" };
+            requestConfiguration.QueryParameters.Count = true;
+            requestConfiguration.QueryParameters.Select = new string[] { "id", "displayName", "userPrincipalName", "userType" };
+            requestConfiguration.QueryParameters.Filter = "userType eq 'Member'"; // onPremisesSyncEnabled eq false
+            requestConfiguration.Headers.Add("ConsistencyLevel", "eventual");
+        });
+
+        return result!.Value!.FirstOrDefault()!.Id;
+    }
+
+    public async Task&lt;string?&gt; ResetPassword(string email)
+    {
+        var graphServiceClient = _graphApplicationClientService
+            .GetGraphClientWithManagedIdentityOrDevClient();
+
+        var userId = await GetUserIdAsync(email);
+
+        if (userId == null)
+        {
+            throw new ArgumentNullException(nameof(email));
+        }
+
+        var password = GetRandomString();
+
+        await graphServiceClient.Users[userId].PatchAsync(
+            new User
+            {
+                PasswordProfile = new PasswordProfile
+                {
+                    Password = password,
+                    ForceChangePasswordNextSignIn = true
+                }
+            });
+
+        return password;
+    }
+
+    private static string GetRandomString()
+    {
+        var random = $"{GenerateRandom()}{GenerateRandom()}{GenerateRandom()}{GenerateRandom()}-AC";
+        return random;
+    }
+
+    private static int GenerateRandom()
+    {
+        return RandomNumberGenerator.GetInt32(100000000, int.MaxValue);
+    }
+}
+  
+
+
+<p>Any Razor page can use the service and update the password. The Razor Page requires protection to prevent any user or bot updating any other user account. Some type of secret is required to use the service or an extra id which can be created from an internal IT admin. DDOS protection and BOT protection is also required if the Razor page is deployed to a public endpoint and a delay after each request must also be implemented. Extreme caution needs to be taken when exposing this business functionality.</p>
+
+
+  private readonly UserResetPasswordApplicationGraphSDK5 
+	_userResetPasswordApp;
+
+[BindProperty]
+public string Upn { get; set; } = string.Empty;
+
+[BindProperty]
+public string? Password { get; set; } = string.Empty;
+
+public IndexModel(UserResetPasswordApplicationGraphSDK5 
+	userResetPasswordApplicationGraphSDK4)
+{
+	_userResetPasswordApp = 
+		userResetPasswordApplicationGraphSDK4;
+}
+
+public void OnGet(){}
+
+public async Task&lt;IActionResult&gt; OnPostAsync()
+{
+	if (!ModelState.IsValid)
+	{
+		return Page();
+	}
+
+	Password = await _userResetPasswordApp
+		.ResetPassword(Upn);
+	
+	return Page();
+}
+  
+
+
+<p></p>
+
+
+
+<p>The demo application can be started and a password from a local member can be reset.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The <a href="https://mysignins.microsoft.com/security-info">https://mysignins.microsoft.com/security-info</a> url can be used to test the new password and add MFA or whatever.</p>
+
+
+
+ Notes 
+
+
+
+<p>You can use this solution for applications with no user. If using an administrator or a user to reset the passwords, then a delegated permission should be used with different Graph SDK methods and different Graph permissions. Extra protection is required to prevent admin accounts or break glass accounts or incorrect accounts being reset. Admin account should be no problem because these accounts should already be using FIDO2 and no password  with no recovery possible using password alone.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://aka.ms/mysecurityinfo">https://aka.ms/mysecurityinfo</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0">https://learn.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/graph/sdks/paging?tabs=csharp">https://learn.microsoft.com/en-us/graph/sdks/paging?tabs=csharp</a></p>
+
+
+
+ 
+<a href="https://learn.microsoft.com/en-us/graph/api/authenticationmethod-resetpassword?view=graph-rest-1.0&amp;tabs=csharp">https://learn.microsoft.com/en-us/graph/api/authenticationmethod-resetpassword?view=graph-rest-1.0&amp;tabs=csharp</a>
+ 
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/06/password-reset-01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:26 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -786,7 +1241,7 @@
 
 <div class='item-footer'>
    00:03 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -864,7 +1319,7 @@
 
 <div class='item-footer'>
    22:35 &bull;
-   4 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -938,7 +1393,7 @@
 
 <div class='item-footer'>
    22:16 &bull;
-   4 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1003,7 +1458,7 @@
 
 <div class='item-footer'>
    22:11 &bull;
-   4 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1083,7 +1538,7 @@
 
 <div class='item-footer'>
    21:24 &bull;
-   5 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1148,7 +1603,7 @@
 
 <div class='item-footer'>
    21:14 &bull;
-   5 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1213,7 +1668,7 @@
 
 <div class='item-footer'>
    18:44 &bull;
-   8 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1284,7 +1739,7 @@
 
 <div class='item-footer'>
    18:29 &bull;
-   8 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1349,7 +1804,7 @@
 
 <div class='item-footer'>
    16:59 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1448,7 +1903,7 @@
 
 <div class='item-footer'>
    16:20 &bull;
-   10 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1509,7 +1964,7 @@
 
 <div class='item-footer'>
    15:52 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1585,7 +2040,7 @@
 
 <div class='item-footer'>
    15:41 &bull;
-   11 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1657,7 +2112,7 @@
 
 <div class='item-footer'>
    13:59 &bull;
-   12 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1729,7 +2184,7 @@
 
 <div class='item-footer'>
    13:55 &bull;
-   12 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1801,7 +2256,7 @@
 
 <div class='item-footer'>
    13:51 &bull;
-   12 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2387,7 +2842,7 @@
 
 <div class='item-footer'>
    14:49 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2460,7 +2915,7 @@
 
 <div class='item-footer'>
    14:28 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2915,7 +3370,7 @@
 
 <div class='item-footer'>
    16:40 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2987,7 +3442,7 @@
 
 <div class='item-footer'>
    16:12 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3067,7 +3522,7 @@
 
 <div class='item-footer'>
    16:06 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3130,7 +3585,7 @@
 
 <div class='item-footer'>
    14:58 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3191,7 +3646,7 @@
 
 <div class='item-footer'>
    14:52 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3859,7 +4314,7 @@
 
 <div class='item-footer'>
    21:06 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4037,7 +4492,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    20:37 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4113,7 +4568,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    18:14 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4193,7 +4648,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    16:26 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4269,7 +4724,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    16:18 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4351,7 +4806,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    15:51 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4431,7 +4886,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    15:26 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4774,7 +5229,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    17:20 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5007,7 +5462,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    16:00 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5083,7 +5538,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    14:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5302,7 +5757,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    16:43 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5374,7 +5829,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    15:09 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5656,7 +6111,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    19:13 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5720,7 +6175,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    16:58 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5799,7 +6254,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    16:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5865,7 +6320,7 @@ echo "Show these tokens" | ttok --tokens
 
 <div class='item-footer'>
    15:49 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6330,7 +6785,7 @@ select url_fragment('https://www.sqlite.org/vtab.html#usage'); -- 'usage'
 
 <div class='item-footer'>
    21:14 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6449,7 +6904,7 @@ select url_fragment('https://www.sqlite.org/vtab.html#usage'); -- 'usage'
 
 <div class='item-footer'>
    18:09 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6509,7 +6964,7 @@ select url_fragment('https://www.sqlite.org/vtab.html#usage'); -- 'usage'
 
 <div class='item-footer'>
    14:59 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6581,7 +7036,7 @@ select url_fragment('https://www.sqlite.org/vtab.html#usage'); -- 'usage'
 
 <div class='item-footer'>
    16:59 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6696,7 +7151,7 @@ select url_fragment('https://www.sqlite.org/vtab.html#usage'); -- 'usage'
 
 <div class='item-footer'>
    18:36 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6958,7 +7413,7 @@ select url_fragment('https://www.sqlite.org/vtab.html#usage'); -- 'usage'
 
 <div class='item-footer'>
    18:24 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7024,7 +7479,7 @@ select url_fragment('https://www.sqlite.org/vtab.html#usage'); -- 'usage'
 
 <div class='item-footer'>
    14:52 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7535,7 +7990,7 @@ Here’s a link to the <a href="https://jonudell.info/audio/iacobucci.mp3">new v
 
 <div class='item-footer'>
    19:23 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7827,7 +8282,7 @@ services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
 
 <div class='item-footer'>
    21:13 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8057,7 +8512,7 @@ Miller v. United Airlines, Inc.. 174 F.3d 366 (2d Cir. 1999)</p>
 
 <div class='item-footer'>
    19:09 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8282,7 +8737,7 @@ Miller v. United Airlines, Inc.. 174 F.3d 366 (2d Cir. 1999)</p>
 
 <div class='item-footer'>
    21:17 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8474,7 +8929,7 @@ Miller v. United Airlines, Inc.. 174 F.3d 366 (2d Cir. 1999)</p>
 
 <div class='item-footer'>
    20:12 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8536,7 +8991,7 @@ Miller v. United Airlines, Inc.. 174 F.3d 366 (2d Cir. 1999)</p>
 
 <div class='item-footer'>
    17:01 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8666,7 +9121,7 @@ Miller v. United Airlines, Inc.. 174 F.3d 366 (2d Cir. 1999)</p>
 
 <div class='item-footer'>
    19:38 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8776,7 +9231,7 @@ I’m not worried about robot overlords. Instead, I look forward to collaboratin
 
 <div class='item-footer'>
    16:19 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9110,7 +9565,7 @@ I’m not worried about robot overlords. Instead, I look forward to collaboratin
 
 <div class='item-footer'>
    19:04 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9172,7 +9627,7 @@ I’m not worried about robot overlords. Instead, I look forward to collaboratin
 
 <div class='item-footer'>
    15:42 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9315,7 +9770,7 @@ I’m not worried about robot overlords. Instead, I look forward to collaboratin
 
 <div class='item-footer'>
    20:01 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9381,7 +9836,7 @@ I’m not worried about robot overlords. Instead, I look forward to collaboratin
 
 <div class='item-footer'>
    19:25 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9445,7 +9900,7 @@ I’m not worried about robot overlords. Instead, I look forward to collaboratin
 
 <div class='item-footer'>
    19:22 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9525,7 +9980,7 @@ In 2005, Kim Cameron excitedly told me about digital identity and set my life on
 
 <div class='item-footer'>
    16:19 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10303,7 +10758,7 @@ I tried Midjourney to create the cover photo for this post “robot peering in t
 
 <div class='item-footer'>
    14:37 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10565,7 +11020,7 @@ I tried Midjourney to create the cover photo for this post “robot peering in t
 
 <div class='item-footer'>
    15:25 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -18848,200 +19303,6 @@ Will that prove interesting? Useful? That remains to be seen. I think it’s one
  <h2 class='new-date'>
   Monday, 13. March 2023
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/03/13/use-azure-ad-access-packages-to-onboard-users-in-an-azure-devops-project/'>Use Azure AD Access Packages to onboard users in an Azure DevOps project</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post looks at onboarding users into an Azure DevOps team or project using Azure AD access packages. The Azure AD access packages are part of the Microsoft Entra Identity Governance and provide a good solution for onboarding internal or external users into your tenant with access to the defined resources. Flow for onboarding Azure […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post looks at onboarding users into an Azure DevOps team or project using Azure AD <a href="https://learn.microsoft.com/en-us/azure/active-directory/governance/entitlement-management-access-package-create">access packages</a>. The Azure AD access packages are part of the Microsoft Entra Identity Governance and provide a good solution for onboarding internal or external users into your tenant with access to the defined resources.</p>
-
-
-
-<p></p>
-
-
-
- Flow for onboarding Azure DevOps members 
-
-
-
-<p>Sometimes we develop large projects with internal and external users which need access to an Azure DevOps project for a fixed length of time which can be extended if required. These users only need access to the the Azure DevOps project and should be automatically removed when the contract or project is completed. Azure AD access packages are a good way to implement this. </p>
-
-
-
- Use an Azure AD group 
-
-
-
-<p>The access to the Azure DevOps can be implemented by using an Azure security group in Azure AD. This security will be used to add team members for the Azure DevOps project. Azure AD access packages are used to onboard users into the Azure AD group and the Azure DevOps project uses the security group to define the members. The “azure-devops-project-access-packages” security group was created for this.</p>
-
-
-
- Setup the Azure DevOps 
-
-
-
-<p>A new Azure DevOps project was created for this demo. The project has an URL on the dev.azure.com domain. The Azure DevOps needs to be attached to the Azure AD tenant. Only an Azure AD member with the required permissions can add a security group to the Azure DevOps project.</p>
-
-
-
-
-
-
-
-<p>My test Azure DevOps project was created with the following URL. You can only access this if you are a member.</p>
-
-
-
-<p><a href="https://dev.azure.com/azureadgroup-access-packages/use-access-packages">https://dev.azure.com/azureadgroup-access-packages/use-access-packages</a></p>
-
-
-
-<p>The project team can now be onboarded.</p>
-
-
-
- Create the Azure AD P2 Access packages 
-
-
-
-<p>To create an Azure AD P2 Access package, you can use the Microsoft Entra admin center. The access package can be created in the Entitlement management blade. </p>
-
-
-
-
-
-
-
-<p>Add the security group from the Azure AD which you use for adding or removing users to the Azure DevOps project. Add the users as members.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The users onboarded using the access package are given a lifespan in the tenant for the access and can be extended or not as needed.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The users can be added using an access package link, or you can get an admin to assign users to the package. I created a second access package to assign any users to the package which can then be approved or rejected by the Azure DevOps project manager. </p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The Azure DevOps administrator can approve the access package and the Azure DevOps team member can access the Azure DevOps project using the public URL. The new member is added to the Azure security group using the access package. </p>
-
-
-
-
-
-
-
-<p>An access package link would look something like this:</p>
-
-
-
-<p><a href="https://myaccess.microsoft.com/@damienbodsharepoint.onmicrosoft.com#/access-packages/b5ad7ec0-8728-4a18-be5b-9fa24dcfefe3">https://myaccess.microsoft.com/@damienbodsharepoint.onmicrosoft.com#/access-packages/b5ad7ec0-8728-4a18-be5b-9fa24dcfefe3</a></p>
-
-
-
- Links 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/governance/entitlement-management-access-package-create">https://learn.microsoft.com/en-us/azure/active-directory/governance/entitlement-management-access-package-create</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/faq-user-and-permissions-management?view=azure-devops#q-why-cant-i-find-members-from-my-connected-azure-ad-even-though-im-the-azure-ad-global-admin">https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/faq-user-and-permissions-management?view=azure-devops#q-why-cant-i-find-members-from-my-connected-azure-ad-even-though-im-the-azure-ad-global-admin</a></p>
-
-
-
-<p><a href="https://entra.microsoft.com/">https://entra.microsoft.com/</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/03/aad_access-packages_devops_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:42 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
