@@ -474,11 +474,871 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 8:27 AM June 30, 2023 (UTC)</sup>
+<sup>Last Update 4:29 PM June 30, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Organizations | Identosphere Blogcatcher</h1>
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Friday, 30. June 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.ceramic.network/'>Ceramic Network</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.ceramic.network/tutorial-encrypted-data-on-composedb/'>Tutorial: Encrypted Data on ComposeDB</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Here's one methodology you can use to encrypt data and decrypt data on ComposeDB
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Storing encrypted data that only certain users can access is an important and sometimes necessary feature for many Web3 applications. When it comes to ComposeDB on Ceramic, given that the underlying protocol entails an open and public network, any data streams can be accessed and read by any participating nodes.</p><p>In this tutorial, we will walk through one methodology you can use to encrypt data and decrypt data on ComposeDB. However, before we dive in, let’s first walk through some key concepts that will come into play.</p> What are DIDs? <p>DIDs are the W3C standard for Decentralized Identifiers. It specifies a general way of going from a string identifier, e.g. <code>did:key:z6Mki...</code>, to a DID document that contains public keys for signature verification and key exchange.</p><p>JOSE is a standard from <a href="https://www.ietf.org/standards/?ref=blog.ceramic.network">IETF</a> that stands for JSON Object Signing and Encryption, and that pretty much explains what it is. There are two main primitives in this standard: JWS (JSON Web Signatures) and JWE (JSON Web Encryption). Both of these formats allow for multiple participants: in JWS there can be one or multiple signatures over the payload, and in JWE there might be one or multiple recipients for the encrypted cleartext.</p> Building With Ceramic Libraries <p>Whether you need to authenticate users and create DID-based sessions, or you need to encrypt data to live on ComposeDB, we've created several libraries that can easily be accessed as node package dependencies. This tutorial will show you how to use these powerful tools directly.</p><p><a href="https://github.com/ceramicnetwork/key-did-provider-ed25519?ref=blog.ceramic.network">key-did-provider-ed25519</a> offers a simple DID Provider that supports both signing and data encryption.</p><p><a href="https://github.com/ceramicnetwork/js-did?ref=blog.ceramic.network">js-did</a> is a library that allows developers to represent a user in the form of a DID. This is the main interface we're going to be looking at in this tutorial. It allows us to sign data with the currently authenticated user, encrypt data to any user (DID), and decrypt data with the currently authenticated user.</p><p><a href="https://github.com/StableLib/stablelib?ref=blog.ceramic.network">@stablelib/sha256</a> is a library that allows developers to encrypt data and is a subset of the larger <a href="https://github.com/StableLib/stablelib?ref=blog.ceramic.network">@stablelib</a> collection of encryption algorithms.</p> Setup your environment <p>This tutorial will walk you through how to set up encryption capabilities within an existing repository. However, if you’re looking to start from scratch, we recommend exploring our <a href="https://blog.ceramic.network/launching-create-ceramic-app/">Use Ceramic App</a> starter.</p> Dependencies   MetaMask or another Ethereum wallet  Ability to successfully run local Ceramic and ComposeDB Clients  Scaffolding to allow for local runtime composite deployments when starting your ComposeDB node   Generate Encryption Key <p>In your application, prompt your users to generate a special DID to be used when encrypting messages or accessing encrypted data on ComposeDB. In order to do so, you will first define a <code>userPrompt</code> variable that will be viewable to the user as the message shown in their wallet when signing the request, while also generating consistent entropy used by the hashing algorithm (resulting in the <code>seed</code> defined below).</p><p>The seed is a secret that will then be used to define a new DID class instance (using the <a href="https://github.com/ceramicnetwork/key-did-provider-ed25519?ref=blog.ceramic.network">key-did-provider-ed25519</a> library). Finally, execute the <code>authenticate()</code> method on your new DID instance, returning the new DID to be saved as a session.</p> <code>import * as u8a from 'uint8arrays'
+import { hash } from '@stablelib/sha256'
+import { Ed25519Provider } from 'key-did-provider-ed25519'
+import KeyResolver from 'key-did-resolver'
+import { DID } from 'dids'
+
+/*
+this prompt can be customized to whatever message you want to display for the
+user. As long as the same message is signed, it should generate the same entropy
+*/
+
+const userPrompt = "Give this app permission to read or write your private data";
+
+const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+const entropy = await window.ethereum.request({
+  method: 'personal_sign', 
+  params: [u8a.toString(u8a.fromString(userPrompt), 'base16'), accounts[0],
+],
+});
+
+const seed = hash(u8a.fromString(entropy.slice(2), "base16"));
+const encryptionDid = new DID({
+  resolver: KeyResolver.getResolver(),
+  provider: new Ed25519Provider(seed),
+});
+await encryptionDid.authenticate();
+
+console.log('encryptionDid', encryptionDid.id);
+</code>  Encrypting and Decrypting Data <p>For the purpose of this tutorial, we’ll be using a simple direct message data composite. Our top-level model will only make use of two fields—a “recipient” (DID value type), and a “directMessage” (a stringified JWE).</p><p>For the purposes of this tutorial, our simple message model would read as follows:</p> <code>type EncryptedMessage @createModel(accountRelation: LIST, description: "A direct message encrypted data model") {
+    recipient: DID!
+    directMessage: String! @string(maxLength: 100000)
+}
+</code> <p>Make sure to compile and deploy your new composite on your Ceramic client, allowing you to mutate and query the models.</p> Encrypt &amp; Write <p>If we want to encrypt data that only the currently authenticated user can decrypt we can simply encrypt it directly with the <code>encryptionDid</code>. In order to avoid escaping the JSON after stringifying your resulting JWE (preventing the data from conforming to the String constraint), we can temporarily replace double quotes with backticks.</p><p>Use your composeClient instance to perform a mutation using the values generated from the encrypted message:</p> <code>
+const cleartext = 'this is a secret message';
+const jwe = await encryptionDid.createDagJWE(cleartext, [encryptionDid.id]);
+
+//stringify your JWE object and replace escape characters
+const stringified = JSON.stringify(jwe).replace(/"/g,"`");
+
+const message = await composeClient.executeQuery(`
+    mutation {
+    createEncryptedMessage(
+      input: {
+        content: {
+          recipient: "${encryptionDid.id}"
+          directMessage: "${stringified}"
+        }
+      }
+    ) {
+      document {
+        recipient{
+          id
+        }
+        directMessage
+      }
+    }
+  }
+`)
+</code>  Read &amp; Decrypt <p>Similarly, in order to allow only authenticated users to decrypt data, we can also allow access using their <code>encryptionDid</code>. The following example query obtains the first message and uses the authenticated user’s <code>encryptionDid</code> to decrypt the message:</p> <code>const query = await composeClient.executeQuery(`
+      query{
+        encryptedMessageIndex(first:1){
+          edges{
+            node{
+              recipient{
+                id
+              }
+              directMessage
+            }
+          }
+        }
+      }
+      `);
+
+const arr = query.data?.encryptedMessageIndex?.edges;
+
+//Reverse-replacement of backticks for double-quotes prior to parsing
+const string = arr[0].node.directMessage.replace(/`/g,'"');
+const plaintext = await encryptionDid.decryptDagJWE(JSON.parse(string));
+</code>  Multiple User Encryption <p>In certain situations, you may choose to grant multiple users access to encrypting and decrypting data on ComposeDB. In this situation, two components of your data composite might be comprised of one model for storing encryption keys for each user.</p> Store Encryption Keys <p>Let’s say your data model for storing encryption keys reads as follows:</p> <code>type PublicEncryptionDID @createModel(accountRelation: LIST, description: "A data model to store encryption DIDs for an application") {
+    author: DID! @documentAccount
+		publicEncryptionDID: DID!
+}
+</code> <p>And your simplified encrypted message model reads as follows:</p> <code>type EncryptedMessage @createModel(accountRelation: LIST, description: "An encrypted message data model") {
+    message: String! @string(maxLength: 100000)
+    recipients: [DID] @list(maxLength: 200)
+}
+
+</code> <p>Hopping back to our application, as we authenticate users, we can store their corresponding encryption keys:</p> <code>//the method below creates a session for your user and returns their DID.id
+const auth = await encryptionDid.authenticate();
+
+const storeEncryptionKey = await composeClient.executeQuery(`
+    mutation {
+      createPublicEncryptionDID(
+        input: {
+          content: {
+            publicEncryptionDID:  "${auth}"
+          }
+        }
+      ) {
+        document {
+          author{
+            id
+          }
+          publicEncryptionDID  {
+            id
+          }
+        }
+      }
+    }
+  `);
+</code>  Writing Group-Encrypted Data <p>Let’s say you’ve gated a segment of your audience based on their <a href="https://developers.ceramic.network/docs/advanced/standards/accounts/pkh-did/?ref=blog.ceramic.network">PKH DID CeramicAccount</a> (explained below). This section is intended to show how to encrypt data that multiple users can decrypt.</p><p>Since anyone within the Ceramic network can write to any stream, you can filter based on which CeramicAccount authored each model instance. In our example below, we’ve displayed filtering by the <code>did:pkh</code>. This type of DID account allows interoperability between blockchain accounts and DIDs. Each time you are prompting your users to author mutations using an Ethereum wallet, the corresponding native Ceramic account is the PKH DID.</p><p>For the full specification, please reference the <a href="https://github.com/w3c-ccg/did-pkh/blob/main/did-pkh-method-draft.md?ref=blog.ceramic.network">PKH DID Method specification</a>.</p><p>The example below shows how to create an encrypted message only two separate users can decrypt:</p> <code>//Query first user based on PKH DID
+const query1 = await composeClient.executeQuery(`
+    query {
+      node(id: "did:pkh...") {
+        ... on CeramicAccount {
+          id
+          publicEncryptionDidList(first: 1) {
+            edges {
+              node {
+                publicEncryptionDID{
+                  id
+                }
+              }
+            }
+          }
+        } 
+      }
+    }
+  `);
+
+//Query second user based on PKH DID
+const query2 = await composeClient.executeQuery(`
+    query {
+      node(id: "did:pkh...") {
+        ... on CeramicAccount {
+          id
+          publicEncryptionDidList(first: 1) {
+            edges {
+              node {
+                publicEncryptionDID{
+                  id
+                }
+              }
+            }
+          }
+        } 
+      }
+    }
+  `);
+
+const results = [...query1.data?.node?.publicEncryptionDidList?.edges,
+				 ...query2.data?.node?.publicEncryptionDidList?.edges];
+
+const users = new Array();
+results.forEach(el =&gt; {
+  users.push(el.node.publicEncryptionDID.id);
+})
+
+const cleartext = 'this is a shared secret message';
+const jwe = await encryptionDid.createDagJWE(cleartext, users);
+
+//stringify your JWE object and replace escape characters
+const stringified = JSON.stringify(jwe).replace(/"/g,"`");
+const encryptedGroupMessage = await composeClient.executeQuery(`
+  mutation {
+    createEncryptedMessage(
+      input: {
+        content: {
+          message: "${stringified}"
+          recipients: 
+            ["${users[0]}", "${users[1]}"]
+        }
+      }
+    ) {
+      document {
+        message
+      }
+    }
+  }
+`);
+</code>  Decoding Group-Encrypted Data <p>Regardless of how many encryption keys representing individual users are involved in generating a JWE, a single holder of just one of those encryption keys will still be able to decrypt the corresponding message in a similar fashion:</p> <code>const query = await composeClient.executeQuery(`
+    query{
+      encryptedMessageIndex(first:1){
+        edges{
+          node{
+            message
+          }
+        }
+      }
+    }
+  `);
+
+const arr = query.data?.encryptedMessageIndex?.edges;
+
+//Reverse-replacement of backticks for double-quotes prior to parsing
+const string = arr[0].node.message.replace(/`/g,'"');
+const plaintext = await encryptionDid.decryptDagJWE(JSON.parse(string));
+</code> <p>That’s it for this tutorial! Hope you enjoyed exploring one encryption methodology you can use, both when encrypting data on behalf of your users, as well as segmenting your application’s user base and allowing only those partitions the ability to decrypt relevant data.</p><p>If you want to get started with ComposeDB on Ceramic and don’t know where to start, dive into the <a href="https://composedb.js.org/?ref=blog.ceramic.network">ComposeDB Developer Docs</a>, or walk through a detailed <a href="https://dev.to/fllstck/decentralized-databases-composedb-49m3?ref=blog.ceramic.network">tutorial</a> that features end-to-end steps using an article publishing platform as the example use case.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blog.ceramic.network/content/images/2023/06/Slide-5--3---1-.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:28 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.gs1.org/'>GS1</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.gs1.org/standards/gdsn/3-1-25'>Maintenance release 3.1.25</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Maintenance release 3.1.25
+daniela.duarte…
+Fri, 06/30/2023 - 12:35
+  
+   
+    
+                         
+           
+  
+    
+       
+       
+
+  
+
+  
+ 
+      
+ 
+      
+ 
+      
+ 
+      
+ 
+              
+  Maintenance release 3.1.25
+ 
+ 
+     
+         Lead 
+  
+                           
+       Pending Ratification 
+ 
+      
+  
+
+
+   
+
+   
+
+   
+
+   
+
+
+ 
+
+
+     
+   
+
+         
+                         
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  Maintenance release 3.1.25
+daniela.duarte…
+Fri, 06/30/2023 - 12:35
+  
+   
+    
+                         
+           
+  
+    
+       
+       
+
+  
+
+  
+ 
+      
+ 
+      
+ 
+      
+ 
+      
+ 
+              
+  Maintenance release 3.1.25
+ 
+ 
+     
+         Lead 
+  
+                           
+      <p>Pending Ratification</p>
+ 
+      
+  
+
+
+   
+
+   
+
+   
+
+   
+
+
+ 
+
+
+     
+   
+
+         
+                                                                                                                                                                                              
+   
+
+    
+   
+    
+                         
+           
+  
+    
+       
+      
+ 
+             <p>GS1 GDSN accepted the recommendation by the Operations and Technology Advisory Group (OTAG) to implement the 3.1.25 standard into the network in August 2023.</p>
+
+<p>Key Milestones:</p>
+
+<p>See <a href="https://www.gs1.org/gdsn/gdsn-release-schedule">GS1 GDSN Release Schedule</a></p>
+
+<p>As content for this release is developed it will be posted to this webpage followed by an announcement to the community to ensure visibility.</p>
+
+<p>Data Pools should contact the GS1 GDSN Data Pool Helpdesk to understand the plan for the update. Trading Partners should work with their Data Pools on understanding the release and any impacts to business processes.</p>
+
+ Business Message Standards including Message Schemas 
+
+ Updated For Maintenance Release 3.1.25 
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_GDSN_Trade_Item_Modules_r3p1p25_i1p40_June_28_2023.pdf">Trade Item Modules Library 3.1.25</a>&nbsp;(June 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/GDSN_and_Shared_Code_Lists_3p1p25_v1_June_12_2023.xlsx">GS1 GDSN Code List Document</a> (June 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Delta_3p1p25_June_12_2023.xlsx">Delta for release 3.1.25</a>&nbsp;(June 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Delta%20ECL%203_1_25_June_2023.xlsx">Delta ECL for release 3.1.25</a>&nbsp;(June 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/GDSN_Validation_Rules_BMS_All_R3p1p25_i2_12June2023.xlsx">Validation Rules</a> (June 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Delta_GDSN_Validation_Rules_BMS_All_R3p1p25_i2_12June2023.xlsx">Delta for Validation Rules</a>&nbsp;(June 2023)</p>
+
+<p>Unchanged for 3.1.25</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/gddfasttrack_approved3p1p23_i14_nov4.xlsx">Approved Fast Track Attributes</a> (Dec 2022)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_Common_Libary_r3p1p17_i1p12_November_2021.pdf">BMS Shared Common Library</a> (Dec 2021)</p>
+
+<p>BMS Documents Carried Over From Previous Release</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_GDSN_Catalogue_Item_Sync_r3p1p0_i1_p0_p6_25Aug2015.pdf">BMS Catalogue Item Synchronisation</a></p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_GDSN_Basic_Party_Synchronisation_r3p1p0_i0p0p5_05Aug2013.pdf">BMS Basic Party Synchronisation</a></p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_Price_Sync_r3p1p10_d1p3p6_22Oct2019.pdf">BMS Price Synchronisation</a>&nbsp;</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_GDSN_Trade_Item_Authorisation_r3p1p0_i1p0p2_06aug2013.pdf">BMS Trade Item Authorisation</a></p>
+
+<p>&nbsp;</p>
+
+<p>Schemas</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_Package_GDSN_Catalogue_Item_Sync_June2023.zip">Catalogue Item Synchronisation Schema including modules 3.1.25</a>&nbsp;(June 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Changed%20Schemas%203.1.25.zip">Changed Schemas for 3.1.25</a>&nbsp;(June 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_Package_GDSN_Basic_Party_Synchronisation_June2023.zip">Party Synchronisation Schema</a></p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_Package_GDSN_Price_Sync_June2023.zip">Price Synchronisation Schema</a></p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/BMS_Package_GDSN_Trade_Item_Authorisation_June2023.zip">Trade Item Authorisation Schema</a></p>
+
+ Release Guidance 
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/GPC_Bricks_Mapping_To_GDSN_r3.1.25_Context_i1_May2023.xlsx">GPC to Context Mapping 3.1.25</a>&nbsp;(June 2023) May GPC publication&nbsp;</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/GPC_Bricks_Mapping_To_GDSN_r3.1.25_Context_Delta_i1_May2023.xlsx">Delta GPC to Context Mapping 3.1.25</a>&nbsp;(June 2023)&nbsp;May GPC publication&nbsp;</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/GDSN_Attributes_with_BMSId_xPath_3.1.24_June_14_2023.xlsx">GS1 GDSN Attributes with BMS ID and xPath</a> (June 2023)&nbsp;</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Packaging_label_guide_June_2023_3_1_25.xlsx">Packaging Label Guide</a>&nbsp;(June 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Approved%20WRs%20for%20Release_3.1.25_Nov_2023.xlsx">Approved WRs for release</a></p>
+
+ Unchanged for 3.1.24 
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Deployed%20LCLs_November_2022.xlsx">Deployed LCLs </a>(Nov 2022)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Migration_Document_May_3_2023_3.1.23.xlsx">Migration Document </a> (May 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Modules_by_Context_3p1p16_i1_14_April_2023.xlsx">GS1 GDSN Module by context</a> (May 2023)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/UOM_ByCat.xlsx">GS1 GDSN Unit of Measure per Category</a> (Apr 2022)</p>
+
+<p><a href="https://www.gs1.org/docs/gdsn/3.1/Flex%20Schema.zip">Flex Extension for Price commentary</a> (Dec 2018)</p>
+ 
+     
+
+     
+   
+
+         
+                               
+          
+         
+                                                                                                                                                                              
+   
+
+  
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   12:35 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://restofworld.org/'>ResofWorld</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://restofworld.org/2023/playlist-turn-it-up/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>Turn it up: Rest of World’s 2023 global party playlist</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Impress your friends by queuing up these chart-topping pop songs from the countries we cover.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+Listen now
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   12:14 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://restofworld.org/2023/the-bytedance-streaming-app-thats-quietly-going-global/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>The ByteDance streaming app that’s quietly going global</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Resso could give Spotify a run for its money.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+With threats of a TikTok ban still circulating in the U.S., parent company ByteDance’s perceived ties to the Chinese government have never been more of a liability. But while TikTok...
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   10:00 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://restofworld.org/2023/china-ai-startups-to-watch/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>The new kids on China’s AI block</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  China’s OpenAI might come from one park in Beijing’s Silicon Valley.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+To college students and tech workers in Beijing, Tsinghua University Science Park (TusPark) is known as the “Center of the Universe.” The hub of tech startups, talent, and capital is...
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   10:00 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.gs1.org/'>GS1</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.gs1.org/insights-events/case-studies/case-studies/top-greek-yogurt-brand-sees-gs1-gdsn-key-part-their-digital'>Top Greek yogurt brand sees GS1 GDSN as a key part of their digital transformation</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+
+  
+
+  
+ 
+              
+  Top Greek yogurt brand sees GS1 GDSN as a key part of their digital transformation
+ 
+ 
+     
+
+ 
+             For almost a century now, Greek dairy manufacturer FAGE Greece S.A. has been producing yogurt and other dairy products. Today, this pioneering company is recognised globally for the quality of their products. 
+     
+
+ 
+              Market-leading yogurt company 
+   
+  
+  
+  
+  
+    
+      
+      
+      <div class="preview">
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://gs1go2.azureedge.net/cdn/ff/0IoSbvXXo-46_O61nipubCfA7SfgQnGszyDUTu8WSXk/1688136955/public/2023-06/5.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+
+  
+
+  
+ 
+              
+  Top Greek yogurt brand sees GS1 GDSN as a key part of their digital transformation
+ 
+ 
+     
+
+ 
+             For almost a century now, Greek dairy manufacturer FAGE Greece S.A. has been producing yogurt and other dairy products. Today, this pioneering company is recognised globally for the quality of their products. 
+     
+
+ 
+              Market-leading yogurt company FAGE (pronounced: “FA-YEH!”) was one of the first businesses in Greece to join HellaSync, the GDSN-Certified Data Pool provided by GS1 Association Greece. 
+
+<p>FAGE sees GS1 GDSN as a key part of their digital transformation. Using the Network has allowed them to deliver product data to their customers in just 20% of the time that they needed before. The company has also seen their internal operations and processes become faster and smoother. And GDSN has already allowed FAGE to penetrate new customers in Europe, as their product listings already met the high-quality digitised expectations of these customers. Going forward, FAGE intends to start adding to their GDSN listings information about packaging recyclability and sustainability.</p> 
+     
+
+     
+  
+  
+ 
+                
+     
+
+ 
+
+
+
+ 
+   
+  
+  
+    
+      
+      
+      <div class="photo">
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://gs1go2.azureedge.net/cdn/ff/0IoSbvXXo-46_O61nipubCfA7SfgQnGszyDUTu8WSXk/1688136955/public/2023-06/5.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   09:08 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -765,7 +1625,7 @@
 
 <div class='item-footer'>
    14:18 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -855,7 +1715,7 @@
 
 <div class='item-footer'>
    12:28 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1172,7 +2032,7 @@
 
 <div class='item-footer'>
    11:00 &bull;
-   22 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1236,7 +2096,7 @@ Last week, The Verge published a big feature on the hidden labor that goes into 
 
 <div class='item-footer'>
    10:00 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1296,7 +2156,7 @@ Last week, The Verge published a big feature on the hidden labor that goes into 
 
 <div class='item-footer'>
    10:00 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1396,7 +2256,7 @@ Last week, The Verge published a big feature on the hidden labor that goes into 
 
 <div class='item-footer'>
    09:14 &bull;
-   23 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1504,7 +2364,7 @@ of building trust with your community.
 
 <div class='item-footer'>
    17:19 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3072,7 +3932,7 @@ The days leading up to a festival were usually a busy time at work for Mohammad 
 
 <div class='item-footer'>
    20:43 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4548,7 +5408,7 @@ From Stuxnet to SolarWinds, nation-state cyberattacks have become a persistent f
  <i class='icon-caret-down item-collapse item-close item-opened'></i>
  <i class='icon-caret-right item-expand item-open item-closed'></i>
 
- <a href='https://restofworld.org/2023/tesla-new-factory-mexico-drought/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>A thirsty new Tesla factory comes to a parched corner of Mexico</a>
+ <a href='https://restofworld.org/2023/tesla-new-factory-mexico-drought/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>Tesla’s new Mexico factory divides a city</a>
 
 </h3>
 
@@ -4558,7 +5418,7 @@ From Stuxnet to SolarWinds, nation-state cyberattacks have become a persistent f
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  Despite Elon Musk’s promises of water efficiency, critics fear the EV maker’s plans pose an environmental threat.
+  Locals fear EV production will worsen water scarcity in a region where residents have had to stockpile water.
    
   
   
@@ -4768,7 +5628,7 @@ When the taps started to run dry in March 2022, Blanca Guzmán thought she was p
 
 <div class='item-footer'>
    23:56 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5225,66 +6085,6 @@ Barely a year ago, companies making parts for Apple and Google were pouring into
 <article class='item'>
 
 
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://restofworld.org/2023/shein-overstock-latin-america-street-markets/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>Shein overstock is getting a second life in Latin America’s street markets</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Resellers are buying garments from Shein’s suppliers in China that would have ended up in a dump.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-Among the colorful stands of Mexico City’s popular street markets, like El Salado in the Iztapalapa neighborhood, piles of garments are stacked high under neon-colored signs. Bright lettering hovers over...
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   10:00 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
 <h4 class='feed-title'>
   <a href='https://fidoalliance.org/content/fido-news-center/'>FIDO Alliance</a>
 </h4>
@@ -5402,133 +6202,7 @@ Among the colorful stands of Mexico City’s popular street markets, like El Sal
 
 <div class='item-footer'>
    00:01 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Friday, 23. June 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://restofworld.org/'>ResofWorld</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://restofworld.org/2023/sierra-leone-election-first-lady-tiktok/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>Sierra Leone’s first lady hopes going viral on TikTok will secure Saturday’s elections</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Amid economic turmoil, President Julius Maada Bio is seeking re-election in Sierra Leone. His wife, Fatima, is dancing to a crowd of over 200,000 on TikTok to drum up votes.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-As Sierra Leone’s president, Julius Maada Bio, seeks reelection amid economic turbulence in the country, his wife is trying to garner support for him by grooving to viral songs on...
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   10:00 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://restofworld.org/2023/trueflutter-dating-app-nigeria/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>Nigeria’s dating app for people who want to stop dating and get hitched already</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  What started out as a matchmaking WhatsApp group has turned into a popular dating app with over 2.1 million recorded matches and 44 marriages.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-On Valentine’s Day this year, Bukola, a single mother of two in her 40s, married 40-something bachelor Abayomi. “I think I was going to compromise and manage, or have this...
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   10:00 &bull;
-   7 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6158,7 +6832,7 @@ AVP for Marketing and Communications, Edge<br>
 
 <div class='item-footer'>
    01:15 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8669,7 +9343,7 @@ The post Healthy and responsible data management with E
 
 <div class='item-footer'>
    22:31 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10952,7 +11626,7 @@ information about these topics, watch the webinar recording from 31 May 2023.</p
 
 <div class='item-footer'>
    15:10 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -11098,7 +11772,7 @@ CTGATGGT
 
 <div class='item-footer'>
    13:26 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -11344,7 +12018,7 @@ The post Convocatoria para organizaciones feministas negras: apoyo gratuito en t
 
 <div class='item-footer'>
    09:57 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -11586,7 +12260,7 @@ The post Chamada para organizações feministas negras: apoio gratuito de tecnol
 
 <div class='item-footer'>
    09:57 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -11839,7 +12513,7 @@ The post Calling all Black feminist organizations for no-fee tech and data suppo
 
 <div class='item-footer'>
    09:57 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -12446,300 +13120,6 @@ The post Calling all Black feminist organizations for no-fee tech and data suppo
 
 <div class='item-footer'>
    21:58 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.gs1.org/insights-events/case-studies/7-eleven-thailand-boosts-consumer-safety-and-satisfaction-next-generation'>7-Eleven Thailand boosts consumer safety and satisfaction with next generation barcodes</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-
-  
-
-  
- 
-              
-  7-Eleven Thailand boosts consumer safety and satisfaction with next generation barcodes
- 
- 
-     
-
- 
-             2D barcodes are providing consumers in Thailand a better experience at their local 7-Eleven 
-     
-
- 
-              7-Eleven stores in Thailand wanted to ensure that expired products were not being sold to consumers. 
-
- Across Thailand, 7-Eleven began labell
-   
-  
-  
-  
-  
-    
-      
-      
-      <div class="preview">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://gs1go2.azureedge.net/cdn/ff/HZtzkk2jbwlvKCnxwW2ZmBTTcnbK56XAXJuIQS7-Lk4/1685444922/public/case_study_library_item/case-study-7-eleven-gs1-thailand.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-
-  
-
-  
- 
-              
-  7-Eleven Thailand boosts consumer safety and satisfaction with next generation barcodes
- 
- 
-     
-
- 
-             2D barcodes are providing consumers in Thailand a better experience at their local 7-Eleven 
-     
-
- 
-              7-Eleven stores in Thailand wanted to ensure that expired products were not being sold to consumers. 
-
-<p>Across Thailand, 7-Eleven began labelling products and upgrading equipment to be compatible with next generation barcodes powered by GS1.</p>
-
-<p>Faster, simpler and more efficient operations, better stock management and most importantly, no more products sold past their “best before” dates.</p> 
-     
-
-     
-  
-  
- 
-                
-     
-
- 
-
-
- 
-              
-  
-  
- 
-             
- <a>case-study-7-eleven-gs1-thailand.pdf</a>
- 
-     
-
- 
- 
-     
-
-
- 
-   
-  
-  
-    
-      
-      
-      <div class="photo">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://gs1go2.azureedge.net/cdn/ff/HZtzkk2jbwlvKCnxwW2ZmBTTcnbK56XAXJuIQS7-Lk4/1685444922/public/case_study_library_item/case-study-7-eleven-gs1-thailand.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:57 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.gs1.org/insights-events/case-studies/strengthening-tequila-supply-chain-integrity-mexico-us'>Strengthening tequila supply chain integrity from Mexico to the U.S.</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-
-  
-
-  
- 
-              
-  Strengthening tequila supply chain integrity from Mexico to the U.S.
- 
- 
-     
-
- 
-             By uniquely identifying individual bottles with GS1 standards, Mexican exporters can better manage their inventory. 
-     
-
- 
-              By scanning GS1 barcodes on boxes, they can assess whether the order was complete at the time of shipment, taking action early in the pro
-   
-  
-  
-  
-  
-    
-      
-      
-      <div class="preview">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://gs1go2.azureedge.net/cdn/ff/TD0nFXNAm-iG0lEc4Z7QojaGszizae1n2MiMpOKADKA/1685546206/public/case_study_library_item/case-335.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-
-  
-
-  
- 
-              
-  Strengthening tequila supply chain integrity from Mexico to the U.S.
- 
- 
-     
-
- 
-             By uniquely identifying individual bottles with GS1 standards, Mexican exporters can better manage their inventory. 
-     
-
- 
-              By scanning GS1 barcodes on boxes, they can assess whether the order was complete at the time of shipment, taking action early in the process, if needed. 
-
-<p>Trading partners can also obtain information on a full-trailer load compared to lots shipped, along with a summary of the shipped boxes, significantly improving process efficiency.</p>
-
- Results 
-
-<p>The tequila trade between Mexico and the U.S. can realise significant improvements in traceability as well as efficiency gains.</p>
-
-<p>Processing time has improved by 30 percent and counterfeiting has been minimised.</p>
-
- Situation 
-
-<p>The focus of this pilot was to ensure that the products were not stolen, altered or exchanged for counterfeit products. It was, therefore, based on monitoring the traceability of tequila shipments, knowing where specific products were located in the supply chain, at a specific point in time. Additional traceability information included knowing that the trailer had not been altered and that products had not been stolen or exchanged.</p>
-
- Approach 
-
-<p>GS1 identifiers encoded in EPC/RFID tags uniquely identify each tequila product along with data such as the lot number and expiration date. The EzTrack EPCIS platform enables all stakeholders to track the movement of tequila shipments throughout the global supply chain. The Ministry of Economy and the National Chamber of the Tequila Industry chose the following tequila companies to participate in the project: Corporativo Destileria Santa Lucia S.A. de C.V.; the Patron Spirits Company; Proximo Spirits Inc.; Tequila Cuervo; and Pernord Ricard Mexico S.A. de C.V.</p> 
-     
-
-     
-  
-  
- 
-                
-     
-
- 
-
-
- 
-              
-  
-  
- 
-             
- <a>Tequila-case-study-APEC.pdf</a>
- 
-     
-
- 
- 
-     
-
-
- 
-   
-  
-  
-    
-      
-      
-      <div class="photo">
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://gs1go2.azureedge.net/cdn/ff/TD0nFXNAm-iG0lEc4Z7QojaGszizae1n2MiMpOKADKA/1685546206/public/case_study_library_item/case-335.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:56 &bull;
    1 months ago
 </div>
 
@@ -16476,7 +16856,7 @@ If you are new to DIF join us for our upcoming new member orientations.  Please 
 
 <div class='item-footer'>
    15:49 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16542,7 +16922,7 @@ If you are new to DIF join us for our upcoming new member orientations.  Please 
 
 <div class='item-footer'>
    15:32 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16604,7 +16984,7 @@ If you are new to DIF join us for our upcoming new member orientations.  Please 
 
 <div class='item-footer'>
    15:31 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16666,7 +17046,7 @@ If you are new to DIF join us for our upcoming new member orientations.  Please 
 
 <div class='item-footer'>
    15:30 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16728,7 +17108,7 @@ If you are new to DIF join us for our upcoming new member orientations.  Please 
 
 <div class='item-footer'>
    15:29 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16790,7 +17170,7 @@ If you are new to DIF join us for our upcoming new member orientations.  Please 
 
 <div class='item-footer'>
    15:27 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16852,7 +17232,7 @@ If you are new to DIF join us for our upcoming new member orientations.  Please 
 
 <div class='item-footer'>
    15:17 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16926,7 +17306,7 @@ If you are new to DIF join us for our upcoming new member orientations.  Please 
 
 <div class='item-footer'>
    14:27 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17055,7 +17435,7 @@ The post Come to our AMA (Ask Me Anything): responsible data and social justice 
 
 <div class='item-footer'>
    10:50 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27675,74 +28055,6 @@ Team Konfir
 
 <div class='item-footer'>
    15:22 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Thursday, 23. March 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://fidoalliance.org/content/fido-news-center/'>FIDO Alliance</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://fidoalliance.org/journal-du-net-digital-accessibility-why-cios-should-make-it-a-priority/'>Journal du Net: Digital accessibility: Why CIOs should make it a priority</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   In this byline, Andrew Shikiar explains how simple and safe digital accessibility is an essential human right today. 
- The post Journal du Net: Digital accessibility: Why CIOs should make it a priority appeared first on FIDO Alliance. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>In this byline, Andrew Shikiar explains how simple and safe digital accessibility is an essential human right today.</p>
-<p>The post <a href="https://fidoalliance.org/journal-du-net-digital-accessibility-why-cios-should-make-it-a-priority/">Journal du Net: Digital accessibility: Why CIOs should make it a priority</a> appeared first on <a href="https://fidoalliance.org">FIDO Alliance</a>.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:10 &bull;
    3 months ago
 </div>
 
