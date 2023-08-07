@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:47 AM August 07, 2023 (UTC)</sup>
+<sup>Last Update 9:38 AM August 07, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -736,8 +736,733 @@
 
 
 <h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/08/07/use-a-microsoft-entra-verified-id-employee-credential-to-view-paycheck-data/'>Use a Microsoft Entra Verified ID Employee credential to view paycheck data</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how a Microsoft Entra Verified ID employee credential can be used to access user specific data. This demo shows possible paycheck data from Switzerland. A payment ID can be the printed on the pay slip or the payment document could have a QR Code to scan. The user specific data can then […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how a Microsoft Entra Verified ID employee credential can be used to access user specific data. This demo shows possible paycheck data from Switzerland. A payment ID can be the printed on the pay slip or the payment document could have a QR Code to scan. The user specific data can then be viewed and possible links to further services can be opened. Access is controlled using the verification presentation. The application is implemented using ASP.NET Core.</p>
+
+
+
+<p>Code: <a href="https://github.com/swiss-ssi-group/EntraEmployeePaycheck">https://github.com/swiss-ssi-group/EntraEmployeePaycheck</a></p>
+
+
+
+ Get your Verified Employee credential 
+
+
+
+<p>To use this application, a Microsoft Entra employee credential from the correct tenant must be used. The following post shows how to set this up, get a credential and add this to your Microsoft wallet.</p>
+
+
+
+<p><a href="https://damienbod.com/2023/07/03/issue-employee-verifiable-credentials-using-entra-verified-id-and-asp-net-core/">Issue Employee verifiable credentials using Entra Verified ID and ASP.NET&nbsp;Core</a></p>
+
+
+
+ Implement the employee credential verifier 
+
+
+
+<p>The EmployeeClaims class implements the scheme returned from the employee credential. This contains the values from the Microsoft Entra verified employee credential stored on your wallet.</p>
+
+
+  public class EmployeeClaims
+{
+    [JsonPropertyName("givenName")]
+    public string GivenName { get; set; } = string.Empty;
+    [JsonPropertyName("surname")]
+    public string Surname { get; set; } = string.Empty;
+    [JsonPropertyName("mail")]
+    public string Mail { get; set; } = string.Empty;
+    [JsonPropertyName("jobTitle")]
+    public string JobTitle { get; set; } = string.Empty;
+    [JsonPropertyName("photo")] // "type": "image/jpg;base64url",
+    public string Photo { get; set; } = string.Empty;
+    [JsonPropertyName("displayName")]
+    public string DisplayName { get; set; } = string.Empty;
+    [JsonPropertyName("preferredLanguage")]
+    public string PreferredLanguage { get; set; } = string.Empty;
+
+    //[JsonPropertyName("userPrincipalName")]
+    [JsonPropertyName("revocationId")]
+    public string RevocationId { get; set; } = string.Empty;
+}
+  
+
+
+<p></p>
+
+
+
+<p>The GetVerifierRequestPayload is used to initialize the verification presentation request. The configuration must match the Microsoft Entra Verified ID tenant setup.</p>
+
+
+  public VerifierRequestPayload GetVerifierRequestPayload(HttpRequest request)
+{
+	var payload = new VerifierRequestPayload();
+
+	var host = GetRequestHostName(request);
+	payload.Callback.State = Guid.NewGuid().ToString();
+	payload.Callback.Url = $"{host}/api/verifier/presentationCallback";
+	payload.Callback.Headers.ApiKey = _credentialSettings.VcApiCallbackApiKey;
+
+	payload.Registration.ClientName = "VerifiedEmployee";
+	payload.Authority = _credentialSettings.VerifierAuthority;
+
+	var requestedCredentials = new RequestedCredentials
+	{
+		CrendentialsType = "VerifiedEmployee",
+		Purpose = "Verified Employee to authenticate your request"
+	};
+	requestedCredentials.AcceptedIssuers.Add(_credentialSettings.IssuerAuthority);
+	payload.RequestedCredentials.Add(requestedCredentials);
+
+	return payload;
+}
+  
+
+
+<p></p>
+
+
+
+<p>The VerifierController implements the API used for the callbacks and the wallet request results. The PresentationRequest method handles the request and uses the Microsoft Entra Verified ID API to send a verification presentation request to the wallet.</p>
+
+
+  [HttpGet("/api/verifier/presentation-request")]
+public async Task&lt;ActionResult&gt; PresentationRequest()
+{
+	try
+	{
+		var payload = _verifierService.GetVerifierRequestPayload(Request);
+		var (Token, Error, ErrorDescription) = await _verifierService.GetAccessToken();
+
+		if (string.IsNullOrEmpty(Token))
+		{
+			_log.LogError("failed to acquire accesstoken: {Error} : {ErrorDescription}", Error, ErrorDescription);
+			return BadRequest(new { error = Error, error_description = ErrorDescription });
+		}
+
+		var defaultRequestHeaders = _httpClient.DefaultRequestHeaders;
+		defaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+
+		var res = await _httpClient.PostAsJsonAsync(
+			_credentialSettings.Endpoint, payload);
+
+		if (res.IsSuccessStatusCode)
+		{
+			var response = await res.Content.ReadFromJsonAsync&lt;VerifierResponse&gt;();
+			response!.Id = payload.Callback.State;
+			_log.LogTrace("succesfully called Request API");
+
+			if (res.StatusCode == HttpStatusCode.Created)
+			{
+				var cacheData = new CacheData
+				{
+					Status = VerifierConst.NotScanned,
+					Message = "Request ready, please scan with Authenticator",
+					Expiry = response.Expiry.ToString(CultureInfo.InvariantCulture),
+				};
+				CacheData.AddToCache(payload.Callback.State, _distributedCache, cacheData);
+
+				return Ok(response);
+			}
+		}
+		else
+		{
+			var message = await res.Content.ReadAsStringAsync();
+
+			_log.LogError("Unsuccesfully called Request API {message}", message);
+			return BadRequest(new { error = "400", error_description = message });
+		}
+
+		var errorResponse = await res.Content.ReadAsStringAsync();
+		_log.LogError("Unsuccesfully called Request API");
+		return BadRequest(new { error = "400", error_description = "Something went wrong calling the API: " + errorResponse });
+	}
+	catch (Exception ex)
+	{
+		return BadRequest(new { error = "400", error_description = ex.Message });
+	}
+}
+  
+
+
+<p></p>
+
+
+
+<p>The PresentationCallback in the API controller handles the Web hook callback requests. If the presentation is successful, the data is returned and added to the cache using the state value. The UI can poll this later and use the data in the user session.</p>
+
+
+  [HttpPost]
+public async Task&lt;ActionResult&gt; PresentationCallback()
+{
+	var content = await new StreamReader(Request.Body).ReadToEndAsync();
+	var verifierCallbackResponse = JsonSerializer.Deserialize&lt;VerifierCallbackResponse&gt;(content);
+
+	try
+	{
+		if (verifierCallbackResponse != null  &amp;&amp; verifierCallbackResponse
+			.RequestStatus == VerifierConst.RequestRetrieved)
+		{
+			var cacheData = new CacheData
+			{
+				Status = VerifierConst.RequestRetrieved,
+				Message = "QR Code is scanned. Waiting for validation...",
+			};
+			CacheData.AddToCache(verifierCallbackResponse.State, _distributedCache, cacheData);
+		}
+
+		if (verifierCallbackResponse != null &amp;&amp; verifierCallbackResponse
+			.RequestStatus == VerifierConst.PresentationVerified)
+		{
+			var cacheData = new CacheData
+			{
+				Status = VerifierConst.PresentationVerified,
+				Message = "Presentation verified",
+				Payload = JsonSerializer.Serialize(verifierCallbackResponse.VerifiedCredentialsData),
+				Subject = verifierCallbackResponse.Subject
+			};
+
+			cacheData.Employee.Photo = verifierCallbackResponse
+				.VerifiedCredentialsData!.FirstOrDefault()!.Claims.Photo;
+			cacheData.Employee.RevocationId = verifierCallbackResponse
+				.VerifiedCredentialsData!.FirstOrDefault()!.Claims.RevocationId;
+			cacheData.Employee.PreferredLanguage = verifierCallbackResponse
+				.VerifiedCredentialsData!.FirstOrDefault()!.Claims.PreferredLanguage;
+			cacheData.Employee.Surname = verifierCallbackResponse
+				.VerifiedCredentialsData!.FirstOrDefault()!.Claims.Surname;
+			cacheData.Employee.GivenName = verifierCallbackResponse
+				.VerifiedCredentialsData!.FirstOrDefault()!.Claims.GivenName;
+			cacheData.Employee.DisplayName = verifierCallbackResponse
+				.VerifiedCredentialsData!.FirstOrDefault()!.Claims.DisplayName;
+			cacheData.Employee.Mail = verifierCallbackResponse
+				.VerifiedCredentialsData!.FirstOrDefault()!.Claims.Mail;
+			cacheData.Employee.JobTitle = verifierCallbackResponse
+				.VerifiedCredentialsData!.FirstOrDefault()!.Claims.JobTitle;
+
+			CacheData.AddToCache(verifierCallbackResponse.State, _distributedCache, cacheData);
+		}
+
+		return Ok();
+	}
+	catch (Exception ex)
+	{
+		return BadRequest(new { error = "400", error_description = ex.Message });
+	}
+}
+  
+
+
+ Authenticated session setup 
+
+
+
+<p>The employee verifiable credential is returned and stored in a cache using a random state value. This value needs to be random with a minimum length. This is used to setup the user session. If it is possible to acquire this value in a different way, user data loss is possible. This should only be active for one time usage. This type of flow is also open to phishing attacks as it is cross device with no origin validation.</p>
+
+
+  &lt;form method="post" id="verifyEmployeePaycheck" action="" novalidate&gt;
+    &lt;input type="hidden" required id="statePresented" name="statePresented"/&gt;
+&lt;/form&gt;
+  
+
+
+<p></p>
+
+
+
+<p>When the state is posted to the server, the user is signed in using cookies.</p>
+
+
+  public async Task&lt;IActionResult&gt; OnPostAsync()
+{
+	if (StatePresented == null)
+	{
+		ModelState.AddModelError("StatePresented", "no vc");
+		return Page();
+	}
+
+	var credentialData = CacheData.GetFromCache(StatePresented, _distributedCache);
+
+	var claims = new List&lt;Claim&gt; {
+		new Claim("DisplayName", credentialData!.Employee.DisplayName, 
+			ClaimValueTypes.String, "damienbodsharepoint"),
+		new Claim("JobTitle", credentialData!.Employee.JobTitle, 
+			ClaimValueTypes.String, "damienbodsharepoint"),
+		new Claim("PreferredLanguage", credentialData!.Employee.PreferredLanguage, 
+			ClaimValueTypes.String, "damienbodsharepoint"),
+		new Claim("RevocationId", credentialData!.Employee.RevocationId, 
+			ClaimValueTypes.String, "damienbodsharepoint"),
+		new Claim("GivenName", credentialData!.Employee.GivenName, 
+			ClaimValueTypes.String, "damienbodsharepoint"),
+		new Claim("Mail", credentialData!.Employee.Mail, 
+			ClaimValueTypes.String, "damienbodsharepoint"),
+		new Claim("Surname", credentialData!.Employee.Surname, 
+			ClaimValueTypes.String, "damienbodsharepoint"),
+		new Claim("Photo", credentialData!.Employee.Photo, 
+			ClaimValueTypes.String, "damienbodsharepoint"),
+	};
+
+	var userIdentity = new ClaimsIdentity(claims, "entraemployee");
+	var userPrincipal = new ClaimsPrincipal(userIdentity);
+
+	await HttpContext.SignInAsync(
+		CookieAuthenticationDefaults.AuthenticationScheme,
+		userPrincipal,
+		new AuthenticationProperties
+		{
+			ExpiresUtc = DateTime.UtcNow.AddMinutes(20),
+			IsPersistent = false,
+			AllowRefresh = false
+		});
+
+	CacheData.RemoveFromCache(StatePresented, _distributedCache);
+
+	return Redirect($"~/Paycheck/PaycheckDetailsS3/{PaycheckId}");
+}
+  
+
+
+ Run the application 
+
+
+
+<p>A demo was deployed using one of my test tenants. </p>
+
+
+
+<p><a href="https://issueverifiableemployee.azurewebsites.net/">https://issueverifiableemployee.azurewebsites.net/</a></p>
+
+
+
+<p>When the application is started, the process can be started using a paycheck ID. This all depends on how your company supports the pay data. Sometimes, only your ID is supported and the latest one could be displayed. This is always different and depends on the payment service. Some companies use a QR code on the printed pay slip.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The application verifies that you are an employee of the company using the Microsoft Entra Verified ID employee credential.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>Once verified, the paycheck data can be displayed.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>This demo just displays some typical data from a Swiss paycheck. This would be specific to the software used to manage the data and an API can be built to access the data on behalf of the user.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Notes 
+
+
+
+<p>The way of verifying employees offers another way to implement access management and offers new possibilities for integrating identity checks across tenant boundaries. </p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/how-to-use-quickstart-multiple">https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/how-to-use-quickstart-multiple</a></p>
+
+
+
+<p><a href="https://github.com/swiss-ssi-group/AzureADVerifiableCredentialsAspNetCore">https://github.com/swiss-ssi-group/AzureADVerifiableCredentialsAspNetCore</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/decentralized-identifier-overview">https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/decentralized-identifier-overview</a></p>
+
+
+
+<p><a href="https://ssi-start.adnovum.com/data">https://ssi-start.adnovum.com/data</a></p>
+
+
+
+<p><a href="https://github.com/e-id-admin/public-sandbox-trustinfrastructure/discussions/14">https://github.com/e-id-admin/public-sandbox-trustinfrastructure/discussions/14</a></p>
+
+
+
+<p><a href="https://openid.net/specs/openid-connect-self-issued-v2-1_0.html">https://openid.net/specs/openid-connect-self-issued-v2-1_0.html</a></p>
+
+
+
+<p><a href="https://identity.foundation/jwt-vc-presentation-profile/">https://identity.foundation/jwt-vc-presentation-profile/</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/verifiable-credentials-standards">https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/verifiable-credentials-standards</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-verifiable-credentials-dotnet">https://github.com/Azure-Samples/active-directory-verifiable-credentials-dotnet</a></p>
+
+
+
+<p><a href="https://aka.ms/mysecurityinfo">https://aka.ms/mysecurityinfo</a></p>
+
+
+
+<p><a href="https://fontawesome.com/">https://fontawesome.com/</a></p>
+
+
+
+<p><a href="https://developer.microsoft.com/en-us/graph/graph-explorer?tenant=damienbodsharepoint.onmicrosoft.com">https://developer.microsoft.com/en-us/graph/graph-explorer?tenant=damienbodsharepoint.onmicrosoft.com</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0">https://learn.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/VerifiedEmployeeIssuance">https://github.com/Azure-Samples/VerifiedEmployeeIssuance</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web/blob/jmprieur/Graph5/src/Microsoft.Identity.Web.GraphServiceClient/Readme.md#replace-the-nuget-packages">https://github.com/AzureAD/microsoft-identity-web/blob/jmprieur/Graph5/src/Microsoft.Identity.Web.GraphServiceClient/Readme.md#replace-the-nuget-packages</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/azure/app-service/deploy-github-actions#configure-the-github-secret">https://docs.microsoft.com/azure/app-service/deploy-github-actions#configure-the-github-secret</a></p>
+
+
+
+<p><a href="https://issueverifiableemployee.azurewebsites.net/">https://issueverifiableemployee.azurewebsites.net/</a></p>
+
+
+
+ Links eIDAS and EUDI standards 
+
+
+
+<p>Draft: OAuth 2.0 Attestation-Based Client Authentication<br><a href="https://datatracker.ietf.org/doc/html/draft-looker-oauth-attestation-based-client-auth-00">https://datatracker.ietf.org/doc/html/draft-looker-oauth-attestation-based-client-auth-00</a></p>
+
+
+
+<p>Draft: OpenID for Verifiable Presentations<br><a href="https://openid.net/specs/openid-4-verifiable-presentations-1_0.html">https://openid.net/specs/openid-4-verifiable-presentations-1_0.html</a></p>
+
+
+
+<p>Draft: OAuth 2.0 Demonstrating Proof-of-Possession at the Application Layer (DPoP)<br><a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop">https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop</a></p>
+
+
+
+<p>Draft: OpenID for Verifiable Credential Issuance<br><a href="https://openid.bitbucket.io/connect/openid-4-verifiable-credential-issuance-1_0.html">https://openid.bitbucket.io/connect/openid-4-verifiable-credential-issuance-1_0.html</a></p>
+
+
+
+<p>Draft: OpenID Connect for Identity Assurance 1.0<br><a href="https://openid.net/specs/openid-connect-4-identity-assurance-1_0-13.html">https://openid.net/specs/openid-connect-4-identity-assurance-1_0-13.html</a></p>
+
+
+
+<p>Draft: SD-JWT-based Verifiable Credentials (SD-JWT VC)<br><a href="https://vcstuff.github.io/draft-terbu-sd-jwt-vc/draft-terbu-oauth-sd-jwt-vc.html">https://vcstuff.github.io/draft-terbu-sd-jwt-vc/draft-terbu-oauth-sd-jwt-vc.html</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/07/vc-employee-paycheck_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:27 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://werd.io'>Ben Werdmüller</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://winnielim.org/journal/thoughts-on-the-suicidal-mind/'>thoughts on the suicidal mind</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ This resonated with me a lot. What I'll say is: I'm glad Winnie is in the world. I know these feelings, intimately. I don't have much definitive to say about that. I haven't drawn any conclusions. It's a journey, daily.  #Culture 
+             [Link] 
+         
+     
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>This resonated with me a lot. What I'll say is: I'm glad Winnie is in the world. I know these feelings, intimately. I don't have much definitive to say about that. I haven't drawn any conclusions. It's a journey, daily.  <a href="https://werd.io/tag/Culture">#Culture</a></p>
+            <p>[<a href="https://winnielim.org/journal/thoughts-on-the-suicidal-mind/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:43 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://finance.yahoo.com/news/every-reported-case-where-police-194117982.html'>In every reported case where police mistakenly arrested someone using facial recognition, that person has been Black</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ Black faces are overrepresented in databases used to train AI for law enforcement - and some facial recognition software used in this context fails 96% of the time. This practice is an accelerant for already deeply harmful inequities. Time to ban it.  #AI 
+             [Link] 
+         
+     
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>Black faces are overrepresented in databases used to train AI for law enforcement - and some facial recognition software used in this context fails 96% of the time. This practice is an accelerant for already deeply harmful inequities. Time to ban it.  <a href="https://werd.io/tag/AI">#AI</a></p>
+            <p>[<a href="https://finance.yahoo.com/news/every-reported-case-where-police-194117982.html">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:26 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2023/zoom-may-be-a-bad-choice-for-newsrooms'>Zoom may be a bad choice for newsrooms</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ Zoom’s terms of service now allow meeting content to be used to train AI, without opt-out:   What raises alarm is the explicit mention of the company's right to use this data for machine learning and artificial intelligence, including training and tuning of algorithms and models. This effectively allows Zoom to train its AI on customer content without providing an opt-out option, a decision that
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+<p><a href="https://stackdiary.com/zoom-terms-now-allow-training-ai-on-user-content-with-no-opt-out/">Zoom’s terms of service now allow meeting content to be used to train AI, without opt-out</a>:</p><blockquote><p>What raises alarm is the explicit mention of the company's right to use this data for machine learning and artificial intelligence, including training and tuning of algorithms and models. This effectively allows Zoom to train its AI on customer content without providing an opt-out option, a decision that is likely to spark significant debate about user privacy and consent.</p></blockquote><p><a href="https://workspace.google.com/blog/product-announcements/generative-ai">Google Meet also appears to train AI on meeting content</a>. I would guess that virtually every newsroom in the country uses a videoconferencing solution that allows the content of customer calls to be used to train AI. </p><p>This blanket approval also means that this customer data may be available within a model somewhere (albeit not publicly) to be perused, including sensitive information about ongoing investigations and reporting on abuse of power.</p><p>Platforms like <a href="https://wire.com/en/">Wire</a> may be more secure. At any rate, anyone discussing sensitive information may wish to find a solution beyond the usual suspects.</p> 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:08 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -791,7 +1516,7 @@
 
 <div class='item-footer'>
    01:32 &bull;
-   17 minutes ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -868,7 +1593,7 @@
 
 <div class='item-footer'>
    21:54 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -929,7 +1654,7 @@
 
 <div class='item-footer'>
    21:47 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1005,7 +1730,7 @@
 
 <div class='item-footer'>
    20:18 &bull;
-   6 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1077,7 +1802,7 @@
 
 <div class='item-footer'>
    19:46 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1147,7 +1872,7 @@
 
 <div class='item-footer'>
    17:44 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1336,7 +2061,7 @@ aspects of it that are interesting
 
 <div class='item-footer'>
    17:15 &bull;
-   9 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1419,7 +2144,7 @@ aspects of it that are interesting
 
 <div class='item-footer'>
    16:40 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1485,7 +2210,7 @@ aspects of it that are interesting
 
 <div class='item-footer'>
    16:15 &bull;
-   10 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1588,7 +2313,7 @@ aspects of it that are interesting
 
 <div class='item-footer'>
    15:29 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2244,7 +2969,7 @@ like.</p>
 
 <div class='item-footer'>
    14:08 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2747,7 +3472,7 @@ llm llama-cpp download-model \
 
 <div class='item-footer'>
    16:21 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2821,7 +3546,7 @@ llm llama-cpp download-model \
 
 <div class='item-footer'>
    14:31 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3330,7 +4055,7 @@ I have this nagging feeling that it is actually a variation on that old classic 
 
 <div class='item-footer'>
    21:34 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3421,7 +4146,7 @@ I have this nagging feeling that it is actually a variation on that old classic 
 
 <div class='item-footer'>
    21:34 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3939,7 +4664,7 @@ FROM plugins ORDER BY stargazers_count
 
 <div class='item-footer'>
    14:51 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4042,7 +4767,7 @@ FROM plugins ORDER BY stargazers_count
 
 <div class='item-footer'>
    14:47 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4108,7 +4833,7 @@ FROM plugins ORDER BY stargazers_count
 
 <div class='item-footer'>
    14:44 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4239,7 +4964,7 @@ FROM plugins ORDER BY stargazers_count
 
 <div class='item-footer'>
    18:46 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4309,7 +5034,7 @@ FROM plugins ORDER BY stargazers_count
 
 <div class='item-footer'>
    18:45 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4394,7 +5119,7 @@ I just didn’t do it.</p>
 
 <div class='item-footer'>
    18:41 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4462,7 +5187,7 @@ I just didn’t do it.</p>
 
 <div class='item-footer'>
    18:37 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4532,7 +5257,7 @@ I just didn’t do it.</p>
 
 <div class='item-footer'>
    15:55 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4602,7 +5327,7 @@ I just didn’t do it.</p>
 
 <div class='item-footer'>
    15:15 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4679,7 +5404,7 @@ I just didn’t do it.</p>
 
 <div class='item-footer'>
    14:57 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5054,7 +5779,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    18:56 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5130,7 +5855,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    16:05 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5202,7 +5927,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    15:17 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5270,7 +5995,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    14:59 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5494,7 +6219,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    19:44 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5560,7 +6285,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    16:15 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5701,7 +6426,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    21:23 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5935,154 +6660,6 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 
 <h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.hbcompass.io/im-never-going-to-trust-your-news-organization/'>I'm never going to trust your news organization</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- Heather Bryant is spot on as usual here: trust is a facet of human relationships and not something you place in an organization, company, or product. Using a more appropriate framing will help you figure out how to build the relationships your newsroom needs.  #Media 
-             [Link] 
-         
-     
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>Heather Bryant is spot on as usual here: trust is a facet of human relationships and not something you place in an organization, company, or product. Using a more appropriate framing will help you figure out how to build the relationships your newsroom needs.  <a href="https://werd.io/tag/Media">#Media</a></p>
-            <p>[<a href="https://www.hbcompass.io/im-never-going-to-trust-your-news-organization/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:26 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://foundation.mozilla.org/en/data-futures-lab/grantmaking/infrastructure-fund/'>Data Futures Lab Infrastructure Fund</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- This seems great: funding projects to create a fairer, more just data ecosystem, with a focus on teams who themselves come from impacted communities. I'm excited to see what comes out of it.  #Technology 
-             [Link] 
-         
-     
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>This seems great: funding projects to create a fairer, more just data ecosystem, with a focus on teams who themselves come from impacted communities. I'm excited to see what comes out of it.  <a href="https://werd.io/tag/Technology">#Technology</a></p>
-            <p>[<a href="https://foundation.mozilla.org/en/data-futures-lab/grantmaking/infrastructure-fund/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   12:26 &bull;
-   10 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='http://simonwillison.net'>Simon Willison</a>
 </h4>
 
@@ -6199,7 +6776,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    20:20 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6261,73 +6838,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    16:45 &bull;
-   10 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2023/more-on-the-activitypub-api-project'>More on the ActivityPub API project</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- A few days ago I shared around an idea for an ActivityPub API product. The response was enormous! Here's the link again.  If you're potentially interested in building on the fediverse using this tool, I'd love to know a little bit more. If you have 3 minutes, could you please give me some quick feedback?  If you’re a developer who is interested in building on the fediverse using this kind of API
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p>A few days ago I shared around an idea for an ActivityPub API product. The response was enormous! <a href="https://werd.cloud/ActivityPub+API+service">Here's the link again.</a></p><p>If you're potentially interested in building on the fediverse using this tool, I'd love to know a little bit more. If you have 3 minutes, <a href="https://airtable.com/app1gdHNLTzaDH5jz/shr1H05SzpGm4z2su">could you please give me some quick feedback?</a></p><p>If you’re a developer who is interested in building on the fediverse using this kind of API platform, I’d really love to talk to you. Enter your email in the form above and I’ll get in touch. If we have a conversation about this, I’ll send you a $50 <a href="https://bookshop.org">bookshop.org</a> gift certificate as a token of my appreciation.</p> 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:52 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6393,7 +6904,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    19:10 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6465,7 +6976,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    14:32 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6541,7 +7052,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    14:09 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6609,7 +7120,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    19:51 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6685,7 +7196,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    19:28 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6753,7 +7264,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    17:16 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6994,7 +7505,7 @@ def prepare_connection(conn):
 
 <div class='item-footer'>
    17:06 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7068,7 +7579,7 @@ def prepare_connection(conn):
 
 <div class='item-footer'>
    18:36 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7208,7 +7719,7 @@ def prepare_connection(conn):
 
 <div class='item-footer'>
    14:38 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7276,7 +7787,7 @@ def prepare_connection(conn):
 
 <div class='item-footer'>
    20:48 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7534,7 +8045,7 @@ with, and more power to you if you exercise that control.)</p>
 
 <div class='item-footer'>
    19:03 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7600,7 +8111,7 @@ with, and more power to you if you exercise that control.)</p>
 
 <div class='item-footer'>
    17:48 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7811,7 +8322,7 @@ Although I’ve spent decades working with software, and still regularly write c
 
 <div class='item-footer'>
    17:37 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7949,7 +8460,7 @@ Although I’ve spent decades working with software, and still regularly write c
 
 <div class='item-footer'>
    21:00 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8126,7 +8637,7 @@ Although I’ve spent decades working with software, and still regularly write c
 
 <div class='item-footer'>
    19:30 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8212,7 +8723,7 @@ Although I’ve spent decades working with software, and still regularly write c
 
 <div class='item-footer'>
    15:01 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8860,7 +9371,7 @@ ttok Hello world --encode --tokens
 
 <div class='item-footer'>
    20:57 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8922,7 +9433,7 @@ ttok Hello world --encode --tokens
 
 <div class='item-footer'>
    16:39 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9022,7 +9533,7 @@ ttok Hello world --encode --tokens
 
 <div class='item-footer'>
    16:09 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9262,7 +9773,7 @@ print(r2.text())
 
 <div class='item-footer'>
    14:24 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9335,7 +9846,7 @@ print(r2.text())
 
 <div class='item-footer'>
    20:59 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9471,7 +9982,7 @@ print(r2.text())
 
 <div class='item-footer'>
    19:01 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19481,635 +19992,6 @@ these capabilities.
  <h2 class='new-date'>
   Monday, 17. April 2023
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/04/17/provision-azure-iot-hub-devices-using-dps-and-x-509-certificates-in-asp-net-core/'>Provision Azure IoT Hub devices using DPS and X.509 certificates in ASP.NET Core</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to provision Azure IoT hub devices using Azure IoT hub device provisioning services (DPS) and ASP.NET Core. The devices are setup using chained certificates created using .NET Core and managed in the web application. The data is persisted in a database using EF Core and the certificates are generated using the […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to provision Azure IoT hub devices using Azure IoT hub device provisioning services (DPS) and ASP.NET Core. The devices are setup using chained certificates created using .NET Core and managed in the web application. The data is persisted in a database using EF Core and the certificates are generated using the <a href="https://www.nuget.org/packages/CertificateManager">CertificateManager</a> Nuget package. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AzureIoTHubDps">https://github.com/damienbod/AzureIoTHubDps</a></p>
-
-
-
-<p></p>
-
-
-
- Setup 
-
-
-
-<p>To setup a new Azure IoT Hub DPS, enrollment group and devices, the web application creates a new certificate using an ECDsa private key and the .NET Core APIs. The data is stored in two pem files, one for the public certificate and one for the private key. The pem public certificate file is downloaded from the web application and uploaded to the certificates blade in Azure IoT Hub DPS. The web application persists the data to a database using EF Core and SQL. A new certificate is created from the DPS root certificate and used to create a DPS enrollment group. The certificates are chained from the original DPS certificate. New devices are registered and created using the enrollment group. Another new device certificate chained from the enrollment group certificate is created per device and used in the DPS. The Azure IoT Hub DPS creates a new IoT Hub device using the linked IoT Hubs. Once the IoT hub is running, the private key from the device certificate is used to authenticate the device and send data to the server. </p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>When the ASP.NET Core web application is started, users can create new certificates, enrollment groups and add devices to the groups. I plan to extend the web application to add devices, delete devices, and delete groups. I plan to add authorization for the different user types and better paging for the different UIs.  At present all certificates use ECDsa private keys but this can easily be changed to other types. This depends on the type of root certificate used. </p>
-
-
-
-<p></p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The application is secured using Microsoft.Identity.Web and requires an authenticated user. This can be setup in the program file or in the startup extensions. I use EnableTokenAcquisitionToCallDownstreamApi to force the OpenID Connect code flow. The configuration is read from the default AzureAd app.settings and the whole application is required to be authenticated. When the enable and disable flows are added, I will add different users with different authorization levels.</p>
-
-
-  builder.Services.AddDistributedMemoryCache();
-
-builder.Services.AddAuthentication(
-	OpenIdConnectDefaults.AuthenticationScheme)
-	.AddMicrosoftIdentityWebApp(
-		builder.Configuration.GetSection("AzureAd"))
-	.EnableTokenAcquisitionToCallDownstreamApi()
-	.AddDistributedTokenCaches();
-  
-
-
-<p></p>
-
-
-
- Create an Azure IoT Hub DPS certificate 
-
-
-
-<p>The web application is used to create devices using certificates and DPS enrollment groups. The DpsCertificateProvider class is used to create the root self signed certificate for the DPS enrollment groups. The NewRootCertificate from the CertificateManager Nuget package is used to create the certificate using an ECDsa private key. This package wraps the default .NET APIs for creating certificates and adds a layer of abstraction. You could just use the lower level APIs directly. The certificate is exported to two separate pem files and persisted to the database.</p>
-
-
-  public class DpsCertificateProvider
-{
-    private readonly CreateCertificatesClientServerAuth _createCertsService;
-    private readonly ImportExportCertificate _iec;
-    private readonly DpsDbContext _dpsDbContext;
-
-    public DpsCertificateProvider(CreateCertificatesClientServerAuth ccs,
-        ImportExportCertificate importExportCertificate,
-        DpsDbContext dpsDbContext)
-    {
-        _createCertsService = ccs;
-        _iec = importExportCertificate;
-        _dpsDbContext = dpsDbContext;
-    }
-
-    public async Task&lt;(string PublicPem, int Id)&gt; CreateCertificateForDpsAsync(string certName)
-    {
-        var certificateDps = _createCertsService.NewRootCertificate(
-            new DistinguishedName { CommonName = certName, Country = "CH" },
-            new ValidityPeriod { ValidFrom = DateTime.UtcNow, ValidTo = DateTime.UtcNow.AddYears(50) },
-            3, certName);
-
-        var publicKeyPem = _iec.PemExportPublicKeyCertificate(certificateDps);
-
-        string pemPrivateKey = string.Empty;
-        using (ECDsa? ecdsa = certificateDps.GetECDsaPrivateKey())
-        {
-            pemPrivateKey = ecdsa!.ExportECPrivateKeyPem();
-            FileProvider.WriteToDisk($"{certName}-private.pem", pemPrivateKey);
-        }
- 
-        var item = new DpsCertificate
-        {
-            Name = certName,
-            PemPrivateKey = pemPrivateKey,
-            PemPublicKey = publicKeyPem
-        };
-
-        _dpsDbContext.DpsCertificates.Add(item);
-
-        await _dpsDbContext.SaveChangesAsync();
-
-        return (publicKeyPem, item.Id);
-    }
-
-    public async Task&lt;List&lt;DpsCertificate&gt;&gt; GetDpsCertificatesAsync()
-    {
-        return await _dpsDbContext.DpsCertificates.ToListAsync();
-    }
-
-    public async Task&lt;DpsCertificate?&gt; GetDpsCertificateAsync(int id)
-    {
-        return await _dpsDbContext.DpsCertificates.FirstOrDefaultAsync(item =&gt; item.Id == id);
-    }
-}
-  
-
-
-<p>Once the root certificate is created, you can download the public pem file from the web application and upload it to the Azure IoT Hub DPS portal. This needs to be verified. You could also use a CA created certificate for this, if it is possible to create child chained certificates. The enrollment groups are created from this root certificate.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Create an Azure IoT Hub DPS enrollment group 
-
-
-
-<p>Devices can be created in different ways in the Azure IoT Hub. We use a DPS enrollment group with certificates to create the Azure IoT devices. The DpsEnrollmentGroupProvider is used to create the enrollment group certificate. This uses the root certificate created in the previous step and chains the new group certificate from this. The enrollment group is used to add devices. Default values are defined for the enrollment group and the pem files are saved to the database. The root certificate is read from the database and the chained enrollment group certificate uses an ECDsa private key like the root self signed certificate.</p>
-
-
-
-<p>The CreateEnrollmentGroup method is used to set the initial values of the IoT Hub Device. The ProvisioningStatus is set to enabled. This means when the device is registered, it will be enabled to send messages. You could also set this to disabled and enable it after when the device gets used by an end client for the first time. A MAC or a serial code from the device hardware could be used to enable the IoT Hub device. By waiting till the device is started by the end client, you could choose a IoT Hub optimized for this client.</p>
-
-
-  public class DpsEnrollmentGroupProvider
-{
-    private IConfiguration Configuration { get;set;}
-
-    private readonly ILogger&lt;DpsEnrollmentGroupProvider&gt; _logger;
-    private readonly DpsDbContext _dpsDbContext;
-    private readonly ImportExportCertificate _iec;
-    private readonly CreateCertificatesClientServerAuth _createCertsService;
-    private readonly ProvisioningServiceClient _provisioningServiceClient;
-    
-    public DpsEnrollmentGroupProvider(IConfiguration config, ILoggerFactory loggerFactory,
-        ImportExportCertificate importExportCertificate,
-        CreateCertificatesClientServerAuth ccs,
-        DpsDbContext dpsDbContext)
-    {
-        Configuration = config;
-        _logger = loggerFactory.CreateLogger&lt;DpsEnrollmentGroupProvider&gt;();
-        _dpsDbContext = dpsDbContext;
-        _iec = importExportCertificate;
-        _createCertsService = ccs;
-
-        _provisioningServiceClient = ProvisioningServiceClient.CreateFromConnectionString(
-                  Configuration.GetConnectionString("DpsConnection"));
-    }
-
-    public async Task&lt;(string Name, int Id)&gt; CreateDpsEnrollmentGroupAsync(
-        string enrollmentGroupName, string certificatePublicPemId)
-    {
-        _logger.LogInformation("Starting CreateDpsEnrollmentGroupAsync...");
-        _logger.LogInformation("Creating a new enrollmentGroup...");
-
-        var dpsCertificate = _dpsDbContext.DpsCertificates
-            .FirstOrDefault(t =&gt; t.Id == int.Parse(certificatePublicPemId));
-
-        var rootCertificate = X509Certificate2.CreateFromPem(
-               dpsCertificate!.PemPublicKey, dpsCertificate.PemPrivateKey);
-
-        // create an intermediate for each group
-        var certName = $"{enrollmentGroupName}";
-        var certDpsGroup = _createCertsService.NewIntermediateChainedCertificate(
-            new DistinguishedName { CommonName = certName, Country = "CH" },
-            new ValidityPeriod { ValidFrom = DateTime.UtcNow, ValidTo = DateTime.UtcNow.AddYears(50) },
-            2, certName, rootCertificate);
-
-        // get the public key certificate for the enrollment
-        var pemDpsGroupPublic = _iec.PemExportPublicKeyCertificate(certDpsGroup);
-
-        string pemDpsGroupPrivate = string.Empty;
-        using (ECDsa? ecdsa = certDpsGroup.GetECDsaPrivateKey())
-        {
-            pemDpsGroupPrivate = ecdsa!.ExportECPrivateKeyPem();
-            FileProvider.WriteToDisk($"{enrollmentGroupName}-private.pem", pemDpsGroupPrivate);
-        }
-
-        Attestation attestation = X509Attestation.CreateFromRootCertificates(pemDpsGroupPublic);
-        EnrollmentGroup enrollmentGroup = CreateEnrollmentGroup(enrollmentGroupName, attestation);
-
-        _logger.LogInformation("{enrollmentGroup}", enrollmentGroup);
-        _logger.LogInformation("Adding new enrollmentGroup...");
-
-        EnrollmentGroup enrollmentGroupResult = await _provisioningServiceClient
-            .CreateOrUpdateEnrollmentGroupAsync(enrollmentGroup);
-
-        _logger.LogInformation("EnrollmentGroup created with success.");
-        _logger.LogInformation("{enrollmentGroupResult}", enrollmentGroupResult);
-
-        DpsEnrollmentGroup newItem = await PersistData(enrollmentGroupName, 
-            dpsCertificate, pemDpsGroupPublic, pemDpsGroupPrivate);
-
-        return (newItem.Name, newItem.Id);
-    }
-
-    private async Task&lt;DpsEnrollmentGroup&gt; PersistData(string enrollmentGroupName, 
-        DpsCertificate dpsCertificate, string pemDpsGroupPublic, string pemDpsGroupPrivate)
-    {
-        var newItem = new DpsEnrollmentGroup
-        {
-            DpsCertificateId = dpsCertificate.Id,
-            Name = enrollmentGroupName,
-            DpsCertificate = dpsCertificate,
-            PemPublicKey = pemDpsGroupPublic,
-            PemPrivateKey = pemDpsGroupPrivate
-        };
-
-        _dpsDbContext.DpsEnrollmentGroups.Add(newItem);
-        dpsCertificate.DpsEnrollmentGroups.Add(newItem);
-
-        await _dpsDbContext.SaveChangesAsync();
-        return newItem;
-    }
-
-    private static EnrollmentGroup CreateEnrollmentGroup(string enrollmentGroupName, Attestation attestation)
-    {
-        return new EnrollmentGroup(enrollmentGroupName, attestation)
-        {
-            ProvisioningStatus = ProvisioningStatus.Enabled,
-            ReprovisionPolicy = new ReprovisionPolicy
-            {
-                MigrateDeviceData = false,
-                UpdateHubAssignment = true
-            },
-            Capabilities = new DeviceCapabilities
-            {
-                IotEdge = false
-            },
-            InitialTwinState = new TwinState(
-                new TwinCollection("{ \"updatedby\":\"" + "damien" + "\", \"timeZone\":\"" + TimeZoneInfo.Local.DisplayName + "\" }"),
-                new TwinCollection("{ }")
-            )
-        };
-    }
-
-    public async Task&lt;List&lt;DpsEnrollmentGroup&gt;&gt; GetDpsGroupsAsync(int? certificateId = null)
-    {
-        if (certificateId == null)
-        {
-            return await _dpsDbContext.DpsEnrollmentGroups.ToListAsync();
-        }
-
-        return await _dpsDbContext.DpsEnrollmentGroups
-            .Where(s =&gt; s.DpsCertificateId == certificateId).ToListAsync();
-    }
-
-    public async Task&lt;DpsEnrollmentGroup?&gt; GetDpsGroupAsync(int id)
-    {
-        return await _dpsDbContext.DpsEnrollmentGroups
-            .FirstOrDefaultAsync(d =&gt; d.Id == id);
-    }
-}
-  
-
-
-<p></p>
-
-
-
- Register a device in the enrollment group 
-
-
-
-<p>The DpsRegisterDeviceProvider class creates a new device chained certificate using the enrollment group certificate and creates this using the ProvisioningDeviceClient. The transport ProvisioningTransportHandlerAmqp is set in this example. There are different transport types possible and you need to chose the one which best meets your needs. The device certificate uses an ECDsa private key and stores everything to the database. The PFX for windows is stored directly to the file system. I use pem files and create the certificate from these in the device client sending data to the hub and this is platform independent. The create PFX file requires a password to use it.</p>
-
-
-  public class DpsRegisterDeviceProvider
-{
-    private IConfiguration Configuration { get; set; }
-    private readonly ILogger&lt;DpsRegisterDeviceProvider&gt; _logger;
-    private readonly DpsDbContext _dpsDbContext;
-    private readonly ImportExportCertificate _iec;
-    private readonly CreateCertificatesClientServerAuth _createCertsService;
-
-    public DpsRegisterDeviceProvider(IConfiguration config, 
-        ILoggerFactory loggerFactory,
-        ImportExportCertificate importExportCertificate,
-        CreateCertificatesClientServerAuth ccs,
-        DpsDbContext dpsDbContext)
-    {
-        Configuration = config;
-        _logger = loggerFactory.CreateLogger&lt;DpsRegisterDeviceProvider&gt;();
-        _dpsDbContext = dpsDbContext;
-        _iec = importExportCertificate;
-        _createCertsService = ccs;
-    }
-
-    public async Task&lt;(int? DeviceId, string? ErrorMessage)&gt; RegisterDeviceAsync(
-        string deviceCommonNameDevice, string dpsEnrollmentGroupId)
-    {
-        int? deviceId = null;
-        var scopeId = Configuration["ScopeId"];
-
-        var dpsEnrollmentGroup = _dpsDbContext.DpsEnrollmentGroups
-           .FirstOrDefault(t =&gt; t.Id == int.Parse(dpsEnrollmentGroupId));
-
-        var certDpsEnrollmentGroup = X509Certificate2.CreateFromPem(
-            dpsEnrollmentGroup!.PemPublicKey, dpsEnrollmentGroup.PemPrivateKey);
-
-        var newDevice = new DpsEnrollmentDevice
-        {
-            Password = GetEncodedRandomString(30),
-            Name = deviceCommonNameDevice.ToLower(),
-            DpsEnrollmentGroupId = dpsEnrollmentGroup.Id,
-            DpsEnrollmentGroup = dpsEnrollmentGroup
-        };
-
-        var certDevice = _createCertsService.NewDeviceChainedCertificate(
-          new DistinguishedName { CommonName = $"{newDevice.Name}" },
-          new ValidityPeriod { ValidFrom = DateTime.UtcNow, ValidTo = DateTime.UtcNow.AddYears(50) },
-          $"{newDevice.Name}", certDpsEnrollmentGroup);
-
-        var deviceInPfxBytes = _iec.ExportChainedCertificatePfx(newDevice.Password, 
-            certDevice, certDpsEnrollmentGroup);
-
-        // This is required if you want PFX exports to work.
-        newDevice.PathToPfx = FileProvider.WritePfxToDisk($"{newDevice.Name}.pfx", deviceInPfxBytes);
-
-        // get the public key certificate for the device
-        newDevice.PemPublicKey = _iec.PemExportPublicKeyCertificate(certDevice);
-        FileProvider.WriteToDisk($"{newDevice.Name}-public.pem", newDevice.PemPublicKey);
-
-        using (ECDsa? ecdsa = certDevice.GetECDsaPrivateKey())
-        {
-            newDevice.PemPrivateKey = ecdsa!.ExportECPrivateKeyPem();
-            FileProvider.WriteToDisk($"{newDevice.Name}-private.pem", newDevice.PemPrivateKey);
-        }
-
-        // setup Windows store deviceCert 
-        var pemExportDevice = _iec.PemExportPfxFullCertificate(certDevice, newDevice.Password);
-        var certDeviceForCreation = _iec.PemImportCertificate(pemExportDevice, newDevice.Password);
-
-        using (var security = new SecurityProviderX509Certificate(certDeviceForCreation, new X509Certificate2Collection(certDpsEnrollmentGroup)))
-
-        // To optimize for size, reference only the protocols used by your application.
-        using (var transport = new ProvisioningTransportHandlerAmqp(TransportFallbackType.TcpOnly))
-        //using (var transport = new ProvisioningTransportHandlerHttp())
-        //using (var transport = new ProvisioningTransportHandlerMqtt(TransportFallbackType.TcpOnly))
-        //using (var transport = new ProvisioningTransportHandlerMqtt(TransportFallbackType.WebSocketOnly))
-        {
-            var client = ProvisioningDeviceClient.Create("global.azure-devices-provisioning.net",
-                scopeId, security, transport);
-
-            try
-            {
-                var result = await client.RegisterAsync();
-                _logger.LogInformation("DPS client created: {result}", result);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("DPS client created: {result}", ex.Message);
-                return (null, ex.Message);
-            }
-        }
-
-        _dpsDbContext.DpsEnrollmentDevices.Add(newDevice);
-        dpsEnrollmentGroup.DpsEnrollmentDevices.Add(newDevice);
-        await _dpsDbContext.SaveChangesAsync();
-
-        deviceId = newDevice.Id;
-        return (deviceId, null);
-    }
-
-    private static string GetEncodedRandomString(int length)
-    {
-        var base64 = Convert.ToBase64String(GenerateRandomBytes(length));
-        return base64;
-    }
-
-    private static byte[] GenerateRandomBytes(int length)
-    {
-        var byteArray = new byte[length];
-        RandomNumberGenerator.Fill(byteArray);
-        return byteArray;
-    }
-
-    public async Task&lt;List&lt;DpsEnrollmentDevice&gt;&gt; GetDpsDevicesAsync(int? dpsEnrollmentGroupId)
-    {
-        if(dpsEnrollmentGroupId == null)
-        {
-            return await _dpsDbContext.DpsEnrollmentDevices.ToListAsync();
-        }
-
-        return await _dpsDbContext.DpsEnrollmentDevices.Where(s =&gt; s.DpsEnrollmentGroupId == dpsEnrollmentGroupId).ToListAsync();
-    }
-
-    public async Task&lt;DpsEnrollmentDevice?&gt; GetDpsDeviceAsync(int id)
-    {
-        return await _dpsDbContext.DpsEnrollmentDevices
-            .Include(device =&gt; device.DpsEnrollmentGroup)
-            .FirstOrDefaultAsync(d =&gt; d.Id == id);
-    }
-}
-  
-
-
-<p></p>
-
-
-
- Download certificates and use 
-
-
-
-<p>The private and the public pem files are used to setup the Azure IoT Hub device and send data from the device to the server. A HTML form is used to download the files. The form sends a post request to the file download API.</p>
-
-
-  &lt;form action="/api/FileDownload/DpsDevicePublicKeyPem" method="post"&gt;
-	&lt;input type="hidden" value="@Model.DpsDevice.Id" id="Id" name="Id" /&gt;
-	&lt;button type="submit" style="padding-left:0" class="btn btn-link"&gt;Download Public PEM&lt;/button&gt;
-&lt;/form&gt;
-  
-
-
-<p>The DpsDevicePublicKeyPemAsync method implements the file download. The method gets the data from the database and returns this as pem file.</p>
-
-
-  [HttpPost("DpsDevicePublicKeyPem")]
-public async Task&lt;IActionResult&gt; DpsDevicePublicKeyPemAsync([FromForm] int id)
-{
-	var cert = await _dpsRegisterDeviceProvider
-		.GetDpsDeviceAsync(id);
-	if (cert == null) throw new ArgumentNullException(nameof(cert));
-	if (cert.PemPublicKey == null) 
-		throw new ArgumentNullException(nameof(cert.PemPublicKey));
-
-	return File(Encoding.UTF8.GetBytes(cert.PemPublicKey),
-		"application/octet-stream",
-		$"{cert.Name}-public.pem");
-}
-  
-
-
-<p>The device UI displays the data and allows the authenticated user to download the files.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The CertificateManager and the Microsoft.Azure.Devices.Client Nuget packages are used to implement the IoT Hub device client. The pem files with the public certificate and the private key can be loaded into a X509Certificate instance. This is then used to send the data using the DeviceAuthenticationWithX509Certificate class. The SendEvent method sends the data using the IoT Hub device Message class.</p>
-
-
-  var serviceProvider = new ServiceCollection()
-	.AddCertificateManager()
-	.BuildServiceProvider();
-var iec = serviceProvider.GetService&lt;ImportExportCertificate&gt;();
-
-#region pem
-
-var deviceNamePem = "robot1-feed";
-
-var certPem = File.ReadAllText($"{_pathToCerts}{deviceNamePem}-public.pem");
-var eccPem = File.ReadAllText($"{_pathToCerts}{deviceNamePem}-private.pem");
-var cert = X509Certificate2.CreateFromPem(certPem, eccPem);
-
-// setup deviceCert windows store export 
-var pemDeviceCertPrivate = iec!.PemExportPfxFullCertificate(cert);
-var certDevice = iec.PemImportCertificate(pemDeviceCertPrivate);
-
-#endregion pem
-
-var auth = new DeviceAuthenticationWithX509Certificate(deviceNamePem, certDevice);
-var deviceClient = DeviceClient.Create(iotHubUrl, auth, transportType);
-
-if (deviceClient == null)
-{
-	Console.WriteLine("Failed to create DeviceClient!");
-}
-else
-{
-	Console.WriteLine("Successfully created DeviceClient!");
-	SendEvent(deviceClient).Wait();
-}
-  
-
-
- Notes 
-
-
-
-<p>Using certificates in .NET and windows is complicated due to how the private keys are handled and loaded. The private keys need to be exported or imported into the stores etc. This is not an easy API to get working and the docs for this are confusing. </p>
-
-
-
-<p>This type of device transport and the default setup for the device would need to be adapted for your system. In this example, I used ECDsa certificates but you could also use RSA based keys. The root certificate could be replaced with a CA issued one. I created long living certificates because I do not want the devices to stop working in the field. This should be moved to a configuration. A certificate rotation flow would make sense as well.</p>
-
-
-
-<p>In the follow up articles, I plan to save the events in hot and cold path events and implement device enable, disable flows. I also plan to write about the device twins. The device twins is a excellent way of sharing data in both directions. </p>
-
-
-
- Links 
-
-
-
-<p><a href="https://github.com/Azure/azure-iot-sdk-csharp">https://github.com/Azure/azure-iot-sdk-csharp</a></p>
-
-
-
-<p><a href="https://github.com/damienbod/AspNetCoreCertificates">https://github.com/damienbod/AspNetCoreCertificates</a></p>
-
-
-
- 
-<blockquote><a href="https://damienbod.com/2020/01/29/creating-certificates-for-x-509-security-in-azure-iot-hub-using-net-core/">Creating Certificates for X.509 security in Azure IoT Hub using .NET&nbsp;Core</a></blockquote>
- 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/iot-hub/troubleshoot-error-codes">https://learn.microsoft.com/en-us/azure/iot-hub/troubleshoot-error-codes</a></p>
-
-
-
-<p><a href="https://stackoverflow.com/questions/52750160/what-is-the-rationale-for-all-the-different-x509keystorageflags/52840537#52840537">https://stackoverflow.com/questions/52750160/what-is-the-rationale-for-all-the-different-x509keystorageflags/52840537#52840537</a></p>
-
-
-
-<p><a href="https://github.com/dotnet/runtime/issues/19581">https://github.com/dotnet/runtime/issues/19581</a></p>
-
-
-
-<p><a href="https://www.nuget.org/packages/CertificateManager">https://www.nuget.org/packages/CertificateManager</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/iot-hub/">Azure IoT Hub Documentation | Microsoft Learn</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/04/dps_iothub_web_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:19 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -30291,7 +30173,7 @@ Photo by <a href="https://unsplash.com/@blakeweyland?utm_source=medium&amp;utm_m
 
 <div class='item-footer'>
    09:38 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
