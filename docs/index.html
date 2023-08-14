@@ -716,12 +716,563 @@
 
 </div>
 </div>
-<sup>Last Update 1:32 AM August 14, 2023 (UTC)</sup>
+<sup>Last Update 9:37 AM August 14, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 14. August 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/08/14/securing-apis-using-asp-net-core-and-oauth-2-0-dpop/'>Securing APIs using ASP.NET Core and OAuth 2.0 DPoP</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how an ASP.NET Core application can access an ASP.NET Core API using OAuth Demonstrating Proof-of-Possession (DPoP). This is a really powerful security enhancement which is relatively easy to support. The access tokens should only be used for what the access tokens are intended for. OAuth DPoP helps force this. This solution was […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how an ASP.NET Core application can access an ASP.NET Core API using OAuth Demonstrating Proof-of-Possession (DPoP). This is a really powerful security enhancement which is relatively easy to support. The access tokens should only be used for what the access tokens are intended for. OAuth DPoP helps force this. This solution was created using Duende IdentityServer and the Duende samples.</p>
+
+
+
+<p>The OAuth 2.0 Demonstrating Proof-of-Possession at the Application Layer (DPoP) is still a draft standard.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/DPOP-aspnetcore-idp">https://github.com/damienbod/DPOP-aspnetcore-idp</a></p>
+
+
+
+ Solution setup 
+
+
+
+<p>Three applications are used in this solution. One application is the OpenID Connect and OAuth server with identity management. This application issues the tokens. The application is implemented using Duende IdentityServer and ASP.NET Core identity. A second application is used as the web client. This application is an ASP.NET Core Razor page application. The application is an OIDC confidential client with PKCE and requests DPoP access tokens. When the Web client sends API requests, it uses the DPoP access token and needs to create the proof token with the required specification claims and valid values for these claims. The third application is the API accepting valid access tokens. The API is implemented using ASP.NET Core with swagger and accepts access tokens using OAuth DPoP validation. The DPoP proof token is required as well as the correct cnf claim value in the access token and all the standard access token validation bits.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ How DPoP works 
+
+
+
+<p>The best way to understand how DPoP works is to read the standard.</p>
+
+
+
+<p><a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop">https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop</a></p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Duende IdentityServer client config 
+
+
+
+<p>Duende IdentityServer provides very neat APIs for using OIDC and integrating DPoP into your clients. The web client and the API scope requires no extra settings, just the default OIDC confidential code flow with PKCE for the web client and the scope used for the access token. This is very developer friendly.</p>
+
+
+  public static IEnumerable&lt;ApiScope&gt; ApiScopes =&gt;
+new ApiScope[]
+{
+	new ApiScope("scope-dpop")
+};
+
+public static IEnumerable&lt;Client&gt; Clients =&gt;
+new Client[]
+{
+	new Client
+	{
+		ClientId = "web-dpop",
+		ClientSecrets = { new Secret("--secret--".Sha256()) },
+
+		AllowedGrantTypes = GrantTypes.CodeAndClientCredentials,
+
+		RedirectUris = { 
+			"https://localhost:5007/signin-oidc" 
+		},
+		FrontChannelLogoutUri = "https://localhost:5007/signout-oidc",
+		PostLogoutRedirectUris = { 
+			"https://localhost:5007/signout-callback-oidc" 
+		},
+
+		AllowOfflineAccess = true,
+		AllowedScopes = { "openid", "profile", "scope-dpop" }
+	}
+};
+  
+
+
+<p></p>
+
+
+
+ Web App client 
+
+
+
+<p>The Web OIDC confidential client creates a key for DPoP and this is sent to the identity server in the form of a proof token created using the key to request an access token, or refresh tokens. The access token is returned with a cnf claim (binding using the dpop_jkt request parameter; <a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop#section-10">Authorization Code Binding to DPoP Key</a> ) which is used in the API DPoP validation. I used an ecdsa 384 certificate to create the key for the DPoP token proofs. The certificate is <a href="https://github.com/damienbod/DPOP-aspnetcore-idp/tree/main/GenerateCertiticate">generated</a> using .NET Core and persisted in pem files. You can also generate this using Azure Key Vault or any other tool. If using this with a public client like a mobile native app, a different key can be generated for each client. For example, on a mobile device, this could be created when installing the app client for the first time and persisted just for this client. </p>
+
+
+  services.AddAuthentication(options =&gt;
+{
+	options.DefaultScheme = "cookie";
+	options.DefaultChallengeScheme = "oidc";
+})
+.AddCookie("cookie", options =&gt;
+{
+	options.ExpireTimeSpan = TimeSpan.FromHours(8);
+	options.SlidingExpiration = false;
+	options.Events.OnSigningOut = async e =&gt;
+	{
+		await e.HttpContext.RevokeRefreshTokenAsync();
+	};
+})
+.AddOpenIdConnect("oidc", options =&gt;
+{
+	options.Authority = "https://localhost:5001";
+	options.ClientId = "web-dpop";
+	options.ClientSecret = "--secret--";
+	options.ResponseType = "code";
+	options.ResponseMode = "query";
+	options.UsePkce = true;
+
+	options.Scope.Clear();
+	options.Scope.Add("openid");
+	options.Scope.Add("profile");
+	options.Scope.Add("scope-dpop");
+	options.Scope.Add("offline_access");
+	options.GetClaimsFromUserInfoEndpoint = true;
+	options.SaveTokens = true;
+
+	options.TokenValidationParameters = new TokenValidationParameters
+	{
+		NameClaimType = "name",
+		RoleClaimType = "role"
+	};
+});
+
+var privatePem = File.ReadAllText(Path.Combine(_env.ContentRootPath,
+	"ecdsa384-private.pem"));
+var publicPem = File.ReadAllText(Path.Combine(_env.ContentRootPath,
+	"ecdsa384-public.pem"));
+var ecdsaCertificate = X509Certificate2.CreateFromPem(publicPem, privatePem);
+var ecdsaCertificateKey = new ECDsaSecurityKey(ecdsaCertificate.GetECDsaPrivateKey());
+
+services.AddOpenIdConnectAccessTokenManagement(options =&gt;
+{
+	var jwk = JsonWebKeyConverter.ConvertFromSecurityKey(ecdsaCertificateKey);
+	jwk.Alg = "ES384";
+	options.DPoPJsonWebKey = JsonSerializer.Serialize(jwk);
+});
+
+services.AddUserAccessTokenHttpClient(
+	"dpop-api-client", configureClient: client =&gt;
+{
+	client.BaseAddress = new Uri("https://localhost:5005");
+});
+
+services.AddRazorPages();
+  
+
+
+<p></p>
+
+
+
+ API implementation 
+
+
+
+<p>Implementing the API requires a bit more logic. The Duende samples provide a code implementation of the specification. The access token is validated and the <a href="https://github.com/damienbod/DPOP-aspnetcore-idp/tree/main/api/DPoP">ConfigureDPoPTokensForScheme</a> adds all the required OAuth DPoP validation requirements. The Duende sample is included in the links.</p>
+
+
+  services.AddAuthentication("dpoptokenscheme")
+	.AddJwtBearer("dpoptokenscheme", options =&gt;
+	{
+		options.Authority = stsServer;
+		options.TokenValidationParameters
+			.ValidateAudience = false;
+		options.MapInboundClaims = false;
+
+		options.TokenValidationParameters
+			.ValidTypes = new[] { "at+jwt" };
+	});
+
+services.ConfigureDPoPTokensForScheme("dpoptokenscheme");
+
+builder.Services.AddAuthorization(options =&gt;
+	options.AddPolicy("protectedScope", policy =&gt;
+	{
+		policy.RequireClaim("scope", "scope-dpop");
+	})
+);
+  
+
+
+<p></p>
+
+
+
+ Testing 
+
+
+
+<p>When all three applications are started, the UI application can authenticate and gets an access token back with a cnf claim. This is sent to the API along with a DPoP proof token and the API can validate the access token using OAuth DPoP as per specification.</p>
+
+
+
+<p>The web client redirects to the IDP to authentication. The dpop_jkt parameter in the redirect URL or body if using different standards contains the value which is used for the cnf claim. This is the client’s proof-of-possession key. The is used in combination with the PKCE.</p>
+
+
+  https://localhost:5001/connect/authorize?
+client_id=web-dpop
+&amp;redirect_uri=https%3A%2F%2Flocalhost%3A5007%2Fsignin-oidc
+&amp;response_type=code
+&amp;scope=openid%20profile%20scope-dpop%20offline_access
+&amp;code_challenge=fDrpFF8OTmalCNi6KeM-L3CX-Pa8Hozsnw6vf-Q9_Tk
+&amp;code_challenge_method=S256
+&amp;nonce=...
+&amp;dpop_jkt=loM5ro2mqcEyBS46Z8CN1bP_wlYn2XPaGmTXQUzQc94
+&amp;state=...
+  
+
+
+<p>The HTTP header Authorization contains the DPoP value with the access token:</p>
+
+
+
+<p>DPoP access-token-with-cnf-claim</p>
+
+
+
+<p>The access token can be decoded:</p>
+
+
+  {
+  "iss": "https://localhost:5001",
+  "nbf": 1691659611,
+  "iat": 1691659611,
+  "exp": 1691663211,
+  "aud": "https://localhost:5001/resources",
+  "cnf": {
+    "jkt": "loM5ro2mqcEyBS46Z8CN1bP_wlYn2XPaGmTXQUzQc94"
+  },
+  "scope": [
+    "openid",
+    "profile",
+    "scope-dpop",
+    "offline_access"
+  ],
+  "amr": [
+    "pwd"
+  ],
+  "client_id": "web-dpop",
+  "sub": "1cdddaaf-c671-4726-841b-d9b4abdede3d",
+  "auth_time": 1691659610,
+  "idp": "local",
+  "sid": "7602A8B025FF27CFE5ED34C62DC10B8E",
+  "jti": "5EC3ECF725B4BA3F608323C380FCD6F6"
+}
+  
+
+
+<p>The HTTP header DPoP contains the proof token used for the DPoP validation and the access token request.</p>
+
+
+
+<p>proof token:</p>
+
+
+  {
+  "alg": "ES384",
+  "typ": "dpop+jwt",
+  "jwk": {
+    "kty": "EC",
+    "x": "c_Ua8nenm8XjoXvxcFvonuNeJgYg3YBAvhY2zuBI5IYl1mOhMFHWtacGoLfzA11W",
+    "y": "zXJSqLxYgyqq3jPdBeuqgcvuW9d4JwVL_fgsqwT8wvr05uihuU5FsX3DY-LtGF7E",
+    "crv": "P-384"
+  }
+}
+{
+  "jti": "xaWoIEMRqtRbrta13AVceLUVJxW1zqbl2RcQhmuG0nA",
+  "htm": "GET",
+  "htu": "https://localhost:5005/api/values",
+  "iat": 1691659934,
+  "ath": "5p3pmE3nvOURS-mZoEsPZkWb49vFNp7cuFrXs1mITxM"
+}
+  
+
+
+<p>The different claims are used for validation as per specification. Checking DPoP proof tokens: </p>
+
+
+
+<p><a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop#section-4.3">https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop#section-4.3</a></p>
+
+
+
+<p>When the three applications are started, everything works as expected. Using DPoP increases the level of security for this type of flow.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop">https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop</a></p>
+
+
+
+<p><a href="https://github.com/DuendeSoftware">https://github.com/DuendeSoftware</a></p>
+
+
+
+<p><a href="https://github.com/DuendeSoftware/Samples/tree/main/IdentityServer/v6/DPoP">https://github.com/DuendeSoftware/Samples/tree/main/IdentityServer/v6/DPoP</a></p>
+
+
+
+<p><a href="https://github.com/DuendeSoftware/IdentityServer.Templates">https://github.com/DuendeSoftware/IdentityServer.Templates</a></p>
+
+
+
+<p><a href="https://docs.duendesoftware.com/identityserver/v6/tokens/pop/dpop/">https://docs.duendesoftware.com/identityserver/v6/tokens/pop/dpop/</a></p>
+
+
+
+<p><a href="https://developer.okta.com/docs/guides/dpop/main/#build-the-request">https://developer.okta.com/docs/guides/dpop/main/#build-the-request</a></p>
+
+
+
+<p><a href="https://darutk.medium.com/illustrated-dpop-oauth-access-token-security-enhancement-801680d761ff">https://darutk.medium.com/illustrated-dpop-oauth-access-token-security-enhancement-801680d761ff</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/entra/msal/dotnet/advanced/proof-of-possession-tokens">https://learn.microsoft.com/en-us/entra/msal/dotnet/advanced/proof-of-possession-tokens</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/08/dpop_aspnetcore_02-2.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:47 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://wrenchinthegears.com/2023/08/14/community-currencies-as-signals-of-social-computing/'>Community Currencies As Signals of Social Computing</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Tonight Jason and I did a stream discussing how the biophysics of cells and semi-permeable membranes relate to the econophysics of smart contracts and social cybernetics. Jason made a short teaser clip this morning for my channel, and someone by the name of Persepolis22 left a nice series of comments. I think the exchange provides [...]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Tonight Jason and I did a stream discussing how the biophysics of cells and semi-permeable membranes relate to the econophysics of smart contracts and social cybernetics. Jason made a short teaser clip this morning for my channel, and someone by the name of Persepolis22 left a nice series of comments. I think the exchange provides a useful overview of the discussion, so I am sharing it below.&nbsp;</p>
+<p>Comment by Persepolis22:</p>
+<p>“If money will be replaced by tokens, and the vision for the next iteration of this game is based on community/ complementary currencies, how exactly will they be able to implement it? This is where I get stuck. Wouldn’t it lead to inflation‘ if everyone is able to drop their token? And how will they make sure that your token will be accepted by certain stores or whatever it is that you want to access/ purchase? I feel like there is something extremely important that we are still missing, and it makes me kind of nervous to be honest. </p>
+<p>Perhaps this might be the link to the CBDC? There’s a talk by Hyun Song Shin from BIS, and it gets quite clear that CBDC will serve as a settlement between the banks/ institutions. So at the end of the day, all the tokens (or the ones that will make it) will need to be approved and backed by the CBDC. </p>
+<p>There’s something else I wanted to mention, a project called web of energy. They’re still quite off the radar, but what they will do is build the foundation for the energy transition, integrating every single piece into the grid. So, when there isn’t enough energy in one area of the city, it will simply be deployed from a different area, keeping everything in balance. This is the end goal, and it can be applied elsewhere. Not necessarily regarding technical resources, but rather ‚human networks. I’m still not getting to the core of it. What are your thoughts?”</p>
+<p>&nbsp;</p>
+<p>Alison McDowell’s Response:</p>
+<p>I wrote a long response, and unfortunately it disappeared. I would suggest watching tonight’s stream live or later. Here are the highlights of what I wrote. The goal is a networked global super-intelligence for bio-hybrid computation. The decentralized energy grid and economics based on token engineering (programmable currency) is part of the operation of that system. Embodied intelligence integrated with invisible ubiquitous sensing is what is needed for the computation tasks. Perhaps the system running the programming is not embodied? That system, as I now see it, desires to tap into humans as tools for problem solving – creativity, emotion, imagination, soul, and social relations. That is what is driving the internet of bio-nano things.</p>
+<p>We are being turned into manipulatives. Picture a kindergartener using blocks for counting. I think this is related to the rise of addiction, social impact markets in “recovery,” and adoption of psychedelic treatments in that space linked to remote brainwave monitoring and video gaming. To me, it’s starting to feel like some disembodied system wants to use our bodies and consciousness to access information from altered states for the larger program.</p>
+<p>However, in order for the computer to operate effectively, there needs to be a homeostatic governor at the top, which is likely the BIS and its ultimate ledger. That fact will be obscured by nested levels of settlement clearing. Cross border payments are not really just about countries. Borders can be among established community currencies. In this scenario, as I see it, most people could be accessing something that looks like “community currency.” Remember, Bernard Lietaer, creator of the Euro, wanted an ecology of currencies. It is this variety that is needed for game mechanics and signal robustness for prediction and social steering.</p>
+<p>Why do you think the “resistance” narrative has been focused almost exclusively on CBDCs? Why was Catherine Austin Fitts uplifted as a thought leader? Why are most of the influencers accepting and promoting crypto as liberation? This is all by design. Computation based on social signaling will not work under authoritarian control. It is “choice” and “freedom” that makes the “wisdom of crowds” visible to the machine. “Choice” reveals the complex patterns that the AI is seeking. Sure, the “choices” will be from a limited list of options, but the narrative has been set up for progressive and conservative populists that freedom looks like a local programmable coins.</p>
+<p><a href="https://www.youtube.com/watch?v=opH_P3O2HDY&amp;feature=youtu.be">This talk</a> features Fennie Wang of IXO Foundation, the folks who financed putting preschoolers on blockchain in South Africa, so they could build social capital. IXO was also behind the development of “smart” social impact bonds and collaborates with Shanzhai City, the organization that digitized the Hong Kong time bank. Wang talks about regional federated coins. This may provide some insights for you on what it might look like. IXO Foundation is at the center of deployment of this new token-engineered model.&nbsp;</p>
+<p>&nbsp;</p>
+<p></p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:45 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/08/13/helping-a-friend.html'> Helping a friend set up domains and services on a new domain</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Helping a friend set up domains and services on a new domain from scratch … I was down the channel of fastmail for mail - like I use - but any thoughts on using Apple’s iCloud+ service for own domain email? 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Helping a friend set up domains and services on a new domain from scratch … I was down the channel of fastmail for mail - like I use - but any thoughts on using Apple’s iCloud+ service for own domain email?</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:50 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -783,7 +1334,7 @@
 
 <div class='item-footer'>
    21:57 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -851,7 +1402,7 @@
 
 <div class='item-footer'>
    21:50 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -931,7 +1482,7 @@
 
 <div class='item-footer'>
    21:16 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1010,7 +1561,7 @@
 
 <div class='item-footer'>
    21:12 &bull;
-   4 hours ago
+   12 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1212,7 +1763,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    16:06 &bull;
-   9 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1292,7 +1843,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    14:48 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1355,7 +1906,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    14:38 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1454,7 +2005,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    14:34 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2502,7 +3053,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    17:52 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2578,7 +3129,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    16:46 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2643,7 +3194,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    16:36 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2712,7 +3263,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    16:33 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2807,7 +3358,7 @@ And all my guitars so heart breaking</p>
 
 <div class='item-footer'>
    16:20 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2880,7 +3431,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    16:16 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2946,7 +3497,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    16:14 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3007,7 +3558,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    16:04 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3068,7 +3619,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    16:03 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3136,7 +3687,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    15:54 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3202,7 +3753,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    15:48 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3278,7 +3829,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    15:17 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3381,7 +3932,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    14:53 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3457,7 +4008,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    14:50 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3529,7 +4080,7 @@ But a major difference, he said, is the ability to respond. On the mainland, he 
 
 <div class='item-footer'>
    13:57 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3626,7 +4177,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    13:42 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3856,75 +4407,6 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/08/10/maui-county-officials.html'> Maui County officials are asking visitors to leave Lahaina a</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Maui County officials are asking visitors to leave Lahaina and Maui as soon as possible, noting seats were available on outgoing flights. More than 11,000 people were flown out of Maui on Wednesday, according to Hawaii Department of Transportation director Ed Sniffen. 
- … even as other idiots are flying **to Maui **- remarking that ‘it will all work out’ … DICKS. 
- 🌺 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Maui County officials are asking visitors to leave Lahaina and Maui as soon as possible, noting seats were available on outgoing flights. More than 11,000 people were flown out of Maui on Wednesday, according to Hawaii Department of Transportation director Ed Sniffen.</p>
-<p>… even as other idiots are flying **to Maui **- remarking that ‘it will all work out’ … DICKS.</p>
-<p>🌺</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:16 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Thursday, 10. August 2023
  </h2>
@@ -3985,7 +4467,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    19:05 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4059,7 +4541,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    16:02 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4403,7 +4885,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    20:49 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4467,7 +4949,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    19:21 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4543,7 +5025,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    15:18 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4615,7 +5097,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    14:46 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4687,7 +5169,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    14:18 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4747,7 +5229,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    14:18 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4961,7 +5443,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    20:16 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5033,7 +5515,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    17:53 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5102,7 +5584,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    17:44 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5174,7 +5656,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    15:25 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5246,7 +5728,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    14:09 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5324,7 +5806,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    21:39 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5393,7 +5875,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    21:29 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5462,7 +5944,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    21:23 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5524,7 +6006,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    20:54 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5834,7 +6316,7 @@ Source Link: <a href="https://goo.gl/maps/Y9UTnnin7U5F13zV7">https://goo.gl/maps
 
 <div class='item-footer'>
    20:53 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6573,7 +7055,7 @@ public async Task&lt;ActionResult&gt; PresentationCallback()
 
 <div class='item-footer'>
    17:44 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6762,7 +7244,7 @@ aspects of it that are interesting
 
 <div class='item-footer'>
    17:15 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7293,7 +7775,7 @@ llm llama-cpp download-model \
 
 <div class='item-footer'>
    14:31 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7813,7 +8295,7 @@ FROM plugins ORDER BY stargazers_count
 
 <div class='item-footer'>
    14:51 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7970,7 +8452,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    18:56 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8040,7 +8522,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    21:23 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8250,7 +8732,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    20:20 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8312,7 +8794,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    16:45 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8378,7 +8860,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    19:10 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8450,7 +8932,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    14:32 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8526,7 +9008,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    14:09 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8594,7 +9076,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    19:51 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8670,7 +9152,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    19:28 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8738,7 +9220,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    17:16 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8979,7 +9461,7 @@ def prepare_connection(conn):
 
 <div class='item-footer'>
    17:06 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9053,7 +9535,7 @@ def prepare_connection(conn):
 
 <div class='item-footer'>
    18:36 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9193,7 +9675,7 @@ def prepare_connection(conn):
 
 <div class='item-footer'>
    14:38 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9261,7 +9743,7 @@ def prepare_connection(conn):
 
 <div class='item-footer'>
    20:48 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9519,7 +10001,7 @@ with, and more power to you if you exercise that control.)</p>
 
 <div class='item-footer'>
    19:03 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9585,7 +10067,7 @@ with, and more power to you if you exercise that control.)</p>
 
 <div class='item-footer'>
    17:48 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9796,7 +10278,7 @@ Although I’ve spent decades working with software, and still regularly write c
 
 <div class='item-footer'>
    17:37 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9934,7 +10416,7 @@ Although I’ve spent decades working with software, and still regularly write c
 
 <div class='item-footer'>
    21:00 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10111,7 +10593,7 @@ Although I’ve spent decades working with software, and still regularly write c
 
 <div class='item-footer'>
    19:30 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10197,7 +10679,7 @@ Although I’ve spent decades working with software, and still regularly write c
 
 <div class='item-footer'>
    15:01 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11938,7 +12420,7 @@ public async Task&lt;ActionResult&gt; IssuanceCallback()
 
 <div class='item-footer'>
    04:42 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16163,7 +16645,7 @@ Here’s a link to the <a href="https://jonudell.info/audio/iacobucci.mp3">new v
 
 <div class='item-footer'>
    02:03 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -18442,115 +18924,6 @@ Morgan Lemmer-Webber!</p><p>Links:</p>  <a href="https://f-droid.org/">F-Droid</
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://wrenchinthegears.com/2023/05/12/letter-from-the-labyrinth-defending-childrens-health-and-a-jury-duty-predicament/'>Letter from the Labyrinth – Defending Children’s Health and a Jury Duty Predicament</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  I love that this blog has become a space where people can come to share their personal journeys. With gratitude I want to take a moment to express appreciation for Sean and all the rest who have chosen to enliven this corner of the digi-sphere with your heartfelt writings. What follows is a wonderful letter [...]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I love that this blog has become a space where people can come to share their personal journeys. With gratitude I want to take a moment to express appreciation for Sean and all the rest who have chosen to enliven this corner of the digi-sphere with your heartfelt writings. What follows is a wonderful letter about awakening to the beauty of beingness outside the establishment game board. The garden girls are fortunate to have parents who are willing to take principled stands for their family. Alison</p>
-<p>Letter from Sean Filzen, aka “Washington Sean”</p>
-<p><br>
-May 8th, 2023</p>
-<p>Dear Alison,</p>
-<p>First and foremost, thank you for taking the time to read my work.&nbsp; Sincere thanks for your kind words as an introduction to my last guest post.&nbsp; As we all lead incredibly busy lives, it means so much to have discovered your research and archives which are growing by leaps and bounds as the days and weeks fly by. How you do it and still find time to engage and read and share the work of others is commendable. And it is even more influential knowing I have found an audience and a space in which to share and collaborate in a meaningful way.</p>
-<p>While I am not so much interested in fame or fortune, I’d be deceiving myself and your readers if I did not admit that I do seek some attention; and flattery has a way of carrying our lofty ideals even higher into the realms of admiration, doesn’t it?&nbsp; But beyond the soft strokes of my own ego, what I love most about your website is the sheer amount of knowledge one can glean — if they so desire to put in the work and take their critical inquiries seriously. And as the fellow readers, commenters and guest authors have continuously confirmed, they too offer me equally as much appreciation and insights as your work.&nbsp; Bravo for all that you have toiled to establish and being a beacon in these perilous times!</p>
-<p>Thus, it is with this excitement and anticipation of further collaboration that I felt compelled to offer you a more thorough biographical account of how and why in this time, this spring, in the year 2023, there seems to be a personal calling to me to ‘rise to the occasion’ and step forth into the public sphere in a more pronounced manner.&nbsp; Or, as my wife puts it, my throat chakra is activating as my kundalini is rising.</p>
-<p>My first post to Wrench In The Gears, from February 2022, was titled<a href="https://wrenchinthegears.com/2022/02/07/the-grocery-business-is-dye-ing-guest-post/"> ‘The Grocery Business is Dye-Ing’,</a> and I composed this piece under a pseudonym for fear of reprisal and termination of my wife’s position at her employer of fourteen years – New Season’s Grocery stores.&nbsp; The piece was an expose of how New Season’s, “the world’s first Certified B Corp Grocer,” is not as transparent and well intentioned as the brand presents itself, and the essay followed the professional pursuits of one of New Season’s more shadowy board members — Justin Dye.&nbsp;</p>
-<p>When writing this letter, it was of minor interest to check in on Mr. Dye and see what he has been up to with his latest efforts and his newest venture – Schwazze, Inc. aka ‘Medicine Man Technologies’.&nbsp; Schwazze bills itself as a rapidly growing cannabis firm offering a business model for investors that includes everything “from seed to sale.”&nbsp; On its Corporate Website, the word ‘schwazze’ is defined as an action verb, meaning “a cultivation technique that prunes a living organism to create more growth.”&nbsp; And Schwazze proclaims it wants to “focus on data-driven innovation and unparalleled thinking to create the next era of cannabis.”&nbsp; If that is not enough, Schwazze proudly bills its brand tagline as “Transcending the Human Condition Through Cannabis.”&nbsp;&nbsp;</p>
-<p>Perhaps it is just me, but the obvious throwback to the early 20th century efforts of Luther Burbank and his famous work The Training of the Human Plant appear to be cultivating something suspicious at Schwazze.&nbsp; And surely the nod on one of Schwazze’s new startups confirms that something more nefarious is going on in the backrooms. In 2021<a href="https://schwazze.com/our-brands/"> Schwazze Bioscience</a> was established and serves as the research and development arm of the Schwazze brand. “Its high-level mission is to blend both the art and science of plant molecules and advanced technologies to further enhance products and improve the human condition.”&nbsp; (The photo for Schwazze Biosciences conveniently features two vials with a light green liquid in a glass beaker with a third vial filled with a light magenta colored liquid, sitting adjacent to a cannabis leaf in a petri dish).</p>
-<p>But I am not writing today to rehash the questionable integrity of people like Justin Dye.&nbsp; I am writing to you today to clarify why I, Sean Filzen, became so interested in Justin Dye and New Seasons Market in the first place.</p>
-<p>You see, in August of 2021 my wife and I decided to try for a second child and conceived our daughter Margaret while on a camping trip near a beautiful spring in the foothills of Mount Saint Helens.&nbsp; By February of 2022 my wife was well into her third trimester and there was really no negotiating what sort of risky medical procedures or other therapies that my wife was willing to experiment with.&nbsp; She had already moved from her previous position in the wellness department and worked in the ‘freight crew’, taking shifts overnight to avoid wearing a mask as much as possible as her employer would not accommodate additional ‘oxygen breaks’ as she had requested.&nbsp; When the January policy enacted by her employer required all employees to either accept a medical treatment or file for exemption (with mandatory masks and test/trace/track for all who were granted exemptions), tensions were incredibly high.</p>
-<p>She took her maternity leave as early as allowable and somehow her store manager conveniently failed to hand her the letter from corporate that instructed employees how to file for an exemption if they desired.&nbsp; So, without receiving the letter instructing her how to file for an exemption, she went on leave.&nbsp; Another employee and friend was terminated in February 2022 for refusing to turn in an exemption letter at all.&nbsp; She, along with my wife and several other of her coworkers, considered such a policy a form of coerced consent, and to acknowledge the letter as lawful would continue to endow the company with special powers to an otherwise unlawful and unnegotiated actions.&nbsp; But as my wife had not received the letter, we took it as a symbolic gesture that her store manager did not have the guts to hand a woman who was seven months pregnant such an inconsiderate request.</p>
-<p>Of modest means, our strategy was ultimately to ride out her maternity benefits as long as possible and decide what to do after our daughter was born.&nbsp; Margaret was born at home on May 19th – a beautiful and healthy girl weighing in at just over nine pounds!&nbsp; Any drama or negative underpinnings of what still churned in the background felt far, far away from our lives.&nbsp; But it was much to our chagrin that in the middle of July, Kayla learned she had been terminated from her job.&nbsp; Due to a technicality, she was terminated on July 4th, 2022, a date most fitting if you are able to consider the grand irony of it all.&nbsp; To be terminated, by the world’s first certified B-Corp Grocery Store, while on maternity leave, after fourteen years of employment, is no small feat in today’s day and age.&nbsp; And to be fired on July 4th, of all the days of the calendar, well, one might make their own inferences on how we are planning to celebrate our Independence day in 2023.&nbsp; Rest assured there will be some sparks flying.</p>
-<p>So, I hope you can deduce that the first piece I felt compelled to write, my first truly investigative essay, was driven by a passion and desire to defend children’s health.&nbsp; My unborn child, was of course, the forefront of my cause.&nbsp; But also the thought of how other expecting parents are grappling such tenuous issues continues to loom over my heart and mind.&nbsp; Defending children’s health, and I mean truly defending it, is what radicalized me.&nbsp;&nbsp;</p>
-<p>My anger, my frustration, my resentment towards injustice and the things in the world that aren’t commendable has always been a present factor in my life.&nbsp; But when such malevolent forces coalesce into a darkness that seeks to attack and degrade the lives of those who cannot fully defend themselves, a line is crossed and all the raw emotion that was once just my own is catalyzed into something bigger – at least I hope it is.&nbsp; I hope that I can continue to find my voice that seeks to protect children and natural life from forces unseen and unknown to so many in our daily lives.&nbsp; I hope to raise awareness and shine a light in the darkest corners of our society as we barrel backwards and start to run the hamster wheels of history, repeating in lockstep all the lessons we supposedly learned twenty, fifty or even one hundred years ago.</p>
-<p>Following my wife’s termination from her job we committed to a new way of being and a new lifestyle.&nbsp; Our personal motto has become “everything is a distraction from growing our own food and medicine.”&nbsp; And while it is an incredible amount of work to produce even a modicum of our own sustenance, it is perhaps the most rewarding experience I have personally experienced.&nbsp; Our efforts on our small farm are further bolstered by watching our older daughter, who is almost five, reap the literal benefits of everything we have sown thus far.&nbsp; So, it is without remonstrance that we have moved into 2023 and put the unfortunate effects of unlawful termination behind us.&nbsp; Fighting a corporate egregore like Justin Dye and New Seasons is likely to prove fruitless, and instead we decided to keep our heads down and largely mind our own business as the dust of the “new normal” still settles on society.</p>
-<p>But then something else happened in the middle of April this year that has reignited the fire that burns inside me, blowing a strong wind into the glowing embers and fanning the flames of anger and resentment.&nbsp; Before I address this pivotal issue, I wanted to offer you just one more facet of our lives that feels pertinent as we discuss the integral defense of children’s health.</p>
-<p>In October of 2018 our first daughter was born.&nbsp; And both being fairly health conscious, health aware people, our feelings on the CDC schedule of childhood immunology and vaccination policies was mixed.&nbsp; Intuitively I think we both distrusted the overly aggressive nature of such a schedule that lacked substantial epidemiological studies warranting so many shots in such a short amount of time.&nbsp; But fear is a powerful force, and it has a way of breaking down even the most strongly held beliefs, often calling into question one’s abilities as a parent to make the decisions for your child that you believe are correct.&nbsp; Fear can compel people to do things that they would never have considered doing under different circumstances or contexts.</p>
-<p>In the early months of 2019, Clark County Washington, where we make our home, experienced a ‘measles outbreak’.&nbsp;&nbsp;</p>
-<p>Looking back, the<a href="https://clark.wa.gov/public-health/measles-investigation"> Clark County Measles outbreak</a> bears many signature markings of a simulation event designed to improve responses and outcomes in larger emergencies, but the integrity of the measles outbreak is neither here nor there in the grand scheme of things.&nbsp; Prior to the global ‘corona’ lockdowns about a year later, such a public health emergency as the relatively small measles outbreak in Clark County created quite a bit of hysteria in our local community.&nbsp; It was the subject of both local and national news and the CDC even took notice with<a href="https://www.cdc.gov/mmwr/volumes/68/wr/mm6819a5.htm"> a substantial study</a> published on its website.&nbsp; Perhaps the measles outbreak of 2019 primed our consciousness for the events of 2020-2022.&nbsp; Perhaps without such an outbreak in our home county the year before, we would have seen the much bigger events that proceeded in a different light, but I like to believe that we still would have found our path.</p>
-<p>It was in February of 2019, while on our annual family vacation, that we chanced to stop in to visit one of my customers in Crescent City, California (a small ocean town at the very northern part of the state).&nbsp; My customer was a woman in her mid-eighties, her husband had passed away a year prior, and I still credit them both as a big part of my start in my commercial furniture business.&nbsp; So, we stopped into her hotel for a visit and a coffee, and the adult daughter of my customer joined us.&nbsp; The daughter was very outspoken and provided us with several resources.&nbsp; As I am typically inclined to listen to people who are more versed on subjects than I am, I was deeply moved by her pleas not to follow the CDC schedule with our own child, still untainted at the young age of only four months old.&nbsp;&nbsp;</p>
-<p>The daughter of my customer gifted us the book ‘The Vaccine Friendly Plan’ written by Dr. Paul Thomas.&nbsp; I quickly read the book from cover to cover and from that moment forward my resolve to defend children’s health as I understood it has grown clearer and my resolve stronger and more fortified.&nbsp; It was actually around the age of ten months that we took my daughter for her first ‘well baby visit’ at the offices of Dr. Paul Thomas.&nbsp; Thomas’s clinic ‘Integrative Pediatrics’ was coincidentally located only about sixty miles from our home, across the Columbia River in a suburban community outside of Portland, Oregon.&nbsp; I remember telling our nurse practitioner about our farm animals and I was still not sure about the TDaP shot benefits/risks.&nbsp; Our nurse promptly summoned Dr. Thomas himself so he could very politely provide some additional interrogation as to our situation, thus allowing us to fully understand the legal and practical implications of ‘informed consent,’ as well as the pros and cons of the TDaP shots.&nbsp;</p>
-<p>Alison – one of the things that makes your work so commendable is that not only are you one of the people who is doing the research, but you are also doing the work, going to the meetings, shaking the hands and asking the questions.&nbsp; I am willing to wager that you have shaken the hands of many important people who have themselves shaken the hands of even more important people.&nbsp; Dr. Paul is something of a celebrity in<a href="https://healthfreedomsummit.com/"> the Health Freedom Movement</a> and he is one of the important people I have shaken hands with.&nbsp; In November of 2020, Dr. Paul, along with James Lyons-Weiler, published a now retracted study titled<a href="https://pubmed.ncbi.nlm.nih.gov/33266457/"> Relative Incidence of Office Visits and Cumulative Rates of Billed Diagnoses Along the Axis of Vaccination</a>.&nbsp; The study was a subject of national controversy and in a time of great conflict in what should have been an unrelated issue, the Oregon Health Authority promptly targeted Dr. Paul and suspended his medical license pending an investigation.&nbsp; The controversy eventually became the subject of a book by Jeremy Hammond titled The War on Informed Consent: The Persecution of Dr. Paul Thomas by the Oregon Medical Board.&nbsp; The book is available on the<a href="https://childrenshealthdefense.org/store/the-war-on-informed-consent-the-persecution-of-dr-paul-thomas-by-the-oregon-medical-board/"> Children’s Health Defense (CHD) store</a>.&nbsp;&nbsp;</p>
-<p>The forward of the book was written by none other than Robert F. Kennedy, Jr.&nbsp;</p>
-<p>When we have shaken the hands of important people who have themselves shaken hands with even more important people, what should dawn on us is that even as unimportant people, or common people, we occasionally do find ourselves in the capacity to reach important people with our important messages.&nbsp; If important people, like Dr. Paul and Jeremy Hammond, can stay true to the literal definition of defending children’s health, then the work we do as activists and investigative researchers is not fruitless.&nbsp; We can make a difference and we should not be dismayed by the dismissals and lack of interest by those very, very important people who seem out of reach with the message that threatens their livelihood or questions their integrity.&nbsp; And while Dr. Paul is no longer our family pediatrician, as he has&nbsp; joined or been co-opted into a movement that he may not be fully aware of himself, this should not fully dismiss him or the important role he continues to play as a first step for so many other parents and caregivers just beginning their own journey of discovery and definition of informed consent when making lifelong health decisions for themselves and their family.</p>
-<p>In a sense, the way our family has navigated health care and the health services delivery models available to us is probably not all that unique.&nbsp; The decisions we have made (or were led to make) could be considered an excellent example of cognitive domain management, a topic that has captivated my interests as of late.&nbsp; I wonder, how would I perceive the announcement of RFK Jr. to run for president had I not found your research and body of work?&nbsp; Likewise, I wonder, in what ways am I still being managed, or nudged, to stay within the confines of the domains that I am in now?&nbsp; But there is one thing that I do not wonder about, one thing that becomes clearer and clearer every day.&nbsp; And that is the passion and fire that is now raging inside me to defend children’s health, to really, really defend children’s health.&nbsp; If it were not for the likes of people like Alison McDowell, Lynn Davenport and Jason Bosch (and countless others who are doing the good work) who have freely risen to the occasion to defend children’s health, then I am saddened to consider that who (and what) we are left with is going to provide us with less than desirable outcomes.</p>
-<p>After being misled and misdirected and misinformed over and over again, I am prone to believe that we cannot, and should not, accept the answers and agendas of influences and forces that wield power over our social networks.&nbsp; We should not simply allow our conversations on critical issues to be managed or steered in a direction that predetermines outcomes that favor consolidated power over individual autonomy.</p>
-<p>As I mentioned above, it was what happened in April of this year, less than a month ago, that re-ignited a fire I tried desperately to ignore, letting it smolder through the many distractions and more enjoyable activities we encounter on the daily on our small homestead.&nbsp; We have done our best to keep our heads down and mind our own business in this new society that they are building; we did not give up on the fight entirely, but instead, we found our own way to make a better life and build a stronger, healthier community as we understood it.&nbsp; And while minding your own business, living simply and living poor may be enough to keep the more traditional corporate interests from invading one’s chosen lifestyle, no such guarantee exists when it comes to keeping your health and happiness protected from State interference.</p>
-<p>In the middle of April, my wife received a jury summons.&nbsp; As one is instructed to promptly return the card if seeking a deferral or excusal within five business days, I wasted no time and wrote “nursing mother” and “no child care” on the card.&nbsp; Thus, it was much to my chagrin that we received a reply towards the end of the following week that said no such excuse or deferral was warranted for such reasons.&nbsp; To clarify upfront, we are not opposed to jury duty or civic responsibilities.&nbsp; And despite the social contract being shaken to the core over the last few years, I would still serve on a jury if I were summoned.&nbsp; Likewise, my wife too would rise to the occasion and embrace her civic duty if it were reasonable and practical.&nbsp;&nbsp;</p>
-<p>But under the current laws and codes in the State of Washington, the ability to serve in place of another person with more important obligations is not an option.&nbsp; And as the nice lady on the Clark County Judiciary department hotline informed me, “nursing mother and “no childcare” are not valid exemptions from service.&nbsp; She did offer us a six-month deferral, but we declined as we hope to still be nursing our youngest child as long as possible.&nbsp; To agree to a six-month deferral would in a sense, be a form of consent, or a contract, to fulfill the civic obligation six months later, forcing the same confrontation without the ability to petition for a redress of our grievances.</p>
-<p>Correct me if I am wrong, but I believe that at one time you said on one of your YouTube videos that (and I am paraphrasing here) “it’s not that people’s rights won’t exist or that the system is going to disappear.&nbsp; It’s that the rights and the system will be so far removed from people’s lives they will not be able to access their rights, they won’t know how.”&nbsp; Well, that statement stuck with me and when my wife was summoned to jury duty and we were informed that the basic, most simplest of rights (those of a nursing mother with an infant child) were now called into question by the State, you could say that I am now actively investigating all the power that I still have as a citizen to find the system and use the rights that I still have before they become so mired in muck that I lack the energy to wade into the cesspool, let alone muster up a halfway decent defense to the overreach of State power.</p>
-<p>This is it.&nbsp; This issue has emerged as a new line in the sand that has been drawn.&nbsp; This is the kind of opportunity to fight and stand for what is right and what is just that may only come along so many times in a person’s life.&nbsp; This is the moment that I choose to rise and step out of the shadows and into the light.&nbsp; This is my time.</p>
-<p>Thank you for blazing the trail and lighting the way for people like me who just need to know that people like you are out there.&nbsp; We are only humans; we are not perfect by any means.&nbsp; And where this fight leads me is still undetermined, a bit of a mystery.&nbsp; But without a doubt, I know in my heart that compelling a woman to be separated from her breastfeeding infant at the threat of a misdemeanor criminal charge is the type of State violence that far eclipses even the worst of corporate injustices we’ve incurred thus far.&nbsp;</p>
-<p>How to prove to the State that their actions are in fact a form of uncoerced violence against the constituency, well, I am still refining my strategy to be honest.&nbsp; So far, the defense has taken shape into an aggressive letter writing campaign, but I sense an escalation is in the works as this pivotal event is helping bring me out of my shell and into the eye of the public.</p>
-<p>&nbsp;</p>
-<p>So, it is with much excitement that I look forward to sharing with you the developments in this case as they happen.&nbsp; And equally so, it is with much gratitude that I look forward to collaborating with you and writing and making art and growing our garden and dancing with a deepening and growing love of life, all-natural life.</p>
-<p>Respectfully yours,</p>
-<p>Sean C. Filzen &nbsp; — aka ‘Washington Sean’&nbsp;&nbsp;</p>
-<p>Caption – “Fishing for Customers”</p>
-<p>&nbsp;</p>
-<p></p>
-<p>&nbsp;</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2023/05/Fishing-for-Customers.jpg?resize=1020%2C765&ssl=1'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:28 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Thursday, 11. May 2023
  </h2>
@@ -19246,312 +19619,6 @@ High assurant digital i
 
 <div class='item-footer'>
    15:51 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 01. May 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/05/01/application-security-context-models/'>Application security context models</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article looks at a new concept for creating application security context models for modern solutions using best practice security. By using security context models in projects, a qualitative and secure authentication solution can be produced quicker and more efficient. At present, too many solution architects try to patch the security architecture after the application […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article looks at a new concept for creating application security context models for modern solutions using best practice security. By using security context models in projects, a qualitative and secure authentication solution can be produced quicker and more efficient. At present, too many solution architects try to patch the security architecture after the application architecture has been completed.</p>
-
-
-
- Goal of the model 
-
-
-
-<p>Modern application security solutions have evolved to utilize a <a href="https://learn.microsoft.com/en-us/azure/security/fundamentals/zero-trust">zero trust</a> approach instead of relying on security perimeters. This shifts the focus to authentication and authorization flows rather than network or firewall protection. Security measures are now enforced locally on each component, rather than just at the front door. In order to implement this new paradigm and move away from the traditional boundary thinking, a modeling concept known as security context models can be used. These models provide a framework for understanding and addressing security concerns in modern applications, by placing authentication and authorization at the center of the security architecture model. </p>
-
-
-
- Benefits of a security context model 
-
-
-
-<p>Security architecture part of the solution and not “fixed” after with weak workarounds.</p>
-
-
-
-<p>Security reviews can use this and produce more output, less time is required re-modelling the solution.</p>
-
-
-
-<p>Complex security flows or incorrect security concepts can be identified early.</p>
-
-
-
-<p>Application security support simplified.</p>
-
-
-
-<p>SAST: white box testing can use the model and focus.</p>
-
-
-
- What information is important in a security context diagram? 
-
-
-
-<p>A security context model</p>
-
-
-
- 
- displays interfaces with third party applications and security definitions 
-
-
-
- displays the authentication and authorization clients 
-
-
-
- displays the application and delegated client types (app identity or app+user identity) 
-
-
-
- displays private zones, public zones and security zones 
-
-
-
- displays the authentication and authorization flow types 
-
-
-
- has an appendix 
- 
-
-
-
-<p></p>
-
-
-
- Display interfaces with third party Apps and security definitions 
-
-
-
-<p>The interfaces between the relevant internal and external components should be displayed in a context security model. By displaying the interfaces further security information can be included and displayed. Including the interfaces, the different security flows can be identified. Here’s an example displaying only the interfaces. From this model alone, it is clear that only Keycloak clients are used and the Keycloak identity provider federates to the further identity providers.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Displays the authentication and authorization clients 
-
-
-
-<p>It is very useful to display the authentication and authorization flow type definitions. You should also specify if a client is a single tenant or a multiple tenant client. A security client should be either a delegated or an application type. In Azure, it is a good idea not to mix the application and delegated permissions in a single client which can lead to security problems.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Display application and delegated client types 
-
-
-
-<p>The application or the delegated (user) types can be displayed in the model to add clarity to the API access. An access token returned to a UI client flow type is always a delegated (user + identity) access token. If the client credentials flow is used, then the access token is created for the trusted application and no user is involved. You could display the client inside the application and add an application access token to the model or I sometimes just display the flow type in the connection and it is clear that an application token is used to access the API.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Displays private zones, public zones and security zones 
-
-
-
-<p>The public or private zones should be displayed in a security context model. Firewalls can also be included to enrich the model but these are not required. Any component which implements part of the authentication or authorization should be included. If it makes it easier to understand the security architecture, it should be included. By including the security zones, you can see clearly which components are accessible from the internet or intranet or separate networks. This does not change the security requirements of each component as each component needs to implement the security anyway (Zero trust strategy).</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Displays the authentication and authorization flow types 
-
-
-
-<p>It is important to include the authentication and the authorization flow types to acquire access tokens, or access to UI applications. Only standards should be used and a client application should never create it’s own access tokens. In the following model, the client credentials flow is used to request an application access token to access the API application.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Should I include network security components? 
-
-
-
-<p>Traditional security boundary models were created with the firewall rules and definitions to control the traffic. These models are still required but have a different focus. In an application security context model, only the network components used to implement authentication or authorization components are included. If you use an API manager to implement an OAuth2 client for the API application, then this needs to be included. If you use an application proxy to remove or add HTTP security headers, this should be included as well.</p>
-
-
-
- Example Security Context for Web application using BFF (Backend for Frontend) 
-
-
-
-<p>A Blazor application is implemented using BFF security architecture. The Blazor application uses a downstream API which authorizes using delegated user access tokens. The API application uses an Azure SQL. The API and the database are not public to the internet.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Security context model appendix 
-
-
-
-<p>Interface 1 Blazor –&nbsp; Key Vault </p>
-
-
-
-<p>Access using service managed identity with restricted access</p>
-
-
-
-<p>Interface 2 API –&nbsp; Key Vault </p>
-
-
-
-<p>Access using service managed identity with restricted access</p>
-
-
-
-<p>Interface 3 Blazor – API</p>
-
-
-
-<p>OAuth using delegated user access token and scope. The API is restricted for use with the Blazor UI using the Azure App registration clientId</p>
-
-
-
-<p>Interface 4 API –&nbsp; SQL DB </p>
-
-
-
-<p>Access using service managed identity with restricted access</p>
-
-
-
-<p>Interface 5 Blazor  –&nbsp; Azure AD</p>
-
-
-
-<p>OpenID Connect code flow with PKCE, confidential client</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/security/fundamentals/zero-trust">https://learn.microsoft.com/en-us/azure/security/fundamentals/zero-trust</a></p>
-
-
-
-<p></p>
-
-
-
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/04/security-context-model_04.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:12 &bull;
    3 months ago
 </div>
 
@@ -22594,7 +22661,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    03:43 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22870,7 +22937,7 @@ This blog post, <a href="https://blog.aniljohn.com/2023/04/evolving-G2C-identity
 
 <div class='item-footer'>
    03:14 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
