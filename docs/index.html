@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 1:31 AM August 21, 2023 (UTC)</sup>
+<sup>Last Update 9:37 AM August 21, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -729,6 +729,396 @@
  <h2 class='new-date'>
   Monday, 21. August 2023
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/08/21/asp-net-core-logging-using-serilog-and-azure/'>ASP.NET Core Logging using Serilog and Azure</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement logging in an ASP.NET Core application using Serilog and Azure as a hosting environment. Code: https://github.com/damienbod/aspnetcore-azure-logging Priority logging use cases Two types of default logging use cases need to be supported in most software solutions. The application requires near real time logs which can be easily viewed and persisted […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement logging in an ASP.NET Core application using Serilog and Azure as a hosting environment. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/aspnetcore-azure-logging">https://github.com/damienbod/aspnetcore-azure-logging</a></p>
+
+
+
+ Priority logging use cases 
+
+
+
+<p>Two types of default logging use cases need to be supported in most software solutions. The application requires near real time logs which can be easily viewed and persisted logs for a period of time which can be viewed after something goes wrong. This needs to work in development and also in production. We have many other logging use cases as well, I just want to cover the basic logging requirements here.</p>
+
+
+
+ 
+ Real time logging development 
+
+
+
+ Real time logging production 
+
+
+
+ Persisted logging development 
+
+
+
+ Persisted logging production 
+ 
+
+
+
+<p>In this setup, I use Azure App Insights for persisted logging on the production server. This has the problem that the logs only appear after n-minutes. A near real view is also required.</p>
+
+
+
+ Setup 
+
+
+
+<p>The ASP.NET Core application is deployed to an Azure App Service (Linux hosted). I like to use this as it is simple and scales good with web applications. I use Serilog to add logging to my ASP.NET Core applications and add different sinks depending on the hosted environments of the dev, test, prod etc.</p>
+
+
+
+<p>The following Nuget packages are used to setup the logging in this use case.</p>
+
+
+  Microsoft.Extensions.Logging.Debug
+Serilog
+Serilog.AspNetCore
+Serilog.Settings.Configuration
+Serilog.Sinks.Console
+Serilog.Sinks.File
+Serilog.Extensions.Logging
+Serilog.Enrichers.Environment
+Serilog.Enrichers.Thread
+Serilog.Sinks.Async
+Serilog.Sinks.ApplicationInsights
+Serilog.Sinks.AzureApp
+  
+
+
+<p>The program file of the ASP.NET Core application is used to initialize the logging. I use just one configuration for both dev and production in this example. I normally use different configurations pro hosted environment. The Serilog is setup using the CreateBootstrapLogger and the UseSerilog methods. The UseSerilog reads the sinks and logging setup from a configuration file, or files if separated per environment.</p>
+
+
+  using Serilog;
+using AspNetCoreAzureLogging;
+
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .WriteTo.AzureApp()
+    .CreateBootstrapLogger();
+
+Log.Information("Starting AspNetCoreAzureLogging application");
+
+try
+{
+    var builder = WebApplication.CreateBuilder(args);
+
+    builder.Host.UseSerilog((context, loggerConfiguration) =&gt; loggerConfiguration
+        .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level}] {SourceContext}{NewLine}{Message:lj}{NewLine}{Exception}{NewLine}")
+        .ReadFrom.Configuration(context.Configuration));
+
+    // ... Add here:
+	// define your services and pipelines
+
+    app.Run();
+}
+catch (Exception ex) when (ex.GetType().Name is not "StopTheHostException" &amp;&amp; ex.GetType().Name is not "HostAbortedException")
+{
+    Log.Fatal(ex, "Unhandled exception");
+}
+finally
+{
+    Log.Information("Shut down complete");
+    Log.CloseAndFlush();
+}
+  
+
+
+<p>The Serilog configuration adds the Azure and file based setup. The console or the file are used for local development, the Azure App Insights is used for the persisted logs on Azure. Depending on what services you deploy, the near real time logging is setup differently. </p>
+
+
+  "Serilog": {
+    "Using": [ "Serilog.Sinks.AzureApp", "Serilog.Sinks.ApplicationInsights" ],
+    "MinimumLevel": {
+      "Default": "Debug",
+      "Override": {
+        "Microsoft": "Debug",
+        "System": "Debug"
+      }
+    },
+    "Enrich": [ "FromLogContext", "WithMachineName", "WithThreadId" ],
+    "WriteTo": [
+      {
+        "Name": "AzureApp"
+      },
+      {
+        "Name": "ApplicationInsights",
+        "Args": {
+          "telemetryConverter": "Serilog.Sinks.ApplicationInsights.TelemetryConverters.TraceTelemetryConverter, Serilog.Sinks.ApplicationInsights"
+        }
+      },
+      {
+        "Name": "File",
+        "Args": {
+          "path": "../_logs-uifile.txt",
+          "outputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level}] [{SourceContext}] [{EventId}] {Message}{NewLine}{Exception}",
+          "rollOnFileSizeLimit": true,
+          "fileSizeLimitBytes": 4194304,
+          "retainedFileCountLimit": 5
+        }
+      }
+    ]
+},
+  
+
+
+<p></p>
+
+
+
+ Logging to App Insights 
+
+
+
+<p>App Insights need to be enabled for the Azure App Service which uses a Linux hosting plan. This can be created with it enabled, or you can use the portal to enable this.</p>
+
+
+
+<p>Note: this can all be setup using IaC like terraform or whatever tools you use.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The App Insights can be opened and the exceptions or the traces can be viewed in the Logs tab.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>You can use KDL to view the traces or the exceptions from the application logs. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Near real time logging App Service 
+
+
+
+<p>Azure App Insights logs do not appear for n-minutes. Due to this, sometimes you need to enable near real time logs to debug a bug on Azure deployments. This can be done using the Azure Service Logs blade. Enable the File System logs.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The log stream can be used to view thenear real time logs view.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>On a development system, I use the log files or the console to debug the application. I do not use App Insights in the development environment if this can be avoided as it adds complexity and delays in development.</p>
+
+
+
+ Notes 
+
+
+
+<p>This just covers the two default logging requirements which can be used for development and production. There are many other logging features which can be implemented and monitored but these two basic ones should always be supported and working in all solutions. You can also use logging solutions like Seq server or Elasticsearch, main thing is to use one.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/fundamentals/logging">https://learn.microsoft.com/en-us/aspnet/core/fundamentals/logging</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/azure-monitor/app/ilogger">https://learn.microsoft.com/en-us/azure/azure-monitor/app/ilogger</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/azure-monitor/app/tutorial-asp-net-core">https://learn.microsoft.com/en-us/azure/azure-monitor/app/tutorial-asp-net-core</a></p>
+
+
+
+<p><a href="https://serilog.net/">https://serilog.net/</a></p>
+
+
+
+<p><a href="https://github.com/serilog/serilog">https://github.com/serilog/serilog</a></p>
+
+
+
+ 
+<blockquote><a href="https://jonathancrozier.com/blog/learning-the-kusto-query-language-with-application-insights-logs">Learning the Kusto Query Language (KQL) with Application Insights Logs</a></blockquote>
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/08/aspnetcore-logging-azure_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:09 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2023/reconsidering-my-website-and-newsletter'>Reconsidering my website and newsletter</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ I’m thinking about diverging my website and newsletter.  Today, if you sign up to the newsletter, you get every blog post via email (although sometimes I wait until there have been several small blog posts and send them together as a digest). That means you can follow along on the web, using a feed reader, or via email, depending on what’s best for you.  These are different media, even if I don’
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+<p>I’m thinking about diverging my <a href="https://werd.io">website</a> and <a href="https://newsletter.werd.io">newsletter</a>.</p><p>Today, if you sign up to the newsletter, you get every blog post via email (although sometimes I wait until there have been several small blog posts and send them together as a digest). That means you can follow along on the web, using a feed reader, or via email, depending on what’s best for you.</p><p>These are different media, even if I don’t treat them as such. I don’t think short posts work well via email, and I’m not always convinced that longer posts work well on the blog. I think splitting them might also help with my own incentives to write: the newsletter would become more of a focused publication, whereas my website has always been a stream of consciousness of what I’m thinking about and reading right now.</p><p>What do you think?</p> 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:04 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -797,7 +1187,7 @@
 
 <div class='item-footer'>
    00:56 &bull;
-   37 minutes ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -864,7 +1254,7 @@
 
 <div class='item-footer'>
    23:50 &bull;
-   2 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -940,7 +1330,7 @@
 
 <div class='item-footer'>
    22:25 &bull;
-   3 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1039,7 +1429,7 @@
 
 <div class='item-footer'>
    18:00 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1103,7 +1493,7 @@
 
 <div class='item-footer'>
    05:38 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1605,7 +1995,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    20:24 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1675,7 +2065,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    19:59 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1743,7 +2133,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    19:40 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1806,7 +2196,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    19:38 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1871,7 +2261,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    19:38 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1941,7 +2331,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    19:36 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2005,7 +2395,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    19:33 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2085,7 +2475,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    19:14 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2148,7 +2538,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    17:41 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2224,7 +2614,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    17:27 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2293,7 +2683,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    17:25 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2354,7 +2744,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    17:19 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2420,7 +2810,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    16:18 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2494,7 +2884,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    16:12 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2597,7 +2987,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    15:44 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3001,7 +3391,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    18:46 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3071,7 +3461,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    18:18 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3141,7 +3531,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    17:23 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3202,7 +3592,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    16:20 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3289,7 +3679,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    15:15 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3355,7 +3745,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    14:18 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3427,7 +3817,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    13:45 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4142,7 +4532,7 @@ Time: 0.031s
 
 <div class='item-footer'>
    18:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4204,7 +4594,7 @@ Time: 0.031s
 
 <div class='item-footer'>
    14:29 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4811,7 +5201,7 @@ doors open up again.)</p>
 
 <div class='item-footer'>
    21:15 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4887,7 +5277,7 @@ doors open up again.)</p>
 
 <div class='item-footer'>
    18:30 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4959,7 +5349,7 @@ doors open up again.)</p>
 
 <div class='item-footer'>
    18:02 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5031,7 +5421,7 @@ doors open up again.)</p>
 
 <div class='item-footer'>
    17:56 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5088,7 +5478,7 @@ doors open up again.)</p>
  -->
 <div class='wrap'>
 
-Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2000/2023/04/pexels-barry-tan-7994953.jpg">https://www.freecodecamp.org/news/content/images/size/w2000/2023/04/pexels-barry-tan-7994953.jpg</a><p>At <a href="https://devrev.ai/">DevRev</a>, we are building an API-first dev-centric CRM that leverages data, design, and machine intelligence to empower developers (dev) to build, support, and grow their customers (revs), in the era of product-led growth. This blog post shares some insights on how we secure DevRev APIs (north/south traffic) at the edge, and the service-to-service interactions (east/west traffic).</p><p>The DevRev platform is designed to scale up to 1 million dev organizations, and 1 billion rev users. At the time of this writing the DevRev APIs cater closer to 1 million API requests on daily basis even at the very early stage of the product. In terms of API performance, we emphasize that all the APIs should operate with a very low latency. With this in mind, we wanted our security design to bring in only the valid, legitimate traffic into the DevRev platform. Anything that does not look right, we reject at the&nbsp;edge.</p><p>At the edge, we use Fastly Next-Gen WAF (powered by Signal Sciences) to monitor for suspicious and anomalous API traffic and protect in real-time, against attacks directed at our public APIs and the origin servers. Once the requests pass through the WAF, we use Fastly Compute@Edge to validate each&nbsp;request.</p><p>Fastly provides us with the capability to execute our code at the edge through a WebAssembly module. We’ve developed an edge gateway in Rust, which compiles into a WebAssembly module. This Rust code is responsible for rejecting any API requests lacking a valid JWT. JWT verification is just one of the tasks we perform at the edge. The edge gateway responsibilities also encompass cache management, reporting API statistics to Google BigQuery, sending logs to Datadog, enforcing captchas, URL rewriting, CORS management, API allow-listing based on various parameters, and proxying traffic to secure S3 endpoints, among others. Furthermore, we are in the process of introducing coarse-grained authorization at the edge. This additional measure will assist in filtering only legitimate traffic to DevRev services. The entire Rust code executing at the edge takes no longer than 5 ms to complete its&nbsp;tasks.</p><p>Fastly Compute@Edge serves as the entry point at the edge for DevRev services. At the origin, an API gateway intercepts all incoming traffic. The responsibilities of this API gateway go far beyond the functionalities typically found in open source or commercial API gateways. In fact, it functions as both an API gateway and an integrator, developed in-house at DevRev. Throughout the remainder of this blog, we will refer to it as the DevRev&nbsp;gateway.</p><p>As a second level of defense, we perform JWT verification at the origin using the DevRev gateway, even though it is redundant. Ideally, we should not receive any 401 errors from the origin, and we actively monitor this using Datadog alerts. The verification of a JWT takes less than 2ms at the origin. Additionally, we have implemented a token-based authentication mechanism between the Fastly edge and the DevRev gateway. This, coupled with IP allowlisting, ensures that no request can bypass the Fastly edge to reach the DevRev&nbsp;gateway.</p><p>The JWT carries the identity of the API user. An API user can be one of the following types:</p>  An Auth0 user. We utilize Auth0 as the trusted Identity Provider for the DevRev platform. Auth0 authenticates users through methods such as OTP over email, social connections, and enterprise connections. To access the DevRev web app or mobile app, users must first authenticate via Auth0. Auth0 assigns a distinctive identification to each user known as the Auth0 user ID. This ID is formed by combining the connection name with the immutable identifier specific to the user within the associated connection.  A Dev user: A Dev user is a member of a Dev organization within the DevRev platform. All Dev users are Auth0 users; however, the reverse is not necessarily true. The DevRev web app and mobile app invoke APIs on behalf of Dev users, or the Dev users themselves can directly invoke DevRev&nbsp;APIs.  A Rev user: A Rev user is a customer of a Dev organization and has the authorization to access specific DevRev APIs. In most cases, the DevRev main app doesn’t actively authenticate Rev users; instead, it relies on the corresponding Dev organization for authentication. Based on a trust relationship with the Dev organization, Rev users are granted access to DevRev APIs. However, the DevRev support portal permits Rev users to log in directly. In an upcoming blog post, we will delve into the details of building this trust relationship and explain how we authenticate Rev users at both the edge and the&nbsp;origin.  A service account: A service account represents an application that communicates with the DevRev APIs. For instance, when you integrate the DevRev PLuG widget into your web app or use the PLuG mobile SDK in your mobile app, the PLuG functions as a service account. A service account can access DevRev APIs independently or on behalf of a Dev user or a Rev&nbsp;user.  <p>The DevRev gateway at the origin serves as the entry point to the DevRev microservices backend. Once it verifies the JWT accompanying the API request, the gateway dispatches the request to the appropriate service. All services are developed in Golang and communicate with each other using&nbsp;gRPC.</p><p>The gateway and all other services are deployed within a Kubernetes cluster. Each service operates within its own namespace and is deployed behind an envoy proxy. When a service spins up, it is provisioned with a key by Istio, which also manages key rotation. These keys are subsequently utilized by each service for mTLS authentication between services. The same applies to the&nbsp;gateway.</p><p>mTLS is good enough to identify a service, but it has its own challenges as well. We’ve built a service-to-service authentication mechanism that combines mTLS with JWT due to the following reasons.</p>  Flexibility and decoupling: JWT can be used in scenarios where you need more flexibility and decoupling between services. It allows you to issue tokens that can carry various claims and information about the user or entity. This can be useful in scenarios where you want to provide fine-grained access control or share specific user attributes between services.  Statelessness: JWT is a stateless authentication mechanism, meaning the server doesn’t need to store token-related information. This can be advantageous when scalability and performance are crucial, as the server doesn’t need to maintain session-related data.  Cross-Domain Communication: JWT can be used for cross-domain communication between different services. Since JWTs are self-contained and can carry service-related information, they can facilitate communication between services without requiring direct interaction or shared session&nbsp;state.  <p>When a service spins up within the DevRev platform, it talks to the STS (Security Token Service) deployed in the same Kubernetes cluster. Through mTLS authentication, the service requests a JWT. This particular JWT is referred to as the Application Access Token (AAT). The AAT’s subject is a system-generated identifier linked to the Kubernetes service name of the corresponding service making the AAT request. In simpler terms, an AAT is accompanied by a corresponding service account, and the AAT’s subject is the identifier of that service account, which we call a service account&nbsp;DON.</p><p>The URI field within the X509 certificate corresponding to each service (or workload), issued by Istio contains the SPIFFE ID linked to that specific service. When the STS issues a JWT for a service that authenticates with the STS through mTLS, it appends the same SPIFFE ID found in the incoming X509 certificate as a claim to the JWT it creates and subsequently shares with the service. This process effectively binds the JWT to the corresponding service identity connected to the mTLS connection.</p><p>Each microservice is linked to a predefined service account, and a particular service has the ability to establish its own access control policies for these service accounts. For instance, the Janus service might permit read operations from the gateway service account, while the codex service could enable the gateway service account to impersonate a specific group of Rev&nbsp;users.</p><p>At the end of the day, every service is provisioned with a JWT, which it utilizes to access upstream microservices. These JWTs are of short duration, and as they approach expiration, the corresponding service is required to communicate with the STS once more to obtain a fresh&nbsp;JWT.</p><p>One fundamental best practice when generating a JWT is to define a restrictive audience. For instance, referring back to the service-to-service authentication using JWT discussed in the preceding section, the token generated by the STS for the gateway’s communication with the Janus service should specifically carry ‘janus’ as the audience value. Consequently, the Janus service cannot utilize the same JWT received from the gateway to communicate with the STS. This is because the token’s audience is ‘janus’, while the STS anticipates a token with an audience value of&nbsp;‘sts’.</p><p>One drawback of this model is that it would lead to more frequent interactions between the STS and other services, resulting in increased communication overhead. Furthermore, each service would be required to manage distinct tokens for every upstream service it engages with. While we opted not to adopt this model with different audience values, we were still unwilling to take the risk of one service employing a token from another service to access an upstream service, essentially impersonating the original&nbsp;service.</p><p>Binding the JWT to the SPIFFE ID associated with the X509 certificate of a particular service proves beneficial in this context. Every upstream service not only verifies the JWT received from the downstream service but also confirms whether it is tied to the SPIFFE ID related to the underlying mTLS connection. This mechanism ensures that the Janus service cannot utilize the JWT acquired from the gateway to gain access to the STS as if it were the&nbsp;gateway.</p><p>Alongside the service context, the interactions between services also include the user context. The gateway forwards the JWT it receives from the client to the upstream services when necessary. This JWT carries the user context. In the current model, these client JWTs might originate from two different issuers: Auth0 and the STS. However, as we move forward, our goal is for all services to exclusively trust STS-issued tokens. This implies that clients will need to exchange the token they receive from Auth0 for an STS-issued token before gaining access to DevRev&nbsp;APIs.</p><p>Why would the client need to exchange the Auth0 token for an STS token, and why shouldn’t the gateway handle this conversion in the background, passing the STS-issued token to the upstream services? However, this approach would result in more frequent interactions between the gateway and the STS, requiring token exchange for each request. Such an approach introduces unnecessary overhead.</p><p>A specific service possessing the JWT containing the user context will not permit unrestricted access to any arbitrary service using that JWT. We enforce stringent access control policies at each service, ensuring that incoming requests are processed only after evaluating not only the user context but also the corresponding service&nbsp;context.</p><p>A token that has been previously issued to a client or user, whether by Auth0 or the STS, can be revoked for two reasons. The associated user or the organization to which the user belongs may no longer be part of the DevRev platform, or the user themselves or an admin of the organization could explicitly revoke a specific&nbsp;token.</p><p>To address the former, the DevRev gateway verifies the active status of a user or organization within the platform after each token validation. In order to reduce unnecessary service calls and database queries, the gateway maintains a cache of recognized users.</p><p>To explicitly revoke a token, the client can make use of the revoke API provided by the STS. After a token is revoked, the STS includes the metadata related to the revoked token in a cache accessible to the gateway for reading. The gateway then rejects any tokens corresponding to the token metadata found within the revoked token cache. We are currently working on making this list of revoked tokens available to the Fastly edge gateway, which will then reject any requests carrying a revoked token at the edge&nbsp;itself.</p><p>In this blog post, we provided a high-level overview of how we secure both north/south and east/west traffic at DevRev. In future blog posts, we will delve deeper into the key aspects of the DevRev microservices security&nbsp;design.</p> <p><a href="https://medium.facilelogin.com/securing-north-south-and-east-west-traffic-devrev-2004b4397950">Securing north/south and east/west traffic @ DevRev</a> was originally published in <a href="https://medium.facilelogin.com">FACILELOGIN</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
+Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2000/2023/04/pexels-barry-tan-7994953.jpg">https://www.freecodecamp.org/news/content/images/size/w2000/2023/04/pexels-barry-tan-7994953.jpg</a><p>At <a href="https://devrev.ai/">DevRev</a>, we are building an API-first dev-centric CRM that leverages data, design, and machine intelligence to empower developers (dev) to build, support, and grow their customers (revs), in the era of product-led growth. This blog post shares some insights on how we secure DevRev APIs (north/south traffic) at the edge, and the service-to-service interactions (east/west traffic).</p><p>The DevRev platform is designed to scale up to 1 million dev organizations, and 1 billion rev users. At the time of this writing the DevRev APIs cater closer to 1 million API requests on daily basis even at the very early stage of the product. In terms of API performance, we emphasize that all the APIs should operate with a very low latency. With this in mind, we wanted our security design to bring in only the valid, legitimate traffic into the DevRev platform. Anything that does not look right, we reject at the&nbsp;edge.</p><p>At the edge, we use Fastly Next-Gen WAF (powered by Signal Sciences) to monitor for suspicious and anomalous API traffic and protect in real-time, against attacks directed at our public APIs and the origin servers. Once the requests pass through the WAF, we use Fastly Compute@Edge to validate each&nbsp;request.</p><p>Fastly provides us with the capability to execute our code at the edge through a WebAssembly module. We’ve developed an edge gateway in Rust, which compiles into a WebAssembly module. This Rust code is responsible for rejecting any API requests lacking a valid JWT. JWT verification is just one of the tasks we perform at the edge. The edge gateway responsibilities also encompass cache management, reporting API statistics to Google BigQuery, sending logs to Datadog, enforcing captchas, URL rewriting, CORS management, API allow-listing based on various parameters, and proxying traffic to secure S3 endpoints, among others. Furthermore, we are in the process of introducing coarse-grained authorization at the edge. This additional measure will assist in filtering only legitimate traffic to DevRev services. The entire Rust code executing at the edge takes no longer than 5 ms to complete its&nbsp;tasks.</p><p>Fastly Compute@Edge serves as the entry point at the edge for DevRev services. At the origin, an API gateway intercepts all incoming traffic. The responsibilities of this API gateway go far beyond the functionalities typically found in open source or commercial API gateways. In fact, it functions as both an API gateway and an integrator, developed in-house at DevRev. Throughout the remainder of this blog, we will refer to it as the DevRev&nbsp;gateway.</p><p>As a second level of defense, we perform JWT verification at the origin using the DevRev gateway, even though it is redundant. Ideally, we should not receive any 401 errors from the origin, and we actively monitor this using Datadog alerts. The verification of a JWT takes less than 2ms at the origin. Additionally, we have implemented a token-based authentication mechanism between the Fastly edge and the DevRev gateway. This, coupled with IP allowlisting, ensures that no request can bypass the Fastly edge to reach the DevRev&nbsp;gateway.</p><p>The JWT carries the identity of the API user. An API user can be one of the following types:</p>  An Auth0 user. We utilize Auth0 as the trusted Identity Provider for the DevRev platform. Auth0 authenticates users through methods such as OTP over email, social connections, and enterprise connections. To access the DevRev web app or mobile app, users must first authenticate via Auth0. Auth0 assigns a distinctive identification to each user known as the Auth0 user ID. This ID is formed by combining the connection name with the immutable identifier specific to the user within the associated connection.  A Dev user: A Dev user is a member of a Dev organization within the DevRev platform. All Dev users are Auth0 users; however, the reverse is not necessarily true. The DevRev web app and mobile app invoke APIs on behalf of Dev users, or the Dev users themselves can directly invoke DevRev&nbsp;APIs.  A Rev user: A Rev user is a customer of a Dev organization and has the authorization to access specific DevRev APIs. In most cases, the DevRev main app doesn’t actively authenticate Rev users; instead, it relies on the corresponding Dev organization for authentication. Based on a trust relationship with the Dev organization, Rev users are granted access to DevRev APIs. However, the DevRev support portal permits Rev users to log in directly. In an upcoming blog post, we will delve into the details of building this trust relationship and explain how we authenticate Rev users at both the edge and the&nbsp;origin.  A service account: A service account represents an application that communicates with the DevRev APIs. For instance, when you integrate the DevRev PLuG widget into your web app or use the PLuG mobile SDK in your mobile app, the PLuG functions as a service account. A service account can access DevRev APIs independently or on behalf of a Dev user or a Rev&nbsp;user.  <p>The DevRev gateway at the origin serves as the entry point to the DevRev microservices backend. Once it verifies the JWT accompanying the API request, the gateway dispatches the request to the appropriate service. All services are developed in Golang and communicate with each other using&nbsp;gRPC.</p><p>The gateway and all other services are deployed within a Kubernetes cluster. Each service operates within its own namespace and is deployed behind an envoy proxy. When a service spins up, it is provisioned with a key by Istio, which also manages key rotation. These keys are subsequently utilized by each service for mTLS authentication between services. The same applies to the&nbsp;gateway.</p><p>mTLS is good enough to identify a service, but it has its own challenges as well. We’ve built a service-to-service authentication mechanism that combines mTLS with JWT due to the following reasons.</p>  Flexibility and decoupling: JWT can be used in scenarios where you need more flexibility and decoupling between services. It allows you to issue tokens that can carry various claims and information about the user or entity. This can be useful in scenarios where you want to provide fine-grained access control or share specific user attributes between services.  Statelessness: JWT is a stateless authentication mechanism, meaning the server doesn’t need to store token-related information. This can be advantageous when scalability and performance are crucial, as the server doesn’t need to maintain session-related data.  Cross-Domain Communication: JWT can be used for cross-domain communication between different services. Since JWTs are self-contained and can carry service-related information, they can facilitate communication between services without requiring direct interaction or shared session&nbsp;state.  <p>When a service spins up within the DevRev platform, it talks to the STS (Security Token Service) deployed in the same Kubernetes cluster. Through mTLS authentication, the service requests a JWT. This particular JWT is referred to as the Application Access Token (AAT). The AAT’s subject is a system-generated identifier linked to the Kubernetes service name of the corresponding service making the AAT request. In simpler terms, an AAT is accompanied by a corresponding service account, and the AAT’s subject is the identifier of that service account, which we call a service account&nbsp;DON.</p><p>The URI field within the X509 certificate corresponding to each service (or workload), issued by Istio contains the SPIFFE ID linked to that specific service. When the STS issues a JWT for a service that authenticates with the STS through mTLS, it appends the same SPIFFE ID found in the incoming X509 certificate as a claim to the JWT it creates and subsequently shares with the service. This process effectively binds the JWT to the corresponding service identity connected to the mTLS connection.</p><p>Each microservice is linked to a predefined service account, and a particular service has the ability to establish its own access control policies for these service accounts. For instance, the Janus service might permit read operations from the gateway service account, while the codex service could enable the gateway service account to impersonate a specific group of Rev&nbsp;users.</p><p>At the end of the day, every service is provisioned with a JWT, which it utilizes to access upstream microservices. These JWTs are of short duration, and as they approach expiration, the corresponding service is required to communicate with the STS once more to obtain a fresh&nbsp;JWT.</p><p>One fundamental best practice when generating a JWT is to define a restrictive audience. For instance, referring back to the service-to-service authentication using JWT discussed in the preceding section, the token generated by the STS for the gateway’s communication with the Janus service should specifically carry ‘janus’ as the audience value. Consequently, the Janus service cannot utilize the same JWT received from the gateway to communicate with the STS. This is because the token’s audience is ‘janus’, while the STS anticipates a token with an audience value of&nbsp;‘sts’.</p><p>One drawback of this model is that it would lead to more frequent interactions between the STS and other services, resulting in increased communication overhead. Furthermore, each service would be required to manage distinct tokens for every upstream service it engages with. While we opted not to adopt this model with different audience values, we were still unwilling to take the risk of one service employing a token from another service to access an upstream service, essentially impersonating the original&nbsp;service.</p><p>Binding the JWT to the SPIFFE ID associated with the X509 certificate of a particular service proves beneficial in this context. Every upstream service not only verifies the JWT received from the downstream service but also confirms whether it is tied to the SPIFFE ID related to the underlying mTLS connection. This mechanism ensures that the Janus service cannot utilize the JWT acquired from the gateway to gain access to the STS as if it were the&nbsp;gateway.</p><p>Alongside the service context, the interactions between services also include the user context. The gateway forwards the JWT it receives from the client to the upstream services when necessary. This JWT carries the user context. In the current model, these client JWTs might originate from two different issuers: Auth0 and the STS. However, as we move forward, our goal is for all services to exclusively trust STS-issued tokens. This implies that clients will need to exchange the token they receive from Auth0 for an STS-issued token before gaining access to DevRev&nbsp;APIs.</p><p>Why would the client need to exchange the Auth0 token for an STS token, and why shouldn’t the gateway handle this conversion in the background, passing the STS-issued token to the upstream services? However, this approach would result in more frequent interactions between the gateway and the STS, requiring token exchange for each request. Such an approach introduces unnecessary overhead.</p><p>A given service possessing the JWT containing the user context will not have unrestricted access to any arbitrary service using that JWT. We enforce stringent access control policies at each service, ensuring that incoming requests are processed only after evaluating not only the user context but also the corresponding service&nbsp;context.</p><p>A token that has been previously issued to a client or user, whether by Auth0 or the STS, can be revoked for two reasons. The associated user or the organization to which the user belongs may no longer be part of the DevRev platform, or the user themselves or an admin of the organization could explicitly revoke a specific&nbsp;token.</p><p>To address the former, the DevRev gateway verifies the active status of a user or organization within the platform after each token validation. In order to reduce unnecessary service calls and database queries, the gateway maintains a cache of recognized users.</p><p>To explicitly revoke a token, the client can make use of the revoke API provided by the STS. After a token is revoked, the STS includes the metadata related to the revoked token in a cache accessible to the gateway for reading. The gateway then rejects any tokens corresponding to the token metadata found within the revoked token cache. We are currently working on making this list of revoked tokens available to the Fastly edge gateway, which will then reject any requests carrying a revoked token at the edge&nbsp;itself.</p><p>In this blog post, we provided a high-level overview of how we secure both north/south and east/west traffic at DevRev. In future blog posts, we will delve deeper into the key aspects of the DevRev microservices security&nbsp;design.</p> <p><a href="https://medium.facilelogin.com/securing-north-south-and-east-west-traffic-devrev-2004b4397950">Securing north/south and east/west traffic @ DevRev</a> was originally published in <a href="https://medium.facilelogin.com">FACILELOGIN</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
    
   
   
@@ -5105,7 +5495,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    16:49 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5200,7 +5590,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    16:23 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5262,7 +5652,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    15:34 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5328,7 +5718,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    19:45 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5400,7 +5790,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    19:28 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5468,7 +5858,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    18:15 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5538,7 +5928,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    16:49 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5608,7 +5998,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    14:50 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6364,7 +6754,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    16:06 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6719,7 +7109,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    16:46 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6787,7 +7177,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    15:54 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6853,7 +7243,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    15:48 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6929,7 +7319,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    15:17 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7001,79 +7391,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    14:50 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.science.org/doi/full/10.1126/science.adk0176'>We need a Weizenbaum test for AI</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- “Weizenbaum’s questions, though they seem simple—Is it good? Do we need it?—are difficult ones for computer science to answer. They could be asked of any proposed technology, but the speed, scope, and stakes of innovation in AI make their consideration more urgent.”  #AI 
-             [Link] 
-         
-     
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>“Weizenbaum’s questions, though they seem simple—Is it good? Do we need it?—are difficult ones for computer science to answer. They could be asked of any proposed technology, but the speed, scope, and stakes of innovation in AI make their consideration more urgent.”  <a href="https://werd.io/tag/AI">#AI</a></p>
-            <p>[<a href="https://www.science.org/doi/full/10.1126/science.adk0176">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:57 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7170,7 +7488,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    13:42 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7240,7 +7558,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    19:05 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7446,7 +7764,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    20:49 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7510,7 +7828,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    19:21 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7960,7 +8278,7 @@ Source Link: <a href="https://goo.gl/maps/Y9UTnnin7U5F13zV7">https://goo.gl/maps
 
 <div class='item-footer'>
    20:53 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8551,7 +8869,7 @@ public async Task&lt;ActionResult&gt; PresentationCallback()
 
 <div class='item-footer'>
    17:44 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8741,7 +9059,7 @@ aspects of it that are interesting
 
 <div class='item-footer'>
    17:15 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9276,7 +9594,7 @@ llm llama-cpp download-model \
 
 <div class='item-footer'>
    14:31 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9796,7 +10114,7 @@ FROM plugins ORDER BY stargazers_count
 
 <div class='item-footer'>
    14:51 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9953,7 +10271,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    18:56 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10023,7 +10341,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    21:23 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10233,7 +10551,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    20:20 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10311,7 +10629,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    14:09 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10389,7 +10707,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    19:28 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10463,7 +10781,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    18:36 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10603,7 +10921,7 @@ Juice the mango and measure out 2 oz of fresh juice (you can keep the rest for l
 
 <div class='item-footer'>
    14:38 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19422,164 +19740,6 @@ JSON Proof Token (JPT) is a compact, URL-safe, privacy-preserving representation
 
 <div class='item-footer'>
    14:59 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/05/08/trust-phishing-resistant-mfa-for-cross-tenant-users/'>Trust phishing resistant MFA for cross tenant users</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to force phishing resistant authentication for external B2B users using a cross tenant trust. The external users are from a separate tenant and the local tenant needs to trust the multiple factor authentication (MFA) from the other known tenants. This prevents the user having to authenticate again and setup more MFA. […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to force phishing resistant authentication for external B2B users using a cross tenant trust. The external users are from a separate tenant and the local tenant needs to trust the multiple factor authentication (MFA) from the other known tenants. This prevents the user having to authenticate again and setup more MFA.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AspNetCoreAzureADCAE/tree/main/RazorCaePhishingResistant">https://github.com/damienbod/AspNetCoreAzureADCAE/tree/main/RazorCaePhishingResistant</a></p>
-
-
-
-<p></p>
-
-
-
-<p>The demo application requires that administrators use a phishing resistant MFA and this is implemented using an Azure AD authentication context with a policy. The tenant and the application was setup as shown in the blog: </p>
-
-
-
-<p><a href="https://damienbod.com/2022/10/10/force-phishing-resistant-authentication-in-an-asp-net-core-application-using-azure-ad/">Force phishing resistant authentication in an ASP.NET Core application using Azure&nbsp;AD</a></p>
-
-
-
-<p></p>
-
-
-
-<p>If a local member authenticates using a phishing resistant MFA, the user can access the admin page without problem. </p>
-
-
-
-<p>When an external member or a guest user authenticates, the user will be shown the following page requesting that the user authenticates again with a correct MFA. This is displayed even if the user has authenticated correctly on the home tenant. No trust exists between the Azure AD tenants.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>To fix this, the Azure tenant must trust the multiple factor authentication from the other tenants. This can be implemented using Azure AD external identities. </p>
-
-
-
-<p></p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p></p>
-
-
-
-<p>Now when the user authenticates, everything will work.</p>
-
-
-
-<p></p>
-
-
-
-<p>One problem which still exists is for Microsoft accounts. These users cannot authenticate with the step up requirement.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Links 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/standards/nist-authenticator-assurance-level-3">https://learn.microsoft.com/en-us/azure/active-directory/standards/nist-authenticator-assurance-level-3</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/authentication/howto-mfa-mfasettings">https://learn.microsoft.com/en-us/azure/active-directory/authentication/howto-mfa-mfasettings</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/04/mfa-cross-tenant_01.png?w=951'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:18 &bull;
    3 months ago
 </div>
 
@@ -31387,7 +31547,7 @@ We’re in one of those Internet moments of rapid innovation, when new conventio
 
 <div class='item-footer'>
    05:30 &bull;
-   6 months ago
+   7 months ago
 </div>
 
 </div><!-- item-body -->
