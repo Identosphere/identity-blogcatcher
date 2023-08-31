@@ -716,12 +716,602 @@
 
 </div>
 </div>
-<sup>Last Update 1:33 AM August 31, 2023 (UTC)</sup>
+<sup>Last Update 9:37 AM August 31, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Thursday, 31. August 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/08/31/use-multiple-microsoft-entra-verified-id-credentials-in-a-verification-presentation/'>Use multiple Microsoft Entra Verified ID credentials in a verification presentation</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how a Microsoft Entra ID verified employee credential can be used together with a self attestation credential to unlock a door. Using this, a person can prove they know a code and prove their employee status. Code: https://github.com/swiss-ssi-group/EntraEmployeeUnlockDoor Get your Verified Employee credential To use this app, the Microsoft Entra employee credential […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how a Microsoft Entra ID verified employee credential can be used together with a self attestation credential to unlock a door. Using this, a person can prove they know a code and prove their employee status.</p>
+
+
+
+<p>Code: <a href="https://github.com/swiss-ssi-group/EntraEmployeeUnlockDoor">https://github.com/swiss-ssi-group/EntraEmployeeUnlockDoor</a></p>
+
+
+
+<p></p>
+
+
+
+ Get your Verified Employee credential 
+
+
+
+<p>To use this app, the Microsoft Entra employee credential can be used. The following post shows how to set this up, get a credential and add this to you Microsoft wallet.</p>
+
+
+
+<p><a href="https://damienbod.com/2023/07/03/issue-employee-verifiable-credentials-using-entra-verified-id-and-asp-net-core/">Issue Employee verifiable credentials using Entra Verified ID and ASP.NET&nbsp;Core</a></p>
+
+
+
+ Issue the self attestation credential 
+
+
+
+<p>The self attestation credential can be issued using the selfIssued mapping. We require just one claim. This can also be mixed with other claims and other credential types. We do not mix this when issuing the credential as we already have an employee credential with a fixed format.</p>
+
+
+  {
+  "attestations": {
+    "selfIssued": {
+      "mapping": [
+        {
+          "outputClaim": "doorCode",
+          "required": true,
+          "inputClaim": "doorCode",
+          "indexed": false
+        }
+      ],
+      "required": true
+    }
+  },
+  "validityInterval": 2592000,
+  "vc": {
+    "type": [
+      "DoorCode"
+    ]
+  }
+}
+  
+
+
+<p>The credential is mapped into C# using the CredentialsClaims class.</p>
+
+
+  /// &lt;summary&gt;
+/// self-issued-attestation
+/// &lt;/summary&gt;
+public class CredentialsClaims
+{
+    [JsonPropertyName("doorCode")]
+    public string? DoorCode { get; set; } = string.Empty;
+}
+  
+
+
+<p>The IssuanceRequestPayload class is used to issue the credentials. The callback is defined and a public URL is required to debug the application. I use ngrok.</p>
+
+
+  public IssuanceRequestPayload 
+	GetIssuanceRequestPayload(HttpRequest request)
+{
+	var payload = new IssuanceRequestPayload();
+
+	payload.CredentialsType = "DoorCode";
+
+	payload.Manifest 
+		= $"{_credentialSettings.CredentialManifest}";
+
+	var host = GetRequestHostName(request);
+	payload.Callback.State = Guid.NewGuid().ToString();
+	payload.Callback.Url 
+		= $"{host}/api/issuer/issuanceCallback";
+	payload.Callback.Headers.ApiKey 
+		= _credentialSettings.VcApiCallbackApiKey;
+
+	payload.Registration.ClientName = "Door Code";
+	payload.Authority 
+		= _credentialSettings.IssuerAuthority;
+
+	return payload;
+}
+  
+
+
+<p>The two configuration files are used to create the verifiable credential in the Azure portal.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Use the Employee and unlock door credential in a verification 
+
+
+
+<p>The VerifierRequestPayload class is used to request both the employee credential and the self issued door code credential.</p>
+
+
+  public VerifierRequestPayload 
+	GetVerifierRequestPayload(HttpRequest request)
+{
+	var payload = new VerifierRequestPayload();
+
+	var host = GetRequestHostName(request);
+	payload.Callback.State = Guid.NewGuid().ToString();
+	payload.Callback.Url 
+		= $"{host}/api/verifier/presentationCallback";
+	payload.Callback.Headers.ApiKey 
+		= _credentialSettings.VcApiCallbackApiKey;
+
+	payload.Registration.ClientName = "VerifiedEmployee";
+	payload.Authority = _credentialSettings.VerifierAuthority;
+
+	// First credential
+	var requestedCredentials = new RequestedCredentials
+	{
+		CrendentialsType = "VerifiedEmployee",
+		Purpose = "Verified Employee to authenticate your request"
+	};
+	requestedCredentials
+		.AcceptedIssuers
+		.Add(_credentialSettings.IssuerAuthority);
+	payload.RequestedCredentials.Add(requestedCredentials);
+
+	// Second credential
+	var requestedCredentialsNdl = new RequestedCredentials
+	{
+		CrendentialsType = "DoorCode",
+		Purpose = "Door code to gain access"
+	};
+	requestedCredentialsNdl
+		.AcceptedIssuers
+		.Add(_credentialSettings.IssuerAuthority);
+	payload.RequestedCredentials.Add(requestedCredentialsNdl);
+
+	return payload;
+}
+  
+
+
+<p>The verification request is presented using a QR Code. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The business logic can be implemented on the verifier application as required.</p>
+
+
+
+ Notes 
+
+
+
+<p>The self issued credential allows the value to be set by a user. A new credential can be created every time the code changes. </p>
+
+
+
+<p>This can then be connected into whatever business process you require. The credentials can be used cross domain or multi-tenant. The security is relatively good, open to phishing attacks but does not rely on passwords.</p>
+
+
+
+<p>The Microsoft Entra Verified ID id-tech solution is very good, but not compatible with other SSI solutions. You would require adaptors or cross ledger wallets. </p>
+
+
+
+<p>SSI and id-tech solutions will not become a success, if it is not possible to have interop between services, providers or wallets. To compare, this is like when you send a google email and you cannot open it using Microsoft outlook, or the other way around.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/how-to-use-quickstart-multiple">https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/how-to-use-quickstart-multiple</a></p>
+
+
+
+<p><a href="https://github.com/swiss-ssi-group/AzureADVerifiableCredentialsAspNetCore">https://github.com/swiss-ssi-group/AzureADVerifiableCredentialsAspNetCore</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/decentralized-identifier-overview">https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/decentralized-identifier-overview</a></p>
+
+
+
+<p><a href="https://ssi-start.adnovum.com/data">https://ssi-start.adnovum.com/data</a></p>
+
+
+
+<p><a href="https://github.com/e-id-admin/public-sandbox-trustinfrastructure/discussions/14">https://github.com/e-id-admin/public-sandbox-trustinfrastructure/discussions/14</a></p>
+
+
+
+<p><a href="https://openid.net/specs/openid-connect-self-issued-v2-1_0.html">https://openid.net/specs/openid-connect-self-issued-v2-1_0.html</a></p>
+
+
+
+<p><a href="https://identity.foundation/jwt-vc-presentation-profile/">https://identity.foundation/jwt-vc-presentation-profile/</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/verifiable-credentials-standards">https://learn.microsoft.com/en-us/azure/active-directory/verifiable-credentials/verifiable-credentials-standards</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/active-directory-verifiable-credentials-dotnet">https://github.com/Azure-Samples/active-directory-verifiable-credentials-dotnet</a></p>
+
+
+
+<p><a href="https://aka.ms/mysecurityinfo">https://aka.ms/mysecurityinfo</a></p>
+
+
+
+<p><a href="https://fontawesome.com/">https://fontawesome.com/</a></p>
+
+
+
+<p><a href="https://developer.microsoft.com/en-us/graph/graph-explorer?tenant=damienbodsharepoint.onmicrosoft.com">https://developer.microsoft.com/en-us/graph/graph-explorer?tenant=damienbodsharepoint.onmicrosoft.com</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0">https://learn.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0</a></p>
+
+
+
+<p><a href="https://github.com/Azure-Samples/VerifiedEmployeeIssuance">https://github.com/Azure-Samples/VerifiedEmployeeIssuance</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web/blob/jmprieur/Graph5/src/Microsoft.Identity.Web.GraphServiceClient/Readme.md#replace-the-nuget-packages">https://github.com/AzureAD/microsoft-identity-web/blob/jmprieur/Graph5/src/Microsoft.Identity.Web.GraphServiceClient/Readme.md#replace-the-nuget-packages</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/azure/app-service/deploy-github-actions#configure-the-github-secret">https://docs.microsoft.com/azure/app-service/deploy-github-actions#configure-the-github-secret</a></p>
+
+
+
+<p><a href="https://issueverifiableemployee.azurewebsites.net/">https://issueverifiableemployee.azurewebsites.net/</a></p>
+
+
+
+ Links eIDAS and EUDI standards 
+
+
+
+<p>Draft: OAuth 2.0 Attestation-Based Client Authentication<br><a href="https://datatracker.ietf.org/doc/html/draft-looker-oauth-attestation-based-client-auth-00">https://datatracker.ietf.org/doc/html/draft-looker-oauth-attestation-based-client-auth-00</a></p>
+
+
+
+<p>Draft: OpenID for Verifiable Presentations<br><a href="https://openid.net/specs/openid-4-verifiable-presentations-1_0.html">https://openid.net/specs/openid-4-verifiable-presentations-1_0.html</a></p>
+
+
+
+<p>Draft: OAuth 2.0 Demonstrating Proof-of-Possession at the Application Layer (DPoP)<br><a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop">https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop</a></p>
+
+
+
+<p>Draft: OpenID for Verifiable Credential Issuance<br><a href="https://openid.bitbucket.io/connect/openid-4-verifiable-credential-issuance-1_0.html">https://openid.bitbucket.io/connect/openid-4-verifiable-credential-issuance-1_0.html</a></p>
+
+
+
+<p>Draft: OpenID Connect for Identity Assurance 1.0<br><a href="https://openid.net/specs/openid-connect-4-identity-assurance-1_0-13.html">https://openid.net/specs/openid-connect-4-identity-assurance-1_0-13.html</a></p>
+
+
+
+<p>Draft: SD-JWT-based Verifiable Credentials (SD-JWT VC)<br><a href="https://vcstuff.github.io/draft-terbu-sd-jwt-vc/draft-terbu-oauth-sd-jwt-vc.html">https://vcstuff.github.io/draft-terbu-sd-jwt-vc/draft-terbu-oauth-sd-jwt-vc.html</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/08/entra_vc_unlockdoor_01.png?w=960'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:51 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/08/31/follow-the-daily.html'> 2023 | 08 | 31 
+  
+  
+ 
+ 
+ Follow The Daily Stoic 
+ All The </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   2023 | 08 | 31 
+  
+  
+ 
+ 
+ Follow The Daily Stoic 
+ All The Posts 
+ RSS Feed 
+
+ 
+ If one really catches your eye, don’t forget to click on ‘the date’ below - there may be additional commentary. 
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/b8c4273c2d.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>2023 | 08 | 31</p>
+<p></p>
+<p></p>
+ 
+ 
+<p>Follow The Daily Stoic</p>
+<p><a href="https://john.philpin.com/categories/a-year-of-stoicism">All The Posts</a></p>
+<p><a href="https://john.philpin.com/categories/a-year-of-stoicism/feed.xml">RSS Feed</a></p>
+
+ 
+<p>If one really catches your eye, don’t forget to click on ‘the date’ below - there may be additional commentary.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/b8c4273c2d.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:07 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/08/30/the-new-podcast.html'> The new podcast ‘Strike Force 5’ is named after their person</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The new podcast ‘Strike Force 5’ is named after their personal chat group. 
+ I wonder if there is an ‘origins story’ around that name that ties the ‘5 old white guys’ to the comic books of the same name where the heroes are a ‘team of mutated dinosaur heroes’. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The new podcast ‘Strike Force 5’ is named after their personal chat group.</p>
+<p>I wonder if there is an ‘origins story’ around that name that ties the ‘5 old white guys’ to the comic books of the same name where the heroes are a ‘team of mutated dinosaur heroes’.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:59 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/08/30/wilsons-new-album.html'> 🎵 📼 Wilson’s new album out at the end of September and this </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   🎵 📼 Wilson’s new album out at the end of September and this is one of the tracks. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://youtu.be/wmtyvKz8ubQ?si=XPj8Qkfip11I71MF">🎵 📼 Wilson’s new album out at the end of September and this is one of the tracks.</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:22 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -794,7 +1384,7 @@
 
 <div class='item-footer'>
    20:03 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -862,7 +1452,7 @@
 
 <div class='item-footer'>
    20:01 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -955,7 +1545,7 @@
 
 <div class='item-footer'>
    18:46 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -980,7 +1570,7 @@
   
     
     <a href='https://john.philpin.com/2023/08/30/secret-invasion-and.html'> 📺 Secret Invasion 
- … and while we are on the topic of ‘🖇️ba</a>
+ … and while we are on the topic of ‘🖇️ b</a>
   
 
 </h3>
@@ -992,7 +1582,7 @@
    note: summary goes first; than try content -->
 
    📺 Secret Invasion 
- … and while we are on the topic of ‘🖇️back stories’ of movie franchises … it’s got Samuel J - so definitely not bad - but also not the greatest. 
+ … and while we are on the topic of ‘🖇️ back stories’ of movie franchises … it’s got Samuel J - so definitely not bad - but also not the greatest. 
  Information on Reelgood 
  ‘All’ My TV Show Reviews 
  &nbsp; 
@@ -1018,7 +1608,7 @@
 <div class='wrap'>
 
 <p>📺 Secret Invasion</p>
-<p>… and while we are on the topic of ‘<a href="https://john.philpin.com/2023/08/30/obiwan-kenobi-historically.html">🖇️back stories’ of movie franchises</a> … it’s got Samuel J - so definitely not bad - but also not the greatest.</p>
+<p>… and while we are on the topic of ‘<a href="https://john.philpin.com/2023/08/30/obiwan-kenobi-historically.html">🖇️ back stories’ of movie franchises</a> … it’s got Samuel J - so definitely not bad - but also not the greatest.</p>
 <p><a href="https://reelgood.com/show/secret-invasion-2023">Information on Reelgood</a></p>
 <p><a href="https://john.philpin.com/categories/myshowreviews/">‘All’ My TV Show Reviews</a></p>
 <p>&nbsp;</p>
@@ -1039,7 +1629,7 @@
 
 <div class='item-footer'>
    18:28 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1123,7 +1713,7 @@
 
 <div class='item-footer'>
    18:20 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1202,7 +1792,7 @@
 
 <div class='item-footer'>
    18:12 &bull;
-   7 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1272,7 +1862,7 @@
 
 <div class='item-footer'>
    17:43 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1304,15 +1894,13 @@
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   🔗Birchtree 
+   I agree with Matt on this one - and then go on to explain why I disagree. Trust me … it will make sense. 
+ [🔗  Birchtree](https://birchtree.me/blog/chat got-still-hasnt-taken-all-those-jobs/) 
  
  I continue to think that these generative tools are good for augmenting certain workflows, but replacing whole people is going to be very unusual. We’ll see, though. 
  
  💬 Matt Birchler 
- I would agree - but that isn’t what is going to happen. 
- If you have thirty people in a department’ and AI makes you 10% ‘more efficient’  - a company now only needs 27 people. 
- Repeat. 
- Across 
+ I would agree - 
    
   
   
@@ -1327,7 +1915,8 @@
  -->
 <div class='wrap'>
 
-<p><a href="https://birchtree.me/blog/chatgpt-still-hasnt-taken-all-those-jobs/">🔗Birchtree</a></p>
+<p>I agree with Matt on this one - and then go on to explain why I disagree. Trust me … it will make sense.</p>
+<p>[🔗  Birchtree](<a href="https://birchtree.me/blog/chat">https://birchtree.me/blog/chat</a> got-still-hasnt-taken-all-those-jobs/)</p>
 <blockquote>
 <p>I continue to think that these generative tools are good for augmenting certain workflows, but replacing whole people is going to be very unusual. We’ll see, though.</p>
 </blockquote>
@@ -1347,7 +1936,7 @@
 
 <div class='item-footer'>
    17:27 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1408,7 +1997,7 @@
 
 <div class='item-footer'>
    17:16 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1469,7 +2058,7 @@
 
 <div class='item-footer'>
    17:09 &bull;
-   8 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1544,7 +2133,7 @@
 
 <div class='item-footer'>
    17:04 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1628,7 +2217,7 @@
 
 <div class='item-footer'>
    16:52 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1698,7 +2287,7 @@
 
 <div class='item-footer'>
    16:30 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1801,7 +2390,7 @@
 
 <div class='item-footer'>
    16:14 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1877,7 +2466,7 @@
 
 <div class='item-footer'>
    15:16 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1943,7 +2532,7 @@
 
 <div class='item-footer'>
    14:41 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2005,7 +2594,7 @@
 
 <div class='item-footer'>
    14:37 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2275,7 +2864,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    14:33 &bull;
-   11 hours ago
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2349,7 +2938,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    13:50 &bull;
-   12 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2679,7 +3268,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    21:33 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2745,7 +3334,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    21:26 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2848,7 +3437,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    14:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3061,7 +3650,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    21:37 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3141,7 +3730,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    17:45 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3240,7 +3829,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    17:44 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3316,7 +3905,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    16:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3388,7 +3977,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    15:10 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4187,7 +4776,7 @@ print (output.stdout)</p>
 
 <div class='item-footer'>
    14:35 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4397,7 +4986,7 @@ print (output.stdout)</p>
 
 <div class='item-footer'>
    21:38 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4458,7 +5047,7 @@ print (output.stdout)</p>
 
 <div class='item-footer'>
    21:08 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4534,7 +5123,7 @@ print (output.stdout)</p>
 
 <div class='item-footer'>
    21:00 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4550,195 +5139,6 @@ print (output.stdout)</p>
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/08/26/not-read-much.html'> Not read much about Burning Man this year - except how it is</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Not read much about Burning Man this year - except how it is no longer ‘hot’ (culturally speaking) - but in case you want to ‘sing along’ - 🔗 🎵 there’s a web site for that. 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/245e47335c.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Not read much about Burning Man this year - except how it is no longer ‘hot’ (culturally speaking) - but in case you want to ‘sing along’ - <a href="https://bmir.org">🔗 🎵 there’s a web site for that</a>.</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/245e47335c.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:01 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/08/26/for-of-the.html'> For 99% of the time I use; 
- 
- iMessage 
- FaceTime 
- 
- For t</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   For 99% of the time I use; 
- 
- iMessage 
- FaceTime 
- 
- For the other 1% I use; 
- 
- The Phone 
- 
- For the other 50% (sic) I use; 
- 
- Cal.com 
- Element 
- Messenger 
- Signal 
- Skype 
- Telegram 
- Wavelength 
- WhatsApp 
- Zoom 
- 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>For 99% of the time I use;</p>
- 
- iMessage 
- FaceTime 
- 
-<p>For the other 1% I use;</p>
- 
- The Phone 
- 
-<p>For the other 50% (sic) I use;</p>
- 
- Cal.com 
- Element 
- Messenger 
- Signal 
- Skype 
- Telegram 
- Wavelength 
- WhatsApp 
- Zoom 
- 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:26 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -4785,7 +5185,7 @@ print (output.stdout)</p>
 
 <div class='item-footer'>
    19:25 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4801,98 +5201,6 @@ print (output.stdout)</p>
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/08/26/i-keep-seeing.html'>  
- I keep seeing the reference to ‘the number’. I am waiting</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    
- I keep seeing the reference to ‘the number’. I am waiting for the alt right to deliver ‘mathematical proof’ that 
- 113 = T 
- 58 = U and 
- 09 = S 
- Revealing that PO1135809 is ‘code’ for ‘POTUS’. 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/45ca212562.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p>
-<p>I keep seeing the reference to ‘the number’. I am waiting for the alt right to deliver ‘mathematical proof’ that</p>
-<p>113 = T</p>
-<p>58 = U and</p>
-<p>09 = S</p>
-<p>Revealing that PO1135809 is ‘code’ for ‘POTUS’.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/45ca212562.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:14 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -4939,7 +5247,7 @@ print (output.stdout)</p>
 
 <div class='item-footer'>
    14:49 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5011,7 +5319,7 @@ print (output.stdout)</p>
 
 <div class='item-footer'>
    14:15 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5231,7 +5539,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:48 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5297,7 +5605,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:31 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5393,7 +5701,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:24 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5471,7 +5779,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    13:48 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5759,7 +6067,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:23 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5829,7 +6137,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    17:54 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6212,7 +6520,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    21:35 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6290,7 +6598,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    21:34 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6365,7 +6673,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    15:41 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6429,7 +6737,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    14:26 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6625,7 +6933,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    19:56 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6697,7 +7005,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:50 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6763,7 +7071,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    17:44 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6839,7 +7147,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    16:04 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6911,7 +7219,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    14:27 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6973,7 +7281,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    14:14 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7045,7 +7353,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    14:08 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7117,7 +7425,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    14:02 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7255,7 +7563,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    20:32 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7315,7 +7623,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    19:38 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7379,7 +7687,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:13 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7991,7 +8299,7 @@ The B Square is seeking proposals from qualified web developers to create a digi
 
 <div class='item-footer'>
    19:33 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9009,7 +9317,7 @@ doors open up again.)</p>
 
 <div class='item-footer'>
    21:15 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9083,7 +9391,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    16:49 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9155,7 +9463,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    16:49 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9843,7 +10151,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    16:06 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10085,7 +10393,7 @@ Source Link: <a href="https://www.scienceandindustrymuseum.org.uk/objects-and-st
 
 <div class='item-footer'>
    13:42 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10677,7 +10985,7 @@ Source Link: <a href="https://goo.gl/maps/Y9UTnnin7U5F13zV7">https://goo.gl/maps
 
 <div class='item-footer'>
    20:53 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11485,7 +11793,7 @@ has a lot going on.
 
 <div class='item-footer'>
    14:31 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -20145,203 +20453,6 @@ I tried Midjourney to create the cover photo for this post “robot peering in t
 
 <div class='item-footer'>
    15:25 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/05/15/use-azure-pim-with-groups-in-asp-net-core/'>Use Azure PIM with groups in ASP.NET Core</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to implement Azure Privileged Identity Management access in an ASP.NET Core application using an Azure security group. An Azure Conditional Access&nbsp;Authentication context is used for the Azure administrator giving access to the group for Azure AD users. The Authentication context is setup to require a phishing resistant authentication. An Enterprise application […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to implement Azure Privileged Identity Management access in an ASP.NET Core application using an Azure security group. An Azure Conditional Access&nbsp;Authentication context is used for the Azure administrator giving access to the group for Azure AD users. The Authentication context is setup to require a phishing resistant authentication. An Enterprise application is used to only allow assigned members of the security group access to the ASP.NET Core application. The application can only be used as specified in the Azure PIM member definition. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/AzurePim">https://github.com/damienbod/AzurePim</a></p>
-
-
-
-<p>A Conditional Access&nbsp;Authentication context is setup so it can be used in the PIM group configuration. This Authentication context is used in an Azure CA policy which requires a phishing resistant authentication. </p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>An Azure security group was created and this group was onboarded to the PIM groups definitions. The Azure Authentication context is used for activation. The administrator activating users in this group must have authenticated using a phishing resistant authentication.  </p>
-
-
-
-<p></p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>User assignments can be added to the group. Each assignment requires a reason description which is sent in the email notification.</p>
-
-
-
-<p></p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The Enterprise application used for the ASP.NET Core application is setup to only allow assigned users from the Azure security group. The Assignment Required is set to true.</p>
-
-
-
-<p></p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>In the users and the groups, the security group is added.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The ASP.NET Cor application is created to authenticate using the Azure App registration with a secret, meaning the application is a confidential client. Public applications should not be used for administration business processes. Microsoft.Identity.Web is used to implement the confidential OpenID Connect client using the code flow and PKCE.</p>
-
-
-  builder.Services.AddAuthentication(
-		OpenIdConnectDefaults.AuthenticationScheme)
-	.AddMicrosoftIdentityWebApp(
-		builder.Configuration.GetSection("AzureAd"))
-	.EnableTokenAcquisitionToCallDownstreamApi()
-	.AddDistributedTokenCaches();
-
-builder.Services.AddRazorPages()
-    .AddMicrosoftIdentityUI();
-  
-
-
-<p>When a user is assigned, an email is sent to the user and the user can use the application to authenticate and gain access to the application.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Notes 
-
-
-
-<p>A lot of the different features from the Azure AD access management was used in the setup. You could also force all users in this group to use a phishing resistant policy by applying the same authentication context to the group and not just the PIM administrator assigning users to the group. You could also use roles instead of groups in the PIM. There are lots of different possibilities and it is imported to choose the correct ones for your environment following KISS. If you don’t need it, then don’t use it. PIM requires an Azure P2 license. Azure AD PIM + Conditional Access integration can be used to force all types of business security requirements and features.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/privileged-identity-management/pim-configure">https://learn.microsoft.com/en-us/azure/active-directory/privileged-identity-management/pim-configure</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/privileged-identity-management/groups-role-settings">https://learn.microsoft.com/en-us/azure/active-directory/privileged-identity-management/groups-role-settings</a></p>
-
-
-
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/05/pim_gp_azure_02.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:50 &bull;
    4 months ago
 </div>
 
