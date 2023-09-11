@@ -711,12 +711,477 @@
 
 </div>
 </div>
-<sup>Last Update 1:35 AM September 11, 2023 (UTC)</sup>
+<sup>Last Update 9:38 AM September 11, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 11. September 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/09/11/implement-a-secure-web-application-using-nx-standalone-angular-and-an-asp-net-core-server/'>Implement a secure web application using nx Standalone Angular and an ASP.NET Core server</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement a secure web application using Angular and ASP.NET Core. The web application implements the backend for frontend security architecture (BFF) and deploys both technical stack distributions as one web application. HTTP only secure cookies are used to persist the session. Microsoft Entra ID is used as the identity provider […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement a secure web application using Angular and ASP.NET Core. The web application implements the backend for frontend security architecture (BFF) and deploys both technical stack distributions as one web application. HTTP only secure cookies are used to persist the session. Microsoft Entra ID is used as the identity provider and the token issuer.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/bff-aspnetcore-angular">https://github.com/damienbod/bff-aspnetcore-angular</a></p>
+
+
+
+ Overview 
+
+
+
+<p>The solution is deployed as a single OpenID Connect confidential client using the Microsoft Entra ID identity provider. The OpenID Connect client authenticates using the code flow with PKCE and a secret or a certificate. I use secrets in development and certificates in production deployments. The UI part of the solution is deployed as part of the server application. Secure HTTP only cookies are used to persist the session after a successful authentication. No security flows are implemented in the client part of the application. No sensitive data like tokens are exposed in the client browser. By removing the security from the client, the security is improved and the complexity is reduced.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Setup Angular application 
+
+
+
+<p>The Angular application is setup using <a href="https://nx.dev/">nx</a> and a <a href="https://nx.dev/getting-started/tutorials/angular-standalone-tutorial">standalone</a> Angular project. The UI needs one setup for production and one setup for development. As the application uses cookies, anti-forgery protection is added. The CSP uses nonces and this needs to be applied to all scripts including the dynamic scripts ones created by Angular. This also applies for styles.</p>
+
+
+
+<p></p>
+
+
+
+ HTTPS setup 
+
+
+
+<p>The Angular application runs in HTTPS in development and production. The nx project needs to be setup for this. I created a development certificate and added this to the Angular project in a certs folder. The certificates are read in from the folder and used in the project.json file of the nx project. The serve configuration is used to define this. I also switched the port number.</p>
+
+
+  "serve": {
+  "executor": "@angular-devkit/build-angular:dev-server",
+  "options": {
+  "browserTarget": "ui:build",
+  "sslKey": "certs/dev_localhost.key",
+  "sslCert": "certs/dev_localhost.pem",
+  "port": 4201
+},
+  
+
+
+<p></p>
+
+
+
+ Production build 
+
+
+
+<p>The Angular project is deployed as part of the server project. In ASP.NET Core, you would use the wwwroot folder and allow static files. The Angular nx project.json file defines the build where the outputPath parameter is updated to match the production deployment.</p>
+
+
+    "executor": "@angular-devkit/build-angular:browser",
+  "outputs": ["{options.outputPath}"],
+  "options": {
+	"outputPath": "../server/wwwroot",
+	"index": "./src/index.html",
+
+  
+
+
+ CSP setup 
+
+
+
+<p>The CSP is setup to use nonces both in development and production. This will save time fixing CSP issues before you go live. Angular creates scripts on a build or a nx serve. The scripts require the nonce. To add the server created nonce, the index.html file uses a meta tag in the header. The ngCspNonce is added to the app-root Angular tag. The nonce gets added and updated with a new value on every HTTP request.</p>
+
+
+  &lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+  &lt;head&gt;
+    &lt;meta charset="utf-8" /&gt;
+	&lt;meta name="CSP_NONCE" content="**PLACEHOLDER_NONCE_SERVER**" /&gt;
+    &lt;title&gt;ui&lt;/title&gt;
+    &lt;base href="/" /&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1" /&gt;
+    &lt;link rel="icon" type="image/x-icon" href="favicon.ico" /&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;app-root ngCspNonce="**PLACEHOLDER_NONCE_SERVER**"&gt;&lt;/app-root&gt;
+  &lt;/body&gt;
+&lt;/html&gt;
+  
+
+
+<p>You need to add the CSP_NONCE provider to the providers in the Angular project. This must also use the server created nonce.</p>
+
+
+  const nonce = (
+  document.querySelector('meta[name="CSP_NONCE"]') as HTMLMetaElement
+)?.content;
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(appRoutes, withEnabledBlockingInitialNavigation()),
+    provideHttpClient(withInterceptors([secureApiInterceptor])),
+    {
+      provide: CSP_NONCE,
+      useValue: nonce,
+    },
+  ],
+};
+  
+
+
+<p></p>
+
+
+
+ Anti-forgery protection 
+
+
+
+<p>Cookies are uses in the authentication session. The authentication cookie is a HTTP only secure cookie only for its domain. Browser Same Site protection helps secure the session. Old browsers do not support Same Site and Anti-forgery protection is still required. You can add this protection in two ways. I use a CSRF anti-forgery cookie. </p>
+
+
+  import { HttpHandlerFn, HttpRequest } from '@angular/common/http';
+import { getCookie } from './getCookie';
+
+export function secureApiInterceptor(
+  request: HttpRequest&lt;unknown&gt;,
+  next: HttpHandlerFn
+) {
+  const secureRoutes = [getApiUrl()];
+
+  if (!secureRoutes.find((x) =&gt; request.url.startsWith(x))) {
+    return next(request);
+  }
+
+  request = request.clone({
+    headers: request.headers.set(
+      'X-XSRF-TOKEN',
+      getCookie('XSRF-RequestToken')
+    ),
+  });
+
+  return next(request);
+}
+
+function getApiUrl() {
+  const backendHost = getCurrentHost();
+  return `${backendHost}/api/`;
+}
+
+function getCurrentHost() {
+  const host = window.location.host;
+  const url = `${window.location.protocol}//${host}`;
+  return url;
+}
+  
+
+
+<p></p>
+
+
+
+<p>The Anti-forgery header is added to every API call to the same domain using an Angular interceptor. The interceptor is a function and added using the HTTP client provider: </p>
+
+
+  provideHttpClient(withInterceptors([secureApiInterceptor])),
+  
+
+
+<p></p>
+
+
+
+ Setup ASP.NET Core application 
+
+
+
+<p>The ASP.NET Core project is setup to host the static html file from Angular and respond to all HTTP requests as defined using the APIs. The nonce is added to the index.html file. Microsoft.Identity.Web is used to authenticate the user and the application. The session is stored in a cookie. The NetEscapades.AspNetCore.SecurityHeaders nuget package is used to add the security headers and the CSP.</p>
+
+
+  using BffMicrosoftEntraID.Server;
+using BffMicrosoftEntraID.Server.Services;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Identity.Web;
+using Microsoft.Identity.Web.UI;
+using Microsoft.IdentityModel.Logging;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.ConfigureKestrel(serverOptions =&gt;
+{
+    serverOptions.AddServerHeader = false;
+});
+
+var services = builder.Services;
+var configuration = builder.Configuration;
+var env = builder.Environment;
+
+services.AddScoped&lt;MsGraphService&gt;();
+services.AddScoped&lt;CaeClaimsChallengeService&gt;();
+
+services.AddAntiforgery(options =&gt;
+{
+    options.HeaderName = "X-XSRF-TOKEN";
+    options.Cookie.Name = "__Host-X-XSRF-TOKEN";
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+});
+
+services.AddHttpClient();
+services.AddOptions();
+
+var scopes = configuration.GetValue&lt;string&gt;("DownstreamApi:Scopes");
+string[] initialScopes = scopes!.Split(' ');
+
+services.AddMicrosoftIdentityWebAppAuthentication(configuration, "MicrosoftEntraID")
+    .EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
+    .AddMicrosoftGraph("https://graph.microsoft.com/v1.0", initialScopes)
+    .AddInMemoryTokenCaches();
+
+services.AddControllersWithViews(options =&gt;
+    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
+
+services.AddRazorPages().AddMvcOptions(options =&gt;
+{
+    //var policy = new AuthorizationPolicyBuilder()
+    //    .RequireAuthenticatedUser()
+    //    .Build();
+    //options.Filters.Add(new AuthorizeFilter(policy));
+}).AddMicrosoftIdentityUI();
+
+builder.Services.AddReverseProxy()
+   .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+
+var app = builder.Build();
+
+IdentityModelEventSource.ShowPII = true;
+
+if (env.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+    app.UseWebAssemblyDebugging();
+}
+else
+{
+    app.UseExceptionHandler("/Error");
+}
+
+app.UseSecurityHeaders(
+    SecurityHeadersDefinitions.GetHeaderPolicyCollection(env.IsDevelopment(),
+        configuration["MicrosoftEntraID:Instance"]));
+
+app.UseHttpsRedirection();
+
+app.UseStaticFiles();
+
+app.UseRouting();
+
+app.UseNoUnauthorizedRedirect("/api");
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapRazorPages();
+app.MapControllers();
+app.MapNotFound("/api/{**segment}");
+
+if (app.Environment.IsDevelopment())
+{
+    var uiDevServer = app.Configuration.GetValue&lt;string&gt;("UiDevServerUrl");
+    if (!string.IsNullOrEmpty(uiDevServer))
+    {
+        app.MapReverseProxy();
+    }
+}
+
+app.MapFallbackToPage("/_Host");
+
+app.Run();
+  
+
+
+<p></p>
+
+
+
+ Setup Azure App registration 
+
+
+
+<p>The application is deployed as one. The application consists of two parts, the Angular part and the ASP.NET Core part. These are tightly coupled (business) even if the technical stacks are not. This is an OpenID Connect confidential client with a user secret or a certification for client assertion.</p>
+
+
+
+<p>Use the Web client type on setup.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Development environment 
+
+
+
+<p>Developers require a professional development setup and should use the technical stacks like the creators of the tech stacks recommend. Default development environments is the aim. The Angular nx project uses a default nx environment or best practices as the Angular community recommends. The server part of the application must proxy all UI requests to the Angular nx development environment. I use Microsoft YARP reverse proxy to implement this. This is only required for development in this setup. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Testing and running 
+
+
+
+<p>The appsettings.json MUST be updated with your Azure tenant Azure App registration values. If using a client secret, store this in the user secrets for development, or in a key vault when deployed to Azure.</p>
+
+
+    "MicrosoftEntraID": {
+    "Instance": "https://login.microsoftonline.com/",
+    "Domain": "[Enter the domain of your tenant, e.g. contoso.onmicrosoft.com]",
+    "TenantId": "[Enter 'common', or 'organizations' or the Tenant Id (Obtained from the Azure portal. Select 'Endpoints' from the 'App registrations' blade and use the GUID in any of the URLs), e.g. da41245a5-11b3-996c-00a8-4d99re19f292]",
+    "ClientId": "[Enter the Client Id (Application ID obtained from the Azure portal), e.g. ba74781c2-53c2-442a-97c2-3d60re42f403]",
+    "ClientSecret": "[Copy the client secret added to the app from the Azure portal]",
+    "ClientCertificates": [
+    ],
+    // the following is required to handle Continuous Access Evaluation challenges
+    "ClientCapabilities": [ "cp1" ],
+    "CallbackPath": "/signin-oidc"
+  },
+  
+
+
+ Debugging 
+
+
+
+<p>Start the Angular project from the&nbsp;ui&nbsp;folder</p>
+
+
+  nx serve --ssl
+  
+
+
+<p>Start the ASP.NET Core project from the&nbsp;server&nbsp;folder</p>
+
+
+  dotnet run
+  
+
+
+<p>When the localhost of the server app is opened, you can authenticate and use.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/introduction-to-aspnet-core">https://learn.microsoft.com/en-us/aspnet/core/introduction-to-aspnet-core</a></p>
+
+
+
+<p><a href="https://nx.dev/getting-started/intro">https://nx.dev/getting-started/intro</a></p>
+
+
+
+<p><a href="https://nx.dev/getting-started/tutorials/angular-standalone-tutorial">https://nx.dev/getting-started/tutorials/angular-standalone-tutorial</a></p>
+
+
+
+<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
+
+
+
+<p><a href="https://github.com/isolutionsag/aspnet-react-bff-proxy-example">https://github.com/isolutionsag/aspnet-react-bff-proxy-example</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/09/bff-arch-production_01.png?w=945'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:16 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -793,7 +1258,7 @@
 
 <div class='item-footer'>
    19:08 &bull;
-   6 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -863,7 +1328,7 @@
 
 <div class='item-footer'>
    17:24 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -925,7 +1390,7 @@
 
 <div class='item-footer'>
    17:07 &bull;
-   8 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1028,7 +1493,7 @@
 
 <div class='item-footer'>
    17:04 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1107,7 +1572,7 @@
 
 <div class='item-footer'>
    16:41 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1173,7 +1638,7 @@
 
 <div class='item-footer'>
    16:19 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1249,7 +1714,7 @@
 
 <div class='item-footer'>
    13:14 &bull;
-   12 hours ago
+   20 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2040,7 +2505,7 @@
 
 <div class='item-footer'>
    21:36 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2700,7 +3165,7 @@
 
 <div class='item-footer'>
    21:34 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2776,7 +3241,7 @@
 
 <div class='item-footer'>
    19:27 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2850,7 +3315,7 @@
 
 <div class='item-footer'>
    18:42 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2920,7 +3385,7 @@
 
 <div class='item-footer'>
    15:29 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3002,7 +3467,7 @@
 
 <div class='item-footer'>
    15:00 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3082,7 +3547,7 @@
 
 <div class='item-footer'>
    14:26 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3181,7 +3646,7 @@
 
 <div class='item-footer'>
    14:18 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3731,7 +4196,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    18:45 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3807,7 +4272,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    18:43 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3876,7 +4341,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    18:04 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3939,7 +4404,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    18:02 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4005,7 +4470,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    18:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4077,7 +4542,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    17:15 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4159,7 +4624,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    15:56 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4258,7 +4723,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    15:43 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4662,7 +5127,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    19:32 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4743,7 +5208,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    18:37 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4808,7 +5273,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    18:32 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4874,7 +5339,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    17:36 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4942,7 +5407,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    17:12 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5016,7 +5481,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    16:51 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5088,7 +5553,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    16:29 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5158,7 +5623,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    15:45 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5220,7 +5685,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    15:42 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5302,7 +5767,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    15:22 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5378,7 +5843,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    15:16 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5734,7 +6199,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    17:41 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5800,7 +6265,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    17:29 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5880,7 +6345,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    16:35 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5956,7 +6421,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    14:52 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6028,7 +6493,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    14:40 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6143,7 +6608,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    14:28 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6219,7 +6684,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    14:14 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6509,7 +6974,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    21:13 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6900,7 +7365,7 @@ collection.embed_multi(
 
 <div class='item-footer'>
    20:32 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6976,7 +7441,7 @@ collection.embed_multi(
 
 <div class='item-footer'>
    13:53 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7054,7 +7519,7 @@ collection.embed_multi(
 
 <div class='item-footer'>
    13:53 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7120,7 +7585,7 @@ collection.embed_multi(
 
 <div class='item-footer'>
    13:43 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7276,7 +7741,7 @@ collection.embed_multi(
 
 <div class='item-footer'>
    16:25 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7923,7 +8388,7 @@ public class CredentialsClaims
 
 <div class='item-footer'>
    16:30 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7985,7 +8450,7 @@ public class CredentialsClaims
 
 <div class='item-footer'>
    14:41 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8047,7 +8512,7 @@ public class CredentialsClaims
 
 <div class='item-footer'>
    14:37 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8317,7 +8782,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    14:33 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8391,7 +8856,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    13:50 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8552,7 +9017,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    21:37 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9351,7 +9816,7 @@ print (output.stdout)</p>
 
 <div class='item-footer'>
    14:35 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9573,7 +10038,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:48 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9639,7 +10104,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:31 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9735,7 +10200,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:24 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9869,7 +10334,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    17:54 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10104,7 +10569,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    21:35 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10179,7 +10644,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    15:41 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10243,7 +10708,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    14:26 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10439,7 +10904,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    19:56 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10501,7 +10966,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    17:44 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10567,7 +11032,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    20:32 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11330,7 +11795,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    16:49 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11402,7 +11867,7 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 
 <div class='item-footer'>
    16:49 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12090,7 +12555,7 @@ Source: <a href="https://en.wikipedia.org/wiki/How_Long_Is_the_Coast_of_Britain%
 
 <div class='item-footer'>
    16:06 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -22130,257 +22595,6 @@ All — Closing Remarks and Discussion
  <h2 class='new-date'>
   Monday, 22. May 2023
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/05/22/blazor-and-csp/'>Blazor and CSP</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post looks at the a recent fix for Blazor which I think is of massive importance. You can now develop with Blazor in Visual Studio (Preview) using a strong CSP. Code: https://github.com/damienbod/Hostedblazor8Aad When developing applications, the development environment should be as close as possible to the target production deployment. As a rule, the more […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post looks at the a recent fix for Blazor which I think is of massive importance. You can now develop with Blazor in Visual Studio (Preview) using a strong CSP. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/Hostedblazor8Aad">https://github.com/damienbod/Hostedblazor8Aad</a></p>
-
-
-
-<p>When developing applications, the development environment should be as close as possible to the target production deployment. As a rule, the more these two differ, the more effort you have. You should always develop with HTTPS and you should always use the same CSP in development as in production. (apart from the URLs) This prevents developers adding unsecure scripts and styles before it gets expensive to remove them. This also helps you not deploying unsecure HTTP links, or references to CDNs which cannot be used or using iframes anywhere. All of this reduces the development effort and reduces to overall cost of the project. It is a very bad idea to develop in HTTP and even worse to deploy HTTP. </p>
-
-
-
-<p>Visual Studio issue CSP fix:</p>
-
-
-
-<p><a href="https://developercommunity.visualstudio.com/t/browserlink-CSP-support-NET-7/10061464">https://developercommunity.visualstudio.com/t/browserlink-CSP-support-NET-7/10061464</a></p>
-
-
-
-<p>Before this fix, when using a good CSP definition, the hot reload did not work and the console displayed warnings. To remove this you had to use a weak CSP and this is a bad idea because you would need to fix your CSP issues after deploying. </p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>After this fix, you can develop and deploy using the same CSP definition and also develop using hot reload with an active CSP. </p>
-
-
-
- How to define good security headers 
-
-
-
-<p>The best way to secure your session in Blazor is to use the <a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget package and add this to the Server part of the Blazor application. Modern secure Blazor applications use the BFF security architecture. By using BFF, no sensitive data is stored in the browser. The NetEscapades.AspNetCore.SecurityHeaders package makes it easy to apply all the required headers in one place.</p>
-
-
-
-<p>Once the package is part of the project, you can define the headers for Blazor as follows:</p>
-
-
-  namespace HostedBlazorAad.Server;
-
-public static class SecurityHeadersDefinitions
-{
-    public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev, string? idpHost)
-    {
-        if(idpHost == null)
-        {
-            throw new ArgumentNullException(nameof(idpHost));
-        }
-
-        var policy = new HeaderPolicyCollection()
-            .AddFrameOptionsDeny()
-            .AddXssProtectionBlock()
-            .AddContentTypeOptionsNoSniff()
-            .AddReferrerPolicyStrictOriginWhenCrossOrigin()
-            .AddCrossOriginOpenerPolicy(builder =&gt; builder.SameOrigin())
-            .AddCrossOriginResourcePolicy(builder =&gt; builder.SameOrigin())
-            .AddCrossOriginEmbedderPolicy(builder =&gt; builder.RequireCorp())
-            .AddContentSecurityPolicy(builder =&gt;
-            {
-                builder.AddObjectSrc().None();
-                builder.AddBlockAllMixedContent();
-                builder.AddImgSrc().Self().From("data:");
-                builder.AddFormAction().Self().From(idpHost);
-                builder.AddFontSrc().Self();
-                builder.AddStyleSrc().Self();
-                builder.AddBaseUri().Self();
-                builder.AddFrameAncestors().None();
-
-                // due to Blazor
-                builder.AddScriptSrc()
-                    .Self()
-                    .WithHash256("v8v3RKRPmN4odZ1CWM5gw80QKPCCWMcpNeOmimNL2AA=")
-                    //.WasmUnsafeEval(); // cannot use in .NET due to scripts
-                    .UnsafeEval();
-            })
-            .RemoveServerHeader()
-            .AddPermissionsPolicy(builder =&gt;
-            {
-                builder.AddAccelerometer().None();
-                builder.AddAutoplay().None();
-                builder.AddCamera().None();
-                builder.AddEncryptedMedia().None();
-                builder.AddFullscreen().All();
-                builder.AddGeolocation().None();
-                builder.AddGyroscope().None();
-                builder.AddMagnetometer().None();
-                builder.AddMicrophone().None();
-                builder.AddMidi().None();
-                builder.AddPayment().None();
-                builder.AddPictureInPicture().None();
-                builder.AddSyncXHR().None();
-                builder.AddUsb().None();
-            });
-
-        if (!isDev)
-        {
-            // maxAge = one year in seconds
-            policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
-        }
-
-        policy.ApplyDocumentHeadersToAllResponses();
-
-        return policy;
-    }
-}
-  
-
-
-<p>In the actual .NET 8 preview version and .NET 7 version, there is an issue preventing Blazor applications using the WasmUnsafeEval. UnsafeEval is still required. It would be nice if we could use a CSP with a nonce but at present, this is not possible with the actual Blazor version. This is something which can be improved.</p>
-
-
-
-<p>The headers are applied the to all responses including static files.</p>
-
-
-  var app = builder.Build();
-
-if (env.IsDevelopment())
-{
-    app.UseDeveloperExceptionPage();
-    app.UseWebAssemblyDebugging();
-}
-else
-{
-    app.UseExceptionHandler("/Error");
-}
-
-app.UseSecurityHeaders(
-    SecurityHeadersDefinitions.GetHeaderPolicyCollection(env.IsDevelopment(),
-        configuration["AzureAd:Instance"]));
-
-app.UseHttpsRedirection();
-app.UseBlazorFrameworkFiles();
-app.UseStaticFiles();
-
-app.UseRouting();
-
-app.UseNoUnauthorizedRedirect("/api");
-
-app.UseAuthentication();
-app.UseAuthorization();
-  
-
-
- Notes 
-
-
-
-<p>The CSP can still be improved, it is not perfect, but this requires changes in Blazor and the application hosting. At least we can still use the same CSP as in production.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
-
-
-
-<p><a href="https://developercommunity.visualstudio.com/t/browserlink-CSP-support-NET-7/10061464">https://developercommunity.visualstudio.com/t/browserlink-CSP-support-NET-7/10061464</a></p>
-
-
-
-<p><a href="https://github.com/dotnet/aspnetcore/issues/34428">https://github.com/dotnet/aspnetcore/issues/34428</a></p>
-
-
-
-<p><a href="https://github.com/dotnet/AspNetCore.Docs/pull/29294">https://github.com/dotnet/AspNetCore.Docs/pull/29294</a></p>
-
-
-
-<p><a href="https://report-uri.com/home/hash/">https://report-uri.com/home/hash/</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/03/net8_aad_blazor_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:57 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
