@@ -711,12 +711,492 @@
 
 </div>
 </div>
-<sup>Last Update 1:34 AM September 18, 2023 (UTC)</sup>
+<sup>Last Update 9:37 AM September 18, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 18. September 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/09/18/secure-angular-application-using-auth0-and-asp-net-core-with-bff/'>Secure Angular application using Auth0 and ASP.NET Core with BFF</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The article shows how an Angular nx Standalone UI hosted in an ASP.NET Core application can be secured using cookies.&nbsp;Auth0&nbsp;is used as the identity provider. The trusted application is protected using the Open ID Connect code flow with a secret and using PKCE. The API calls are protected using the secure cookie and anti-forgery tokens […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The article shows how an Angular nx Standalone UI hosted in an ASP.NET Core application can be secured using cookies.&nbsp;<a href="https://auth0.com/">Auth0</a>&nbsp;is used as the identity provider. The trusted application is protected using the Open ID Connect code flow with a secret and using PKCE. The API calls are protected using the secure cookie and anti-forgery tokens to protect against CSRF. This architecture is also known as the Backend for Frontend (BFF) Pattern.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/bff-auth0-aspnetcore-angular">https://github.com/damienbod/bff-auth0-aspnetcore-angular</a></p>
+
+
+
+<p></p>
+
+
+
+ Auth0 Setup 
+
+
+
+<p>An Auth0 account is required and a Regular Web Application was setup for this. This is not an SPA application and must always be deployed with a backend which can keep a secret. The Angular client can only use the APIs on the same domain and uses cookies. All application authentication is implemented in the trusted backend and the secure data is encrypted in the cookie.</p>
+
+
+
+ Architecture Setup 
+
+
+
+<p>The application is setup to authenticate as one and remove the sensitive data from the client browser. The single security context has UI logic implemented in Angular and server logic, including the security flows, implemented in ASP.NET Core. The server part of the application handles all request from the client application and the client application should only use the APIs from the same ASP.NET Core implemented host. Cookies are used to send the secure API requests. The UI implementation is greatly simplified and the backend application can add additional security features as it is a confidential client, or trusted client.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ ASP.NET Core Setup 
+
+
+
+<p>The ASP.NET Core application is setup to authenticate using OpenID Connect and to store this session in  a secure cookie. All OpenID Connect providers require small specific flavors of OpenID Connect. The different OpenID Connect clients can all be implemented using the standard ASP.NET Core AddOpenIdConnect method. If you want, most identity providers provide product specific clients which just wrap this client and change the names of the methods, and pre-configure the provider server specifics. When using the client specific clients, you need to re-learn the APIs for the different OpenID Connect servers. The following code implements the OpenID Connect client for Auth0 and also acquires a delegated access token for the required scope. This is not required, just added as documentation. </p>
+
+
+  services.AddAuthentication(options =&gt;
+{
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie(options =&gt;
+{
+    options.Cookie.Name = "__Host-auth0";
+    options.Cookie.SameSite = SameSiteMode.Lax;
+})
+.AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =&gt;
+{
+    options.Authority = $"https://{configuration["Auth0:Domain"]}";
+    options.ClientId = configuration["Auth0:ClientId"];
+    options.ClientSecret = configuration["Auth0:ClientSecret"];
+    options.ResponseType = OpenIdConnectResponseType.Code;
+    options.Scope.Clear();
+    options.Scope.Add("openid");
+    options.Scope.Add("profile");
+    options.Scope.Add("email");
+    options.Scope.Add("auth0-user-api-one");
+    // options.CallbackPath = new PathString("/signin-oidc");
+    options.ClaimsIssuer = "Auth0";
+    options.SaveTokens = true;
+    options.UsePkce = true;
+    options.GetClaimsFromUserInfoEndpoint = true;
+    options.TokenValidationParameters.NameClaimType = "name";
+
+    options.Events = new OpenIdConnectEvents
+    {
+        // handle the logout redirection 
+        OnRedirectToIdentityProviderForSignOut = (context) =&gt;
+        {
+            var logoutUri = $"https://{configuration["Auth0:Domain"]}/v2/logout?client_id={configuration["Auth0:ClientId"]}";
+
+            var postLogoutUri = context.Properties.RedirectUri;
+            if (!string.IsNullOrEmpty(postLogoutUri))
+            {
+                if (postLogoutUri.StartsWith("/"))
+                {
+                    // transform to absolute
+                    var request = context.Request;
+                    postLogoutUri = request.Scheme + "://" + request.Host + request.PathBase + postLogoutUri;
+                }
+                logoutUri += $"&amp;returnTo={Uri.EscapeDataString(postLogoutUri)}";
+            }
+
+            context.Response.Redirect(logoutUri);
+            context.HandleResponse();
+
+            return Task.CompletedTask;
+        },
+        OnRedirectToIdentityProvider = context =&gt;
+        {
+            // The context's ProtocolMessage can be used to pass along additional query parameters
+            // to Auth0's /authorize endpoint.
+            // 
+            // Set the audience query parameter to the API identifier to ensure the returned Access Tokens can be used
+            // to call protected endpoints on the corresponding API.
+            context.ProtocolMessage.SetParameter("audience", "https://auth0-api1");
+
+            return Task.FromResult(0);
+        }
+    };
+});
+  
+
+
+<p>The OpenID Connect client for Auth0 using the configuration from the appsettings or </p>
+
+
+    "Auth0": {
+    "Domain": "your-domain-in-auth0",
+    "ClientId": "--in-secrets--",
+    "ClientSecret": "--in-secrets--"
+  }
+  
+
+
+<p>The API controller uses the secure cookie and the CSRF protection.</p>
+
+
+  [ValidateAntiForgeryToken]
+[Authorize(AuthenticationSchemes = CookieAuthenticationDefaults.AuthenticationScheme)]
+[ApiController]
+[Route("api/[controller]")]
+public class DirectApiController : ControllerBase
+{
+    [HttpGet]
+    public async Task&lt;IEnumerable&lt;string&gt;&gt; GetAsync()
+    {
+        // if you need a delegated access token for downstream APIs
+        var accessToken = await HttpContext.GetTokenAsync("access_token");
+
+        return new List&lt;string&gt; { "some data", "more data", "loads of data" };
+    }
+}
+  
+
+
+<p></p>
+
+
+
+ Angular Setup 
+
+
+
+<p>The Angular solution for development and production is setup like described in this blog:</p>
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2023/09/11/implement-a-secure-web-application-using-nx-standalone-angular-and-an-asp-net-core-server/">Implement a secure web application using nx Standalone Angular and an ASP.NET Core&nbsp;server</a></blockquote>
+ 
+
+
+
+<p>The UI part of the application implements no OpenID connect flows and is always part of the server application. The UI can only access APIs from the single hosting application. </p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://github.com/damienbod/bff-aspnetcore-angular">https://github.com/damienbod/bff-aspnetcore-angular</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/introduction-to-aspnet-core">https://learn.microsoft.com/en-us/aspnet/core/introduction-to-aspnet-core</a></p>
+
+
+
+<p><a href="https://nx.dev/getting-started/intro">https://nx.dev/getting-started/intro</a></p>
+
+
+
+<p><a href="https://auth0.com/docs">https://auth0.com/docs</a></p>
+
+
+
+<p><a href="https://github.com/isolutionsag/aspnet-react-bff-proxy-example">https://github.com/isolutionsag/aspnet-react-bff-proxy-example</a></p>
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2021/04/12/securing-blazor-web-assembly-using-cookies-and-auth0/">Securing Blazor Web assembly using Cookies and&nbsp;Auth0</a></blockquote>
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/09/bff-auth0-angular-aspnetocre_01-2.png?w=942'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:52 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/09/17/so-great-to.html'> 📰 
+ So great to see my friends on Maui all pitching in as th</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   📰 
+ So great to see my friends on Maui all pitching in as they can. 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/1daff4e3c6.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>📰</p>
+<p>So great to see my friends on Maui all pitching in as they can.</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/1daff4e3c6.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:47 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/09/17/back-in-the.html'> 🎵 Back in the day, a gentleman by name of Pete Frame produce</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   🎵 Back in the day, a gentleman by name of Pete Frame produced two stunning 📚books … Rock Family Trees. Hand drawn ‘family trees’ of Rock Giants at the time. 
+ I know of Theo Travis because of his work over the years with Steven Wilson, but also as a performer in his own right and then most recently with Soft Machine, which is how he came to write 🖇️ John Marshall’s obit’. 
+ Family Trees tend to be
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>🎵 Back in the day, a gentleman by name of Pete Frame produced two stunning 📚books … Rock Family Trees. Hand drawn ‘family trees’ of Rock Giants at the time.</p>
+<p>I know of Theo Travis because of his work over the years with Steven Wilson, but also as a performer in his own right and then most recently with Soft Machine, which is how he came to write <a href="https://john.philpin.com/2023/09/17/rip-john-marshall.html">🖇️ John Marshall’s obit’</a>.</p>
+<p>Family Trees tend to be very hierarchical, so I plugged the two threads together and then added 50 years of humanity.</p>
+<p>‘Hierarchy’ is old school. ‘Networked’ is new school’.</p>
+<p>How cool would it be to choose (say) 50 musicians like Theo and build networks of</p>
+ 
+ the people he has played with (studio and live) as 
+ one offs or over a prolonged period of time and 
+ inside bands and as a solo artist 
+ 
+<p>It needs to be someone like Theo … a wide enough eclectic career to be interesting but not so overwhelming it becomes meaningless. For example someone like Bowie would just be a page of lines.</p>
+<p>Just #SpitBallingHere</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:45 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/09/17/i-think-bob.html'> 🔗 I think Bob Lefsetz is an iPhone fan. A big one. </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   🔗 I think Bob Lefsetz is an iPhone fan. A big one. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://lefsetz.com/wordpress/2023/09/16/iphone-update/">🔗 I think Bob Lefsetz is an iPhone fan. A big one.</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:41 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -783,7 +1263,7 @@
 
 <div class='item-footer'>
    22:35 &bull;
-   3 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -851,7 +1331,7 @@
 
 <div class='item-footer'>
    15:43 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -927,7 +1407,7 @@
 
 <div class='item-footer'>
    15:37 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1002,7 +1482,7 @@
 
 <div class='item-footer'>
    15:25 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1065,7 +1545,7 @@
 
 <div class='item-footer'>
    15:18 &bull;
-   10 hours ago
+   18 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1145,7 +1625,106 @@
 
 <div class='item-footer'>
    15:07 &bull;
-   10 hours ago
+   19 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2023/09/17/follow-the-daily.html'> 2023 | 09 | 17 
+  
+  
+ 
+ 
+ Follow The Daily Stoic 
+ All The </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   2023 | 09 | 17 
+  
+  
+ 
+ 
+ Follow The Daily Stoic 
+ All The Posts 
+ RSS Feed 
+
+ 
+ If one really catches your eye, don’t forget to click on ‘the date’ below - there may be additional commentary. 
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/5cefcc9c06.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>2023 | 09 | 17</p>
+<p></p>
+<p></p>
+ 
+ 
+<p>Follow The Daily Stoic</p>
+<p><a href="https://john.philpin.com/categories/a-year-of-stoicism">All The Posts</a></p>
+<p><a href="https://john.philpin.com/categories/a-year-of-stoicism/feed.xml">RSS Feed</a></p>
+
+ 
+<p>If one really catches your eye, don’t forget to click on ‘the date’ below - there may be additional commentary.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/5cefcc9c06.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:44 &bull;
+   19 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1360,7 +1939,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    05:41 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1617,7 +2196,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    05:10 &bull;
-   20 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1693,7 +2272,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    04:09 &bull;
-   21 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -2390,7 +2969,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    15:17 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2466,7 +3045,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    15:14 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2542,7 +3121,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    19:20 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2658,7 +3237,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    16:49 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2734,7 +3313,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    14:47 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2806,7 +3385,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    14:43 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2877,7 +3456,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    14:24 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3449,7 +4028,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    21:08 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3525,7 +4104,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    20:23 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3596,7 +4175,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    19:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3664,7 +4243,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    17:38 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3763,7 +4342,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    15:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3847,7 +4426,7 @@ Source: <a href="https://maps.app.goo.gl/2oG2LfAExGzZvAreA">https://maps.app.goo
 
 <div class='item-footer'>
    14:42 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4203,7 +4782,7 @@ The post <a href="https://realestatecafe.com/storms-brewing-in-real-estate-what-
 
 <div class='item-footer'>
    19:28 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4279,7 +4858,7 @@ The post <a href="https://realestatecafe.com/storms-brewing-in-real-estate-what-
 
 <div class='item-footer'>
    18:05 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4351,7 +4930,7 @@ The post <a href="https://realestatecafe.com/storms-brewing-in-real-estate-what-
 
 <div class='item-footer'>
    17:25 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4367,331 +4946,6 @@ The post <a href="https://realestatecafe.com/storms-brewing-in-real-estate-what-
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/09/13/mbsept-the-glow.html'> 📸 230913🖇️ #MBSept 
- The ‘glow’ might not immediately be app</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   📸 230913🖇️ #MBSept 
- The ‘glow’ might not immediately be apparent - but it is there. 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/img-9268.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>📸 230913<a href="https://john.philpin.com/search-space/?q=%23MBSept">🖇️ #MBSept</a></p>
-<p>The ‘glow’ might not immediately be apparent - but it is there.</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/img-9268.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:53 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/09/13/this-is-the.html'> 
- This is the BBC … 
- 
- 
- This podcast is supported bah adve</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- This is the BBC … 
- 
- 
- This podcast is supported bah advertaasin artsaad the UK 
- 
- Is it just the old curmudgeon in me? 
- … where’s my cane? 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<blockquote>
-<p>This is the BBC …</p>
-</blockquote>
-<blockquote>
-<p>This podcast is supported bah advertaasin artsaad the UK</p>
-</blockquote>
-<p>Is it just the old curmudgeon in me?</p>
-<p>… where’s my cane?</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:50 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/09/13/looks-like-popmoneycom.html'> Looks like 🔗 PopMoney.com have lost the battle. </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Looks like 🔗 PopMoney.com have lost the battle. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Looks like <a href="https://popmoney.com">🔗 PopMoney.com</a> have lost the battle.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:50 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2023/09/13/follow-the-daily.html'> 2023 | 09 | 13 
-  
-  
- 
- 
- Follow The Daily Stoic 
- All The </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   2023 | 09 | 13 
-  
-  
- 
- 
- Follow The Daily Stoic 
- All The Posts 
- RSS Feed 
-
- 
- If one really catches your eye, don’t forget to click on ‘the date’ below - there may be additional commentary. 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2023/1364fc7e64.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>2023 | 09 | 13</p>
-<p></p>
-<p></p>
- 
- 
-<p>Follow The Daily Stoic</p>
-<p><a href="https://john.philpin.com/categories/a-year-of-stoicism">All The Posts</a></p>
-<p><a href="https://john.philpin.com/categories/a-year-of-stoicism/feed.xml">RSS Feed</a></p>
-
- 
-<p>If one really catches your eye, don’t forget to click on ‘the date’ below - there may be additional commentary.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2023/1364fc7e64.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:50 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -5184,7 +5438,7 @@ llm chat -t cheesecake
 
 <div class='item-footer'>
    20:33 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5248,7 +5502,7 @@ llm chat -t cheesecake
 
 <div class='item-footer'>
    15:49 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5320,7 +5574,7 @@ llm chat -t cheesecake
 
 <div class='item-footer'>
    14:52 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5392,7 +5646,7 @@ llm chat -t cheesecake
 
 <div class='item-footer'>
    14:40 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5569,7 +5823,7 @@ You can learn more about the <a href="https://humancolossus.foundation/">Human C
 
 <div class='item-footer'>
    17:15 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5643,7 +5897,7 @@ You can learn more about the <a href="https://humancolossus.foundation/">Human C
 
 <div class='item-footer'>
    16:18 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6250,7 +6504,7 @@ app.Run();
 
 <div class='item-footer'>
    17:24 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6312,7 +6566,7 @@ app.Run();
 
 <div class='item-footer'>
    17:07 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6374,7 +6628,7 @@ app.Run();
 
 <div class='item-footer'>
    16:19 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6672,7 +6926,7 @@ app.Run();
 
 <div class='item-footer'>
    21:30 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7542,7 +7796,7 @@ app.Run();
 
 <div class='item-footer'>
    21:34 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7612,7 +7866,7 @@ app.Run();
 
 <div class='item-footer'>
    15:29 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7941,7 +8195,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    15:45 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8003,7 +8257,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    15:42 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8215,7 +8469,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    17:29 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8295,7 +8549,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    16:35 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8410,7 +8664,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    14:28 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8622,7 +8876,7 @@ This document describes a mechanism for sender-constraining OAuth 2.0 tokens via
 
 <div class='item-footer'>
    21:13 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9013,7 +9267,7 @@ collection.embed_multi(
 
 <div class='item-footer'>
    20:32 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9089,7 +9343,7 @@ collection.embed_multi(
 
 <div class='item-footer'>
    13:53 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9155,7 +9409,7 @@ collection.embed_multi(
 
 <div class='item-footer'>
    13:43 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9805,7 +10059,7 @@ public class CredentialsClaims
 
 <div class='item-footer'>
    16:30 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9867,7 +10121,7 @@ public class CredentialsClaims
 
 <div class='item-footer'>
    14:41 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9929,7 +10183,7 @@ public class CredentialsClaims
 
 <div class='item-footer'>
    14:37 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10199,7 +10453,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    14:33 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10273,7 +10527,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    13:50 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10434,7 +10688,7 @@ link: &lt;https://api.github.com/user/9599/events?page=2&gt;; rel="next", &lt;ht
 
 <div class='item-footer'>
    21:37 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11233,7 +11487,7 @@ print (output.stdout)</p>
 
 <div class='item-footer'>
    14:35 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11455,7 +11709,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:48 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11521,7 +11775,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:31 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11617,7 +11871,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    18:24 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11794,7 +12048,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    21:35 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11869,7 +12123,7 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    15:41 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -21809,7 +22063,7 @@ public class UserAdminModel : PageModel
 
 <div class='item-footer'>
    08:22 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22213,230 +22467,6 @@ Here’s a link to the <a href="https://jonudell.info/audio/iacobucci.mp3">new v
 
 <div class='item-footer'>
    02:03 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Tuesday, 30. May 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/05/30/asp-net-core-authentication-using-microsoft-entra-external-id-for-customers-ciam/'>ASP.NET Core authentication using Microsoft Entra External ID for customers (CIAM)</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article looks at implementing an ASP.NET Core application which authenticates using Microsoft Entra External ID for customers (CIAM). The ASP.NET Core authentication is implemented using the Microsoft.Identity.Web Nuget package. The client implements the OpenID Connect code flow with PKCE and a confidential client. Code: https://github.com/damienbod/EntraExternalIdCiam Posts in this series Mic
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article looks at implementing an ASP.NET Core application which authenticates using Microsoft Entra External ID for customers (CIAM). The ASP.NET Core authentication is implemented using the Microsoft.Identity.Web Nuget package. The client implements the OpenID Connect code flow with PKCE and a confidential client.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/EntraExternalIdCiam">https://github.com/damienbod/EntraExternalIdCiam</a></p>
-
-
-
-<p>Posts in this series</p>
-
-
-
- 
- <a href="https://damienbod.com/2023/06/05/asp-net-core-authorization-using-entra-external-id-ciam-and-azure-ad-security-groups/">ASP.NET Core authorization using Entra External ID CIAM and Azure AD security groups</a> 
- 
-
-
-
-<p>Microsoft Entra External ID for customers (CIAM) is a new Microsoft product for customer (B2C) identity solutions. This has  many changes to the existing Azure AD B2C solution and adopts many of the features from Azure AD. At present, the product is in public preview.</p>
-
-
-
- App registration setup 
-
-
-
-<p>As with any Azure AD, Azure AD B2C, Azure AD CIAM application, an Azure App registration is created and used to define the authentication client. The ASP.NET core application is a confidential client and must use a secret or a certificate to authenticate the application as well as the user. </p>
-
-
-
-<p>The client authenticates using an OpenID Connect (OIDC) confidential code flow with PKCE. The implicit flow does not need to be activated.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- User flow setup 
-
-
-
-<p>In Microsoft Entra External ID for customers (CIAM), the application must be connected to the user flow. In external identities, a new user flow can be created and the application (The Azure app registration) can be added to the user flow. The user flow can be used to define the specific customer authentication requirements. </p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- ASP.NET Core application 
-
-
-
-<p>The ASP.NET Core application is implemented using the Microsoft.Identity.Web Nuget package. The recommended flow for trusted applications is the OpenID Connect confidential code flow with PKCE. This is setup using the AddMicrosoftIdentityWebApp method and also the EnableTokenAcquisitionToCallDownstreamApi method. The CIAM client configuration is read using the json EntraExternalID section.</p>
-
-
-  services.AddDistributedMemoryCache();
-
-services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
-	.AddMicrosoftIdentityWebApp(
-		builder.Configuration
-			.GetSection("EntraExternalID"))
-	.EnableTokenAcquisitionToCallDownstreamApi()
-	.AddDistributedTokenCaches();
-  
-
-
-<p>In the appsettings.json, user secrets or the production setup, the client specific configurations are defined. The settings must match the Azure App registration. The SignUpSignInPolicyId is no longer used compared to Azure AD B2C. </p>
-
-
-  // -- using ciamlogin.com --
-"EntraExternalID": {
-	"Authority": "https://damienbodciam.ciamlogin.com",
-	"ClientId": "0990af2f-c338-484d-b23d-dfef6c65f522",
-	"CallbackPath": "/signin-oidc",
-	"SignedOutCallbackPath ": "/signout-callback-oidc"
-	// "ClientSecret": "--in-user-secrets--"
-},
-  
-
-
- Notes 
-
-
-
-<p>I always try to implement user flows for B2C solutions and avoid custom setups as these setups are hard to maintain, expensive to keep updated and hard to migrate when the product is end of life.</p>
-
-
-
-<p>Setting up a CIAM client in ASP.NET Core works without problems. CIAM offers many more features but is still missing some essential ones. This product is starting to look really good and will be a great improvement on Azure AD B2C when it is feature complete. </p>
-
-
-
-<p>Strong authentication is missing from Microsoft Entra External ID for customers (CIAM) and this makes it hard to test using my Azure AD users. Hopefully FIDO2 and passkeys will get supported soon. See the following link for the supported authentication methods:</p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/external-identities/customers/concept-supported-features-customers">https://learn.microsoft.com/en-us/azure/active-directory/external-identities/customers/concept-supported-features-customers</a></p>
-
-
-
-<p></p>
-
-
-
-<p>I also require a standard OpenID Connect identity provider (Code flow confidential client with PKCE support) in most of my customer solution rollouts. This is not is supported at present.</p>
-
-
-
-<p>With CIAM, new possibilities are also possible for creating single solutions to support both B2B and B2C use cases. Support for Azure security groups and Azure roles in Microsoft Entra External ID for customers (CIAM) is one of the features which makes this possible.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/active-directory/external-identities/">https://learn.microsoft.com/en-us/azure/active-directory/external-identities/</a></p>
-
-
-
-<p><a href="https://www.microsoft.com/en-us/security/business/identity-access/microsoft-entra-external-id">https://www.microsoft.com/en-us/security/business/identity-access/microsoft-entra-external-id</a></p>
-
-
-
- 
-<a href="https://www.cloudpartner.fi/?p=14685">https://www.cloudpartner.fi/?p=14685</a>
- 
-
-
-
-<p></p>
-
-
-
-<p><a href="https://developer.microsoft.com/en-us/identity/customers">https://developer.microsoft.com/en-us/identity/customers</a></p>
-
-
-
-<p><a href="https://techcommunity.microsoft.com/t5/microsoft-entra-azure-ad-blog/microsoft-entra-external-id-public-preview-developer-centric/ba-p/3823766">https://techcommunity.microsoft.com/t5/microsoft-entra-azure-ad-blog/microsoft-entra-external-id-public-preview-developer-centric/ba-p/3823766</a></p>
-
-
-
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/05/azure_ciam_web_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:24 &bull;
    4 months ago
 </div>
 
@@ -26350,7 +26380,7 @@ If you move servers and want to migrate the people on your lists, you should def
 
 <div class='item-footer'>
    06:42 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
