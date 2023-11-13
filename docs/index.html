@@ -716,12 +716,434 @@
 
 </div>
 </div>
-<sup>Last Update 1:38 AM November 13, 2023 (UTC)</sup>
+<sup>Last Update 9:38 AM November 13, 2023 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 13. November 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2023/11/13/authentication-with-multiple-identity-providers-in-asp-net-core/'>Authentication with multiple identity providers in ASP.NET Core</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement authentication in ASP.NET Core using multiple identity providers or secure token servers. When using multiple identity providers, the authentication flows need to be separated per scheme for the sign-in flow and the sign-out flow. The claims are different and would require mapping logic depending on the authorization logic of […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement authentication in ASP.NET Core using multiple identity providers or secure token servers. When using multiple identity providers, the authentication flows need to be separated per scheme for the sign-in flow and the sign-out flow. The claims are different and would require mapping logic depending on the authorization logic of the application. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/MulitipleClientClaimsMapping">https://github.com/damienbod/MulitipleClientClaimsMapping</a></p>
+
+
+
+<p></p>
+
+
+
+ Setup 
+
+
+
+<p>OpenID Connect is used for the authentication and the session is stored in a cookie. A confidential client using OpenID Connect code flow with PKCE is used for both schemes. The client configuration in the secure token servers need to match the ASP.NET Core configuration. The sign-in and the sign-out callback URLs are different for the different token servers. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The AddAuthentication method is used to define the authentication services. Cookies are used to store the session. The “t1” scheme is used to setup the Duende OpenID Connect client and the “t2” scheme is used to setup the OpenIddict scheme. The callback URLs are specified in this setup. </p>
+
+
+
+<p></p>
+
+
+  builder.Services.AddAuthentication(options =&gt;
+{
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie()
+.AddOpenIdConnect("t1", options =&gt; // Duende IdentityServer 
+{
+    builder.Configuration.GetSection("IdentityServerSettings").Bind(options);
+    options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.ResponseType = OpenIdConnectResponseType.Code;
+    options.SaveTokens = true;
+    options.GetClaimsFromUserInfoEndpoint = true;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        NameClaimType = "name"
+    };
+    options.MapInboundClaims = false;
+})
+.AddOpenIdConnect("t2", options =&gt; // OpenIddict server 
+{
+    builder.Configuration.GetSection("IdentityProviderSettings").Bind(options);
+    options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.ResponseType = OpenIdConnectResponseType.Code;
+    options.SaveTokens = true;
+    options.GetClaimsFromUserInfoEndpoint = true;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        NameClaimType = "name"
+    };
+});
+  
+
+
+<p></p>
+
+
+
+<p>The configurations which are different per environment are read from the configuration object. The source of the data can be the appsettings.json, Azure Key Vault, user secrets or whatever you use.</p>
+
+
+  "IdentityProviderSettings": { // OpenIddict
+	"Authority": "https://localhost:44318",
+	"ClientId": "codeflowpkceclient",
+	"ClientSecret": "--your-secret-from-keyvault-or-user-secrets--",
+	"CallbackPath": "/signin-oidc-t2",
+	"SignedOutCallbackPath": "/signout-callback-oidc-t2"
+},
+"IdentityServerSettings": { // Duende IdentityServer
+	"Authority": "https://localhost:44319",
+	"ClientId": "oidc-pkce-confidential",
+	"ClientSecret": "--your-secret-from-keyvault-or-user-secrets--",
+	"CallbackPath": "/signin-oidc-t1",
+	"SignedOutCallbackPath": "/signout-callback-oidc-t1"
+}
+  
+
+
+<p></p>
+
+
+
+ Sign-in 
+
+
+
+<p>The application and the user can authenticate using different identity providers. The scheme is setup when starting to authentication flow so that the application knows which secure token server should be used. I added two separate controller endpoints for this. The Challenge request is then sent correctly.</p>
+
+
+  [HttpGet("LoginOpenIddict")]
+public ActionResult LoginOpenIddict(string returnUrl)
+{
+	return Challenge(new AuthenticationProperties
+	{
+		RedirectUri = !string.IsNullOrEmpty(returnUrl) ? returnUrl : "/", 
+	}, "t2");
+}
+
+[HttpGet("LoginIdentityServer")]
+public ActionResult LoginIdentityServer(string returnUrl)
+{
+	return Challenge(new AuthenticationProperties
+	{
+		RedirectUri = !string.IsNullOrEmpty(returnUrl) ? returnUrl : "/"
+	}, "t1");
+}
+  
+
+
+<p></p>
+
+
+
+<p>The UI part of the application calls the correct endpoint. This is just a HTTP link which sends a GET request.</p>
+
+
+  &lt;li class="nav-item"&gt;
+    &lt;a class="nav-link text-dark" 
+       href="~/api/Account/LoginIdentityServer"&gt;Login t1 IdentityServer&lt;/a&gt;
+&lt;/li&gt;
+&lt;li class="nav-item"&gt;
+    &lt;a class="nav-link text-dark" 
+       href="~/api/Account/LoginOpenIddict"&gt;Login t2 OpenIddict&lt;/a&gt;
+&lt;/li&gt;
+  
+
+
+<p></p>
+
+
+
+ Sign-out 
+
+
+
+<p>The application also needs to sign-out correctly. A sign-out is sent to the secure token server and not only locally in the application. To sign out correctly, the application must use the correct scheme. This can be found using the HttpContext features. Once the scheme is known, the sign-out request can be sent to the correct secure token server.</p>
+
+
+  [Authorize]
+public class LogoutModel : PageModel
+{
+    public async Task&lt;IActionResult&gt; OnGetAsync()
+    {
+        if (User.Identity!.IsAuthenticated)
+        {
+            var authProperties = HttpContext.Features
+               .GetRequiredFeature&lt;IAuthenticateResultFeature&gt;();
+
+            var schemeToLogout = authProperties.AuthenticateResult!.Ticket!
+               .Properties.Items[".AuthScheme"];
+
+            if (schemeToLogout != null)
+            {
+                return SignOut(new AuthenticationProperties
+                {
+                    RedirectUri = "/SignedOut"
+                },
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                schemeToLogout);
+            }
+        }
+
+        await HttpContext.SignOutAsync(
+          CookieAuthenticationDefaults.AuthenticationScheme);
+
+        return Redirect("/SignedOut");
+    }
+}
+  
+
+
+ Notes 
+
+
+
+<p>Setting up multiple secure token servers or identity providers for a single ASP.NET Core application is relatively simple using the standard ASP.NET Core endpoints. Once you start using the different identity provider authentication Nuget client packages from the specific libraries, it gets complicated as the client libraries overwrite different default values which breaks the other client flows. Using multiple identity providers, it is probably better to not use the client libraries and stick to the standard OpenID Connect implementation. </p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/security">https://learn.microsoft.com/en-us/aspnet/core/security</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authorization/limitingidentitybyscheme">https://learn.microsoft.com/en-us/aspnet/core/security/authorization/limitingidentitybyscheme</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/aspnetcore-standup-authn-authz">https://github.com/damienbod/aspnetcore-standup-authn-authz</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/aspnetcore-standup-securing-apis">https://github.com/damienbod/aspnetcore-standup-securing-apis</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/claims">https://learn.microsoft.com/en-us/aspnet/core/security/authentication/claims</a></p>
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2019/11/01/user-claims-in-asp-net-core-using-openid-connect-authentication/">User claims in ASP.NET Core using OpenID Connect&nbsp;Authentication</a></blockquote>
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/11/schemes__idp_01.png?w=982'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:53 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2023/Nov/13/dak-and-the-golden-age-of-gadget-catalogs/#atom-everything'>DAK and the Golden Age of Gadget Catalogs</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   DAK and the Golden Age of Gadget Catalogs 
+ A must-read from Cabel Sasser, describing his ten year project to collect and digitize copies of the DAK gadget catalog, from 1972 to 1994. 
+
+     Via Daring Fireball 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://cabel.com/2023/11/06/dak-and-the-golden-age-of-gadget-catalogs/">DAK and the Golden Age of Gadget Catalogs</a></p>
+<p>A must-read from Cabel Sasser, describing his ten year project to collect and digitize copies of the DAK gadget catalog, from 1972 to 1994.</p>
+
+    <p>Via <a href="https://daringfireball.net/linked/2023/11/11/cabel-sasser-dak">Daring Fireball</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:57 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='http://simonwillison.net/2023/Nov/13/francois-chollet/#atom-everything'>Quoting François Chollet</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    Two things in AI may need regulation: reckless deployment of certain potentially harmful AI applications (same as any software really), and monopolistic behavior on the part of certain LLM providers. The technology itself doesn't need regulation anymore than databases or transistors. [...] Putting size/compute caps on deep learning models is akin to putting size caps on databases or transistor co
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <blockquote cite="https://twitter.com/fchollet/status/1723824961201312021"><p>Two things in AI may need regulation: reckless deployment of certain potentially harmful AI applications (same as any software really), and monopolistic behavior on the part of certain LLM providers. The technology itself doesn't need regulation anymore than databases or transistors. [...] Putting size/compute caps on deep learning models is akin to putting size caps on databases or transistor count caps on electronics. It's pointless and it won't age well.</p></blockquote><p>— <a href="https://twitter.com/fchollet/status/1723824961201312021">François Chollet</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:46 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -783,7 +1205,7 @@
 
 <div class='item-footer'>
    20:32 &bull;
-   5 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -844,7 +1266,7 @@
 
 <div class='item-footer'>
    19:27 &bull;
-   6 hours ago
+   14 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -923,7 +1345,7 @@
 
 <div class='item-footer'>
    17:47 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1003,7 +1425,7 @@
 
 <div class='item-footer'>
    17:29 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1104,7 +1526,7 @@
 
 <div class='item-footer'>
    17:19 &bull;
-   8 hours ago
+   16 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1183,7 +1605,7 @@
 
 <div class='item-footer'>
    16:28 &bull;
-   9 hours ago
+   17 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1549,7 +1971,7 @@
 
 <div class='item-footer'>
    15:28 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1654,7 +2076,7 @@
 
 <div class='item-footer'>
    14:57 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2247,7 +2669,7 @@ The post <a href="https://realestatecafe.com/can-fee4savings-transform-class-act
 
 <div class='item-footer'>
    15:09 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2323,7 +2745,7 @@ The post <a href="https://realestatecafe.com/can-fee4savings-transform-class-act
 
 <div class='item-footer'>
    14:19 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2671,7 +3093,7 @@ The post <a href="https://realestatecafe.com/can-fee4savings-transform-class-act
 
 <div class='item-footer'>
    21:11 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2750,7 +3172,7 @@ The post <a href="https://realestatecafe.com/can-fee4savings-transform-class-act
 
 <div class='item-footer'>
    15:32 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2828,7 +3250,7 @@ The post <a href="https://realestatecafe.com/can-fee4savings-transform-class-act
 
 <div class='item-footer'>
    14:49 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2897,7 +3319,7 @@ The post <a href="https://realestatecafe.com/can-fee4savings-transform-class-act
 
 <div class='item-footer'>
    14:37 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2971,7 +3393,7 @@ Photo credit: Brian Campbell from this <a href="https://www.pingidentity.com/en/
 
 <div class='item-footer'>
    14:32 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3038,7 +3460,7 @@ Photo credit: Brian Campbell from this <a href="https://www.pingidentity.com/en/
 
 <div class='item-footer'>
    14:29 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3107,7 +3529,7 @@ Photo credit: Brian Campbell from this <a href="https://www.pingidentity.com/en/
 
 <div class='item-footer'>
    14:24 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3208,7 +3630,7 @@ Photo credit: Brian Campbell from this <a href="https://www.pingidentity.com/en/
 
 <div class='item-footer'>
    14:15 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3660,7 +4082,7 @@ Photo credit: Brian Campbell from this <a href="https://www.pingidentity.com/en/
 
 <div class='item-footer'>
    21:32 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3737,7 +4159,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    21:04 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3816,7 +4238,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    16:24 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3893,7 +4315,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    16:11 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3996,7 +4418,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    16:10 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4068,7 +4490,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    14:19 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4370,7 +4792,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    17:55 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4450,7 +4872,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    16:02 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5159,7 +5581,7 @@ I keep coming back to the theme of the first article in this series: <a href="ht
 
 <div class='item-footer'>
    15:04 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5236,7 +5658,7 @@ I keep coming back to the theme of the first article in this series: <a href="ht
 
 <div class='item-footer'>
    13:55 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5793,7 +6215,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    20:16 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5863,7 +6285,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    20:07 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5931,7 +6353,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    16:06 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6244,7 +6666,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    16:46 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6433,7 +6855,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    17:03 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6509,7 +6931,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    15:16 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6594,7 +7016,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    15:15 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6669,7 +7091,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    14:39 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7051,7 +7473,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    17:13 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7122,7 +7544,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    13:59 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7197,7 +7619,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    13:50 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7492,7 +7914,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    18:53 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7554,7 +7976,7 @@ export const appConfig: ApplicationConfig = {
 
 <div class='item-footer'>
    15:47 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7853,7 +8275,7 @@ This specification defines Hybrid public-key encryption (HPKE) for use with Java
 
 <div class='item-footer'>
    19:57 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7915,7 +8337,7 @@ This specification defines Hybrid public-key encryption (HPKE) for use with Java
 
 <div class='item-footer'>
    19:21 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7977,7 +8399,7 @@ This specification defines Hybrid public-key encryption (HPKE) for use with Java
 
 <div class='item-footer'>
    16:21 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8039,7 +8461,7 @@ This specification defines Hybrid public-key encryption (HPKE) for use with Java
 
 <div class='item-footer'>
    15:35 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8115,7 +8537,7 @@ This specification defines Hybrid public-key encryption (HPKE) for use with Java
 
 <div class='item-footer'>
    14:59 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8484,7 +8906,7 @@ llm -m mistral-7b-instruct-v0 "ten facts about pelicans"
 
 <div class='item-footer'>
    18:06 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9088,7 +9510,7 @@ suggestions into each of the captions.</p></blockquote>
 
 <div class='item-footer'>
    21:11 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9152,7 +9574,7 @@ suggestions into each of the captions.</p></blockquote>
 
 <div class='item-footer'>
    15:51 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9216,7 +9638,7 @@ suggestions into each of the captions.</p></blockquote>
 
 <div class='item-footer'>
    13:50 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9695,7 +10117,7 @@ class JinaEmbeddingModel(llm.EmbeddingModel):
 
 <div class='item-footer'>
    17:19 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9807,7 +10229,7 @@ class JinaEmbeddingModel(llm.EmbeddingModel):
 
 <div class='item-footer'>
    14:27 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10110,70 +10532,6 @@ class JinaEmbeddingModel(llm.EmbeddingModel):
 
 <div class='item-footer'>
    07:38 &bull;
-   20 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2023/Oct/24/addy-osmani/#atom-everything'>Quoting Addy Osmani</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    The real value in evolving as an engineer isn't solely about amassing a heap of isolated skills but weaving them into an intricate web of abilities that's greater than the sum of its parts.   — Addy Osmani 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <blockquote cite="https://addyosmani.com/blog/collect-experience/"><p>The real value in evolving as an engineer isn't solely about amassing a heap of isolated skills but weaving them into an intricate web of abilities that's greater than the sum of its parts.</p></blockquote><p>— <a href="https://addyosmani.com/blog/collect-experience/">Addy Osmani</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:09 &bull;
    20 days ago
 </div>
 
@@ -10550,7 +10908,7 @@ services.AddMicrosoftIdentityWebAppAuthentication(configuration, "MicrosoftEntra
 
 <div class='item-footer'>
    16:12 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10626,599 +10984,6 @@ services.AddMicrosoftIdentityWebAppAuthentication(configuration, "MicrosoftEntra
 
 <div class='item-footer'>
    14:18 &bull;
-   20 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='http://simonwillison.net/2023/Oct/23/embeddings/#atom-everything'>Embeddings: What they are and why they matter</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Embeddings are a really neat trick that often come wrapped in a pile of intimidating jargon. 
- If you can make it through that jargon, they unlock powerful and exciting techniques that can be applied to all sorts of interesting problems. 
- I gave a talk about embeddings at PyBay 2023. This article represents an improved version of that talk, which should stand alone even without watching the video
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2023/embeddings/embeddings.002.jpeg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>Embeddings are a really neat trick that often come wrapped in a pile of intimidating jargon.</p>
-<p>If you can make it through that jargon, they unlock powerful and exciting techniques that can be applied to all sorts of interesting problems.</p>
-<p>I gave a talk about embeddings at <a href="https://pybay.com/">PyBay 2023</a>. This article represents an improved version of that talk, which should stand alone even without watching the video.</p>
-<p>If you're not yet familiar with embeddings I hope to give you everything you need to get started applying them to real-world problems.</p>
-<p>In this article:</p>
- 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#the-38-minute-video-version">The 38 minute video version</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#what-are-embeddings">What are embeddings?</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#related-content-using-embeddings">Related content using embeddings</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#exploring-how-these-things-work-with-word2vec">Exploring how these things work with Word2Vec</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#calculating-embeddings-using-my-llm-tool">Calculating embeddings using my LLM tool</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#vibes-based-search">Vibes-based search</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#embeddings-for-code-using-symbex">Embeddings for code using Symbex</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#embedding-text-and-images-together-using-clip">Embedding text and images together using CLIP</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#faucet-finder-finding-faucets-with-clip">Faucet Finder: finding faucets with CLIP</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#clustering-embeddings">Clustering embeddings</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#visualize-in-2d-with-principal-component-analysis">Visualize in 2D with Principal Component Analysis</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#scoring-sentences-using-average-locations">Scoring sentences using average locations</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#answering-questions-with-retrieval-augmented-generation">Answering questions with Retrieval-Augmented Generation</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#qa">Q&amp;A</a> 
-   <a href="https://simonwillison.net/2023/Oct/23/embeddings/#embeddings-further-reading">Further reading</a> 
- 
-
-
-
- The 38 minute video version 
-<p>Here's <a href="https://www.youtube.com/watch?v=ArnMdc-ICCM&amp;t=50s">a video</a> of the talk that I gave at PyBay:</p>
-
-
-
-<p>The audio quality of the official video wasn't great due to an issue with the microphone, but I ran that audio through Adobe's <a href="https://podcast.adobe.com/enhance">Enhance Speech tool</a> and uploaded my own video with the enhanced audio to YouTube.</p>
- What are embeddings? 
-<p>Embeddings are a technology that's adjacent to the wider field of Large Language Models - the technology behind ChatGPT and Bard and Claude.</p>
-<p></p>
-<p>Embeddings are based around one trick: take a piece of content - in this case <a href="https://til.simonwillison.net/llms/openai-embeddings-related-content">a blog entry</a> - and turn that piece of content into an array of floating point numbers.</p>
-<p>The key thing about that array is that it will always be the same length, no matter how long the content is. The length is defined by the embedding model you are using - an array might be 300, or 1,000, or 1,536 numbers long.</p>
-<p>The best way to think about this array of numbers is to imagine it as co-ordinates in a very weird multi-dimensional space.</p>
-<p>It's hard to visualize 1,536 dimensional space, so here's a 3D visualization of the same idea:</p>
-<p></p>
-<p>Why place content in this space? Because we can learn interesting things about that content based on its location - in particular, based on what else is nearby.</p>
-<p>The location within the space represents the semantic meaning of the content, according to the embedding model's weird, mostly incomprehensible understanding of the world. It might capture colors, shapes, concepts or all sorts of other characteristics of the content that has been embedded.</p>
-<p>Nobody fully understands what those individual numbers mean, but we know that their locations can be used to find out useful things about the content.</p>
- Related content using embeddings 
-<p>One of the first problems I solved with embeddings was to build a "related content" feature for <a href="https://til.simonwillison.net/">my TIL blog</a>. I wanted to be able to show a list of related articles at the bottom of each page.</p>
-<p>I did this using embeddings - in this case, I used the OpenAI <code>text-embedding-ada-002</code> model, which is available <a href="https://platform.openai.com/docs/guides/embeddings">via their API</a>.</p>
-<p>I currently have 472 articles on my site. I calculated the 1,536 dimensional embedding vector (array of floating point numbers) for each of those articles, and stored those vectors in my site's SQLite database.</p>
-<p>Now, if I want to find related articles for a given article, I can calculate the cosine similarity between the embedding vector for that article and every other article in the database, then return the 10 closest matches by distance.</p>
-<p>There's an example at <a href="https://til.simonwillison.net/sqlite/sqlite-tg#related">the bottom of this page</a>. The top five related articles for <a href="https://til.simonwillison.net/sqlite/sqlite-tg">Geospatial SQL queries in SQLite using TG, sqlite-tg and datasette-sqlite-tg</a> are:</p>
- 
- 
-<a href="https://til.simonwillison.net/sqlite/geopoly">Geopoly in SQLite</a> - 2023-01-04 
- 
-<a href="https://til.simonwillison.net/spatialite/viewing-geopackage-data-with-spatialite-and-datasette">Viewing GeoPackage data with SpatiaLite and Datasette</a> - 2022-12-11 
- 
-<a href="https://til.simonwillison.net/gis/gdal-sql">Using SQL with GDAL</a> - 2023-03-09 
- 
-<a href="https://til.simonwillison.net/spatialite/knn">KNN queries with SpatiaLite</a> - 2021-05-16 
- 
-<a href="https://til.simonwillison.net/spatialite/gunion-to-combine-geometries">GUnion to combine geometries in SpatiaLite</a> - 2022-04-12 
- 
-<p>That's a pretty good list!</p>
-<p>Here's <a href="https://github.com/simonw/llm/blob/bf229945fe57036fa75e8105e59d9e506a720156/llm/__init__.py#L252C1-L256C53">the Python function</a> I'm using to calculate those cosine similarity distances:</p>
- def cosine_similarity(a, b):
-    dot_product = sum(x * y for x, y in zip(a, b))
-    magnitude_a = sum(x * x for x in a) ** 0.5
-    magnitude_b = sum(x * x for x in b) ** 0.5
-    return dot_product / (magnitude_a * magnitude_b) 
-<p>My TIL site runs on my <a href="https://datasette.io/">Datasette</a> Python framework, which supports building sites on top of a SQLite database. I wrote more about how that works in <a href="https://simonwillison.net/2021/Jul/28/baked-data/">the Baked Data architectural pattern</a>.</p>
-<p>You can browse the SQLite table that stores the calculated embeddings at <a href="https://til.simonwillison.net/tils/embeddings">tils/embeddings</a>.</p>
-<p></p>
-<p>Those are binary values. We can <a href="https://til.simonwillison.net/tils?sql=select+id%2C+hex%28embedding%29+from+embeddings">run this SQL query</a> to view them as hexadecimal:</p>
-  select id, hex(embedding) from embeddings  
-<p></p>
-<p>That's still not very readable though. We can use the <code>llm_embed_decode()</code> custom SQL function to turn them into a JSON array:</p>
-  select id, llm_embed_decode(embedding) from embeddings limit 10  
-<p><a href="https://til.simonwillison.net/tils?sql=select+id%2C+llm_embed_decode%28embedding%29+from+embeddings+limit+10">Try that here</a>. It shows that each article is accompanied by that array of 1,536 floating point numbers.</p>
-<p></p>
-<p>We can use another custom SQL function, <code>llm_embed_cosine(vector1, vector2)</code>, to calculate those cosine distances and find the most similar content.</p>
-<p>That SQL function <a href="https://github.com/simonw/datasette-llm-embed/blob/ebded67fa9ee19db2c4b1badb1895cef0d58ac4a/datasette_llm_embed.py#L22-L26">is defined here</a> in my <a href="https://datasette.io/plugins/datasette-llm-embed">datasette-llm-embed</a> plugin.</p>
-<p>Here's a query returning the five most similar articles to my SQLite TG article:</p>
-  select
-  id,
-  llm_embed_cosine(
-    embedding,
-    (
-      select
-        embedding
-      from
-        embeddings
-      where
-        id = 'sqlite_sqlite-tg.md'
-    )
-  ) as score
-from
-  embeddings
-order by
-  score desc
-limit 5  
-<p><a href="https://til.simonwillison.net/tils?sql=select%0D%0A++id%2C%0D%0A++llm_embed_cosine%28%0D%0A++++embedding%2C%0D%0A++++%28%0D%0A++++++select%0D%0A++++++++embedding%0D%0A++++++from%0D%0A++++++++embeddings%0D%0A++++++where%0D%0A++++++++id+%3D+%27sqlite_sqlite-tg.md%27%0D%0A++++%29%0D%0A++%29+as+score%0D%0Afrom%0D%0A++embeddings%0D%0Aorder+by%0D%0A++score+desc%0D%0Alimit+5">Executing that query</a> returns the following results:</p>
-
-
-
-id
-score
-
-
-
-
-sqlite_sqlite-tg.md
-1.0
-
-
-sqlite_geopoly.md
-0.8817322855676049
-
-
-spatialite_viewing-geopackage-data-with-spatialite-and-datasette.md
-0.8813094978399854
-
-
-gis_gdal-sql.md
-0.8799581261326747
-
-
-spatialite_knn.md
-0.8692992294266506
-
-
-
-<p>As expected, the similarity between the article and itself is 1.0. The other articles are all related to geospatial SQL queries in SQLite.</p>
-<p>This query takes around 400ms to execute. To speed things up, I pre-calculate the top 10 similarities for every article and store them in a separate table called <a href="https://til.simonwillison.net/tils/similarities">tils/similarities</a>.</p>
-<p></p>
-<p>I wrote a Python function to <a href="https://github.com/simonw/til/blob/a244856c72000760c2939550ae2a78266dee4f07/plugins/template_vars.py#L21-L37">look up related documents from that table</a> and <a href="https://github.com/simonw/til/blob/a244856c72000760c2939550ae2a78266dee4f07/templates/pages/%7Btopic%7D/%7Bslug%7D.html#L37-L45">called it from the template</a> that's used to render the article page.</p>
-<p>My <a href="https://til.simonwillison.net/llms/openai-embeddings-related-content">Storing and serving related documents with openai-to-sqlite and embeddings</a> TIL explains how this all works in detail, including how GitHub Actions are used to fetch new embeddings <a href="https://github.com/simonw/til/blob/a244856c72000760c2939550ae2a78266dee4f07/.github/workflows/build.yml#L67-L75">as part of the build script</a> that deploys the site.</p>
-<p>I used the OpenAI embeddings API for this project. It's extremely inexpensive - for my TIL website I embedded around 402,500 tokens, which at $0.0001 / 1,000 tokens comes to $0.04 - just 4 cents!</p>
-<p>It's really easy to use: you POST it some text along with your API key, it gives you back that JSON array of floating point numbers.</p>
-<p></p>
-<p>But... it's a proprietary model. A few months ago OpenAI <a href="https://openai.com/blog/gpt-4-api-general-availability#deprecation-of-older-embeddings-models">shut down some of their older embeddings models</a>, which is a problem if you've stored large numbers of embeddings from those models since you'll need to recalculate them against a supported model if you want to be able to embed anything else new.</p>
-<p></p>
-<p>To OpenAI's credit, they did promise to "cover the financial cost of users re-embedding content with these new models." - but it's still a reason to be cautious about relying on proprietary models.</p>
-<p>The good news is that there are extremely powerful openly licensed models which you can run on your own hardware, avoiding any risk of them being shut down. We'll talk about that more in a moment.</p>
- Exploring how these things work with Word2Vec 
-<p>Google Research put out an influential paper 10 years ago describing an early embedding model they created called Word2Vec.</p>
-<p>That paper is <a href="https://arxiv.org/abs/1301.3781">Efficient Estimation of Word Representations in Vector Space</a>, dated 16th January 2013. It's a paper that helped kick off widespread interest in embeddings.</p>
-<p>Word2Vec is a model that takes single words and turns them into a list of 300 numbers. That list of numbers captures something about the meaning of the associated word.</p>
-<p>This is best illustrated by a demo.</p>
-<p><a href="https://turbomaze.github.io/word2vecjson/">turbomaze.github.io/word2vecjson</a> is an interactive tool put together by <a href="https://anthony.ai/">Anthony Liu</a> with a 10,000 word subset of the Word2Vec corpus. You can view <a href="https://turbomaze.github.io/word2vecjson/data/wordvecs10000.js">this JavaScript file</a> to see the JSON for those 10,000 words and their associated 300-long arrays of numbers.</p>
-<p></p>
-<p>Search for a word to find similar words based on cosine distance to their Word2Vec representation. For example, the word "france" returns the following related results:</p>
-
-
-
-word
-similarity
-
-
-
-
-france
-1
-
-
-french
-0.7000748343471224
-
-
-belgium
-0.6933180492111168
-
-
-paris
-0.6334910653433325
-
-
-germany
-0.627075617939471
-
-
-italy
-0.6135215284228007
-
-
-spain
-0.6064218103692152
-
-
-
-<p>That's a mixture of french things and European geography.</p>
-<p>A really interesting thing you can do here is perform arithmetic on these vectors.</p>
-<p>Take the vector for "germany", add "paris" and subtract "france". The resulting vector is closest to "berlin"!</p>
-<p>Something about this model has captured the idea of nationalities and geography to the point that you can use arithmetic to explore additional facts about the world.</p>
-<p>Word2Vec was trained on 1.6 billion words of content. The embedding models we use today are trained on much larger datasets and capture a much richer understanding of the underlying relationships.</p>
- Calculating embeddings using my LLM tool 
-<p>I've been building a command-line utility and Python library called <a href="https://llm.datasette.io/">LLM</a>.</p>
-<p>You can read more about LLM here:</p>
- 
- <a href="https://simonwillison.net/2023/May/18/cli-tools-for-llms/">llm, ttok and strip-tags—CLI tools for working with ChatGPT and other LLMs</a> 
- <a href="https://simonwillison.net/2023/Jul/12/llm/">The LLM CLI tool now supports self-hosted language models via plugins</a> 
- <a href="https://simonwillison.net/2023/Sep/4/llm-embeddings/">LLM now provides tools for working with embeddings</a> 
- <a href="https://simonwillison.net/2023/Sep/12/llm-clip-and-chat/">Build an image search engine with llm-clip, chat with models with llm chat</a> 
- 
-<p>LLM is a tool for working with Large Language Models. You can install it like this:</p>
-  pip install llm  
-<p>Or via Homebrew:</p>
-  brew install llm  
-<p>You can use it as a command-line tool for interacting with LLMs, or as <a href="https://llm.datasette.io/en/stable/python-api.html">a Python library</a>.</p>
-<p>Out of the box it can work with the OpenAI API. Set <a href="https://llm.datasette.io/en/stable/setup.html#saving-and-using-stored-keys">an API key</a> and you can run commands like this:</p>
-  llm 'ten fun names for a pet pelican'  
-<p>Where it gets really fun is when you start <a href="https://llm.datasette.io/en/stable/plugins/index.html">installing plugins</a>. There are plugins that add entirely new language models to it, including models that run directly on your own machine.</p>
-<p>A few months ago <a href="https://simonwillison.net/2023/Sep/4/llm-embeddings/">I extended LLM</a> to support plugins that can run embedding models as well.</p>
-<p>Here's how to run the catchily titled <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">all-MiniLM-L6-v2</a> model using LLM:</p>
-<p></p>
-<p>First, we install <code>llm</code> and then use that to install the <a href="https://github.com/simonw/llm-sentence-transformers">llm-sentence-transformers</a> plugin - a wrapper around the <a href="https://www.sbert.net/">SentenceTransformers</a> library.</p>
-  pip install llm
-llm install llm-sentence-transformers  
-<p>Next we need to register the <code>all-MiniLM-L6-v2</code> model. This will download the model from Hugging Face to your computer:</p>
-  llm sentence-transformers register all-MiniLM-L6-v2  
-<p>We can test that out by embedding a single sentence like this:</p>
-  llm embed -m sentence-transformers/all-MiniLM-L6-v2 \
-  -c 'Hello world'  
-<p>This outputs a JSON array that starts like this:</p>
-<p><code>[-0.03447725251317024, 0.031023245304822922, 0.006734962109476328, 0.026108916848897934, -0.03936201333999634, ...</code></p>
-<p>Embeddings like this on their own aren't very interesting - we need to store and compare them to start getting useful results.</p>
-<p>LLM can store embeddings in a "collection" - a SQLite table. The <a href="https://llm.datasette.io/en/stable/embeddings/cli.html#llm-embed-multi">embed-multi command</a> can be used to embed multiple pieces of content at once and store them in a collection.</p>
-<p>That's what this next command does:</p>
-  llm embed-multi readmes \
-  --model sentence-transformers/all-MiniLM-L6-v2 \
-  --files ~/ '**/README.md' --store  
-<p>Here we are populating a collection called "readmes".</p>
-<p>The <code>--files</code> option takes two arguments: a directory to search and a glob pattern to match against filenames. In this case I'm searching my home directory recursively for any file named <code>README.md</code>.</p>
-<p>The <code>--store</code> option causes LLM to store the raw text in the SQLite table in addition to the embedding vector.</p>
-<p>This command took around 30 minutes to run on my computer, but it worked! I now have a collection called <code>readmes</code> with 16,796 rows - one for each <code>README.md</code> file it found in my home directory.</p>
- Vibes-based search 
-<p>Now that we have a collection of embeddings, we can run searches against it using the <a href="https://llm.datasette.io/en/stable/embeddings/cli.html#llm-similar">llm similar command</a>:</p>
-<p></p>
-  llm similar readmes -c 'sqlite backup tools' | jq .id  
-<p>We are asking for items in the <code>readmes</code> collection that are similar to the embedding vector for the phrase "sqlite backup tools".</p>
-<p>This command outputs JSON by default, which includes the full text of the README files since we stored them using <code>--store</code> earlier.</p>
-<p>Piping the results through <code>jq .id</code> causes the command to output just the IDs of the matching rows.</p>
-<p>The top matching results are:</p>
- <code>"sqlite-diffable/README.md"
-"sqlite-dump/README.md"
-"ftstri/salite/ext/repair/README.md"
-"simonw/README.md"
-"sqlite-generate/README.md"
-"sqlite-history/README.md"
-"dbf-to-sqlite/README.md"
-"ftstri/sqlite/ext/README.md"
-"sqlite-utils/README.md"
-"ftstri/sqlite/README.md'
-</code> 
-<p>These are good results! Each of these READMEs either describes a tool for working with SQLite backups or a project that relates to backups ins ome way.</p>
-<p>What's interesting about this is that it's not guaranteed that the term "backups" appeared directly in the text of those READMEs. The content is semantically similar to that phrase, but might not be an exact textual match.</p>
-<p>We can call this semantic search. I like to think of it as vibes-based search.</p>
-<p>The vibes of those READMEs relate to our search term, according to this weird multi-dimensional space representation of the meaning of words.</p>
-<p>This is absurdly useful. If you've ever built a search engine for a website, you know that exact matches don't always help people find what they are looking for.</p>
-<p>We can use this kind of semantic search to build better search engines for a whole bunch of different kinds of content.</p>
- Embeddings for code using Symbex 
-<p>Another tool I've been building is called <a href="https://github.com/simonw/symbex">Symbex</a>. It's a tool for exploring the symbols in a Python codebase.</p>
-<p>I <a href="https://simonwillison.net/2023/Jun/18/symbex/">originally built it</a> to help quickly find Python functions and classes and pipe them into LLMs to help explain and rewrite them.</p>
-<p>Then I realized that I could use it to calculate embeddings for all of the functions in a codebase, and use those embeddings to build a code search engine.</p>
-<p>I added a feature that could output JSON or CSV representing the symbols it found, using the same output format that <code>llm embed-multi</code> can use as an input.</p>
-<p>Here's how I built a collection of all of the functions in my <a href="https://github.com/simonw/datasette">Datasette</a> project, using a newly released model called <a href="https://huggingface.co/TaylorAI/gte-tiny">gte-tiny</a> - just a 60MB file!</p>
-  llm sentence-transformers register TaylorAI/gte-tiny
-
-cd datasette/datasette
-
-symbex '*' '*:*' --nl | \
-  llm embed-multi functions - \
-  --model sentence-transformers/TaylorAI/gte-tiny \
-  --format nl \
-  --store  
-<p><code>symbex '*' '*:*' --nl</code> finds all functions (<code>*</code>) and class methods (the <code>*:*</code> pattern) in the current directory and outputs them as newline-delimited JSON.</p>
-<p>The <code>llm embed-multi ... --format nl</code> command expects newline-delimited JSON as input, so we can pipe the output of <code>symbex</code> directly into it.</p>
-<p>This defaults to storing the embeddings in the default LLM SQLite database. You can add <code>--database /tmp/data.db</code> to specify an alternative location.</p>
-<p>And now... I can run vibes-based semantic search against my codebase!</p>
-<p>I could use the <code>llm similar</code> command for this, but I also have the ability to run these searches using Datasette itself.</p>
-<p>Here's a SQL query for that, using the <a href="https://datasette.io/plugins/datasette-llm-embed">datasette-llm-embed</a> plugin from earlier:</p>
-  with input as (
-  select
-    llm_embed(
-      'sentence-transformers/TaylorAI/gte-tiny',
-      :input
-    ) as e
-)
-select
-  id,
-  content
-from
-  embeddings,
-  input
-where
-  collection_id = (
-    select id from collections where name = 'functions'
-  )
-order by
-  llm_embed_cosine(embedding, input.e) desc
-limit 5  
-<p>The <code>:input</code> parameter is automatically turned into a form field by Datasette.</p>
-<p>When I run this, I get back functions that relate to the concept of listing plugins:</p>
-<p></p>
-<p>The key idea here is to use SQLite as an integration point - a substrate for combining together multiple tools.</p>
-<p>I can run separate tools that extract functions from a codebase, run them through an embedding model, write those embeddings to SQLite and then run queries against the results.</p>
-<p>Anything that can be piped into a tool can now be embedded and processed by the other components of this ecosystem.</p>
- Embedding text and images together using CLIP 
-<p>My current favorite embedding model is <a href="https://openai.com/blog/clip/">CLIP</a>.</p>
-<p>CLIP is a fascinating model released by OpenAI - back in January 2021, when they were still doing most things in the open - that can embed both text and images.</p>
-<p>Crucially, it embeds them both into the same vector space.</p>
-<p>If you embed the string "dog", you'll get a location in 512 dimensional space (depending on your CLIP configuration).</p>
-<p>If you embed a photograph of a dog, you'll get a location in that same space... and it will be close in terms of distance to the location of the string "dog"!</p>
-<p>This means we can search for related images using text, and search for related text using images.</p>
-<p>I built <a href="https://observablehq.com/@simonw/openai-clip-in-a-browser">an interactive demo</a> to help explain how this works. The demo is an Observable notebook that runs the CLIP model directly in the browser.</p>
-<p>It's a pretty heavy page - it has to load 158MB of resources (64.6MB for the CLIP text model and 87.6MB for the image model) - but once loaded you can use it to embed an image, then embed a string of text and calculate the distance between the two.</p>
-<p>I can give it this photo I took of a beach:</p>
-<p></p>
-<p>Then type in different text strings to calculate a similarity score, here displayed as a percentage:</p>
-<p></p>
-
-
-
-text
-score
-
-
-
-
-beach
-26.946%
-
-
-city
-19.839%
-
-
-sunshine
-24.146%
-
-
-sunshine beach
-26.741%
-
-
-california
-25.686%
-
-
-california beach
-27.427%
-
-
-
-<p>It's pretty amazing that we can do all of this in JavaScript running in the browser!</p>
-<p>There's an obvious catch: it's not actually that useful to be able to take an arbitrary photo and say "how similar is this to the term 'city'?".</p>
-<p>The trick is to build additional interfaces on top of this. Once again, we have the ability to build vibes-based search engines.</p>
-<p>Here's a great example of one of those.</p>
- Faucet Finder: finding faucets with CLIP 
-<p><a href="https://www.dbreunig.com/">Drew Breunig</a> used LLM and my <a href="https://github.com/simonw/llm-clip">llm-clip</a> plugin to build a search engine for faucet taps.</p>
-<p>He was renovating his bathroom, and he needed to buy new faucets. So he scraped 20,000 photographs of faucets from a faucet supply company and ran CLIP against all of them.</p>
-<p>He used the result to build <a href="https://faucet-finder.fly.dev/">Faucet Finder</a> - a custom tool (deployed using Datasette) for finding faucets that look similar to other faucets.</p>
-<p></p>
-<p>Among other things, this means you can find an expensive faucet you like and then look for visually similar cheaper options!</p>
-<p>Drew wrote more about his project in <a href="https://www.dbreunig.com/2023/09/26/faucet-finder.html">Finding Bathroom Faucets with Embeddings</a>.</p>
-<p>Drew's demo uses pre-calculated embeddings to display similar results without having to run the CLIP model on the server.</p>
-<p>Inspired by this, I spent some time figuring out <a href="https://til.simonwillison.net/fly/clip-on-fly">how to deploy a server-side CLIP model</a> hosted by my own <a href="https://fly.io/">Fly.io</a> account.</p>
-<p>Drew's Datasette instance <a href="https://faucet-finder.fly.dev/faucets/embeddings">includes this table</a> of embedding vectors, exposed via the Datasette API.</p>
-<p>I deployed my own instance with <a href="https://clip-datasette-on-fly.fly.dev/_memory?sql=select+hex(llm_embed(%27clip%27%2C+%3Aq))+as+x&amp;q=purple">this API</a> for embedding text strings, then built an Observable notebook demo that hits both APIs and combines the results.</p>
-<p><a href="https://observablehq.com/@simonw/search-for-faucets-with-clip-api">observablehq.com/@simonw/search-for-faucets-with-clip-api</a></p>
-<p>Now I can search for things like "gold purple" and get back vibes-based faucet results:</p>
-<p></p>
-<p>Being able to spin up this kind of ultra-specific search engine in a few hours is exactly the kind of trick that excites me about having embeddings as a tool in my toolbox.</p>
- Clustering embeddings 
-<p>Related content and semantic / vibes-based search are the two most comon applications of embeddings, but there are a bunch of other neat things you can do with them too.</p>
-<p>One of those is clustering.</p>
-<p>I built a plugin for this called <a href="https://github.com/simonw/llm-cluster">llm-cluster</a> which implements this using <a href="https://scikit-learn.org/stable/modules/clustering.html">sklearn.cluster</a> from scikit-learn.</p>
-<p>To demonstrate that, I used my <a href="https://github.com/simonw/paginate-json">paginate-json</a> tool and the GitHub issues API to collect the titles of all of the issues in my <code>simonw/llm</code> repository into a collection called <code>llm-issues</code>:</p>
-  paginate-json 'https://api.github.com/repos/simonw/llm/issues?state=all&amp;filter=all' \
-  | jq '[.[] | {id: .id, title: .title}]' \
-  | llm embed-multi llm-issues - \
-  --store  
-<p>Now I can create 10 clusters of issues like this:</p>
-  llm install llm-cluster
-
-llm cluster llm-issues 10  
-<p>Clusters are output as a JSON array, with output that looks something like this (truncated):</p>
-  [
-  {
-    "id": "2",
-    "items": [
-      {
-        "id": "1650662628",
-        "content": "Initial design"
-      },
-      {
-        "id": "1650682379",
-        "content": "Log prompts and responses to SQLite"
-      }
-    ]
-  },
-  {
-    "id": "4",
-    "items": [
-      {
-        "id": "1650760699",
-        "content": "llm web command - launches a web server"
-      },
-      {
-        "id": "1759659476",
-        "content": "`llm models` command"
-      },
-      {
-        "id": "1784156919",
-        "content": "`llm.get_model(alias)` helper"
-      }
-    ]
-  },
-  {
-    "id": "7",
-    "items": [
-      {
-        "id": "1650765575",
-        "content": "--code mode for outputting code"
-      },
-      {
-        "id": "1659086298",
-        "content": "Accept PROMPT from --stdin"
-      },
-      {
-        "id": "1714651657",
-        "content": "Accept input from standard in"
-      }
-    ]
-  }
-]  
-<p>These do appear to be related, but we can do better. The <code>llm cluster</code> command has a <code>--summary</code> option which causes it to pass the resulting cluster text through a LLM and use it to generate a descriptive name for each cluster:</p>
-  llm cluster llm-issues 10 --summary  
-<p>This gives back names like "Log Management and Interactive Prompt Tracking" and "Continuing Conversation Mechanism and Management". See <a href="https://github.com/simonw/llm-cluster/blob/main/README.md#generating-summaries-for-each-cluster">the README</a> for more details.</p>
- Visualize in 2D with Principal Component Analysis 
-<p>The problem with massively multi-dimensional space is that it's really hard to visualize.</p>
-<p>We can use a technique called Principal Component Analysis to reduce the dimensionality of the data to a more manageable size - and it turns out lower dimensions continue to capture useful semantic meaning about the content.</p>
-<p><a href="https://interconnected.org/">Matt Webb</a> used the OpenAI embedding model to generate embeddings for descriptions of every episode of the BBC's In Our Time podcast. He used these to find related episodes, but also ran PCA against them to create <a href="https://interconnected.org/more/2023/02/in_our_time-PCA-plot.html">an interactive 2D visualization</a>.</p>
-<p></p>
-<p>Reducing 1,536 dimensions to just two still produces a meaningful way of exploring the data! Episodes about historic wars show up near each other, elsewhere there's a cluster of episodes about modern scientific discoveries.</p>
-<p>Matt wrote more about this in <a href="https://interconnected.org/home/2023/02/07/braggoscope">Browse the BBC In Our Time archive by Dewey decimal code</a>.</p>
- Scoring sentences using average locations 
-<p>Another trick with embeddings is to use them for classification.</p>
-<p>First calculate the average location for a group of embeddings that you have classified in a certain way, then compare embeddings of new content to those locations to assign it to a category.</p>
-<p>Amelia Wattenberger demonstrated a beautiful example of this in <a href="https://wattenberger.com/thoughts/yay-embeddings-math">Getting creative with embeddings</a>.</p>
-<p>She wanted to help people improve their writing by encouraging a mixture of concrete and abstract sentences. But how do you tell if a sentence of text is concrete or abstract?</p>
-<p>Her trick was to generate samples of the two types of sentence, calculate their average locations and then score new sentences based on how close they are to either end of that newly defined spectrum.</p>
-<p></p>
-<p>This score can even be converted into a color loosely representing how abstract or concrete a given sentence is!</p>
-<p>This is a really neat demonstration of the kind of creative interfaces you can start to build on top of this technology.</p>
- Answering questions with Retrieval-Augmented Generation 
-<p>I'll finish with the idea that first got me excited about embeddings.</p>
-<p>Everyone who tries out ChatGPT ends up asking the same question: how could I use a version of this to answer questions based on my own private notes, or the internal documents owned by my company?</p>
-<p>People assume that the answer is to train a custom model on top of that content, likely at great expense.</p>
-<p>It turns out that's not actually necessary. You can use an off the shelf Large Language Model model (a hosted one or one that runs locally) and a trick called Retrieval Augmented Generation, or RAG.</p>
-<p>The key idea is this: a user asks a question. You search your private documents for content that appears relevant to the question, then paste excerpts of that content into the LLM (respecting its size limit, usually between 3,000 and 6,000 words) along with the original question.</p>
-<p>The LLM can then answer the question based on the additional content you provided.</p>
-<p>This cheap trick is astonishingly effective. It's trivial to get a basic version of this working - the challenge is in getting it to work as well as possible given the infinite set of questions a user might ask.</p>
-<p>The key problem in RAG is figuring out the best possible excerpts of content to include in the prompt to the LLM.</p>
-<p>"Vibes-based" semantic search powered by embedding is exactly the kind of thing you need to gather potentially relevant content to help answer a user's question.</p>
-<p>I built a version of this against content from my blog, described in detail in <a href="https://til.simonwillison.net/llms/embed-paragraphs">Embedding paragraphs from my blog with E5-large-v2</a>.</p>
-<p>I used a model called <a href="https://huggingface.co/intfloat/e5-large-v2">E5-large-v2</a> for this. It's a model trained with this exact use-case in mind.</p>
-<p>A challenge with finding content relevant to questions is that the user's question - "What is shot-scraper?" - isn't guaranteed to be considered semantically similar to content that answers that question. Questions and assertions have a different grammar from each other.</p>
-<p>E5-large-v2 addresses this by supporting two types of content. You can embed phrases (factual sentences) and queries (questions) in the same space, similar to how CLIP supports both images and text.</p>
-<p>I embedded 19,000 paragraphs of text from my blog as phrases, and now I can embed a question as a query and use that to find the paragraphs most likely to answer that question.</p>
-<p>The result is RAG implemented as a one-liner Bash script:</p>
-  llm similar blog-paragraphs -c "query: $1" \
-  | jq '.content | sub("passage: "; "")' -r \
-  | llm -m mlc-chat-Llama-2-7b-chat-hf-q4f16_1 \
-  "$1" -s 'You answer questions as a single paragraph'  
-<p>This example uses Llama 2 Chat 7B running on my laptop (with the <a href="https://github.com/simonw/llm-mlc">llm-mlc</a> plugin), so I'm able to answer questions entirely offline using code running on my laptop.</p>
-<p>Running this:</p>
-  ./blog-answer.sh 'What is shot-scraper?'  
-<p>Outputs this:</p>
-<blockquote>
-<p>Shot-scraper is a Python utility that wraps Playwright, providing both a command line interface and a YAML-driven configuration flow for automating the process of taking screenshots of web pages and scraping data from them using JavaScript. It can be used to take one-off screenshots or take multiple screenshots in a repeatable way by defining them in a YAML file. Additionally, it can be used to execute JavaScript on a page and return the resulting value.</p>
-</blockquote>
-<p>That's a really good description of my <a href="https://shot-scraper.datasette.io/">shot-scraper</a> tool. I checked and none of that output is an exact match to content I had previously published on my blog.</p>
- Q&amp;A 
-<p>My talk ended with a Q&amp;A session. Here are the summarized questions and answers.</p>
- 
- 
-<p>How does LangChain fit into this?</p>
-<p><a href="https://www.langchain.com/">LangChain</a> is a popular framework for implementing features on top of LLMs. It covers a lot of ground - my only problem with LangChain is that you have to invest a lot of work in understanding how it works and what it can do for you. Retrieval Augmented Generation is one of the key features of LangChain, so a lot of the things I've shown you today could be built on top of LangChain if you invest the effort.</p>
-<p>My philosophy around this stuff differs from LangChain in that I'm focusing on building a suite of small tools that can work together, as opposed to a single framework that solves everything in one go.</p>
- 
- 
-<p>Have you tried distance functions other than cosine similarity?</p>
-<p>I have not. Cosine similarity is the default function that everyone else seems to be using and I've not spent any time yet exploring other options.</p>
-<p>I actually got ChatGPT to write all of my different versions of cosine similarity, across both Python and JavaScript!</p>
-<p>A fascinating thing about RAG is that it has so many different knobs that you can tweak. You can try different distance functions, different embedding models, different prompting strategies and different LLMs. There's a lot of scope for experimentation here.</p>
- 
- 
-<p>What do you need to adjust if you have 1 billion objects?</p>
-<p>The demos I've shown today have all been on the small side - up to around 20,000 embeddings. This is small enough that you can run brute force cosine similarity functions against everything and get back results in a reasonable amount of time.</p>
-<p>If you're dealing with more data there are a growing number of options that can help.</p>
-<p>Lots of startups are launching new "vector databases" - which are effectively databases that are custom built to answer nearest-neighbour queries against vectors as quickly as possible.</p>
-<p>I'm not convinced you need an entirely new database for this: I'm more excited about adding custom indexes to existing databases. For example, SQLite has <a href="https://github.com/asg017/sqlite-vss">sqlite-vss</a> and PostgreSQL has <a href="https://github.com/pgvector/pgvector">pgvector</a>.</p>
-<p>I've also done some successful experiments with Facebook's <a href="https://github.com/facebookresearch/faiss">FAISS</a> library, including building a Datasette plugin that uses it called <a href="https://datasette.io/plugins/datasette-faiss">datasette-faiss</a>.</p>
- 
- 
-<p>What improvements to embedding models are you excited to see?</p>
-<p>I'm really excited about multi-modal models. CLIP is a great example, but I've also been experimenting with Facebook's <a href="https://github.com/facebookresearch/ImageBind">ImageBind</a>, which "learns a joint embedding across six different modalities - images, text, audio, depth, thermal, and IMU data." It looks like we can go a lot further than just images and text!</p>
-<p>I also like the trend of these models getting smaller. I demonstrated a new model, gtr-tiny, earlier which is just 60MB. Being able to run these things on constrained devices, or in the browser, is really exciting to me.</p>
- 
- 
- Further reading 
-<p>If you want to dive more into the low-level details of how embeddings work, I suggest the following:</p>
- 
- <a href="https://vickiboykis.com/what_are_embeddings/">What are embeddings?</a> by Vicki Boykis 
- <a href="https://txt.cohere.com/text-embeddings/">Text Embeddings Visually Explained</a> by Meor Amer for Cohere 
- <a href="https://projector.tensorflow.org/">The Tensorflow Embedding Projector</a> - an interactive tool for exploring embedding spaces 
- <a href="https://www.pinecone.io/learn/">Learn to Love Working with Vector Embeddings</a> is a collection of tutorials from vector database vendor Pinecone 
- 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2023/embeddings/embeddings.002.jpeg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:36 &bull;
    21 days ago
 </div>
 
@@ -11641,7 +11406,7 @@ llm cluster llm-issues 10
 
 <div class='item-footer'>
    18:34 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12146,7 +11911,7 @@ llm cluster llm-issues 10
 
 <div class='item-footer'>
    14:04 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13154,7 +12919,7 @@ experiment with at the moment.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    02:24 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20343,324 +20108,6 @@ rather work with some people smarter or more talented or something else, but it 
 
 <div class='item-footer'>
    15:41 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 21. August 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/08/21/asp-net-core-logging-using-serilog-and-azure/'>ASP.NET Core Logging using Serilog and Azure</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to implement logging in an ASP.NET Core application using Serilog and Azure as a hosting environment. Code: https://github.com/damienbod/aspnetcore-azure-logging Priority logging use cases Two types of default logging use cases need to be supported in most software solutions. The application requires near real time logs which can be easily viewed and persisted […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to implement logging in an ASP.NET Core application using Serilog and Azure as a hosting environment. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/aspnetcore-azure-logging">https://github.com/damienbod/aspnetcore-azure-logging</a></p>
-
-
-
- Priority logging use cases 
-
-
-
-<p>Two types of default logging use cases need to be supported in most software solutions. The application requires near real time logs which can be easily viewed and persisted logs for a period of time which can be viewed after something goes wrong. This needs to work in development and also in production. We have many other logging use cases as well, I just want to cover the basic logging requirements here.</p>
-
-
-
- 
- Real time logging development 
-
-
-
- Real time logging production 
-
-
-
- Persisted logging development 
-
-
-
- Persisted logging production 
- 
-
-
-
-<p>In this setup, I use Azure App Insights for persisted logging on the production server. This has the problem that the logs only appear after n-minutes. A near real view is also required.</p>
-
-
-
- Setup 
-
-
-
-<p>The ASP.NET Core application is deployed to an Azure App Service (Linux hosted). I like to use this as it is simple and scales good with web applications. I use Serilog to add logging to my ASP.NET Core applications and add different sinks depending on the hosted environments of the dev, test, prod etc.</p>
-
-
-
-<p>The following Nuget packages are used to setup the logging in this use case.</p>
-
-
-  Serilog.AspNetCore
-Serilog.Enrichers.Environment
-Serilog.Enrichers.Thread
-Serilog.Sinks.Async
-Serilog.Sinks.ApplicationInsights
-Serilog.Sinks.AzureApp
-  
-
-
-<p>The program file of the ASP.NET Core application is used to initialize the logging. I use just one configuration for both dev and production in this example. I normally use different configurations pro hosted environment. The Serilog is setup using the CreateBootstrapLogger and the UseSerilog methods. The UseSerilog reads the sinks and logging setup from a configuration file, or files if separated per environment.</p>
-
-
-  using Serilog;
-using AspNetCoreAzureLogging;
-
-Log.Logger = new LoggerConfiguration()
-    .WriteTo.Console()
-    .WriteTo.AzureApp()
-    .CreateBootstrapLogger();
-
-Log.Information("Starting AspNetCoreAzureLogging application");
-
-try
-{
-    var builder = WebApplication.CreateBuilder(args);
-
-    builder.Host.UseSerilog((context, loggerConfiguration) =&gt; loggerConfiguration
-        .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level}] {SourceContext}{NewLine}{Message:lj}{NewLine}{Exception}{NewLine}")
-        .ReadFrom.Configuration(context.Configuration));
-
-    // ... Add here:
-	// define your services and pipelines
-
-    app.Run();
-}
-catch (Exception ex) when (ex.GetType().Name is not "StopTheHostException" &amp;&amp; ex.GetType().Name is not "HostAbortedException")
-{
-    Log.Fatal(ex, "Unhandled exception");
-}
-finally
-{
-    Log.Information("Shut down complete");
-    Log.CloseAndFlush();
-}
-  
-
-
-<p>The Serilog configuration adds the Azure and file based setup. The console or the file are used for local development, the Azure App Insights is used for the persisted logs on Azure. Depending on what services you deploy, the near real time logging is setup differently. </p>
-
-
-  "Serilog": {
-    "Using": [ "Serilog.Sinks.AzureApp", "Serilog.Sinks.ApplicationInsights" ],
-    "MinimumLevel": {
-      "Default": "Debug",
-      "Override": {
-        "Microsoft": "Debug",
-        "System": "Debug"
-      }
-    },
-    "Enrich": [ "FromLogContext", "WithMachineName", "WithThreadId" ],
-    "WriteTo": [
-      {
-        "Name": "AzureApp"
-      },
-      {
-        "Name": "ApplicationInsights",
-        "Args": {
-          "telemetryConverter": "Serilog.Sinks.ApplicationInsights.TelemetryConverters.TraceTelemetryConverter, Serilog.Sinks.ApplicationInsights"
-        }
-      },
-      {
-        "Name": "File",
-        "Args": {
-          "path": "../_logs-uifile.txt",
-          "outputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level}] [{SourceContext}] [{EventId}] {Message}{NewLine}{Exception}",
-          "rollOnFileSizeLimit": true,
-          "fileSizeLimitBytes": 4194304,
-          "retainedFileCountLimit": 5
-        }
-      }
-    ]
-},
-  
-
-
-<p></p>
-
-
-
- Logging to App Insights 
-
-
-
-<p>App Insights need to be enabled for the Azure App Service which uses a Linux hosting plan. This can be created with it enabled, or you can use the portal to enable this.</p>
-
-
-
-<p>Note: this can all be setup using IaC like terraform or whatever tools you use.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The App Insights can be opened and the exceptions or the traces can be viewed in the Logs tab.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>You can use KDL to view the traces or the exceptions from the application logs. </p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Near real time logging App Service 
-
-
-
-<p>Azure App Insights logs do not appear for n-minutes. Due to this, sometimes you need to enable near real time logs to debug a bug on Azure deployments. This can be done using the Azure Service Logs blade. Enable the File System logs.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>The log stream can be used to view thenear real time logs view.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>On a development system, I use the log files or the console to debug the application. I do not use App Insights in the development environment if this can be avoided as it adds complexity and delays in development.</p>
-
-
-
- Notes 
-
-
-
-<p>This just covers the two default logging requirements which can be used for development and production. There are many other logging features which can be implemented and monitored but these two basic ones should always be supported and working in all solutions. You can also use logging solutions like Seq server or Elasticsearch, main thing is to use one.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/aspnet/core/fundamentals/logging">https://learn.microsoft.com/en-us/aspnet/core/fundamentals/logging</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/azure-monitor/app/ilogger">https://learn.microsoft.com/en-us/azure/azure-monitor/app/ilogger</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/azure/azure-monitor/app/tutorial-asp-net-core">https://learn.microsoft.com/en-us/azure/azure-monitor/app/tutorial-asp-net-core</a></p>
-
-
-
-<p><a href="https://serilog.net/">https://serilog.net/</a></p>
-
-
-
-<p><a href="https://github.com/serilog/serilog">https://github.com/serilog/serilog</a></p>
-
-
-
-<p></p><blockquote><a href="https://jonathancrozier.com/blog/learning-the-kusto-query-language-with-application-insights-logs">Learning the Kusto Query Language (KQL) with Application Insights Logs</a></blockquote><p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2023/08/aspnetcore-logging-azure_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:09 &bull;
    3 months ago
 </div>
 
