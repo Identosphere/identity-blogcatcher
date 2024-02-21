@@ -706,7 +706,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:46 AM February 20, 2024 (UTC)</sup>
+<sup>Last Update 6:44 AM February 21, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -719,6 +719,743 @@
  <h2 class='new-date'>
   Tuesday, 20. February 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://justatheory.com'>Just a Theory</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://justatheory.com/2024/02/extension-metadata-typology/'>RFC: Extension Metadata Typology</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Thinking through the PostgreSQL extension metadata use cases and
+recognizing the types of information they need.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ 
+         
+<p>Lately I’ve been thinking a lot about metadata for Postgres extensions.
+Traditional use cases include <a href="https://www.postgresql.org/docs/current/extend-extensions.html#EXTEND-EXTENSIONS-FILES" title="PostgreSQL Docs: Extension Files">control file metadata</a>, which lives in
+<code>.control</code> files used by <code>CREATE EXTENSION</code> and friends, and <a href="https://pgxn.org/spec/" title="PGXN Meta Spec - The PGXN distribution metadata specification">PGXN metadata</a>,
+which lives in <code>META.json</code> files used by <a href="https://pgxn.org" title="The postgreSQL Extension Network">PGXN</a> to index and publish extensions.
+But these two narrow use cases for SQL behavior and source code distribution
+don’t provide the information necessary to enable other use cases, including
+building, installing, configuration, and more.</p>
+<p>So I have also been exploring other metadata formats, including:</p>
+ 
+ <a href="https://go.dev/doc/modules/gomod-ref" title="go.mod file reference">Go <code>go.mod</code></a> 
+ <a href="https://doc.rust-lang.org/cargo/reference/manifest.html" title="The Cargo Book: The Manifest Format">Cargo Manifest File</a> 
+ <a href="https://docs.npmjs.com/cli/v6/configuring-npm/package-json" title="npm Docs: Specifics of npm's package.json handling">npm <code>package.json</code></a> 
+ <a href="https://github.com/tembo-io/trunk/tree/main/contrib"><code>trunk.toml</code></a> 
+ <a href="https://docs.pgxman.com/spec/buildkit">pgxman buildkit</a> 
+ 
+<p>These standards from neighboring communities reveal a great deal of overlap, as
+one might expect (everything has a name, a version, an author, license, and so
+on), but also types of metadata that had not occurred to me. As I took notes and
+gathered suggestions from colleagues and coworkers, I began to recognize natural
+groupings of metadata. This lead to the realization that it might be easier —
+and more productive — to think about these groupings rather than individual
+fields.</p>
+<p>I therefore propose a typology for Postgres extension metadata.</p>
+ Extension Metadata Typology 
+ Essentials 
+<p>Essential information about the extension itself, including its name (or unique
+package name), version, list of authors, license, etc. Pretty much every
+metadata format encompasses this data. Ecosystem applications use it for
+indexing, installation locations, naming conventions, and display information.</p>
+ Artifacts 
+<p>A list of links and checksums for downloading the extension in one or more
+formats, including source code, binaries, system packages, and more. Apps use
+this information to determine the best option for installing an extension on a
+particular system.</p>
+ Resources 
+<p>External information about the extension, mostly links, including source code
+repository, bug reporting, documentation, badges, funding, etc. Apps use this
+data for links, of course, but also full text indexing, documentation rendering,
+and displaying useful information about the extension.</p>
+ Contents 
+<p>A description of what’s included in the extension package. Often an “extension”
+consists of multiple extensions, such as <a href="http://postgis.net/">PostGIS</a>, which includes <code>postgis</code>,
+<code>postgis_tiger_geocoder</code>, <code>address_standardizer</code>, and more. Furthermore, some
+extensions are not <code>CREATE EXTENSION</code>-type extension at all, such as <a href="https://www.postgresql.org/docs/current/bgworker.html" title="PostgreSQL Docs: Background Worker Processes">background
+workers</a>, command-line apps, libraries, etc. Each should be listed along with
+documentation links where they differ from the package overall (or are simply
+more specific).</p>
+ Prerequisites 
+<p>A list of external dependencies required to configure, build, test, install, and
+run the extension. These include not only other extensions, but also external
+libraries and OS-specific lists of binary package dependencies. And let’s not
+forget the versions of Postgres required, as well as any OS and version
+dependencies (e.g, does it work on Windows? FreeBSD? What versions?) and
+architectures (<a href="https://en.wikipedia.org/wiki/AArch64" title="Wikipedia: AArch64">arm64</a>, <a href="https://en.wikipedia.org/wiki/amd64" title="Wikipedia: AMD64">amd64</a>, etc.)</p>
+ How to Build It 
+<p>Metadata that apps use to determine how to build the extension. Does it use the
+PostgreSQL <a href="https://www.postgresql.org/docs/current/extend-pgxs.html" title="PostgreSQL Docs: Extension Building Infrastructure">PGXS</a> build pipeline? Or perhaps it needs the <a href="https://github.com/pgcentralfoundation/pgrx/blob/develop/cargo-pgrx/README.md" title="pgrx: cargo-pgrx">cargo</a>-based <a href="https://github.com/pgcentralfoundation/pgrx" title="pgrx: Build Postgres Extensions with Rust!">pgrx</a>
+toolchain. Maybe a traditional <code>./configure &amp;&amp; make</code> pattern? Perl, Ruby,
+Python, Go, Rust, or NPM tooling? Whatever the pattern, this metadata needs to
+be sufficient for an ecosystem app to programmatically determine now to build
+and extension.</p>
+ How to Install It 
+<p>Usually an extension of the build metadata, the install metadata describes how
+to install the extension. That could be <a href="https://www.postgresql.org/docs/current/extend-pgxs.html" title="PostgreSQL Docs: Extension Building Infrastructure">PGXS</a> or <a href="https://github.com/pgcentralfoundation/pgrx" title="pgrx: Build Postgres Extensions with Rust!">pgrx</a> again, but could also
+use other patterns — or multiple patterns! For example, perhaps an extension
+can be built and installed with <a href="https://www.postgresql.org/docs/current/extend-pgxs.html" title="PostgreSQL Docs: Extension Building Infrastructure">PGXS</a>, but it might also be <a href="https://github.com/aws/pg_tle" title="pg_tle: Framework for building trusted language extensions for PostgreSQL">TLE</a>-safe, and
+therefore provide details for handing the SQL files off to a <a href="https://github.com/aws/pg_tle/blob/main/examples/README.md" title="TLE examples/pgtle.mk README">TLE installer</a>.</p>
+<p>This typology might include additional data, such as documentation files to
+install (<a href="https://en.wikipedia.org/wiki/Man_page" title="Wikipedia: Man page">man pages</a> anyone?), or directories of dependent files or libraries,
+and the like — whatever needs to be installed for the extension.</p>
+ How to Run It 
+<p>Not all Postgres extensions are <code>CREATE EXTENSION</code> extensions. Some provide
+<a href="https://www.postgresql.org/docs/current/bgworker.html" title="PostgreSQL Docs: Background Worker Processes">background workers</a> to perform various tasks; others simply provide Utility
+applications like <a href="https://pg_top.gitlab.io" title="Welcome to the PostgreSQL top Project Home Page">pg_top</a> and <a href="https://reorg.github.io/pg_repack/" title="pg_repack --- Reorganize tables in PostgreSQL databases with minimal locks">pg_repack</a>. In fact <a href="https://reorg.github.io/pg_repack/" title="pg_repack --- Reorganize tables in PostgreSQL databases with minimal locks">pg_repack</a> provides both
+a command-line application and a <code>CREATE EXTENSION</code> extension in one package!</p>
+<p>This metadata also provides configuration information, both <a href="https://www.postgresql.org/docs/current/extend-extensions.html#EXTEND-EXTENSIONS-FILES" title="PostgreSQL Docs: Extension Files">control file
+parameters</a> like <code>trusted</code>, <code>superuser</code>, and <code>schema</code>, but also load
+configuration information, like whether an extension needs its libraries
+included in <a href="https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-SHARED-PRELOAD-LIBRARIES" title="PostgreSQL Docs: shared_preload_libraries"><code>shared_preload_libraries</code></a> to enable <a href="https://www.postgresql.org/docs/current/sql-load.html" title="PostgreSQL Docs: LOAD"><code>LOAD</code></a> or requires a
+cluster restart. (Arguably this information should be in the “install” typology
+rather than “run”.)</p>
+ Classification 
+<p>Classification metadata lets the extension developer associate additional
+information to improve discovery, such as key words. It might also allow
+selections from a curated list of extension classifications, such as the
+<a href="https://crates.io/category_slugs" title="crates.io: All Valid Category Slugs">category slugs</a> supported for the <a href="https://doc.rust-lang.org/cargo/reference/manifest.html#the-categories-field" title="The Cargo Book: The Manifest Format --- Categories">cargo categories field</a>. Ecosystem apps use
+this data to organize extensions under key words or categories, making it easier
+for users to find extensions often used together or for various workloads or
+tasks.</p>
+ Metrics and Reports 
+<p>This final typology differs from the others in that its metadata derives from
+third party sources rather than the extension developer. It includes data such
+as number of downloads, build and test status on various Postgres/OS/version
+combinations, binary packaging distributions, test coverage, security scan
+results, vulnerability detection, quality metrics and user ratings, and more.</p>
+<p>In the broader ecosystem, it would be the responsibility of the root registry to
+ensure such data in the canonical data for each extension comes only from
+trusted sources, although applications downstream of the root registry might
+extend metrics and reports metadata with their own information.</p>
+ What More? 
+<p>Reading through various metadata standards, I suspect this typology is fairly
+comprehensive, but I’m usually mistaken about such things. What other types of
+metadata do you find essential for the use cases you’re familiar with? Do they
+fit one of the types here, or do they require some other typology I’ve failed to
+imagine? Hit the <a href="https://postgresteam.slack.com/archives/C056ZA93H1A" title="Postgres Slack/#extensions: Extensions and extension-related accessories">#extensions</a> channel on the <a href="https://pgtreats.info/slack-invite" title="Join the Postgres Slack">Postgres Slack</a> to contribute to
+the discussion, or give me a holler <a href="https://xoxo.zone/@theory" title="@theory@xoxo.zone">on Mastodon</a>.</p>
+<p>Meanwhile, I’ll be refining this typology and assigning all the metadata fields
+to them in the coming weeks, with an eye to proposing a community-wide metadata
+standard. I hope it will benefit us all; your input will ensure it does.</p>
+
+         
+
+         
+             More about… 
+             
+                 <a href="https://justatheory.com/tags/postgres/">Postgres</a> 
+                 <a href="https://justatheory.com/tags/extensions/">Extensions</a> 
+                 <a href="https://justatheory.com/tags/metadata/">Metadata</a> 
+                 <a href="https://justatheory.com/tags/classification/">Classification</a> 
+                 <a href="https://justatheory.com/tags/categories/">Categories</a> 
+                 <a href="https://justatheory.com/tags/rfc/">RFC</a> 
+             
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:26 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://john.philpin.com/2024/02/21/someone-will-be.html'>052/366 | 🎩 Someone Will Be Unhappy Today</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  
+ « 051/366 | 053/366 » 
+
+
+  
+’Lost Hat' By 'Me'
+
+ Someone is going to be unhappy this morning. 🥺 
+  
+
+
+
+
+This is one of 366 daily posts that are planned to appear throughout the year of 2024. More context will follow.
+
+ 📡 Follow with RSS 
+ 🗄️ All the posts 
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://john.philpin.com/uploads/2024/1921a085aa.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+
+<p>« <a>051/366</a> | <a>053/366</a> »</p>
+
+
+<p></p>
+’Lost Hat' By 'Me'
+
+<p>Someone is going to be unhappy this morning. 🥺</p>
+<p></p>
+
+
+
+
+This is one of 366 daily posts that are planned to appear throughout the year of 2024. More context will follow.
+
+<p><a href="https://john.philpin.com/categories/366/feed.xml">📡 Follow with RSS</a></p>
+<p><a href="https://john.philpin.com/categories/366">🗄️ All the posts</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://john.philpin.com/uploads/2024/1921a085aa.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:45 &bull;
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Feb/20/lets-build-the-gpt-tokenizer/#atom-everything'>Let's build the GPT Tokenizer</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Let's build the GPT Tokenizer 
+ When Andrej Karpathy left OpenAI last week a lot of people expressed hope that he would be increasing his output of educational YouTube videos. 
+
+ Here's an in-depth 2 hour dive into how tokenizers work and how to build one from scratch, published this morning. 
+
+ The section towards the end, "revisiting and explaining the quirks of LLM tokenization", helps explain 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://www.youtube.com/watch?v=zduSFxRajkE">Let's build the GPT Tokenizer</a></p>
+<p>When Andrej Karpathy left OpenAI last week a lot of people expressed hope that he would be increasing his output of educational YouTube videos.</p>
+
+<p>Here's an in-depth 2 hour dive into how tokenizers work and how to build one from scratch, published this morning.</p>
+
+<p>The section towards the end, "revisiting and explaining the quirks of LLM tokenization", helps explain a number of different LLM weaknesses - inability to reverse strings, confusion over arithmetic and even a note on why YAML can work better than JSON when providing data to LLMs (the same data can be represented in less tokens).</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:02 &bull;
+   13 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Feb/20/yishan-wong/#atom-everything'>Quoting Yishan Wong</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    In 2006, reddit was sold to Conde Nast. It was soon obvious to many that the sale had been premature, the site was unmanaged and under-resourced under the old-media giant who simply didn't understand it and could never realize its full potential, so the founders and their allies in Y-Combinator (where reddit had been born) hatched an audacious plan to re-extract reddit from the clutches of the 10
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <blockquote cite="https://old.reddit.com/r/AskReddit/comments/3cs78i/whats_the_best_long_con_you_ever_pulled/cszjqg2/"><p>In 2006, reddit was sold to Conde Nast. It was soon obvious to many that the sale had been premature, the site was unmanaged and under-resourced under the old-media giant who simply didn't understand it and could never realize its full potential, so the founders and their allies in Y-Combinator (where reddit had been born) hatched an audacious plan to re-extract reddit from the clutches of the 100-year-old media conglomerate. [...]</p></blockquote><p>— <a href="https://old.reddit.com/r/AskReddit/comments/3cs78i/whats_the_best_long_con_you_ever_pulled/cszjqg2/">Yishan Wong</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:23 &bull;
+   14 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://reutersinstitute.politics.ox.ac.uk/news/new-york-times-publisher-g-sulzberger-our-industry-needs-think-bigger'>New York Times publisher A. G. Sulzberger: “Our industry needs to think bigger”</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+ I'm pretty critical of the NYT's coverage these days - I wish they'd do much better on trans issues and on being more critical on America's involvement in global conflicts - but this is a fascinating, illuminating interview.  It's honestly very refreshing to see news organizations pull back and think carefully about forging their own future, in a way that partners with tech pla
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+<p>I'm pretty critical of the NYT's coverage these days - I wish they'd do much better on trans issues and on being more critical on America's involvement in global conflicts - but this is a fascinating, illuminating interview.</p><p>It's honestly very refreshing to see news organizations pull back and think carefully about forging their own future, in a way that partners with tech platforms but isn't beholden to them.</p><p>Two pull quotes:</p><p>"I’d say that our industry is still thinking too small, and I think that’s fair: we've been absolutely battered for 20 years. But I think our industry needs to think bigger. [...] I don’t think that our industry can or should accept that we are going to collectively be smaller than an eighth-grade streamer."</p><p>"We are going to meet our readers first off-platform. But we now know [tech companies] are powerful companies. They dominate the flow of traffic and engagement in the digital world. You need to be on them, and to find ways to partner with them, but your interests are not aligned. You should be clear-eyed on that, treat this as a professional partnership and make sure it meets clearly articulated standards." <a href="https://werd.io/tag/Media">#Media</a></p>            <p>[<a href="https://reutersinstitute.politics.ox.ac.uk/news/new-york-times-publisher-g-sulzberger-our-industry-needs-think-bigger">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:18 &bull;
+   14 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://insidegovuk.blog.gov.uk/2024/02/19/updating-gov-uks-crown/'>Updating GOV.UK’s crown</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ A glimpse into a surprising design problem created by constitutional monarchy: the need to update the crown in your logo when a new King has taken the throne. 
+
+ "On each accession, the monarch will choose a Royal Cypher, or symbol to represent their personal authority. You can see the Royal Cypher in many places, for example post boxes, on police and military uniforms or on t
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>A glimpse into a surprising design problem created by constitutional monarchy: the need to update the crown in your logo when a new King has taken the throne.</p>
+
+<p>"On each accession, the monarch will choose a Royal Cypher, or symbol to represent their personal authority. You can see the Royal Cypher in many places, for example post boxes, on police and military uniforms or on the side of official buildings."</p>
+
+<p>The longer I've been away from the UK, the more surreal this kind of thing has become. I will say, though, that the new crown looks a little less like a loaf of bread that's collapsed in the oven, so there's something a bit pleasing about that.  <a href="https://werd.io/tag/Technology">#Technology</a></p>
+            <p>[<a href="https://insidegovuk.blog.gov.uk/2024/02/19/updating-gov-uks-crown/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:37 &bull;
+   15 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/stop-what-youre-doing-and-watch-breaking-the-news'>Stop what you're doing and watch Breaking the News</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+   Breaking the News, the documentary about The 19th, aired on PBS last night and is available to watch for free on YouTube for the next 90 days.  It’s both a film about the news industry and about startups: a team’s journey to show that journalism can and should be published with a more representative lens. It’s also not a puff piece: real, genuine struggles are covered here, which speak to larg
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://werd.io/file/65d4ba557497d1add408d452/thumb.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+<p><a href="https://19thnews.org/2024/02/how-to-watch-breaking-the-news-documentary-pbs/"></a></p><p><a href="https://www.breakingthenewsfilm.com/">Breaking the News</a>, the documentary about <a href="https://19thnews.org">The 19th</a>, <a href="https://www.pbs.org/independentlens/documentaries/breaking-the-news/">aired on PBS last night</a> and is <a href="https://www.youtube.com/watch?v=yAF8Ebkee_I">available to watch for free on YouTube for the next 90 days</a>.</p><p>It’s both a film about the news industry and about startups: a team’s journey to show that journalism can and should be published with a more representative lens. It’s also not a puff piece: real, genuine struggles are covered here, which speak to larger conversations about race and gender that everyone needs to be having.</p><p>I worked with The 19th for a period that mostly sits directly after this film. My chin — yes, just my chin — shows up for a fraction of a second, but otherwise I’m not in it. My association with it is not why I’m recommending that you watch it.</p><p>The 19th is not a perfect workplace, in part because no such workplace exists. It has struggles like any other organization. But there was a thoughtfulness about culture and how work gets done that I’ve rarely seen elsewhere. Some of those policies were developed in direct response to workplace cultures that are prevalent in newsrooms, including narrow leadership demographics, hierarchical communication, a focus on work product rather than work process, and lack of goal-setting.</p><p>My experience was privileged, in part because of my position in the senior leadership team, but for me it was a breath of fresh air. There aren’t many places where I’ve felt calmer at work. Some of that is because of the early conversations and hard work that were captured on film here.</p><p>From the synopsis:</p><blockquote><p>Who decides which stories get told? A scrappy group of women and LGBTQ+ journalists buck the white male-dominated status quo, banding together to launch The 19th*, a digital news startup aiming to combat misinformation. A story of an America in flux, and the voices often left out of the narrative, the documentary Breaking the News shows change doesn’t come easy.</p></blockquote><p><a href="https://www.youtube.com/watch?v=yAF8Ebkee_I">You can watch the whole documentary for free here.</a> And if you haven’t yet, <a href="https://19thnews.org">go subscribe to The 19th over on its website</a>.</p> 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://werd.io/file/65d4ba557497d1add408d452/thumb.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:42 &bull;
+   16 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.patrick-breyer.de/'>Patrick Breyer</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.patrick-breyer.de/oeffentliches-going-dark-treffen-piraten-fordern-aufloesung-der-undemokratischen-ueberwachungsschmiede/'>Öffentliches »Going Dark« Treffen: Piraten fordern Auflösung der undemokratischen Überwachungsschmiede</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Die EU-Arbeitsgruppe für den Zugang zu Daten für eine wirksame Strafverfolgung, auch #EUGoingDark-Gruppe genannt, lädt Nicht-Regierungsorganisationen heute zu einem öffentlichen Konsultationstreffen ein. Neu veröffentlichte Dokumente bestätigen die Kritik des Europaabgeordneten … 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Die <a href="https://home-affairs.ec.europa.eu/networks/high-level-group-hlg-access-data-effective-law-enforcement_en#meetings">EU-Arbeitsgruppe für den Zugang zu Daten für eine wirksame Strafverfolgung</a>, auch #EUGoingDark-Gruppe genannt, lädt Nicht-Regierungsorganisationen heute zu einem öffentlichen Konsultationstreffen ein. Neu veröffentlichte Dokumente bestätigen die Kritik des Europaabgeordneten Dr. Patrick Breyer an der Gruppe (Piratenpartei / Grüne/EFA):</p>
+
+
+
+<blockquote>
+<p>„Die #EUGoingDark-Anti-Verschlüsselungsgruppe gehört aufgelöst! Ich habe auf <a href="https://fragdenstaat.de/a/293180">meine neueste Anfrage</a> nach Dokumenten das Eingeständnis erhalten, dass sich diese Gruppe als „ersten Schritt im Vorbereitungsprozess möglicher Legislativvorschläge“ versteht (<a href="https://fragdenstaat.de/anfrage/meetings-of-the-hleg-on-access-to-data-for-effective-law-enforcement/865979/anhang/reply-2023-6977_geschwaerzt.pdf">PDF</a>, eigene Übersetzung). Damit ist klar, dass hier undemokratische Vorverhandlungen geführt werden unter anderem zur Wiedereinführung der höchstgerichtlich gestoppten Vorratsdatenspeicherung, gegen Verschlüsselung und zur Einführung des <a href="https://www.patrick-breyer.de/eu-anti-verschluesselungs-expertengruppe-will-ueberwachungszugang-by-design/">»Security by Design«-Konzepts</a>, das besser „Surveillance by Design“ heißen sollte. Undemokratisch ist die Gruppe, weil NGOs und Wissenschaftler*innen daran gehindert werden, auf Augenhöhe mitzuarbeiten. Wie soll Beteiligung funktionieren, wenn NGOs weder Zugang zu den eigentlichen Treffen der Arbeits- und Unterarbeitsgruppen, zu den anderen <a href="https://digitalcourage.social/@echo_pbreyer/111499644713378703">Teilnehmenden</a> noch zu den Arbeitsdokumenten haben und dementsprechend davon auszugehen ist, dass ihre Punkte keine Chance haben, das Endergebnis ihn ihrem Sinne mitzugestalten?</p>
+</blockquote>
+
+
+
+<p>Europäische und US-amerikanische Polizeien schmieden so hinter verschlossenen Türen Pläne für mehr Überwachung. Belgien etwa präsentierte sein <a href="https://www.patrick-breyer.de/gezielte-vorratsdatenspeicherung-in-belgien-was-unsere-karte-zeigt/">EU-rechtswidriges Gesetz zur flächendeckenden Vorratsdatenspeicherung</a> als vorbildlich (<a href="https://fragdenstaat.de/anfrage/meetings-of-the-hleg-on-access-to-data-for-effective-law-enforcement/865979/anhang/2ndplenarypresentation4.pdf">PDF</a>) und verbreitet die falsche Behauptung, dass ohne Vorratsdatenspeicherung Maßnahmen eingesetzt werden müssten, die noch tiefer in die Privatsphäre der Bürgerinnen und Bürger eingreifen. NGOs wurden erst nach <a href="https://netzpolitik.org/2023/eu-beraet-ueber-going-dark-hinter-verschlossenen-tueren/">öffentlichem Druck</a> zu einem separaten Treffen eingeladen, um sie von dem Tisch, an dem die Legislativvorschläge entstehen, fern zu halten.</p>
+
+
+
+<p>Die Ergebnisse der #EUGoingDark-Gruppe, die bereits Mitte 2024 vorgelegt werden sollen, entstehen undemokratisch, intransparent und politisch willkürlich. Darum können sie weder als Legislativ- noch als Strategievorschläge verwendet werden. Da die #EUGoingDark-Gruppe mit ihrer Arbeitsweise kein nutzbares Ergebnis erreichen kann, gehört diese Gruppe aufgelöst. Kopf aus dem Sand, Frau Faeser und Herr Buschmann – übernehmen Sie!“</p>
+
+
+
+<p>Anja Hirschel, Spitzenkandidatin der Piratenpartei für die Europawahl 2024, kommentiert:</p>
+
+
+
+<blockquote>
+<p>„Bereits die Besetzung, insbesondere auch der Ausschluss von NGOs, zeigt klar, welche Eingriffe in die digitalen Freiheiten auf die Bürgerinnen und Bürger hier zukommen sollen: Ein noch tiefergehender und leichterer Zugriff auf unsere Daten. Jeglicher bisher privater Bereich soll durchleuchtet werden können. Und das ausgerechnet durch eine Arbeitsgruppe, die höchst eigene Interessen an diesen Daten hat und zudem für die Vorbereitungen selbst das Licht der Öffentlichkeit gemieden hat. Statt den nächsten Schritt hin zum gläsernen Bürger brauchen wir transparentere EU-Politik!“</p>
+</blockquote>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   11:13 &bull;
+   20 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -777,7 +1514,7 @@
 
 <div class='item-footer'>
    05:40 &bull;
-   an hour ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -863,7 +1600,7 @@
 
 <div class='item-footer'>
    01:21 &bull;
-   5 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -925,7 +1662,7 @@
 
 <div class='item-footer'>
    01:15 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1003,7 +1740,7 @@ BUT - for it to work - you need to authorize it from any device you have that is
 
 <div class='item-footer'>
    22:27 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1074,7 +1811,7 @@ Prompt: “Many different conferences and meetings happening all at once in diff
 
 <div class='item-footer'>
    20:55 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1138,7 +1875,7 @@ Prompt: “Many different conferences and meetings happening all at once in diff
 
 <div class='item-footer'>
    18:39 &bull;
-   12 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1226,7 +1963,7 @@ Prompt: “Many different conferences and meetings happening all at once in diff
 
 <div class='item-footer'>
    18:09 &bull;
-   13 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1310,7 +2047,7 @@ Prompt: “Many different conferences and meetings happening all at once in diff
 
 <div class='item-footer'>
    16:01 &bull;
-   15 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1374,7 +2111,7 @@ Prompt: “Many different conferences and meetings happening all at once in diff
 
 <div class='item-footer'>
    15:57 &bull;
-   15 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1453,7 +2190,7 @@ Prompt: “Many different conferences and meetings happening all at once in diff
 
 <div class='item-footer'>
    14:49 &bull;
-   16 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1530,7 +2267,7 @@ Prompt: “Many different conferences and meetings happening all at once in diff
 
 <div class='item-footer'>
    14:27 &bull;
-   16 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1802,7 +2539,7 @@ public class NonceMiddleware
 
 <div class='item-footer'>
    07:09 &bull;
-   24 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1879,7 +2616,7 @@ public class NonceMiddleware
 
 <div class='item-footer'>
    03:09 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1953,7 +2690,7 @@ public class NonceMiddleware
 
 <div class='item-footer'>
    00:20 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2037,7 +2774,7 @@ public class NonceMiddleware
 
 <div class='item-footer'>
    20:38 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2102,7 +2839,7 @@ public class NonceMiddleware
 
 <div class='item-footer'>
    19:08 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2172,7 +2909,7 @@ public class NonceMiddleware
 
 <div class='item-footer'>
    05:10 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2242,7 +2979,7 @@ public class NonceMiddleware
 
 <div class='item-footer'>
    03:49 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2320,7 +3057,7 @@ public class NonceMiddleware
 
 <div class='item-footer'>
    03:31 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2397,7 +3134,7 @@ public class NonceMiddleware
 
 <div class='item-footer'>
    00:40 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2516,7 +3253,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    21:37 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2597,7 +3334,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    21:16 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2676,7 +3413,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    17:08 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2736,7 +3473,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    16:50 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2806,7 +3543,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    01:42 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2878,7 +3615,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    23:20 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2955,7 +3692,7 @@ On April 4, 1968, when I learned with the rest of the world that <a href="https:
 
 <div class='item-footer'>
    22:54 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3100,7 +3837,7 @@ and Access Management field in the near future. Time will tell.</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3180,7 +3917,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    21:20 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3245,7 +3982,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    20:26 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3315,7 +4052,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    18:19 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3383,7 +4120,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    16:19 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3447,7 +4184,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    15:51 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3535,7 +4272,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    08:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3614,7 +4351,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    02:41 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3681,7 +4418,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    20:12 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3763,7 +4500,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    19:57 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3846,7 +4583,7 @@ Chris Locke found this on the Web in early 1999, and it became the main image on
 
 <div class='item-footer'>
    19:13 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3949,7 +4686,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    17:15 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4015,7 +4752,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    16:26 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4083,7 +4820,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    16:17 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4167,7 +4904,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    11:08 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4241,7 +4978,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    04:19 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4311,7 +5048,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    01:46 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4378,7 +5115,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    18:31 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4446,7 +5183,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    17:53 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4523,7 +5260,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    14:50 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4607,7 +5344,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    10:37 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4683,7 +5420,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    04:33 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4749,7 +5486,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    04:28 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4825,7 +5562,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    19:51 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4890,7 +5627,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    18:07 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4964,7 +5701,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    17:57 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5024,7 +5761,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    17:20 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5092,7 +5829,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    17:14 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5169,7 +5906,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    16:17 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5241,7 +5978,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    16:06 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5333,7 +6070,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    09:51 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5405,7 +6142,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    04:22 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5469,7 +6206,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    02:07 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5539,7 +6276,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    00:36 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5606,7 +6343,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    20:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5670,7 +6407,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    14:46 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5751,7 +6488,7 @@ Once you get the hang of writing these tests, it’s mostly boilerplate, so I fi
 
 <div class='item-footer'>
    14:39 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6074,7 +6811,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    07:09 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6138,7 +6875,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    05:18 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6212,7 +6949,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    04:36 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6278,7 +7015,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    22:59 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6343,7 +7080,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    18:27 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6420,7 +7157,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    17:13 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6496,7 +7233,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    16:22 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6581,79 +7318,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    16:21 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Feb/11/pyenv-and-pyenv-virtualenvwrap/#atom-everything'>Python Development on macOS Notes: pyenv and pyenv-virtualenvwrapper</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Python Development on macOS Notes: pyenv and pyenv-virtualenvwrapper 
- Jeff Triplett shares the recipe he uses for working with pyenv (initially installed via Homebrew) on macOS. 
-
- I really need to start habitually using this. The benefit of pyenv over Homebrew's default Python is that pyenv managed Python versions are forever - your projects won't suddenly stop working in the future when Homebre
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://micro.webology.dev/2024/02/10/python-development-on.html">Python Development on macOS Notes: pyenv and pyenv-virtualenvwrapper</a></p>
-<p>Jeff Triplett shares the recipe he uses for working with pyenv (initially installed via Homebrew) on macOS.</p>
-
-<p>I really need to start habitually using this. The benefit of pyenv over Homebrew's default Python is that pyenv managed Python versions are forever - your projects won't suddenly stop working in the future when Homebrew changes its default Python version.</p>
-
-    <p>Via <a href="https://mastodon.social/@webology/111910393723844038">@webology</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:41 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6720,7 +7385,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    18:16 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6797,7 +7462,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    17:45 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6872,7 +7537,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    17:23 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6940,7 +7605,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    15:55 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7005,77 +7670,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    08:40 &bull;
-   10 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Feb/10/rye-added-support-for-marking-virtualenvs-ignored-for-cloud-sync/#atom-everything'>Rye: Added support for marking virtualenvs ignored for cloud sync</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Rye: Added support for marking virtualenvs ignored for cloud sync 
- A neat feature in the new Rye 0.22.0 release. It works by using an xattr Rust crate to set the attributes "com.dropbox.ignored" and "com.apple.fileprovider.ignore#P" on the folder. 
-
-     Via Rye 0.22.0 release notes 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://github.com/mitsuhiko/rye/pull/589">Rye: Added support for marking virtualenvs ignored for cloud sync</a></p>
-<p>A neat feature in the new Rye 0.22.0 release. It works by using an xattr Rust crate to set the attributes "com.dropbox.ignored" and "com.apple.fileprovider.ignore#P" on the folder.</p>
-
-    <p>Via <a href="https://github.com/mitsuhiko/rye/releases/tag/0.22.0">Rye 0.22.0 release notes</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:50 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7156,7 +7751,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    16:56 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7226,7 +7821,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    14:28 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7303,7 +7898,7 @@ public class BlobDelegatedDownloadProvider
 
 <div class='item-footer'>
    03:11 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7413,7 +8008,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    16:21 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7497,7 +8092,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    12:12 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7621,7 +8216,7 @@ Jennifer has governance experience in the United Kingdom and New Zealand, includ
 
 <div class='item-footer'>
    11:38 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7702,7 +8297,7 @@ Jennifer has governance experience in the United Kingdom and New Zealand, includ
 
 <div class='item-footer'>
    11:19 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7782,7 +8377,7 @@ Jennifer has governance experience in the United Kingdom and New Zealand, includ
 
 <div class='item-footer'>
    09:16 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7857,7 +8452,7 @@ Jennifer has governance experience in the United Kingdom and New Zealand, includ
 
 <div class='item-footer'>
    09:02 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7933,7 +8528,7 @@ Jennifer has governance experience in the United Kingdom and New Zealand, includ
 
 <div class='item-footer'>
    08:50 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8009,7 +8604,7 @@ Jennifer has governance experience in the United Kingdom and New Zealand, includ
 
 <div class='item-footer'>
    08:48 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8113,7 +8708,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    08:45 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8189,7 +8784,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    08:22 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8264,7 +8859,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    08:10 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8345,7 +8940,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    01:41 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8426,7 +9021,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    21:35 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8499,83 +9094,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    18:03 &bull;
-   13 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.rollingstone.com/politics/politics-features/trump-dictator-poll-americans-1234962755/'>Poll Shows 74 Percent of Republicans Like Donald Trump’s Dictator Plan</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "Only 44 percent of adults completely rebelled at the notion of giving the former president — who is currently facing 91 felony charges — dictatorial authority, calling it “definitely bad” for America." 
-
- In case anyone was still wondering what the stakes are this election season.  #Democracy 
-             [Link] 
-         
-     
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"Only 44 percent of adults completely rebelled at the notion of giving the former president — who is currently facing 91 felony charges — dictatorial authority, calling it “definitely bad” for America."</p>
-
-<p>In case anyone was still wondering what the stakes are this election season.  <a href="https://werd.io/tag/Democracy">#Democracy</a></p>
-            <p>[<a href="https://www.rollingstone.com/politics/politics-features/trump-dictator-poll-americans-1234962755/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:13 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8655,7 +9174,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    14:09 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8671,93 +9190,6 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://venturebeat.com/ai/apple-releases-mgie-a-revolutionary-ai-model-for-instruction-based-image-editing/'>Apple releases 'MGIE', a revolutionary AI model for instruction-based image editing</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "Computer - enhance!" 
-
- I like the approach in this release from Apple: an open source AI model that can edit images based on natural language instructions. In other words, a human can tell the engine what to do to an image, and it goes and does it. 
-
- Rather than eliminating the human creativity in the equation, it gives the person doing the photo editing superpowers: instea
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"Computer - enhance!"</p>
-
-<p>I like the approach in this release from Apple: an open source AI model that can edit images based on natural language instructions. In other words, a human can tell the engine what to do to an image, and it goes and does it.</p>
-
-<p>Rather than eliminating the human creativity in the equation, it gives the person doing the photo editing superpowers: instead of needing to know how to use a particular application to do the editing, they can simply give the machine instructions. I feel much more comfortable with the balance of power here than with most AI applications.</p>
-
-<p>Obviously, it has implications for vendors like Adobe, which have established some degree of lock-in by forcing users to learn their tools and interfaces. If this kind of user interface takes off - and, given new kinds of devices like Apple Vision Pro, it inevitably will - they'll have to compete on capabilities alone. I'm okay with that.  <a href="https://werd.io/tag/AI">#AI</a></p>
-            <p>[<a href="https://venturebeat.com/ai/apple-releases-mgie-a-revolutionary-ai-model-for-instruction-based-image-editing/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:05 &bull;
-   13 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.patrick-breyer.de/'>Patrick Breyer</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -8830,80 +9262,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    13:54 &bull;
-   13 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.patrick-breyer.de/neue-eu-plaene-gegen-kindesmissbrauch-greifen-zu-kurz/'>Neue EU-Pläne gegen Kindesmissbrauch greifen zu kurz</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Die EU-Kommission hat gestern einen Vorschlag zur Aktualisierung der strafrechtlichen Vorschriften über sexuellen Missbrauch und sexuelle Ausbeutung von Kindern vorgestellt. Dazu erklärt der Europaabgeordnete der Piratenpartei Dr. Patrick Breyer: 
- „Die … 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Die EU-Kommission hat gestern einen Vorschlag zur Aktualisierung der strafrechtlichen <a href="https://ec.europa.eu/commission/presscorner/detail/de/ip_24_631">Vorschriften über sexuellen Missbrauch und sexuelle Ausbeutung von Kindern vorgestellt. </a>Dazu erklärt der Europaabgeordnete der Piratenpartei Dr. Patrick Breyer:</p>
-
-
-
-<p>„Die Vorschläge greifen viel zu kurz, um Kinder besser zu schützen. Neben sinnvollen Vorschlägen wird ohne Wirksamkeitsnachweis auf einer Kriminalisierungs- und Strafverschärfungswelle geritten, die in Deutschland längst überwunden ist. Nach deutschem Vorbild werden verschlüsselte Messengerdienste, anonyme Foren oder verschlüsselte Dateiablagedienste einem Risiko der Kriminalisierung und Schließung wegen ‚Erleichterung oder Förderung von Straftaten‘ ausgesetzt (Artikel 8).</p>
-
-
-
-<p>Eine gefährliche Lücke in den Plänen ist die oft dilettantische und unterausgestattete Strafverfolgung von Missbrauchsdelikten. Wir brauchen europaweite Standards und Leitlinien für strafrechtliche Ermittlungen wegen Kindesmissbrauchs, einschließlich der Identifikation von Opfern und der nötigen technischen Mittel. Wir brauchen Zahlen darüber, wie lange sich Verfahren ziehen und wie erfolgreich sie sind, um besser werden zu können. Strafverfolger müssen verpflichtet werden, kriminelles Material zur Löschung zu melden, statt sich – wie im Fall Boystown – einfach für unzuständig oder überlastet zu erklären.</p>
-
-
-
-<p>Auch zur besseren Verhinderung und Prävention von Kindesmissbrauch enthält der Entwurf viel zu wenig Konkretes. Wir brauchen eine systematische wissenschaftliche Evaluierung und Umsetzung multidisziplinärer Präventionsprogramme. Die EU muss eine Schlüsselrolle beim Austausch zwischen Forschung und Praxis, bei Evaluierung, Umsetzung und Bewertung der bewährtesten Präventionsansätze spielen. Es ist lächerlich, dass dazu im Entwurf eine bloße Datenbank vorgeschlagen wird.“</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:50 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9032,7 +9391,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    07:36 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9108,7 +9467,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    06:07 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9184,172 +9543,6 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    06:00 &bull;
-   13 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/02/07/friend-of-mine.html'> Friend of mine mentioned ‘Cyclades’, a French project from ‘</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Friend of mine mentioned ‘Cyclades’, a French project from ‘back in the day’. 
- 
- You know, they were solving for problems that TCP/IP was trying to solve before there was TCP/IP. 
- 
- 🤯 
- I did just find this ‘billy-doo’. 
-  
- We get so used to the narrative we are told. Don’t we? 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/img-8847.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Friend of mine mentioned ‘Cyclades’, a French project from ‘back in the day’.</p>
-<blockquote>
-<p>You know, they were solving for problems that TCP/IP was trying to solve before there was TCP/IP.</p>
-</blockquote>
-<p>🤯</p>
-<p>I did just find this ‘billy-doo’.</p>
-<p></p>
-<p>We get so used to the narrative we are told. Don’t we?</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/img-8847.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:10 &bull;
-   13 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Tuesday, 06. February 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.vox.com/culture/2024/2/1/24056883/tiktok-self-promotion-artist-career-how-to-build-following'>Want to sell a book or release an album? Better start a TikTok.</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "You’ve got to offer your content to the hellish, overstuffed, harassment-laden, uber-competitive attention economy because otherwise no one will know who you are. [...] The commodification of the self is now seen as the only route to any kind of economic security." 
-
- In the new economy, every artist must also be an entrepreneur. In doing so, they compromise their intentions;
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"You’ve got to offer your content to the hellish, overstuffed, harassment-laden, uber-competitive attention economy because otherwise no one will know who you are. [...] The commodification of the self is now seen as the only route to any kind of economic security."</p>
-
-<p>In the new economy, every artist must also be an entrepreneur. In doing so, they compromise their intentions; a world where everyone is just shilling is one free from the purity of ideas and discourse. There is no such thing as being discovered or being heralded on the merit of your work alone. You've got to sell.  <a href="https://werd.io/tag/Culture">#Culture</a></p>
-            <p>[<a href="https://www.vox.com/culture/2024/2/1/24056883/tiktok-self-promotion-artist-career-how-to-build-following">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:55 &bull;
    14 days ago
 </div>
 
@@ -9438,7 +9631,7 @@ This is one of 366 daily posts that are planned to appear throughout the year of
 
 <div class='item-footer'>
    08:09 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9772,7 +9965,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    07:10 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9864,7 +10057,7 @@ extensions in the future.</p>
 
 <div class='item-footer'>
    16:01 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10329,7 +10522,7 @@ sound.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    15:50 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10422,7 +10615,7 @@ used the <code>zip</code> command, instead.</p>
 
 <div class='item-footer'>
    17:13 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10497,7 +10690,7 @@ used the <code>zip</code> command, instead.</p>
 
 <div class='item-footer'>
    16:35 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10567,7 +10760,7 @@ used the <code>zip</code> command, instead.</p>
 
 <div class='item-footer'>
    10:30 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10762,7 +10955,7 @@ used the <code>zip</code> command, instead.</p>
 
 <div class='item-footer'>
    06:15 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10865,7 +11058,7 @@ Ideally, tools like GeoGebra and Metabase provide interfaces so intuitive that y
 
 <div class='item-footer'>
    17:40 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10939,7 +11132,7 @@ Ideally, tools like GeoGebra and Metabase provide interfaces so intuitive that y
 
 <div class='item-footer'>
    15:04 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11061,7 +11254,7 @@ Evidently people are willing to hack their systems in order to revert to a now-u
 
 <div class='item-footer'>
    04:27 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11232,7 +11425,7 @@ building in earnest in February, so now’s the time!</p>
 
 <div class='item-footer'>
    00:11 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11300,7 +11493,7 @@ building in earnest in February, so now’s the time!</p>
 
 <div class='item-footer'>
    18:56 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11506,7 +11699,7 @@ Thursday, December 12, 2019 at 4:48:53 AM</p></blockquote>
 
 <div class='item-footer'>
    15:40 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11576,7 +11769,7 @@ Thursday, December 12, 2019 at 4:48:53 AM</p></blockquote>
 
 <div class='item-footer'>
    14:19 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11705,7 +11898,7 @@ Thursday, December 12, 2019 at 4:48:53 AM</p></blockquote>
 
 <div class='item-footer'>
    07:33 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11798,7 +11991,7 @@ Looking into the windows of a living room in an Amsterdam houseboat floating on 
 
 <div class='item-footer'>
    20:00 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11876,7 +12069,7 @@ Looking into the windows of a living room in an Amsterdam houseboat floating on 
 
 <div class='item-footer'>
    03:52 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11976,7 +12169,7 @@ Looking into the windows of a living room in an Amsterdam houseboat floating on 
 
 <div class='item-footer'>
    18:19 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12058,7 +12251,7 @@ Looking into the windows of a living room in an Amsterdam houseboat floating on 
 
 <div class='item-footer'>
    15:51 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12217,7 +12410,7 @@ had conversations with <a href="https://supabase.com" title="Supabase | The Open
 
 <div class='item-footer'>
    17:00 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12304,7 +12497,7 @@ had conversations with <a href="https://supabase.com" title="Supabase | The Open
 
 <div class='item-footer'>
    07:59 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16995,7 +17188,7 @@ Thanks <a href="https://tantek.com/">tantek.com</a> for initiating this.)</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -19481,82 +19674,6 @@ The post <a href="https://realestatecafe.com/can-fee4savings-transform-class-act
 
 
  <h2 class='new-date'>
-  Thursday, 09. November 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://rileyparkerhughes.medium.com'>Riley Hughes</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://rileyparkerhughes.medium.com/how-vittorio-shaped-my-perspective-on-ssi-and-how-he-can-shape-yours-a51f62d173f2?source=rss-bd548551c0bf------2'>How Vittorio Shaped my Perspective on SSI, and how he can Shape Yours</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Photo credit: Brian Campbell from this article on the Ping Identity&nbsp;blog Vittorio Bertocci, much like many others in the identity space, had an important impact on my professional life. You can imagine how I felt when, a month following his tragic passing, I saw another blog post produced by the GOAT of creating understandable technical content about identity. Further, the subject of the post 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*nQj2ig9sbXb434EVZwDjGQ.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-Photo credit: Brian Campbell from this <a href="https://www.pingidentity.com/en/resources/blog/post/vittorio-bertocci-identity-community-contributions.html">article</a> on the Ping Identity&nbsp;blog<p>Vittorio Bertocci, much like many others in the identity space, had an important impact on my professional life. You can imagine how I felt when, a month following his tragic passing, I saw another <a href="https://auth0.com/blog/our-take-on-verifiable-credentials/">blog post</a> produced by the <a href="https://www.dictionary.com/e/slang/g-o-a-t/">GOAT</a> of creating understandable technical content about identity. Further, the subject of the post is my deepest area of knowledge: verifiable credential adoption (which was the topic of conversation for almost all my time spent with Vittorio).</p><p>Vittorio’s sage perspective on verifiable credentials is important for the IDtech community to understand. In this post, I want to outline how Vittorio influenced our direction at Trinsic and highlight a few important points from the recent&nbsp;post.</p><p>In 2017 I was a fresh face in the identity industry, pumped full of slogans and claims from the infinitely optimistic self-sovereign identity (SSI) evangelists who I surrounded myself with at the time. Having only seen one perspective, I fully believed that consumers could “own” their identity, that “data breaches would be a thing of the past”, and that verifiable credentials would usher in a new era of privacy maximalism.</p><p>The world needs idealists — but it also needs pragmatists. Vittorio became an archetype of the pragmatic energy that eventually worked its way into the culture and products at the company I cofounded in 2019, <a href="https://trinsic.id/">Trinsic</a>. His directed questions and healthy skepticism of marvelous SSI claims came not from a Luddite spirit, but from deep experience. In a <a href="https://www.cloudidentity.com/blog/2022/01/11/remembering-kim-cameron/">blog post</a> about his involvement in the CardSpace project at Microsoft, he said, “When the user centric identity effort substantially failed to gain traction in actual products, with the identity industry incorporating some important innovations (hello, claims) but generally rejecting many of the key tenets I held so dear, something broke inside me. I became disillusioned with pure principled views, and moved toward a stricter Job to be done, user cases driven&nbsp;stance.”</p><p>For the last four years as a reusable identity infrastructure company, our developer tools for integrating verifiable credentials, identity wallets, and policy/governance tools have become quite popular. Thousands of developers have created dozens of applications that have acquired hundreds of thousands of end-users and issued close to a million credentials in production. This experience has given us a unique vantage point on patterns and methods for successfully deploying verifiable credentials in production. We’ve also spoken to many of these customers and other partners on our <a href="https://trinsic.id/podcast">podcast</a> and in private to understand these patterns more&nbsp;deeply.</p><p>I state all of this so that I can say the following with some credibility: Vitorrio’s perspectives (and by extension Auth0’s) are a must-read for anyone working on user-centric identity. I’ll double click on a few of what I view to be the most important points&nbsp;below.</p><blockquote>What do we need to do to make a classic OpenID Connect flow behave more like the drivers license for buying wine scenario in offline&nbsp;life?</blockquote><blockquote>The two main discrepancies we identified were: Ability to use the token with multiple RPs and Ability to transact with an RP without IdP knowing anything about time and parties involved in the transaction</blockquote><p>The first point I want to highlight is that Vittorio introduces verifiable credentials (VCs) by relating them to something his audience is familiar with — OIDC. This is not only a helpful practice for pitching products in general, but it embeds an important point for IDtech people: VCs are not a fundamental transformation of identity. VCs are an incremental improvement on previous generations of identity technology. (But one that I believe can enable exponentially better product experiences when done&nbsp;right.)</p><p>VCs will be adopted when they are applied to use cases that existing solutions fail to accommodate. It’s key for VC-powered products to demonstrate how VCs enable a problem to be solved in a new way — otherwise, buyers will opt for the safer federated solutions over&nbsp;VCs.</p><p>A classic example to illustrate my point is “passwordless login”. I’ve been hearing about it for 6 years, and yet never actually seen verifiable credentials be adopted for passwordless authentication. I believe the reason for this is that the two points above (ability to use the token with multiple RPs, IdP not knowing about the transaction) aren’t important enough for this use case, and that other, lighter-weight solutions can do it&nbsp;better.</p><blockquote>We might say that there are too many cooks in the kitchen… I dare say this space is overspecified… A lot of work will need to happen in the marketplace, as production implementations with working use cases feel the pain points from these specs and run into a few walls for some of VCs to fully come to&nbsp;life.</blockquote><p>Vittorio taught me about the history of OAuth, OpenID, OAuth2, and OpenID Connect. I learned about early, nonstandard iterations of “login with” buttons that had millions of active users. I learned about the market forces that led these divergent applications to eventually standardize.</p><p>Standardization is essential for adoption. But adoption is essential for knowing what to standardize (there’s nothing worse than standardizing the wrong thing)! Prematurely standardizing before adoption is a classic “cart before the horse” scenario. My conversations with Vittorio led me to write <a href="https://medium.com/trinsic/the-catch-22-of-interoperability-fea4dc5ef582">this catch-22 of interoperability post</a>.</p><p>IDtech builders need to focus on building a good, adoptable product first. Then make it interoperable/compatible with other products second. This is a key design principle baked into Trinsic’s platform (e.g. whatever you build will inherit interoperability when it’s needed, but you won’t waste time figuring it out in the meantime).</p><blockquote>[A misconception:] Centralized DBs will disappear… and in turn this would prevent some of the massive data leaks that we have seen in <a href="https://haveibeenpwned.com/PwnedWebsites">recent history</a>. It’s unclear how that would&nbsp;work.</blockquote><p>Vittorio correctly identified this as a misconception. Centralized databases indeed won’t disappear anytime soon. The notion that companies “won’t need to hold my data”, if it ever happens, will be far in the&nbsp;future.</p><p>The near-term disruption that will happen, however, is something I pointed out in a <a href="https://x.com/rileyphughes/status/1663745376372023298?s=20">conversation</a> with Vittorio that started on Twitter and moved offline. Service providers who don’t originate data themselves, but aggregate or intermediate between parties in a transaction, are at risk of disruption from verifiable credentials.</p><p>The example I use in the post linked above is <a href="https://theworknumber.com/">Work Number</a>. Employers give Work Number information about their employees to avoid fielding background screening calls. If employers gave that information directly to employees in a verifiable credential, however, Work Number’s role would need to change dramatically. Because of this threat, identity verification, student attestations, background screening, and other of these kinds of companies are among the first to adopt verifiable credentials.</p><blockquote>Unless users decide to not present more data than necessary for particular operations, it is possible that they will end up disclosing more/all credential data just for usability sake.</blockquote><p>This dynamic is <a href="https://en.wikipedia.org/wiki/Jevons_paradox">Jevons paradox</a> applied to identity — VCs counterintuitively risk creating worse privacy conditions, even with things like data minimization, because of the frequency of use. Nobody has a crystal ball, so it’s impossible to know whether this risk will materialize. Governance is the best tool at our disposal to reduce this risk and enable better privacy for people. I talk about this a fair bit in <a href="https://ssimeetup.org/ssi-adoption-what-will-it-take-riley-hughes-webinar-67/">this webinar</a> and plan to write a blog post about it in the&nbsp;future.</p><blockquote>Users will typically already have credentials in their wallets and verifiers will simply need to verify them, in a (mostly) stateless fashion… However, we do have a multi-parties cold start problem. To have viable VCs we need effective, dependable and ubiquitous wallets. To have good wallets, we need relying parties implementing flows that require them, and creating real, concrete requirements for actual use. To incentivize RPs to implement and explore new flows, we need high value, ubiquitous credentials that make good business sense to leverage. But to get natural IdPs to create the infrastructure to issue such credentials, you need all of the above… plus a business&nbsp;case.</blockquote><p>The chicken-and-egg problem (or, “cold start” problem) is a trick for almost all IDtech products. While there will always be exceptions to the rule, I have seen enough failure and success to feel confident in a somewhat concrete recipe for overcoming this obstacle.</p>  Remove the wallet as a dependency. If a user needs to be redirected to an app store, download an app, step through onboarding steps, see an empty app, go scan QR codes to get credentials, all before it can actually be used… it’s extremely unlikely to be adopted. Instead, give users invisible “wallets” for their credentials. This is the #1 unlock that led to several of Trinsic’s customers scaling to hundreds of thousands of&nbsp;users.  If your entity can play the role of issuer (or IdP) then you’re in a great position. If you’re not, obtain your own data so that you can be. Dig in with one or more companies and partner closely to build something very specific first with existing&nbsp;data.  Sell to use cases that aren’t well-served by existing OIDC or similar technologies. Expand the markets you’re selling to by going into the long tail. Focus on either low-frequency, high-value use cases or high-frequency, low-value applications. Make it easy to integrate.  <p>Shamefully, it took me 5 years of pattern matching to land at the conclusions that Vittorio and others saw much sooner. These are the same points that led to adoption of OAuth/OIDC. And frankly, when you look at it, are pretty&nbsp;obvious.</p><blockquote>The main one is being able to disclose our identity/claims without issuers knowing. It is a civil liberty; it is a right. As more of our life moves online, we should be able to express our identity like we do it&nbsp;offline.</blockquote><p>Privacy is an important point. This requirement, in particular, is a requirement for most governments to be involved. It’s also a biggie for any sensitive/”vice” industry (gambling, adult content, controlled substances, etc.) which historically is a driver of new technology due to having broad appeal and high frequency.</p><blockquote>Once [the adoption flywheel] happens, it will likely happen all of a sudden… which is why it is really a good idea to stay up-to-date and experiment with VCs&nbsp;TODAY</blockquote><p>This “slow… then all at once” dynamic is a critical insight, and very true. We’ve seen this over the last year in the identity verification segment. My first conversations with identity verification companies were at Sovrin in 2018. Despite consistently following along, there was no movement from anybody for years. Suddenly, after <a href="https://onfido.com/press-release/onfido-acquires-airside/">Onfido acquired Airside</a> in May, <a href="https://plaid.com/blog/one-click-verification-plaid-idv/">Plaid</a>, <a href="https://www.prnewswire.com/news-releases/persona-introduces-industry-first-reusable-identity-solution-with-dynamic-risk-signals-301964490.html">Persona</a>, <a href="https://www.axios.com/pro/fintech-deals/2023/10/05/clear-acquires-sora-id">ClearMe</a>, <a href="https://www.instnt.org/ourpress/instnt-launches-multipass">Instnt</a>, <a href="https://markets.businessinsider.com/news/stocks/au10tix-id-document-biometric-verification-platform-and-reusable-id-solution-now-available-in-the-microsoft-azure-marketplace-1032758864?op=1">Au10tix</a>, and more have jumped into the fray with their own “Reusable ID” solutions.</p><p>Auth0 posits that governments will be the critical unlock for verifiable credentials. While I don’t think that’s wrong, we are seeing increased bottoms-up adoption from the private sector, both from <a href="https://www.forbes.com/sites/forbestechcouncil/2022/10/19/idtech-is-the-new-fintech/?sh=78c115cb3a88">IDtech</a> companies and verification providers of all kinds. Governments will play an important role, ideally anchoring wallets with high-assurance legal identity credentials and leading with standards that will produce to interoperable solutions.</p><p>If you haven’t already, I encourage you to read the whole <a href="https://auth0.com/blog/our-take-on-verifiable-credentials/">post</a>. I’m grateful for the Auth0 team for shipping the post after Vittorio’s passing, so the world can benefit from his knowledge. You can also continue to learn from Vittorio through his <a href="https://identityunlocked.auth0.com/public/49/Identity%2C-Unlocked.--bed7fada">podcast</a>, which I’ve found to be a tremendous resource over the&nbsp;years.</p><p>If this topic interests you, check out the podcast I host, <a href="https://trinsic.id/podcast/">The Future of Identity</a>. And if you have any feedback on this post, find me on <a href="https://twitter.com/rileyphughes">X</a> or <a href="https://www.linkedin.com/in/rileyparkerhughes/">LinkedIn</a> — I’m always trying to get smarter and would love to know if I’m wrong about anything. 😊</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*nQj2ig9sbXb434EVZwDjGQ.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:32 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Wednesday, 08. November 2023
  </h2>
 
@@ -19797,7 +19914,7 @@ Photo credit: Brian Campbell from this <a href="https://www.pingidentity.com/en/
 
 <div class='item-footer'>
    17:55 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22394,80 +22511,6 @@ experiment with at the moment.&nbsp;<a>↩︎</a></p>
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://medium.com/@markus.sabadello'>Markus Sabadello on Medium</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://medium.com/@markus.sabadello/json-ld-vcs-are-not-just-json-4488d279be43?source=rss-87130a922e66------2'>JSON-LD VCs are NOT “just JSON”</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Experiments with JSON-LD VC payloads secured by JWS vs. Data Integrity Detailed results: https://github.com/peacekeeper/json-ld-vcs-not-just-json  In the world of Verifiable Credentials (VCs), it can be hard to keep track of various evolving formats and data models. A potpourri of similar-sounding terms can be found in specification documents, mailing lists and meeting notes, such as VCDM, VC-JWT,
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/482/1*Y4kuIj4VHie1pmf1lBXTlQ.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Experiments with JSON-LD VC payloads secured by JWS vs. Data Integrity<br>Detailed results: <a href="https://github.com/peacekeeper/json-ld-vcs-not-just-json">https://github.com/peacekeeper/json-ld-vcs-not-just-json</a></p><p>In the world of Verifiable Credentials (VCs), it can be hard to keep track of various evolving formats and data models. A potpourri of similar-sounding terms can be found in specification documents, mailing lists and meeting notes, such as VCDM, VC-JWT, VC-JWS, JWT VCs, SD-JWT, SD-JWT-VC, SD JWS, VC JOSE COSE, SDVC, JsonWebSignature2020, etc.</p><p>Also, statements like the following can frequently be found in discussions:</p>  “Can we make @context optional. It’s simpler and not always&nbsp;needed.”  “If you don’t want to use @context and just ignore it, you&nbsp;could.”  “You can secure a JSON-LD VC using&nbsp;JWT.”  “You can use SD-JWT for any JSON payload, including JSON-LD.”  “JSON-LD is&nbsp;JSON.”  <p>One concrete question related to this is what it means if a VC using the JSON-LD-based W3C VC Data Model is secured by proof mechanisms that were designed without JSON-LD in&nbsp;mind.</p> Experimentation <p>To explore this, I conducted two experiments to describe what happens if you take a JSON-LD document based on the W3C VC Data Model, and you secure it once with <a href="https://w3c.github.io/vc-jose-cose/">JWS</a>, and once with <a href="https://w3c.github.io/vc-data-integrity/">Data Integrity</a>. The former signs the document, while the latter signs the underlying RDF graph of the document. The part where this gets interesting is the JSON-LD @context. For JWS, only the contents of the document matter. For Data Integrity, the contents of the @context matter as well. The two proof mechanisms have a rather different understanding of the “payload” that is to be&nbsp;secured.</p> Experiment #1: Data Integrity changes, JWS&nbsp;doesn’t <p>In the first experiment, we start with a JSON-LD document named <a href="https://github.com/peacekeeper/json-ld-not-just-json/blob/main/examples/example1a.input">example1a.input</a>. This document references a JSON-LD @context <a href="https://example.com/context1/,">https://example.com/context1/,</a> and the contents of that @context are as in the file <a href="https://github.com/peacekeeper/json-ld-not-just-json/blob/main/contexts/context1a.jsonld">context1a.jsonld</a>.</p><p>In a subsequent variation of this, we start with another JSON-LD document named <a href="https://github.com/peacekeeper/json-ld-not-just-json/blob/main/examples/example1b.input">example1b.input</a>, which is equivalent to the above example1a.input. This document also references the same JSON-LD @context <a href="https://example.com/context1/,">https://example.com/context1/,</a> but now, the contents of that @context are as in the file <a href="https://github.com/peacekeeper/json-ld-not-just-json/blob/main/contexts/context1b.jsonld">context1b.jsonld</a>, which is different from the file context1a.jsonld that was used&nbsp;above.</p><p>The result: If the contents of the JSON-LD @context change, even if the JSON-LD document stays the same, the Data Integrity signature also changes, whereas the JWS signature doesn’t change. This also means that verifying a Data Integrity signature would fail, whereas verifying a JWS signature would&nbsp;succeed.</p> Experiment #2: JWS changes, Data Integrity doesn’t <p>In the second experiment, we start with a JSON-LD document named <a href="https://github.com/peacekeeper/json-ld-not-just-json/blob/main/examples/example2a.input">example2a.input</a>. This document references a JSON-LD @context <a href="https://example.com/context2a/,">https://example.com/context2a/,</a> and the contents of that @context are as in the file <a href="https://github.com/peacekeeper/json-ld-not-just-json/blob/main/contexts/context2a.jsonld">context2a.jsonld</a>.</p><p>In a subsequent variation of this, we start with another JSON-LD document named <a href="https://github.com/peacekeeper/json-ld-not-just-json/blob/main/examples/example2b.input">example2b.input</a>, which is different from the above example2a.input. The difference is that the first document used the term “givenName”, while the second document uses the term “firstName”. The second document references a different JSON-LD @context <a href="https://example.com/context2b/,">https://example.com/context2b/,</a> and the contents of that @context are as in the file <a href="https://github.com/peacekeeper/json-ld-not-just-json/blob/main/contexts/context2b.jsonld">context2b.jsonld</a>, which is different from the file context2a.jsonld that was used above. The difference is that the first @context defines the term “givenName”, while the second @context defines the term “firstName”, however, they define them using the same URI, i.e. with equivalent semantics.</p><p>The result: Despite the fact that the JSON-LD document changes, the Data Integrity signature doesn’t change, whereas the JWS signature changes. This is because Data Integrity “understands” that even though the document has changed, the semantics of the RDF graph are still the same. JWS on the other hand “sees” only the JSON-LD document, not the semantics behind it. This also means that verifying a Data Integrity signature would succeed, whereas verifying a JWS signature would&nbsp;fail.</p> Conclusion <p>Depending on your perspective, you could interpret the results in different ways. You could call Data Integrity insecure, since it depends on information outside the JSON document. You could also call JWS insecure, since it fails to secure the JSON-LD data&nbsp;model.</p><p>The real point of this article is however NOT to say that any of the mentioned data models or proof mechanisms are inherently insecure, but rather to raise awareness of the nuances. To say “JSON-LD is JSON” is correct on the document layer, and wrong on the data model layer. Certain combinations of data models and proof mechanisms can lead to surprising results, if they are not understood properly.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/482/1*Y4kuIj4VHie1pmf1lBXTlQ.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:24 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Thursday, 12. October 2023
  </h2>
@@ -24052,80 +24095,6 @@ to help with the discussion on a possible Fediverse test suite.</p>
 
 
 <h4 class='feed-title'>
-  <a href='https://rocco.network'>Rocco, Gregory</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://medium.com/@Obstropolos/green-leaves-3c56a8f8f91?source=rss-a0f04672b2f1------2'>Green Leaves</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Giving users control over their digital selves went from a passion to an idea and, finally, the mission of SpruceID. It has been quite the journey — and I’m proud of everything we’ve accomplished.  I’m posting this today to announce that I‘ve stepped down from SpruceID, and I’m transitioning into an advisory role. It has been one of the most challenging decisions in the world for me because I love
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1011/1*JbjNYwDIL7B-NJ-3Addrfg.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Giving users control over their digital selves went from a passion to an idea and, finally, the mission of <a href="https://spruceid.com">SpruceID</a>. It has been quite the journey — and I’m proud of everything we’ve accomplished.</p><p>I’m posting this today to announce that I‘ve stepped down from SpruceID, and I’m transitioning into an advisory role. It has been one of the most challenging decisions in the world for me because I love SpruceID, but I need to step back for personal&nbsp;reasons.</p><p>I am incredibly grateful for all the support the SpruceID team has given me during this time. I will always be thankful for all of the people I’ve met along the way, including everyone at SpruceID who has helped shape it into the incredible organization that it is today, our investors who have provided invaluable guidance so far throughout this journey, and all of our partners that we’ve worked&nbsp;with.</p><p>Most important of all would be Wayne. Very rarely can you have such a meaningful relationship with someone on a journey like this, and I will always cherish our friendship even beyond Spruce. Spruce has accomplished so much since its inception and will continue to succeed under Wayne’s incredible leadership.</p><p>I wish nothing but the best for the organization and will continue to support it as I can. If you want to do some incredible work and truly make a difference in our relationship with our digital selves, I recommend joining SpruceID in one of the <a href="https://jobs.lever.co/sprucesystems">many available open&nbsp;roles</a>.</p><p>I’ve been spending some much-needed time with my family and friends, and will see all of you&nbsp;soon.</p><p><a href="mailto:rocco@rocco.network">Let’s stay in&nbsp;touch</a>.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1011/1*JbjNYwDIL7B-NJ-3Addrfg.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:20 &bull;
-   5 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://kentbull.com/'>Kent Bull</a>
 </h4>
 
@@ -25036,7 +25005,7 @@ The post <a href="https://realestatecafe.com/storms-brewing-in-real-estate-what-
 
 <div class='item-footer'>
    21:34 &bull;
-   5 months ago
+   6 months ago
 </div>
 
 </div><!-- item-body -->
@@ -25610,82 +25579,8 @@ Here we talk about general considerations applicable to FOSS projects!
 
 
  <h2 class='new-date'>
-  Wednesday, 30. August 2023
+  Friday, 25. August 2023
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://medium.com/@rebeccarachmany'>Rebecca Rachmany</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://medium.com/tomipioneers/why-i-took-on-the-tomi-challenge-and-you-should-too-dao-expert-opinion-bc60bc505bb7?source=rss-fc2292948050------2'>Why I took on the tomi challenge and you should too: DAO expert opinion</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   This is the first of (I hope) numerous posts that I hope to write for tomi, where I’ll share my journey as the Project Manager for the first phase of specification writing for the tomiDAO. Actually, I wrote a summary of my Metafest experience representing tomi, and I’ll have more to say about that later. But first, I want to start out with a quick introduction of why I’ve decided to devote my time
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*ULUBTDx2pwGWjl8c2YXo5g.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This is the first of (I hope) numerous posts that I hope to write for tomi, where I’ll share my journey as the Project Manager for the first phase of specification writing for the tomiDAO. Actually, I wrote a <a href="https://docs.google.com/document/d/1pVEuI6YgrWDYC4F0LIKwaehhGIlDbAT19N_GBiPK6V4/edit">summary of my Metafest experience</a> representing tomi, and I’ll have more to say about that later. But first, I want to start out with a quick introduction of why I’ve decided to devote my time to this project (other than that they’re paying me) and why you should join me (because they’ll pay you too, and I can’t do it&nbsp;alone).</p><p>For those of you who don’t know me, you might want to check out my work at <a href="http://www.daoleadership.com/">www.daoleadership.com</a> or my general everything website <a href="http://www.gracerachmany.com/">www.gracerachmany.com</a>. For those of you who do know me, you probably think of me as a contrarian who has been in the DAO space for half a decade, but I’ve never strongly associated myself with one project. So why has tomi captured so much of my time and attention?</p><p>I first came into contact with tomi when they were writing their whitepaper in September 2022. I knew nobody’s names, but from the outset it was clear that the team is serious about creating an alternative to the censored World Wide Web. But it was also obvious that most of them had no experience with public goods or the commons. Fortunately, around that time, they brought on DAOwl who explained to them that it would be impossible to expect a traditional DAO to set and enforce content moderation policies. “Hoo would want to look at the world’s most obscene content every day?” asked DAOwl. But that was just the start of the rabbit&nbsp;hole.</p> Who are these tomi people? (Spoiler, I don’t&nbsp;know.) <p>Every now and again, DAOwl would ask me about some particular part of DAO tooling. What did I think about JokeDAO for ranked voting? What did I think about copyright violations? The conversations were always interesting and insightful. But let’s face it, the tomiDAO itself is a simple yes/no voting mechanism for distributing a pot of tokens. I wasn’t impressed at all until <a href="https://twitter.com/DrNickA">Dr. Nick</a> said to me that this was one of the first DAOs he’d heard of with a working NFT voting implementation. “I’ve been talking about NFT voting for a while,” he said, “but this is the first time I’ve seen it working on a real project.” So it turns out the tomi team had pulled off something innovative after&nbsp;all.</p><p>Look, I’m a skeptic. I’ve been in the Web3 space for 5 years. Heck, I’ve been in tech for 35 years. It’s always a good bet that a project will fail, I say, because 98% of them&nbsp;do.</p><p>In January, the tomi team asked me to set up a panel for them to discuss the DAO. DAOwl says they refuses to show in person, so they asked me to moderate and bring in the panelists, and fortunately I got the wonderful Daniel Ospina from RnDAO, Esther Galfalvi from SingularityNET DAO, and Evin McMullen from Disco.xyz, and we had a fabulous time in Marrakesh, including an ATV tour and a hotel with a fabulous&nbsp;spa.</p><p>Most importantly, I finally got to meet the tomi team — and some of them even used real names! Apparently the video footage was great, but the videographer didn’t know it was illegal to fly a drone over the fancy hotel where the event was held, and now he and all the footage are in jail. You can’t make this stuff&nbsp;up!</p> Privacy is rapidly becoming&nbsp;illegal <p>Which brings us to <a href="https://www.reuters.com/legal/us-charges-two-founders-sanctioned-virtual-currency-mixer-tornado-cash-with-2023-08-23/">Tornado Cash</a> and the way in which privacy is under attack by governments worldwide. If you join the tomi Discord or the tomiArmy, it might seem a bit sketchy. Like another one of those “wen moon projects”, but…</p><p>Boy, am I sick of open-source revolutionaries with no funds and no marketing and great code that nobody can use. How are underfunded projects like <a href="https://handshake.org/">Handshake</a> ever going to take off? They even call themselves an “experiment”. How are we going to have censorship resistance when <a href="https://www.coindesk.com/tech/2022/10/14/censored-ethereum-blocks-hit-the-51-threshold-over-the-past-24-hours/">most of the Ethereum nodes are hosted in countries that have made privacy illegal</a>? How are we going to have public goods when VCs own a big chunk of the&nbsp;project?</p><p>The tomi founders, apparently 8 of them, have put their money where their heart is. From what I could surmise from the amount of working code they’ve released, and from the first “Nakamoto Forum”, as they called their conference in Marrakesh, they are a bunch of successful crypto founders who have invested their own money (and a lot of it) to lift this project off the ground. When they launched the token, they simultaneously released the DAO, a testnet browser, an NFT collection, and hardware nodes. Since then, they’ve launched (and spun off) a privacy layer, a DNS NFT auction and marketplace, a marketing “army”, and a staking&nbsp;pool.</p><p>Another reason I was impressed with tomi is that they are committed to usability for everyone. The tomiNET is going to be accessible through a normal browser with normal URLs. It’s about time Web3 started to produce something that actually solves a problem for “normies”. So far, everything I’ve seen from tomi points to them making their interfaces intuitive and offering products that can be used without needing blockchain expertise. (Other than storing your private keys, and I expect MPC to solve that in the next&nbsp;year.)</p><p>The product team just seems to spew out product after product. Are these products ready for mainstream use? Not at all. Why are the founders putting in so much time and effort? Maybe they want to keep their money private. Or maybe they’ve made enough money that they figure it’s time to give back to the community. Maybe they are putting it in a DAO to avoid legal liability. Who&nbsp;knows?</p><p>Here’s what I do know. These guys are absolutely serious about building products and they are absolutely serious about empowering the community through the DAO. They just don’t know how. Neither do I, come to think of&nbsp;it.</p> Cold start <p>When tomi asked me to represent them at Metafest, I took up the challenge because, as I said, I think privacy is everyone’s right, and this is the first time I’ve seen such a comprehensive and well-funded project come together. I think that tomi is right that having a native cryptocurrency and governing DAO is necessary for the project’s success.</p><p>One of the main takeaways from Metafest was how hard it is to go from cold start (nobody) to a functioning DAO. The DAO is now made up of approximately 500 wallets of tomi Pioneers who purchased the initial NFTs granting them voting rights. In other words, they are the investors in the project, not the users. The tomi team is aware that this should change gradually over time — but they want experts and aligned people to join, which is why they invited me and why I’m inviting you, but it’s still hard. They probably need at least 5 different teams to run these DAOs, and theoretically, the teams should be made up of people all over the world who want an alternative WWW. But right now it’s you, me, and our friends. Meaning that a cold start DAO is not&nbsp;easy.</p> The tomi opportunity <p>When I accepted the challenge to approach the tomiDAO specifications documentation, there were two aspects that impressed me. First of all, they asked me to seek out multiple providers for the specifications. I’ll say more about that below, but in the end, they weren’t satisfied with any of the proposals, and they ended up <a href="https://dao.tomi.com/proposal/16">writing their own</a>, which combined elements from two existing proposals while also incorporating several of their own unique innovations. DAOwl said: no offense, I want to work with all the people who made proposals, but we will work on our terms until there is a solid and trusted team that can take over the&nbsp;project.</p><p>Even more promising, they recently approved the specification for a self-sovereign identity wallet integrated into their crypto wallet. The winner of the proposal, <a href="https://walt.id/">walt.id</a>, also wrote a <a href="https://dao.tomi.com/proposal/12">very impressive DAO proposal</a> and they are highly respected in the SSI industry. I didn’t know them before tomi, but their credentials checked out and it’s all open source, which I think is important. This shows me that the team has really gone down to the fundamentals of what has caused the WWW to become centralized and exploitative, and they are interested in integrating the essential components that give the project potential to actually transform the internet back into a place where people can have freedom of expression, including freedom to dissent and freedom to develop connections and commerce with anyone, anywhere.</p> Challenges for the DAO industry as a&nbsp;whole <p>Another exciting aspect of tomi is that they are grappling with specific instances of generalized problems. Everyone from X (formerly twitter), through Lens Protocol and Handshake, to ENS is dealing with the problems of naming and/or the problem of content moderation. DAO tooling is completely inadequate to touch any of these processes. And frankly, I’m frustrated with DAO solutions looking for problems. I want to start designing a solution based on a specific challenge, and tomi has plenty of&nbsp;them.</p><p>What tomi is trying to do is going to put them up against tremendous challenges. Some of them are straightforward, like the fact that the default language of tomi is English, but that’s probably not the default language of the people who are being oppressed and need an alternative internet. Other problems are more complex, such as preventing spam and denial of service attacks from rendering the network useless. Some are legal, for example, if tomi succeeds and its domain name system becomes the one everyone wants to use, they may open themselves up to lawsuits from everyone, from celebrities to corporations and governments.</p><p>But even if tomi doesn’t manage to complete its entire vision, the DAO tooling we can create together will resonate throughout Web3. DAOs for content moderation, DAOs for name services, DAOs for strategy-building, Verifiable Credentials and DIDs for DAOs, reputation for DAOS, accountability for fulfilling DAO proposals… All of these are part of tomi’s agenda for the next year’s planning.</p><p>And tomi has the budget to pull this off. The DAO is currently funded with an initial amount equivalent to $20 Million. According to what DAOwl told me, a portion of all the tomi domain name sales will continue to feed into the DAO. And it will be up to the DAO itself to create the business models on top of tomi that will allow it to be self-sustaining. Any one of the tools that I mentioned above could be implemented in dozens of DAOs today. So the suite of DAO tools could represent a comprehensive starter kit for just about any project. And best of all for me, I get the chance to demonstrate how communities can develop tools that are more collaborative and complex than simple yes-no and ranked&nbsp;voting.</p> Get on board: tomi needs&nbsp;you <p>One of the conditions I set for tomi was that, given the fact that there is a budget, we should not expect people to work for free and/or campaign to join. DAOwl said this was fine, but that they expect accountability for producing the work that is needed for the DAOs. Sometimes I think this is an emergent phenomenon: DAOs with limited funds waste a lot of time on meetings and give out little bounties that get distributed in a “nice” way where everyone gets something regardless of talent. In other words, many DAOs have been prioritizing inclusion over execution, partially because they can’t really afford highly professional work.</p><p>The first step that we’re taking is to create the DAO specifications. Together we <a href="https://docs.google.com/document/d/1a_EmXwsnQM0jQMaty72Ez3v316cqRKckVAIwEPhvX4o/edit">wrote this plan</a> and DAOwl and tomi’s CTO, Camel, have approved it. My goal is to include as many people as possible in the discussions, with those contributing significant time being compensated reasonably. In other words, if you are qualified, apply, and you’ll be paid for your work. This isn’t short-term either. Once the specifications are done, we need to actually staff these DAOs. It looks like there will be a dozen different processes and committees needed for the initial launch in May&nbsp;2024.</p><p>To get involved, join the <a href="https://discord.com/invite/tomi">tomi Discord</a> server and introduce yourself on the DAO channels. DAOwl and myself will be monitoring and welcoming people. Announcements will be made of the times and places of the discussions, and you’ll be able to join and participate in various&nbsp;ways.</p><p>Those of you who know me are aware that for the last 3 years I’ve been blathering on about how we are going to need a parallel network of passports, network infrastructure, and commerce because the authorities are becoming increasingly authoritarian worldwide. Although I’m mostly vegetarian, I wouldn’t want a world authority telling me I must be vegan and enforcing it through their CBDCs and supply chains. What tomi is providing can be an essential set of tools for those of us who want our freedom and are willing to pay the&nbsp;price.</p> How (not) to impress the tomi free&nbsp;birds <p>I’ve teamed up with my buddy <a href="https://www.linkedin.com/in/moritzbierling/">Moritz Bierling</a> to put together this project and we want you to join if you care about internet freedom or about the development of DAO&nbsp;tooling.</p><p>It’s a well-known secret that I spent a lot of years in fairly corporate environments and that I believe in some of the more structured ways of getting things done. So when tomi asked me to do this work, I said we should at least get three proposals and not just hire me because they know me. They said: ok, go ahead. But I&nbsp;failed.</p><p>I failed because most of the DAO experts are&nbsp;either:</p>  Super busy on multiple&nbsp;projects  More interested in promoting/integrating their technology than joining someone else’s&nbsp;projects  Inexperienced when it comes to presenting themselves to a&nbsp;client  More interested in having intellectual and cool conversations than getting stuff&nbsp;done  <p>DAOwl told me several people ghosted them, joined the Discord but didn’t follow the comments even when they were mentioned, promised to submit proposals and then disappeared, failed to invoice for work done, and needed multiple reminders of things they agreed to. In other words, they seemed to Owl to be discourteous (as if they were doing tomi a&nbsp;favour).</p><p>I won’t lie. I was embarrassed. I gave the names of several people I respected and I felt it reflected poorly on me when tomi didn’t get responses. Some people told me explicitly that they were uncomfortable with the tomi project and wouldn’t join because it seemed to “scammy”. I respect that, just as I respect the whole Gitcoin-Shell conversation. But I don’t respect it when my client is ignored, has to chase people down, or receives empty promises.</p><p>So if you do want to impress myself and DAOwl, please take a few simple&nbsp;steps:</p>  Do what you said you would do. If you say you’ll send a proposal or join the Discord channel, do&nbsp;it.  Be interested. If you write something on the Discord, check at least once to see what happened or answer&nbsp;DMs.  If you want to get paid for your work, take appropriate steps. Send a price proposal if appropriate. Make your payment terms known in advance. Send an invoice or at least an ETH address to the DAOwl or myself when you complete&nbsp;work.  Be proactive. For the DAO to function, we all need to take responsibility. If I have to remind people of what they promised and micromanage when people post to the Discord, it’s not a DAO. If you think we should be using Wonderverse or Jira or any of that, say so and be the one to initiate the project and ask to get paid for implementation.  Bring people in who need the work. Many of us are overwhelmed with work offers and sometimes we take it for granted. If this is not the project for you, or you don’t have the bandwidth, say so and find someone who does need the&nbsp;work.  Be courteous.  <p>Oh, and one more thing. If you can bring an equal number of men and women (or more women than men), that will be greatly appreciated. The specifications for the DAO discussions stipulate that all discussions require a minimum 40%&nbsp;women.</p> Let’s get decentralization right <p>We’ve all seen successful DAOs with multiple functioning sub-DAOs. The tomi project has the potential to provide infrastructure both for Web3 and for end users. My hope is that within 6 months there will be multiple project managers and team leads, and that this Medium blog will be filled with articles from the best of us discussing the solutions we’ve developed and the tradeoffs we’ve&nbsp;made.</p><p>So what are you waiting for? <a href="https://docs.google.com/document/d/1a_EmXwsnQM0jQMaty72Ez3v316cqRKckVAIwEPhvX4o/edit">Check out the plan</a>, and the <a href="https://docs.google.com/document/u/0/d/1OpYksmPAXGKSyvUmrQIzcaEdr3hQLif8v85_oKsUPwc/edit">Governance specifications workflow</a>, the next step is to <a href="https://discord.com/invite/tomi">introduce yourself on the tomi Discord channels</a>, under the <a href="https://discord.com/channels/983854078285201408/1144628687413723136">DAO channel</a> for introductions, and join us by helping us build a better World Wide&nbsp;Web.</p><p>See you&nbsp;there!</p><p>Follow us for the latest information:</p><p><a href="https://tomi.com/">Website</a> | <a href="https://twitter.com/tomipioneers">Twitter</a> | <a href="https://discord.gg/tomi">Discord</a> | <a href="https://t.me/tomipioneers">Telegram Announcements</a> | <a href="https://t.me/tomi_official_chat">Telegram Chat</a> | <a href="https://tomipioneers.medium.com/">Medium</a> | <a href="https://www.reddit.com/r/tomipioneers/">Reddit</a> |&nbsp;<a href="https://www.tiktok.com/@tominetwork">TikTok</a></p> <p><a href="https://medium.com/tomipioneers/why-i-took-on-the-tomi-challenge-and-you-should-too-dao-expert-opinion-bc60bc505bb7">Why I took on the tomi challenge and you should too: DAO expert opinion</a> was originally published in <a href="https://medium.com/tomipioneers">tomipioneers</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*ULUBTDx2pwGWjl8c2YXo5g.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:50 &bull;
-   6 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -26125,6 +26020,212 @@ Image credits: <a href="https://www.freecodecamp.org/news/content/images/size/w2
 <div class='item-footer'>
    16:49 &bull;
    6 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
+  Thursday, 10. August 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://medium.com/@benwerd'>Werdmüller on Medium</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://benwerd.medium.com/why-i-failed-to-pay-my-taxes-db49c64a18d9?source=rss-3b16402f5b9d------2'>Why I failed to pay my taxes</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    A story about terrible software and bad  Continue reading on Medium »  
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   <p>A story about terrible software and bad</p><p><a href="https://benwerd.medium.com/why-i-failed-to-pay-my-taxes-db49c64a18d9?source=rss-3b16402f5b9d------2">Continue reading on Medium »</a></p> 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:49 &bull;
+   7 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
+  Wednesday, 09. August 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://medium.com/@DickHardt'>Dick Hardt</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://medium.com/@dickhardt/worldcoin-how-not-to-implement-openid-connect-eb2a0624ca60?source=rss-478b62a31242------2'>Worldcoin: How Not to Implement OpenID Connect</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   World ID&nbsp;Critique  OpenID Connect Implementation Antipatterns  On July 24th, Worldcoin publicly launched World ID, and many friends and colleagues pinged me to get my opinion. I was attending IETF 117 and this past weekend I finally had time to start exploring the service now that it has launched. There has been TONS of coverage on the orb, the biometrics, and the coin. I’m going to review th
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*Mdecic2hov3c7fPjKqIHoA.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ World ID&nbsp;Critique  OpenID Connect Implementation Antipatterns <p>On July 24th, Worldcoin <a href="https://worldcoin.org/blog/announcements/worldcoin-project-launches">publicly launched</a> World ID, and many friends and colleagues pinged me to get my opinion. I was attending <a href="https://datatracker.ietf.org/meeting/117/agenda">IETF 117</a> and this past weekend I finally had time to start exploring the service now that it has launched. There has been TONS of coverage on the orb, the biometrics, and the coin. I’m going to review their OpenID Connect implementation.</p><blockquote>This evaluation was made on August 7, 2023 using a production deployment of the Hellō app on Worldcoin; Worldcoin’s <a href="https://docs.worldcoin.org/reference/sign-in">Sign in with Worldcoin Reference</a>; and their <a href="https://docs.worldcoin.org/further-reading/oidc">OIDC Explainer</a>.</blockquote><blockquote>Update August 9: On August 8, I provided a draft of this document to Worldcoin prior to publication. They have addressed a number of issues as noted&nbsp;below.</blockquote> Tl;dr:   If you are a developer considering adding World ID to your project.&nbsp;Wait.  If you see an app using World ID. Be&nbsp;safe.  The <a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics">OAuth Best Security Current Practices</a> have not been followed. Combined with the following point, applications using World ID may be vulnerable to&nbsp;attacks.  The implementation is not compliant with the <a href="https://openid.net/specs/openid-connect-core-1_0.html">OpenID Connect</a> specification. Times are in milliseconds instead of seconds, requests can be made without required parameters. Update Aug 9, these have been addressed.  The user’s privacy is being violated. The authorization page presents no information on what the application is requesting, nor on what worldcoin.org is releasing. There are no application terms of service and privacy policy&nbsp;links.   OpenID Connect Background <p>OpenID Connect (OIDC) is a popular identity protocol used by social login services such as Apple, Google, Facebook, and Microsoft. There are libraries in all popular programming languages, and plug-ins for all popular platforms.</p><p>The typical user experience with OpenID Connect starts with clicking on a button in the app, and then redirecting you to your provider — Apple, Google etc. If you don’t have an active session, you are prompted to login to your provider. If you have not used the app where you started, you will be shown what will be shared, and prompted if you want to continue. If you continue, you will be redirected back to the app sharing your information. There are a few variants on what is sent back and forth between the app and your provider, but the end result is usually an ID Token that is digitally signed by the provider. The contents of the token indicate who issued it, which user it is for, when it was issued, when it expires, which app requested it, and handshake data to ensure the token is for the user that started the&nbsp;flow.</p><p>OpenID Connect is built on top of <a href="https://datatracker.ietf.org/doc/html/rfc6749">OAuth 2.0</a>, the most popular authorization protocol on the internet. (I happen to have led the initial design, and am listed as the editor.) These protocols have been around for over a decade and have had significant security analysis and improvements including in the <a href="https://datatracker.ietf.org/wg/oauth/about/">IETF OAuth meetings</a>, the <a href="https://openid.net/">OpenID Foundation</a>, and <a href="https://oauth.net/workshop/">OAuth Security Workshop</a>. There are 28 published <a href="https://datatracker.ietf.org/wg/oauth/documents/">IETF RFCs</a> and <a href="https://openid.net/developers/specs/">12 OpenID Connect specifications</a>.</p><p>Worldcoin launched with support for OpenID Connect, significantly lowering the barrier for developer adoption, and building on the decade of security and deployment experience. (My startup, <a href="https://hello.coop/">Hellō</a> chose to support OpenID Connect for the same reasons.)</p><p>There are two significant documents that have been under development for a couple of years: the <a href="https://datatracker.ietf.org/doc/draft-ietf-oauth-security-topics/">OAuth 2.0 Best Security Practices</a>; and <a href="https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/">OAuth 2.1</a>. The latter does not introduce any new features, but compiles a dozen documents into a single coherent document that removes conflicting information.</p><p>Unfortunately it does not look like Worldcoin consulted them.</p> Adding World ID to&nbsp;Hellō <p>I have integrated all the popular OpenID Connect providers into <a href="https://hello.coop/">Hellō</a> (Apple, Facebook, GitLab, Google, Line, Microsoft, Twitch, Yahoo) and OAuth 2.0 providers (Discord, GitHub, Instagram, Mastodon, Reddit, Tumblr, Twitter, and WordPress). We also support Metamask, WalletConnect, and passkeys. Our code deals with how each of the providers is their own “special snowflake”, so I thought adding World ID would be straightforward, and we would have access to the unique “human” claim Worldcoin promised.</p> Signing up for World&nbsp;ID <p>To access the Developer Portal, you need a World ID which requires you to install the World App. I installed it on my iPhone, verified my phone number, and was then prompted to create a password. The app then crashed. Oops! After restarting, the app displayed “Creating World ID” and a counter that indicated it was going to take some time. I set my phone aside and when I checked it later it had crashed again. I restarted the app, was shown the passport-like display, and then once again displayed “Creating World ID”. As you can see from the screen grabs, some time passed between the initial install screen and the other screen shots included below. Eventually the World App was happy and I had a World&nbsp;ID.</p><blockquote>A password? It’s 2023. Why not support passkeys? All modern iOS and Android devices support it. I understand the desire to support older and less expensive devices, but it makes no sense to not support stronger, phishing resistant authentication when available. Passwords just increase the attack&nbsp;surface.</blockquote><blockquote>Face ID Opt in? The World App by default is able to log into a site without further authentication. There is no PIN or Face ID when you open the World App, or use it to log into another app. IE, if your phone is unlocked, someone can use it to login to a website just by scanning the QR code. If you poke around in the settings, you can enable Face ID, but I was not prompted to turn it&nbsp;on.</blockquote> World ID Developer Portal <p>To access the developer portal, you must log in with your World ID. The website shows a QR code that you scan with the World App on your phone. The process is smooth, and you see a logo verified mark beside Worldcoin Developer Portal giving me confidence I’m logging into the correct app with my World&nbsp;ID.</p> Developer Experience <p>If you are not a developer, you may be tempted to skip this section. Don’t. There is not much to it, and that is where the issues&nbsp;start.</p><p>After logging into the developer portal, I was prompted to enter and then verify my email address. Creating an app was straightforward. (Almost as straightforward as at the <a href="https://console.hello.coop">Hellō Console</a>&nbsp;;)</p><p>The initial delight of the simple experience disappeared when I realized key configuration was missing. There was no mechanism to upload a logo. No terms of service or privacy policy urls. No verification process so my app would show up verified like the Worldcoin Developer Portal.</p> register API <p>The Sign In Reference documents a <a href="https://docs.worldcoin.org/reference/sign-in#register-app:~:text=Copied!-,Register%20App,a%20new%20application%20for%20use%20with%20Sign%20In%20with%20World%20ID.,-Required%20attributes">Register App API</a>, an alternative to registering through the&nbsp;portal.</p><p>The one required parameter is “redirect_uris”, which is mislabelled as a string, despite the example showing it as an array of strings. The description:</p><blockquote>URLs the user will be redirected to after authentication. Must be HTTPS, and can always be updated in the Developer Portal.</blockquote><p>… is strange, as there is no authentication with the API, so how would Worldcoin know which application I can&nbsp;update?</p><p>The example curl code that you can copy to run yourself:</p> curl -X POST https://id.worldcoin.org/register \<br>    -H "Content-Type: application/json" \<br>    -d '{<br>        "client_name": "Example Application",<br>        "logo_uri": "https://app.example.com/logo.svg",<br>        "redirect_uris": ["https://app.example.com/callback", "https://app.example.com/redirect"],<br>        "application_type": "web",<br>        "grant_types": "authorization_code",<br>        "response_types": "code"<br>    }' <p>… shows an SVG file being provided as the logo. Wow. No providers allow SVG files due to the XSS security risks of an attacker embedding malicious JS in the image, which would then be loaded on id.worldcoin.org if the SVG was not run through a sophisticated filter.</p><blockquote>Worldcoin responded to this concern on Aug&nbsp;9:</blockquote><blockquote>Worldcoin developer portal is not vulnerable for the following reasons:</blockquote><blockquote>- The Worldcoin developer portal has a strong Content Security Policy (CSP) that prevents external images like a malicious SVG from loading entirely.</blockquote><blockquote>- The Worldcoin developer portal uses &lt;img&gt; tags to embed logo_url content, which prevents embedded scripts inside SVGs from executing.</blockquote><blockquote>- Additionally, apps must currently be manually verified to display logos, which has the added benefit of preventing impersonation scams.</blockquote><blockquote>UPDATE Aug 12: the example shows using a&nbsp;.png instead of a&nbsp;.svg file. The API provides the same error&nbsp;though.</blockquote><p>Unfortunately I was not able to test this (or fortunately given all the security risks of an anonymous registration API?) the API was not working. I tried a number of parameter permutations, but the server would always would return an HTTP 500 response code&nbsp;and:</p> {<br>  "code": "server_error",<br>  "message": "Internal server error. Please try again."<br>}  World ID Login Experience <p>With a configured app, I could now check out the World ID user experience on my own app. (See below for how I did this without writing&nbsp;code.)</p><p>Starting the flow in a browser looks similar to the login flow for the developer portal. Looking more carefully, it looks exactly the same. There is no indication that I am logging into my app vs the Worldcoin Developer Portal.</p><p>In the World App, the flow looks similar with the exception that Hellō is not a verified app. The only signals of which app is being logged into are the letter “H” as the logo, and “Hellō” as the app name. Note there is no terms or service or privacy policy links for Hellō anywhere, and no indication of what is being shared with&nbsp;Hellō.</p> Platform Detection <p>While resizing my browser window to access the developer tools, I noticed the web interface naively just looks at the window width to decide if it is on a mobile device. Pity the poor user trying to use their World ID on a web app where the browser window is&nbsp;narrow.</p> Developer Portal Session&nbsp;Length <p>I went back to the developer portal a day later, and my session was still active. I would have expected it to time out after an hour of inactivity at most. Sure, I should have logged out, but an attacker could take over a sloppy developer’s app.</p> Protocol Exploration <p>Ok, we are going to start to get a little more technical. If you have a some idea of how the web works, you should be able to follow&nbsp;along.</p><p>Given the nature of OpenID Connect, you don’t need to write any code to explore what a provider will do. You can open up a URL with the right parameters to make an authorization request, and then use the browser’s developer tools to see what was sent back. This is all I did in my exploration.</p><p>I started off with a simple and incomplete request to see what errors I got. (new lines are for readability)</p> https://id.worldcoin.org/authorize<br>  ?client_id=app_404ea2eb1e2d5155c05c3b2878ca1ade<br>  &amp;response_type=id_token<br>  &amp;redirect_uri=https%3A%2F%2Fwallet.hello.coop%2Foauth%2Fresponse%2Fworldcoin <p>To my surprise, this worked. I got back the following JSON in the ID&nbsp;Token.</p> {<br>  "header": {<br>    "alg":"RS256",  <br>    "typ":"JWT",<br>    "kid":"jwk_dad75cf7c4bc159276c2c748a196b11d"<br>  }, <br>  "payload": {<br>    "iss":"https://id.worldcoin.org",<br>    "sub":"0x233c7136721dd85256e936a6a0b5a67b0f904bed6d1ce91d6d7364e9064f9cc2",<br>    "jti":"7fcd4fb6-63c4-4019-9ed2-43b14af657e0",<br>    "iat":1691444766901,<br>    "exp":1691448366901,<br>    "aud":"app_404ea2eb1e2d5155c05c3b2878ca1ade",<br>    "scope":"",<br>    "https://id.worldcoin.org/beta": {<br>      "likely_human":"weak",<br>      "credential_type":"phone"<br>    },<br>    "nonce":"1691444748611"<br>  }<br>} <p>Why was I surprised? I should have gotten an error response.</p><p>The “scope” parameter is required per OpenID Connect, and must contain the “openid” scope to differentiate between an OpenID Connect request and an OAuth 2.0&nbsp;request.</p><blockquote>UPDATE: Aug 9<br>An error is now returned if the “openid” scope is not&nbsp;provided</blockquote><p>Either a “nonce” or a <a href="https://datatracker.ietf.org/doc/html/rfc7636">PKCE</a> “code_challenge” should be required per security best practices to prevent replay attacks per OAuth Security Best Practices. As this is an implicit flow, it would have to be a&nbsp;“nonce”.</p><blockquote>UPDATE: Aug 9<br>An error is now returned if a “nonce” is not provided<br>UPDATE: Aug 12<br>I only checked the “id_token” request type. Reading the docs I noticed they state the nonce is only required for the “id_token” request type, not the “code” request type. That is not spec compliant. It is required for the code request type as well since it is required to be in the “id_token” you get back when exchanging the code at the token endpoint.</blockquote><blockquote>UPDATE: Aug 12<br>I had only been testing the “id_token” response type. The “code” response type does NOT return a “nonce” in the ID token even if one is provided in the authorization request. IE, there is no way to check that the “id_token” you received is associated with the session that started the flow. While an attacker can inject a “code” and have you receive back a different ID Token. This is not a huge risk though since if you are validating the ID Token, it will fail since there is no&nbsp;“nonce”!</blockquote><p>Looking at the ID Token, I was even more surprised. The “iat” (issued at) and “exp” (expiry) claims are in milliseconds instead of seconds. Most validation libraries will consider the ID Token to be valid as it was issued in the far future. This online parser thinks the token was issued at November 10, 55569, over 53,000 years from&nbsp;now.</p><blockquote>UPDATE: Aug 9<br>This has been fixed. “iat” and “exp” are now in&nbsp;seconds</blockquote><p>Despite not providing a “nonce” in the request, I got back one with the value of “1691444748611”, a millisecond time stamp that is 18290 ms prior to when the ID Token was issued (1691444766901). A nonce should be a random value, so clearly there is some logic failure here as there should not be a “nonce” in the token as one was not provided.</p><p>My last surprise in the ID Token was the “https://id.worldcoin.org/beta" claim:</p> "https://id.worldcoin.org/beta": {<br>    "likely_human":"weak",<br>    "credential_type":"phone"<br> } <p>As a user, I had not been informed that this data was going to be shared. As a developer, I had not asked for it. I consider this a privacy&nbsp;issue.</p><p>Next I tried sending a valid request. The valid scopes are not documented, but poking around at the examples I saw that “openid”, “email”, and “profile” were being used. Here is what I sent next, that includes a “nonce” and “scope” parameters:</p> https://id.worldcoin.org/authorize<br>  ?client_id=app_404ea2eb1e2d5155c05c3b2878ca1ade<br>  &amp;response_type=id_token<br>  &amp;redirect_uri=https%3A%2F%2Fwallet.hello.coop%2Foauth%2Fresponse%2Fworldcoin<br>  &amp;nonce=nonce1<br>  &amp;scope=openid+email+profile <p>And I received the following JSON back in the ID&nbsp;Token:</p> {<br>   "header": {<br>      "alg":"RS256",<br>      "typ":"JWT",<br>      "kid":"jwk_dad75cf7c4bc159276c2c748a196b11d"<br>  }, <br>  "payload": {<br>      "iss":"https://id.worldcoin.org",<br>      "sub":"0x233c7136721dd85256e936a6a0b5a67b0f904bed6d1ce91d6d7364e9064f9cc2",<br>      "jti":"bc24c584-e061-4c62-aaa1-c85cbb38579e",<br>      "iat":1691443980673,<br>      "exp":1691447580673,<br>      "aud":"app_404ea2eb1e2d5155c05c3b2878ca1ade",<br>      "scope":"openid email profile",<br>      "https://id.worldcoin.org/beta":{<br>        "likely_human":"weak",<br>        "credential_type":"phone"<br>      },<br>      "nonce":"nonce1",<br>      "email":"0x233c7136721dd85256e936a6a0b5a67b0f904bed6d1ce91d6d7364e9064f9cc2@id.worldcoin.org",<br>      "name":"World ID User",<br>      "given_name":"World ID",<br>      "family_name":"User"<br>  }<br>} <p>We got back the “nonce” value we sent. The “email”, “name”, “given_name”, “family_name” claims are not useful. Based on the documentation, it looks like they included them because some library complained.</p> Directed Identifiers <p>Next up was checking what was different in ID Tokens between different applications. I was hoping to confirm a different identifier, specifically the “sub”, would be different for me across applications per the <a href="https://doc.searls.com/2022/05/10/laws-of-identity/#:~:text=4.%20Directed%20Identity">4th Law of Identity</a>.</p><p>My app was&nbsp;given:</p> "sub":"0x233c7136721dd85256e936a6a0b5a67b0f904bed6d1ce91d6d7364e9064f9cc2" <p>… and the developer portal was given a different identifier, which is what we&nbsp;want:</p> "sub":"0x29a6e7c076c0922e146e96c92b5d4c8833818cc89166f483903a731d2e757253" <p>… and the second production app I setup was given yet another identifier:</p> "sub":"0x2d20b5094a2e2f8be4542f40e7eca9b701b4763877cc4fede42dfa6ea756a31c" <p>The latter is going to be a problem for developers as they want to know it is the same user across apps. Many large providers that only allowed one app per developer have kludged together mechanisms for developers to get this common identifier. Wanting the same user identifiers across each of developer’s app will motivate them to use the same “client_id” and “client_secret” across apps, dissolving the separation of concerns.</p> Access Token <p>The next thing I explored was setting “response_type” to “token” instead of an “id_token”. This provides an access token that can be used to call the user_info endpoint, and potentially any other API exposed by the provider.</p><p>First of all, this should not have worked in an implicit flow where the “token” is returned as a redirect parameter. It is now in the browser history and available to any malicious code with access. (<a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics#name-access-token-in-browser-his">Security BCP&nbsp;4.3.2</a>)</p><p>The bigger issue is that the access token is an ID Token. There was no difference in the token format in conflict with <a href="https://datatracker.ietf.org/doc/html/rfc8725.html">RFC 8752</a> section 3.11 and 3.12, conflating authorization with authentication.</p> response_mode <p>The default mechanism to return the results from an authorization request is to include them as query parameters. This has the downside of sensitive parameters such as tokens being captured in server logs that save the URL being requested, and potentially exposes the parameters to unencrypted wireless networks.</p><p>The “fragment” response mode returns the results in the URL fragment, which is not sent to the server by the browser. This allows a web app to access the results. The “form_post” mode passes the parameters to the server as a form post rather than as query parameters, keeping the parameters out of the server logs of the page&nbsp;request.</p><p>I tried getting results by passing the “response_mode” parameter set to both “fragment” and “form_post”. Unfortunately, Worldcoin ignores the “response_mode” parameter. All results are returned as query parameters.</p> Documentation Concerns <p>Developers depend on a provider’s documentation to guide them. Unfortunately, the Worldcoin documentation is lacking, leading to developer frustration, or worse, vulnerable applications.</p><p>The only explanation for how to start the OpenID Connect flow is in <a href="https://docs.worldcoin.org/further-reading/oidc">Further Reading | OIDC Explainer</a>, not where a developer would start. The Quickstart tells developers to following the Auth0 Integration.</p><blockquote>I’m surprised the Auth0 integration would work given the non-standard ID Token “iss” and “iat” claims — but perhaps it only uses a token flow? — I have not investigated.</blockquote> nonce <p>The OIDC Explainer casually mentions the “nonce”, does not say it is required (it should be), and provides no explanation what the developer should do to confirm the ID Token they have received is linked to the authorization request they started, which is one of the purposes of the&nbsp;”nonce”.</p> scope <p>No mention of the “scope” parameter, which is required. No list of valid scopes is provided. I figured out the “openid”, “email”, and “profile” scopes by looking at examples. While “openid” is required, the “profile” scope return generic information, the “email” claim is just the “sub” claim prepended to “@id.worldcoin.org”.</p><blockquote>UPDATE Aug 12: <br>The documentation has been updated to include the “scope” parameter and shows “openid%20profile%20email”, so one can more easily guess what scopes are allowed. The docs say that the default scope is “openid”, but it is now required to be spec compliant. The “nonce” parameter is now stated as required when using id_token response type, although best practice is for there to be a nonce in the id_token returned for “code” response types as well. The docs are moving in the right direction!</blockquote> Closing Thoughts <p>Given the <a href="https://www.crunchbase.com/organization/worldcoin">$125M raised</a> and the involvement of Sam Altman of Y Combinator and OpenAI fame, I had expected a robust OpenID implementation that would have lowered the bar for developers to adopt World ID and inspired innovation.</p><p>This disregard for following the standard and published best security practices is alarming. Not informing a user about what is being released about them displays a disregard for user privacy. A step backwards for the identity industry.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*Mdecic2hov3c7fPjKqIHoA.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:57 &bull;
+   7 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
+  Tuesday, 08. August 2023
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://medium.com/@rufftimo'>Timothy Ruff</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://rufftimo.medium.com/calling-all-wallets-d10895f64bdb?source=rss-11906019170a------2'>Calling All Wallets</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   An open solicitation for high-volume wallet&nbsp;projects  If you have, work with, or are aware of a digital personal wallet project capable of onboarding and supporting hundreds of millions of individuals in a short period of time, we’d like to speak with&nbsp;you.  Digital Trust Ventures (DTV) has launched a startup, currently in stealth mode, that will generate up to hundreds of millions of wal
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ An open solicitation for high-volume wallet&nbsp;projects <p>If you have, work with, or are aware of a digital personal wallet project capable of onboarding and supporting hundreds of millions of individuals in a short period of time, we’d like to speak with&nbsp;you.</p><p>Digital Trust Ventures (DTV) has launched a startup, currently in stealth mode, that will generate up to hundreds of millions of wallet holders sometime around the middle of 2024. This startup will not provide personal wallet services, and instead will rely on partners to satisfy the near-instant strong demand that will be generated upon launch. We are seeking two partners to be part of this launch, who will offer competing wallets that are fully interoperable with each other and with the DTV startup’s KERI-based tooling.</p><p>A personal wallet partner&nbsp;must:</p>  Be capable of scaling to hundreds of millions of users in a short period of time (from 1 to 30&nbsp;days)  Provide appropriate self-service and other support for all&nbsp;users  Support KERI and&nbsp;ACDCs  Be thin/keys-at-the-edge, with ACDCs managed through hosted cloud&nbsp;agents  Support all ACDCs, regardless of project participation  Support simple messaging  Have an excellent, simple&nbsp;UI/UX  Be ready to go by Summer&nbsp;2024  <p>The wallet must support freemium pricing; a strong monetization model for the personal wallet along with other details of the project will be shared under NDA with qualified prospective partners.</p><p>In exchange for providing all of this, the partner will enjoy global recognition on a stage with no equal, and the chance to quickly onboard hundreds of millions of users. We are looking for strong, established companies with clear capabilities to handle a project this large, not startups.</p><p>If you are involved with or know of a project that has these capabilities, please get in touch to learn more by sending an email to <a href="mailto:wallets@digitaltrust.vc">wallets@digitaltrust.vc</a>.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:54 &bull;
+   7 months ago
 </div>
 
 </div><!-- item-body -->
