@@ -459,11 +459,691 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 6:17 PM March 05, 2024 (UTC)</sup>
+<sup>Last Update 6:18 PM March 06, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Organizations | Identosphere Blogcatcher</h1>
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Wednesday, 06. March 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.ceramic.network/'>Ceramic Network</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.ceramic.network/points-on-ceramic/'>Building Points on Ceramic - an Example and Learnings</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  We built a Web3 points application on Ceramic to explore the design considerations a successful system requires.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>We've made the case in a recent <a href="https://blog.ceramic.network/points-how-reputation-tokens-collide-where-it-goes-from-here/">blog post</a> that web3 point systems align the incentives of platforms and their users, acting as reputation systems that allow participants to draw inferences between who's creating value and who's likely to receive rewards for their actions. More importantly, these systems help participants understand what user interactions matter to applications using points. And while points often manifest as objects referred to by different names (badges and attestations, for example), there's a commonality across these implementations relevant to their verifiability. </p> Why Points and Ceramic? <p>Points data requires properties allowing consumers of points (traditionally the same applications issuing them) to trust their provenance and lineage. This is unsurprisingly why most Web3 points systems today are built on centralized rails - not only is a simple Postgres instance easy to spin up, but the only data corruption vulnerability would result from poor code or security practices.</p><p>For readers familiar with Ceramic's composability value proposition, it's likely obvious why we view web3 point systems (and reputation systems more broadly) as ideal Ceramic use cases. Not only does Ceramic offer rich query capabilities, data provenance and verifiability promises, and performance-related guarantees, but both end users and applications benefit from portable activity. We foresee an ecosystem where end users can leverage the identity they've aggregated from one application across many others. In turn, applications can start building on user reputation data from day one.</p><p>To put this into practice, we built a scavenger hunt application for EthDenver '24 that allowed participants to collect points based on in-person event attendance. </p> A Scavenger Hunt for Points <p>Ceramic was officially involved in 8 or so in-person engagements this year at EthDenver, some of which were cosponsored events (such as <a href="https://lu.ma/proofofdata?ref=blog.ceramic.network">Proof of Data</a> and <a href="https://lu.ma/opendataday1?ref=blog.ceramic.network">Open Data Day</a>), while others were cross-collaborations between Ceramic and our partners (for example, driving participants to check in at official partner booths at the official EthDenver conference location). The idea was simple - participants would collect points for checking in at these events, and based on different thresholds or interpretations of participant point data (for example, participants with the most event check-ins) would be eligible for prizes.</p><p>To make this happen, we ideated on various patterns of data control and schema design that presented the best balance of trade-offs for this use case. In simple terms, we needed to:</p>  Track event attendance by creating or updating abstractions of that activity in Ceramic  Provide a crypto-native means for participants to self-identify to leverage Ceramic-native scalar types  Secure the application against potential spoofing attempts  Collect enough information necessary to perform creative computation on verifiable point data  <p>We were also presented with several considerations. For example, should we go through the effort to emulate a user-centric data control design whereby we implement a pattern that requires additional server-side verification and signed data to allow the end user to control their Ceramic point data? Or what's the right balance of data we should collect to enable interesting interpretations (or <code>PointMaterializations</code>) to be made as a result of computing over points?</p> Architecting Document Control <p>Before we jump in, reading our blog post on <a href="https://blog.ceramic.network/data-control-patterns-in-decentralized-storage/">Data Control Patterns in Decentralized Storage</a> would help provide useful context. As for the problem at hand, two options stand out as the most obvious ways to build a verifiable points system on open data rails:</p>  Reconstruct the approach that would be taken on traditional rails (the application is the author and controller of all points data they generate). This makes the data easy to verify externally based on the Ceramic document controller (which will always be the same), and data consumers wouldn't have to worry about end users attempting to modify stream data in their favor  Allow the end users to control their points data on Ceramic. In this environment, we'd need a flow that would be able to validate the existing data had been "approved" by us by verifying a signed payload, then update the data and sign it again before having the user save the update to their Ceramic document, thus ensuring the data is tamper-evident  <p>You might've guessed that the second option is higher-touch. At the same time, a future iteration of this system might want to involve a data marketplace that allows users to sell their points data, requiring users to control their data and its access control conditions. For this reason and many others, we went with #2. We'll discuss how we executed this in the sections below.</p> What Data Models Did We Use? <p>When we first started building the scavenger hunt application the <code>SET</code> accountRelation schema option had not yet been released in ComposeDB (important to note due to the high likelihood we would've used it). Keep that in mind as we overview some of the APIs we built to check if existing model instances had been created (later in this article).</p><p>In discussing internally how points data manifests, we decided to mirror a flow that looked like trigger -&gt; point issuance -&gt; point materialization. This means that attending an event triggers issuing point data related to that action. In response, that issuance event might materialize as an interpretation of the weight and context of those points (which could be created by both the application that issued the points and any other entity listening in on a user's point activity). </p><p>As a result, our ComposeDB schemas ended up like this:</p> <code>type PointClaims
+  @createModel(accountRelation: LIST, description: "A point claim model") 
+  @createIndex(fields: [{ path: ["issuer"] }])
+  {
+  holder: DID! @documentAccount
+  issuer: DID! @accountReference
+  issuer_verification: String! @string(maxLength: 100000)
+  data: [Data!]! @list(maxLength: 100000)
+}
+
+type Data {
+  value: Int!
+  timestamp: DateTime!
+  context: String @string(maxLength: 1000000)
+  refId: StreamID
+}
+
+type PointMaterializations
+  @createModel(
+    accountRelation: LIST
+    description: "A point materialization model"
+  )
+  @createIndex(fields: [{ path: ["recipient"] }]) {
+  issuer: DID! @documentAccount
+  recipient: DID! @accountReference
+  context: String @string(maxLength: 1000000)
+  value: Int!
+  pointClaimsId: StreamID! @documentReference(model: "PointClaims")
+  pointClaim: PointClaims! @relationDocument(property: "pointClaimsId")
+}</code> <p>To provide more context, we built the application to create a new <code>PointClaims</code> instance if one did not already exist for that user, and update the existing <code>PointClaims</code> instance if one already existed (and, in doing so, append an instance of <code>Data</code> to the "data" field). I mentioned above that the <code>SET</code> accountRelation option would've likely come in handy. Since we were hoping to maintain a unique list of <code>PointClaims</code> that only had 1 instance for each user (where the issuer represents the DID of our application), <code>SET</code> would've likely been the preferred way to go to make our lives easier.</p><p>You'll also notice that an optional field called "refId" that takes in a <code>StreamID</code> value exists in the <code>Data</code> embedded type. The idea here was that issuing points might be in response to the creation of a Ceramic document, in which case we might want to store a reference pointer to that document. For our scavenger hunt example, this was the case - points were issued in recognition of event attendance represented as individual Ceramic documents:</p> <code>type EthDenverAttendance
+  @createModel(
+    accountRelation: LIST
+    description: "An attendance claim at an EthDenver event"
+  )
+  @createIndex(fields: [{ path: ["recipient"] }])
+  @createIndex(fields: [{ path: ["event"] }])
+  @createIndex(fields: [{ path: ["latitude"] }])
+  @createIndex(fields: [{ path: ["longitude"] }])
+  @createIndex(fields: [{ path: ["timestamp"] }])
+  @createIndex(fields: [{ path: ["issuer"] }]) {
+  controller: DID! @documentAccount
+  issuer: DID! @accountReference
+  recipient: String! @string(minLength: 42, maxLength: 42)
+  event: String! @string(maxLength: 100)
+  latitude: Float
+  longitude: Float
+  timestamp: DateTime!
+  jwt: String! @string(maxLength: 100000)
+}</code> <p>Finally, take a look at the "issuer_verification" field in <code>PointClaims</code> and "jwt" field in <code>EthDenverAttendance</code>. Both fields were allocated to store the data our application verified + signed, represented as a base64-encoded string of a JSON web signature. For <code>PointClaims</code>, this entailed just the values within the "data" array (involving a verification, updating, and resigning process each time new point data needed to be appended).</p> Issuing Points - Data Flow <p>For the remainder of the article, feel free to follow along in the following public code:</p> <code>https://github.com/ceramicstudio/fluence-demo</code> <p>You'll notice two environment variables (SECRET_KEY and STRING) scoped only for server-side access, the first of which is meant to contain our secret 64-character seed from which we'll instantiate our application's DID (to be used for filtering <code>PointClaims</code> instances for documents where our application's DID is the issuer, as well as for verifying and signing our tamper-evident fields). To explain STRING, it might be helpful at this point if I dive a bit deeper into what we built to support the user flow.</p><p>Private PostgreSQL Instance (for Whitelisted Codes)</p><p>You'll notice that a <code>findEvent</code> method is called first in the <code>useEffect</code> lifecycle hook within the <a href="https://github.com/ceramicstudio/fluence-demo/blob/main/src/components/index.tsx?ref=blog.ceramic.network">main component</a> rendered on our post-login screen, which subsequently calls a <code>/api/find</code> route (which uses our STRING environment variable to connect to our PostgreSQL client). For this application, we needed to quickly build a pattern where we were able to both issue and verify codes corresponding to each in-person event that had been generated beforehand. This ties back to our planned in-person flow:</p>  Participant scans a QR code or taps an NFC disc that contains the URL of our application + a parameterized whitelisted code that hasn't yet been used  The application checks the database to ensure the code hasn't yet been used  <p>While in theory this part could've been built on Ceramic with an added layer of encryption, it was easier to stand this up quickly with a private Postgres instance.</p><p>Determining Participant Eligibility</p><p>If the call to <code>/api/find</code> determines that the code has not been used, <code>findEvent</code> then calls a <code>createEligibility</code> method, passing in the name of the event as the input variable. Notice that the first thing we do is call a <code>getDID</code> method, which calls a <code>/api/checkdid</code> server route that uses our SECRET_KEY variable to instantiate a DID and send us back the did:key identifier. </p><p>This is the second check our application performs to prevent cheating, whereby we query ComposeDB for <code>EthDenverAttendance</code> instances, filtering for documents where the signed-in user is the controller, where the event is the string passed into <code>createEligibility</code>, and where our application is the issuer (as evidenced by the DID). </p><p>Finally, if no matching document exists, we determine that the participant is eligible to create a badge. </p><p>Generating Points Data</p><p>While there's plenty to discuss related to generating and validating badge data, given that the pattern is quite similar when issuing points, I'll focus on that flow. The important thing to know here is that within both our <code>createBadge</code> and <code>createFinal</code> methods found in the same component mentioned above call an <code>issuePoint</code> method if a badge was successfully created by the user, passing in the corresponding value, context, and name of the event corresponding to that issuance.</p><p>What happens next is a result of our decision to allow the end user to control their points-related data, such that we:</p>  Call an API route to access our application's DID  Call yet another <code>/api/issue</code> route, where we   Query <code>PointClaims</code> to see if one already exists or not for the end user where our application is also the issuer     <code>const authenticateDID = async (seed: string) =&gt; {
+    const key = fromString(seed, "base16");
+    const provider = new Ed25519Provider(key);
+    const staticDid = new DID({
+      resolver: KeyResolver.getResolver(),
+      provider
+    });
+    await staticDid.authenticate();
+    ceramic.did = staticDid;
+    return staticDid;
+}
+// we'll use this both for our query's filter and for signing/verifying data
+const did = await authenticateDID(SECRET_KEY);
+const exists = await composeClient.executeQuery&lt;{
+        node: {
+          pointClaimsList: {
+            edges: {
+              node: {
+                id: string;
+                data: {
+                  value: number;
+                  refId: string;
+                  timestamp: string;
+                  context: string;
+                }[];
+                issuer: {
+                  id: string;
+                };
+                holder: {
+                  id: string;
+                };
+                issuer_verification: string;
+              };
+            }[];
+          };
+        } | null;
+      }&gt;(`
+          query CheckPointClaims {
+            node(id: "${`did:pkh:eip155:${chainId}:${address.toLowerCase()}`}") {
+              ... on CeramicAccount {
+                    pointClaimsList(filters: { where: { issuer: { equalTo: "${did.id}" } } }, first: 1) {
+                      edges {
+                        node {
+                            id
+                            data {
+                              value
+                              refId
+                              timestamp
+                              context
+                            }
+                            issuer {
+                                id
+                            }
+                            holder {
+                                id
+                            }
+                            issuer_verification
+                         }
+                      }
+                    }
+                  }
+                }
+              }
+          `);</code>     Use the data passed into the API's request body to sign and encode the values with our application's DID (if no <code>PointClaims</code> instance exists)  Decode and verify the existing values of "issuer_verification" against our application's DID before appending the new data, resigning, and re-encoding it with our application's DID (if a <code>PointClaims</code> instance does exist)     <code>if (!exists?.data?.node?.pointClaimsList?.edges.length) {
+        const dataToAppend = [{
+          value: parseInt(value),
+          timestamp: new Date().toISOString(),
+          context: context,
+          refId: refId ?? undefined,
+        }];
+        if (!refId) {
+          delete dataToAppend[0]?.refId;
+        }
+        const jws = await did.createJWS(dataToAppend);
+        const jwsJsonStr = JSON.stringify(jws);
+        const jwsJsonB64 = Buffer.from(jwsJsonStr).toString("base64");
+        const completePoint = {
+          dataToAppend,
+          issuer_verification: jwsJsonB64,
+          streamId: "",
+        };
+        return res.json({
+          completePoint
+        });
+      }
+else {
+        const dataToVerify = exists?.data?.node?.pointClaimsList?.edges[0]?.node?.issuer_verification;
+        const json = Buffer.from(dataToVerify!, "base64").toString();
+        const parsed = JSON.parse(json) as DagJWS;
+        const newDid = new DID({ resolver: KeyResolver.getResolver() });
+        const result = parsed.payload
+          ? await newDid.verifyJWS(parsed)
+          : undefined;
+        const didFromJwt = result?.payload
+          ? result?.didResolutionResult.didDocument?.id
+          : undefined;
+        if (didFromJwt === did.id) {
+          const existingData = result?.payload;
+          const dataToAppend = [{
+            value: parseInt(value),
+            timestamp: new Date().toISOString(),
+            context: context,
+            refId: refId ?? undefined,
+          }];
+          if (!refId) {
+            delete dataToAppend[0]?.refId;
+          }
+          existingData?.forEach((data: {
+            value: number;
+            timestamp: string;
+            context: string;
+            refId: string;
+          }) =&gt; {
+            dataToAppend.push({
+              value: data.value,
+              timestamp: data.timestamp,
+              context: data.context,
+              refId: data.refId,
+            });
+          });
+          const jws = await did.createJWS(dataToAppend);
+          const jwsJsonStr = JSON.stringify(jws);
+          const jwsJsonB64 = Buffer.from(jwsJsonStr).toString("base64");
+          const completePoint = {
+            dataToAppend,
+            issuer_verification: jwsJsonB64,
+            streamId: exists?.data?.node?.pointClaimsList?.edges[0]?.node?.id,
+          };
+          return res.json({
+            completePoint
+          });
+        } else {
+          return res.json({
+            err: "Invalid issuer",
+          });
+        }
+      }</code>    Send the result back client-side   Use our client-side ComposeDB context (on which our end user is already authenticated) to either create or update a <code>PointClaims</code> instance, using the results of our API call as inputs to our mutation   <code>//if the instance doesn't exist yet
+if (finalPoint.completePoint.dataToAppend.length === 1) {
+      data = await compose.executeQuery(`
+      mutation  {
+        createPointClaims(input: {
+          content: {
+            issuer: "${did}"
+            data: ${JSON.stringify(finalPoint.completePoint.dataToAppend).replace(/"([^"]+)":/g, '$1:')}
+            issuer_verification: "${finalPoint.completePoint.issuer_verification}"
+          }
+        })
+        {
+          document {
+            id
+            holder {
+              id
+            }
+            issuer {
+              id
+            }
+            issuer_verification
+            data {
+              value
+              refId
+              timestamp
+              context
+            }
+          }
+        }
+      }
+   `);
+  }</code> <p>Does this sound a bit tedious? This is the same pattern we're using for issuing and verifying badges as well. And yes, it is verbose compared to what our code would've looked like had we decided not to go through the trouble of allowing our participants to control their Ceramic data.</p><p>Creating Manifestations</p><p>As mentioned above, <code>PointMaterializations</code> represent how points manifest in a platform for reward structures (like a new badge, an aggregation for a leaderboard, or gating an airdrop). Most importantly, the <code>PointMaterializations</code> collection is a new dataset built from our composable piece <code>PointClaims</code>. </p><p>To create <code>PointMaterializations</code>, we use an event-driven architecture, leveraging our MVP EventStream feature. When <code>PointClaims</code> instances are written to Ceramic, we will receive a notification in another application, in this case, a <a href="https://fluence.dev/docs/build-mvm/introducing_fluence?ref=blog.ceramic.network#compute-function">Fluence compute function</a>. </p><p>Our compute function works like this</p>  Determine that the notification is for the model (<code>PointClaims</code>) and the issuer is the DID of our application.  Extract from the notification content the <code>PointClaims</code>  Verify that the <code>issuer_verification</code> is valid for the <code>data</code> field in <code>PointClaims</code>  If the subject of the <code>PointClaims</code> (the document owner) has an existing PointMaterializations, retrieve it, otherwise create a new one.  For the context of the <code>PointMaterializations</code> calculate a new value  <code>unique-events</code> : tally all the <code>context</code> unique entries in the <code>data</code> field  <code>all-events</code> : tally all the entries in the <code>data</code> field  <code>first-all-events</code> : similar to all events, we check all unique <code>context</code> entries in the <code>data</code> field. If they have attended all the events, we then record the latest first event check-in as the value, so that we can rank users by that time    <p>If you want to view the Rust code that implements the sequence above, please check out the <a href="https://github.com/3box/ceramic-fluence/blob/main/calculator/src/calculator.rs?ref=blog.ceramic.network">compute repository</a>. </p><p>At the time of writing, the EventStream MVP does not include checkpointing or reusability, so we have set up a checkpointing server to save our state and then use a <a href="https://github.com/3box/ceramic-fluence/blob/main/fluence/src/spells/event_joiner_periodic/spell.aqua?ref=blog.ceramic.network">Fluence cron job</a>, or <a href="https://github.com/fluencelabs/spell?ref=blog.ceramic.network">spell</a>, to periodically run our compute function. In the future, we hope to trigger Fluence compute functions from new events on the EventStream.</p> What We Learned <p>This exercise left our team with a multitude of valuable learnings, some of which were more surprising than others:</p> Wallet Safety and Aversion to Wallet Authentication <p>We optimized much of the flow and the UI for mobile devices, given that the expected flow required scanning a code/tapping a disc as the entry point to interact with the application. However, throughout EthDenver and the various events we tried to facilitate issuing points, we overwhelmingly noticed a combination of:</p>  Participants intentionally do not have a MetaMask/wallet app installed on their phones (for safety reasons)  If a participant has such a wallet app on their phone, they are VERY averse to connecting it to our scavenger hunt application (particularly if they haven't heard of Ceramic previously)  <p>This presents several problems. First, given that our flow required a scanning/tapping action from the user, this almost entirely rules out using anything other than a phone or tablet. In a busy conference setting, it's unreasonable to expect the user to pull out their laptop, hence why those devices were not prioritized in our design.</p><p>Second, the end user must connect their wallet to sign an authentication message from Ceramic to write data to the network (thus aligning with our user-centric data design). There's no other way around this.</p><p>Finally, our scavenger hunt application stood ironically in contrast with the dozens of POAP NFC stands scattered throughout the conference (which did not require end users to connect their wallets, and instead allowed them to input their ENS or ETH addresses to receive POAPs). We could've quite easily architected our application to do the same, though we'd sacrifice our user-centric data design.</p> SET Account Relation will be Useful in Future Iterations <p>As explained above, the <code>PointsClaims</code> model presents an ideal opportunity to use the SET accountRelation configuration in ComposeDB (given how we update an existing model if it exists). </p> Data Verifiability in User-Centric Data Design Entails More Work <p>Not a huge shocker here, and this point is certainly relevant for other teams building with <a href="https://developers.ceramic.network/docs/composedb/examples/verifiable-credentials?ref=blog.ceramic.network">Verifiable Credentials</a> or <a href="https://docs.attest.sh/docs/tutorials/ceramic-storage?ref=blog.ceramic.network">EAS Off-Chain Attestations</a> on Ceramic. While there are plenty of considerations to go around, we figured that our simple use of an encoded JWT was sufficient enough for our need to validate both the originating DID and the payload. It was hard to imagine how we would benefit from the additional baggage relevant to saving point-related VCs to ComposeDB.</p> Interested in Building Points on Ceramic? <p>If your team is looking for jam on some points, or you have ideas for how we can improve this implementation, feel free to contact me directly at mzk@3box.io, or start a conversation on the <a href="https://forum.ceramic.network/?ref=blog.ceramic.network">Ceramic Forum</a>. We look forward to hearing from you!</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blog.ceramic.network/content/images/2024/03/ceramic-points.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:24 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://elastos.org/'>Elastos Foundation</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://elastos.info/blog/elacity-erc404-fractional-nft-trading/'>Elacity Enables ERC404 Standard for Revolutionary NFT Functionality</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Elacity, the pioneering NFT Marketplace built on Elastos, today announces its support for the trading of ERC404 standard NFTs. This technical development enables the buying and selling of fractional NFTs, like Elawings, seamlessly aligning with current token trading standards. ERC404 addresses the limitations posed by existing NFT trading processes. Designed from the ground up to […] 
+ The post El
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Elacity, the pioneering NFT Marketplace built on Elastos, today announces its support for the trading of ERC404 standard NFTs. This technical development enables the buying and selling of fractional NFTs, like <a href="https://ela.city/marketplace/collections/0x1814dde844554e649ee295c767c7a652845a1c0a">Elawings</a>, seamlessly aligning with current token trading standards.</p>
+<p>ERC404 addresses the limitations posed by existing NFT trading processes. Designed from the ground up to integrate the characteristics of ERC-20 and ERC-721 tokens into a single, more flexible model, ERC404 standard NFTs provide customers the ability to buy and sell portions of NFTs rather than previous methods which only allowed for the purchasing of whole NFTs. This capability brings the ability to create liquidity pools for NFTs, creating better markets for NFT trading. It also unlocks new use cases for NFT platforms for example, the buying and selling of fractional royalties for any form of digital content and assets, including music, artwork, books, and the like.&nbsp;</p>
+<p>Sasha Mitchell, the CEO and Founder of Elacity, says about the development, “The adoption of ERC404 a massive step forward in the digital rights and NFT space as a whole. Providing creators unprecedented ownership over the rights to their content, while also allowing users to engage with creators of their choice on a never-before-seen level. Meanwhile, adopting ERC404 is a unique opportunity to enhance trading for NFT markets which can offer utility through access or royalties to services.“</p>
+<p>“The addition of fractional NFT ownership will significantly increase flexibility and choice for both buyers and sellers of exclusive content, potentially creating further secondary markets and other forms of value addition,” he says.</p>
+<p>“It’s difficult to overstate the technical challenges that have been overcome to deliver genuine interoperability and conformity with multiple standards.&nbsp; But the result will mean more control for creators, and more choice for their audiences.”</p>
+<p>This milestone aligns with Elacity’s main vision of becoming a Decentralized Digital Rights Marketplace (DDRM), where creators and users alike can reap the benefits of fractional ownership and royalty generation. DDRM is an extension of existing Digital Rights Management Technology (DRM), a familiar technology that is currently used by industry players to protect creator’s content from unauthorized use and distribution. In essence, DRM systems employ encryption techniques, software licenses, and other security measures to control access to digital content and limit who can use it.</p>
+<p><a href="https://ela.city/cinema/explore">Elacity</a> stands as an innovative online decentralized content marketplace, revolutionizing the way users engage in the creation, purchase, and sale of online content through cutting-edge blockchain technology. Elacity’s parent company, Elastos is a public blockchain project that integrates blockchain technology with a suite of reimagined platform components to produce a modern Internet infrastructure that provides intrinsic protection for privacy and digital asset ownership.&nbsp;</p>
+ Join Us on the Journey 
+<p>As we continue to build the SmartWeb, we invite you to learn more about Elastos and join us in shaping a future where digital sovereignty is a reality. Discover how we’re making this vision come to life at <a href="https://elastos.info/">Elastos.info</a>&nbsp;and connect with us on&nbsp;<a href="https://twitter.com/ElastosInfo">X</a>&nbsp;and&nbsp;<a href="https://www.linkedin.com/company/elastosinfo/">LinkedIn</a>.</p>
+<p>The post <a href="https://elastos.info/blog/elacity-erc404-fractional-nft-trading/">Elacity Enables ERC404 Standard for Revolutionary NFT Functionality</a> appeared first on <a href="https://elastos.info">Elastos</a>.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:05 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.identityatthecenter.com/'>Identity At The Center - Podcast</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+    
+      
+    <a href='https://infosec.exchange/@idacpodcast/112048746537386307'> We have another Sponsor Spotlight episode of the Identity at</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   We have another Sponsor Spotlight episode of the Identity at the Center podcast for you this week. We were joined by Rich Dandliker, Chief Strategist at Veza.  We had an insightful discussion about Veza's unique approach to identity security, their 'anti-convergence' strategy, the significance of a reputable customer base, and the importance of a data-first approach to identity management.  Don't 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>We have another Sponsor Spotlight episode of the Identity at the Center podcast for you this week. We were joined by Rich Dandliker, Chief Strategist at Veza.</p><p>We had an insightful discussion about Veza's unique approach to identity security, their 'anti-convergence' strategy, the significance of a reputable customer base, and the importance of a data-first approach to identity management.</p><p>Don't miss out on this episode for a comprehensive understanding of Veza's innovative solutions in the IAM market. You can listen to the episode at idacpodcast.com or in your favorite podcast app.</p><p><a href="https://infosec.exchange/tags/iam">#iam</a> <a href="https://infosec.exchange/tags/podcast">#podcast</a> <a href="https://infosec.exchange/tags/idac">#idac</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   12:29 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://restofworld.org/'>ResofWorld</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://restofworld.org/2024/sri-lanka-pickme/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>This cab startup helped 100,000 drivers survive Sri Lanka’s economic crisis</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Sri Lanka’s economy had been in free fall, so PickMe set out to help local communities and provide dignified work. It paid off.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+It was early 2023 when Jayarathne realized that his grocery shop in Galle, a windswept beach town about two hours south of Colombo, was not profitable. As the sole breadwinner...
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   11:00 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://next-level-supply-chain-with-gs1us.podcastpage.io/'>Next Level Supply Chain Podcast with GS1</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://nextlevelsupplychainpodwithgs1us.libsyn.com/risk-resilience-and-ai-in-the-supply-chain-with-yossi-sheffi'>Risk, Resilience, and AI in the Supply Chain with Yossi Sheffi</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The COVID-19 pandemic threatened to derail supply chain management completely. Or did it?   Yossi Sheffi, distinguished MIT professor and an expert with 49 years in supply chain management, breaks down supply chain resilience into five levels and argues that supply chain managers were unsung heroes during the pandemic. Yossi also touches on balancing resilience with sustainability, pointing out th
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The COVID-19 pandemic threatened to derail supply chain management completely. Or did it?</p> <p>Yossi Sheffi, distinguished MIT professor and an expert with 49 years in supply chain management, breaks down supply chain resilience into five levels and argues that supply chain managers were unsung heroes during the pandemic. Yossi also touches on balancing resilience with sustainability, pointing out that while essential, both can introduce short-term costs and competitive imbalances. He underscores the delicate balance companies must strike between cost management and maintaining multiple suppliers for risk mitigation.</p> <p>He expounds on the role of AI in supply chains, emphasizing the importance of leveraging artificial intelligence for identifying alternative suppliers and predictive analysis. The conversation also delves into the roles of machine learning, large language models, and robotics in evolving supply chains. Despite skepticism about fully autonomous applications like pilotless planes, Yossi highlights ongoing experiments with AI as potential co-pilots. The episode concludes with reflections on the rapid technological evolution impacting the professional landscape and the fabric of daily life.</p> <p>&nbsp;</p> <p>Key takeaways:&nbsp;</p>     <p>Resilience in supply chains is crucial for navigating disruptions and maintaining operational continuity.</p>     <p>Artificial intelligence (AI) technology is vital for supply chain management despite potential challenges.</p>     <p>Supply chain resilience and sustainability are critical concerns, as are the investments in these areas.</p>     <p>&nbsp;</p> <p>Connect with GS1 US:</p> <p>Our website - <a href="https://www.gs1us.org/upcs-barcodes-prefixes/how-to-get-a-upc-barcode/get-upc-barcodes?gclid=CjwKCAjwrdmhBhBBEiwA4Hx5g-YRJDMnWMGlYHx4BVA6paGhhat5XlyMsjwCNulVASbEothRP8QRbRoCSu8QAvD_BwE"> www.gs1us.org</a></p> <p><a href="https://www.linkedin.com/company/gs1-us/">GS1 US on LinkedIn</a></p> <p>&nbsp;</p> <p>Connect with guest:</p> <p><a href="https://www.linkedin.com/in/yossi-sheffi-b38b731/">Yossi Sheffi on LinkedIn</a></p> <p>Check out Yossi’s book - <a href="https://sheffi.mit.edu/magicbelt">The Magic Conveyor Belt: Supply Chains, A.I., and the Future of Work</a></p> <p>&nbsp;</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   11:00 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://fidoalliance.org/content/fido-news-center/'>FIDO Alliance</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://fidoalliance.org/tech-game-world-passkeys-are-arriving-on-playstation-how-the-smart-alternative-to-the-password-works/'>Tech Game World: Passkeys are arriving on PlayStation: how the smart alternative to the password works</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The advantages are many. Let’s start by saying that Passkeys are more secure than traditional passwords. These are fraud resistant and follow standards Fast Identity Online (FIDO )established by the […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The advantages are many. Let’s start by saying that Passkeys are more secure than traditional passwords. These are fraud resistant and follow standards Fast Identity Online (FIDO )established by the FIDO Alliance, a global organization of which the Sony Group (owner of PlayStation) is part. The FIDO Alliance is responsible for defining and promoting the more advanced authentication standards for a wide range of devices and platforms. The goal is to reduce the dependence on passwords, which are considered an obsolete method in contemporary times. These standards are supported by leading companies and institutions in the technology sector, with which PlayStation itself has collaborated to offer an optimal access experience.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:16 &bull;
+   17 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://fidoalliance.org/pcmag-no-more-passwords-sony-adopts-passkeys-for-playstation-4-ps5/'>PCMag: No More Passwords: Sony Adopts Passkeys for PlayStation 4, PS5</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Sony has introduced passkey support for PlayStation, eliminating the need for traditional passwords. Users can now opt for a more secure and convenient sign-in method by setting up a passkey […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Sony has introduced passkey support for PlayStation, eliminating the need for traditional passwords. Users can now opt for a more secure and convenient sign-in method by setting up a passkey stored on their phone or laptop. Passkeys use unique cryptographic keys that remain on the device which are phishing resistant, and can be accessed through other devices in case of loss.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:14 &bull;
+   17 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -543,7 +1223,7 @@
 
 <div class='item-footer'>
    15:27 &bull;
-   3 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -607,7 +1287,7 @@ With his Tinder date due to arrive at his Airbnb any minute, BK locked his lapto
 
 <div class='item-footer'>
    11:00 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -667,7 +1347,7 @@ Bipin Preet Singh is the co-founder and CEO of Indian payments app and digital w
 
 <div class='item-footer'>
    11:00 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -746,7 +1426,7 @@ Bipin Preet Singh is the co-founder and CEO of Indian payments app and digital w
 
 <div class='item-footer'>
    20:24 &bull;
-   22 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -887,7 +1567,7 @@ Bipin Preet Singh is the co-founder and CEO of Indian payments app and digital w
 
 <div class='item-footer'>
    16:31 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -954,7 +1634,7 @@ Bipin Preet Singh is the co-founder and CEO of Indian payments app and digital w
 
 <div class='item-footer'>
    13:09 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1018,7 +1698,7 @@ Chidi Ebule keeps at least 10 payment machines on the check-out counter of his g
 
 <div class='item-footer'>
    11:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1097,7 +1777,7 @@ Chidi Ebule keeps at least 10 payment machines on the check-out counter of his g
 
 <div class='item-footer'>
    16:35 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1167,7 +1847,7 @@ Chidi Ebule keeps at least 10 payment machines on the check-out counter of his g
 
 <div class='item-footer'>
    12:38 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1415,7 +2095,7 @@ Recognizing the important role networking infrastructure plays in the evolution 
 
 <div class='item-footer'>
    20:49 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1622,7 +2302,7 @@ Creating an IT strategy that optimizes processes and technology and fosters a cu
 
 <div class='item-footer'>
    20:38 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1827,7 +2507,7 @@ When an institution selects colocation services, Edge’s engineers help walk th
 
 <div class='item-footer'>
    20:17 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2023,7 +2703,7 @@ With a theme of Excelling in a Digital Teaching and Learning Future, EdgeCon Spr
 
 <div class='item-footer'>
    20:09 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2194,7 +2874,7 @@ Designing and managing online courses can be a challenging task, especially with
 
 <div class='item-footer'>
    20:01 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2395,7 +3075,7 @@ Visit <a href="https://njedge.net/solutions-overview/digital-learning/">njedge.n
 
 <div class='item-footer'>
    19:36 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2682,7 +3362,7 @@ As we look toward the future of libraries, Hoang says the biggest challenge will
 
 <div class='item-footer'>
    19:18 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2838,7 +3518,7 @@ As new technologies continue to evolve, artificial intelligence (AI) appears to 
 
 <div class='item-footer'>
    19:00 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3094,7 +3774,7 @@ Outlined in the Safeguards Rule of the Gramm-Leach-Bliley Act (GLBA), institutio
 
 <div class='item-footer'>
    18:44 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3177,7 +3857,7 @@ Outlined in the Safeguards Rule of the Gramm-Leach-Bliley Act (GLBA), institutio
 
 <div class='item-footer'>
    15:55 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3341,7 +4021,7 @@ To help advance Rowan’s research initiatives and further explore the synergy b
 
 <div class='item-footer'>
    15:53 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3408,7 +4088,7 @@ To help advance Rowan’s research initiatives and further explore the synergy b
 
 <div class='item-footer'>
    12:27 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3472,7 +4152,7 @@ In the weeks before Twitch pulled out of South Korea — an agonizing death ratt
 
 <div class='item-footer'>
    11:00 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3532,7 +4212,7 @@ If Google was starting from behind in the latest round of AI hype, this week mad
 
 <div class='item-footer'>
    11:00 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3610,7 +4290,7 @@ If Google was starting from behind in the latest round of AI hype, this week mad
 
 <div class='item-footer'>
    14:04 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3674,7 +4354,7 @@ If Google was starting from behind in the latest round of AI hype, this week mad
 
 <div class='item-footer'>
    11:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3734,7 +4414,7 @@ For the past six months, Alou Dembele, a 27-year-old engineer and teacher, has s
 
 <div class='item-footer'>
    11:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3760,7 +4440,7 @@ For the past six months, Alou Dembele, a 27-year-old engineer and teacher, has s
  <i class='icon-caret-down item-collapse item-close item-opened'></i>
  <i class='icon-caret-right item-expand item-open item-closed'></i>
 
- <a href='https://nextlevelsupplychainpodwithgs1us.libsyn.com/behind-the-barcode-mastering-2d-barcodes-with-gs1s-gena-morgan'>Behind the Barcode: Mastering 2D barcodes with GS1 US's Gena Morgan</a>
+ <a href='https://nextlevelsupplychainpodwithgs1us.libsyn.com/behind-the-barcode-mastering-2d-barcodes-with-gs1s-gena-morgan'>Behind the Barcode: Mastering 2D Barcodes with GS1 US's Gena Morgan</a>
 
 </h3>
 
@@ -3798,7 +4478,7 @@ For the past six months, Alou Dembele, a 27-year-old engineer and teacher, has s
 
 <div class='item-footer'>
    10:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3883,7 +4563,7 @@ For the past six months, Alou Dembele, a 27-year-old engineer and teacher, has s
 
 <div class='item-footer'>
    17:55 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3983,7 +4663,7 @@ For the past six months, Alou Dembele, a 27-year-old engineer and teacher, has s
 
 <div class='item-footer'>
    16:42 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4057,7 +4737,7 @@ For the past six months, Alou Dembele, a 27-year-old engineer and teacher, has s
 
 <div class='item-footer'>
    15:29 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4121,7 +4801,7 @@ Residents of South Asian cities know the air quality is poor: It’s often possi
 
 <div class='item-footer'>
    11:01 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4181,7 +4861,7 @@ At 9 on a cold January morning, Sami Iqbal got ready for work at his home in Lah
 
 <div class='item-footer'>
    11:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4241,7 +4921,7 @@ Pelonomi Moiloa is the CEO and co-founder of Lelapa AI, a South African startup 
 
 <div class='item-footer'>
    11:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4326,7 +5006,7 @@ Pelonomi Moiloa is the CEO and co-founder of Lelapa AI, a South African startup 
 
 <div class='item-footer'>
    05:18 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4412,7 +5092,7 @@ Pelonomi Moiloa is the CEO and co-founder of Lelapa AI, a South African startup 
 
 <div class='item-footer'>
    19:22 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4489,7 +5169,7 @@ Pelonomi Moiloa is the CEO and co-founder of Lelapa AI, a South African startup 
 
 <div class='item-footer'>
    16:26 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4556,7 +5236,7 @@ Pelonomi Moiloa is the CEO and co-founder of Lelapa AI, a South African startup 
 
 <div class='item-footer'>
    12:56 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4668,7 +5348,7 @@ The post Welcoming Dalia Othm
 
 <div class='item-footer'>
    11:05 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4732,7 +5412,7 @@ As a child, Baptista Miranda marveled at Brazil, learning about it through lavis
 
 <div class='item-footer'>
    11:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4859,7 +5539,7 @@ The post Chamada comunitária:
 
 <div class='item-footer'>
    09:34 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4982,7 +5662,7 @@ The post
 
 <div class='item-footer'>
    09:32 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5105,7 +5785,7 @@ The post Community call: Dreams of a coll
 
 <div class='item-footer'>
    09:01 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5739,7 +6419,7 @@ Internal Links in Italic</p>
 
 <div class='item-footer'>
    22:50 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5799,7 +6479,7 @@ Internal Links in Italic</p>
 
 <div class='item-footer'>
    20:18 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5859,7 +6539,7 @@ Internal Links in Italic</p>
 
 <div class='item-footer'>
    20:17 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5919,7 +6599,7 @@ Internal Links in Italic</p>
 
 <div class='item-footer'>
    20:16 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5979,7 +6659,7 @@ Internal Links in Italic</p>
 
 <div class='item-footer'>
    20:15 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6049,7 +6729,7 @@ Internal Links in Italic</p>
 
 <div class='item-footer'>
    12:01 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6122,7 +6802,7 @@ Internal Links in Italic</p>
 
 <div class='item-footer'>
    17:39 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6208,7 +6888,7 @@ Internal Links in Italic</p>
 
 <div class='item-footer'>
    16:40 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6278,71 +6958,7 @@ Internal Links in Italic</p>
 
 <div class='item-footer'>
    16:27 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://restofworld.org/'>ResofWorld</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://restofworld.org/2024/exporter-big-data-platforms-humanitarian-privacy/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>What comes after big data?</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  A new push to carve data collection out of the humanitarian tech stack.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-Charity projects from tech giants tend to play off the companies’ strengths: collecting and processing data. One Google-backed project harvests agricultural data to predict crop-devouring pests. Another Microsoft scheme processes...
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   11:00 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6406,7 +7022,7 @@ Charity projects from tech giants tend to play off the companies’ strengths: c
 
 <div class='item-footer'>
    09:34 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6476,7 +7092,7 @@ Charity projects from tech giants tend to play off the companies’ strengths: c
 
 <div class='item-footer'>
    19:09 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6543,7 +7159,7 @@ Charity projects from tech giants tend to play off the companies’ strengths: c
 
 <div class='item-footer'>
    13:48 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6622,7 +7238,7 @@ Charity projects from tech giants tend to play off the companies’ strengths: c
 
 <div class='item-footer'>
    10:00 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6686,7 +7302,7 @@ Charity projects from tech giants tend to play off the companies’ strengths: c
 
 <div class='item-footer'>
    10:00 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6805,7 +7421,7 @@ Charity projects from tech giants tend to play off the companies’ strengths: c
 
 <div class='item-footer'>
    02:03 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6905,7 +7521,7 @@ Charity projects from tech giants tend to play off the companies’ strengths: c
 
 <div class='item-footer'>
    00:00 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6977,7 +7593,7 @@ Charity projects from tech giants tend to play off the companies’ strengths: c
 
 <div class='item-footer'>
    22:18 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7052,7 +7668,7 @@ Charity projects from tech giants tend to play off the companies’ strengths: c
 
 <div class='item-footer'>
    20:09 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7234,7 +7850,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    16:14 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7298,7 +7914,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    15:30 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7358,7 +7974,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    15:28 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7418,7 +8034,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    15:27 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7478,7 +8094,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    15:27 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7561,7 +8177,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    15:24 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7626,7 +8242,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    09:39 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7690,7 +8306,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    08:29 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7779,7 +8395,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    19:06 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7846,7 +8462,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    12:37 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7975,7 +8591,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    08:24 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8089,7 +8705,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    08:24 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8203,7 +8819,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    08:24 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8287,7 +8903,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    15:38 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8418,7 +9034,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    15:33 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8490,7 +9106,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    13:50 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8592,7 +9208,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    18:05 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8686,7 +9302,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    13:02 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8751,7 +9367,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    09:35 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8839,7 +9455,7 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    13:06 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9054,7 +9670,7 @@ The post Roots and infrastructure: Two key
 
 <div class='item-footer'>
    16:35 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9235,7 +9851,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    16:35 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9356,7 +9972,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    15:00 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9441,7 +10057,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    16:00 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9508,7 +10124,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    12:23 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9599,7 +10215,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    18:56 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9663,7 +10279,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    17:29 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9737,7 +10353,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    17:29 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9797,7 +10413,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    17:28 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9857,7 +10473,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    17:26 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9922,7 +10538,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    09:56 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10004,7 +10620,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    23:37 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10177,7 +10793,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    19:50 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10251,7 +10867,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    10:43 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10323,7 +10939,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    14:20 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10387,7 +11003,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    10:00 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10472,7 +11088,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    17:31 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -10540,7 +11156,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    15:53 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -10600,7 +11216,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    15:52 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -10660,7 +11276,7 @@ The post Raiz e infraestr
 
 <div class='item-footer'>
    15:52 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -10838,7 +11454,7 @@ its applications.
 
 <div class='item-footer'>
    15:02 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -10905,7 +11521,7 @@ its applications.
 
 <div class='item-footer'>
    14:09 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -19464,113 +20080,6 @@ type VerifiableCredentialEIP712 implements VerifiableCredential &amp; VCEIP712Pr
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://elastos.org/'>Elastos Foundation</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://elastos.info/blog/elacity-revolutionising-drm-in-the-digital-transformation-era/'>Elacity: Revolutionising DRM in the Digital Transformation Era</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Digital transformation is projected to grow from $1.69 trillion in 2023 to $4.46 trillion by 2030. The internet makes duplication almost costless. Therefore, the challenge is how to create scarcity, which is crucial for establishing value and, in turn, enables monetisation and the development of new digital asset markets online. Piracy costs the global economy […] 
- The post Elacity: Revolutionisi
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Digital transformation is projected to grow from $1.69 trillion in 2023 to $4.46 trillion by 2030. The internet makes duplication almost costless. Therefore, the challenge is how to create scarcity, which is crucial for establishing value and, in turn, enables monetisation and the development of new digital asset markets online. Piracy costs the global economy $1.13 trillion yearly, with U.S. video piracy losses up to $71 billion annually and job losses up to 560,000. Most online music is downloaded illegally (95%), and unlicensed software usage exceeds 50% in many countries.</p>
-<p>The Digital Rights Management (DRM) market, valued at $3.6 billion, is expected to reach $24.63 billion by 2030. Traditional DRM, while attempting to protect digital assets, often imposes centralised control, creating bottlenecks and reducing the agility needed in today’s rapidly evolving digital space, raising significant issues around ownership, intrinsic value, and fair compensation. Revenue splits favour gatekeepers, such as YouTube, which retains 45%, and Google AdSense 50%; software, app, and music stores take 30% cuts.</p>
-<p>As we witness the exponential growth of digital technologies, the need for decentralised identity for scalability and enhanced security in commerce becomes more pronounced. Blockchain technology is projected to reach $1.43 trillion by 2030, and the NFT market $231 billion.</p>
-<p></p>
-<p><a href="http://ela.city">Elacity</a> revolutionises digital rights management by leveraging blockchain and the <a href="https://elastos.dev/">Elastos SmartWeb</a> technology, ensuring secure, scarce, and valuable digital assets. It aligns with the Access Economy, focusing on monetising access to private property over direct ownership, delivering business models to Web3. A comparison in the real world is using Airbnb to monetise your home, or Grab for your vehicle. Picture traditional DRM online as giving someone else the keys to your home (content), and letting them control access and profits for a big fee. What’s worse is everyone globally relies on just a few people to do this.</p>
-<p>Elacity, in contrast, is like having a secure access system: you control who enters and monetise directly through a global market. This approach offers creators transparency, control, and fair compensation up to 95%, marking a proactive step towards a future of seamless, equitable digital asset management. You can read their ‘<a href="https://elastos.info/blog/elacity-web3-whitepaper-the-access-economy-in-web3/">Access Economy in Web3</a>‘ whitepaper, here is an overview;</p>
-<p>&nbsp;</p>
-<p></p>
-<p>&nbsp;</p>
- 
- Decentralised DRM System: Elacity introduces a user-owned, decentralised DRM system for asset monetisation in the Web3 environment. This approach contrasts sharply with traditional DRM systems, which often rely on centralised license servers and control mechanisms. 
- Digital Capsules: A core feature of Elacity is the use of ‘Digital Capsules’—encrypted digital goods stored on decentralised networks. These capsules contain digital assets ranging from music, videos, software, and other forms of digital content. 
- Tokenisation of Rights: Elacity employs tokenisation to represent different rights and values associated with digital content. This includes:
- 
- Access Tokens: These are scarce tokens embedded with specific rights, allowing the trading of access and retrieval of encrypted licenses directly from smart contracts. 
- Royalty Tokens: These tokens enable immediate revenue sharing from access token trading to royalty token holders. 
- Distribution Rights Tokens: These tokens define specific rights associated with access tokens, such as resale percentage, derivative rights, or transfer restrictions. 
- 
- 
- Blockchain and Smart Contracts: Elacity leverages blockchain technology to ensure secure, transparent, and immutable record-keeping. Smart contracts automate license issuance and facilitate immediate royalty payments, enhancing efficiency over traditional systems. 
- Global Digital Asset Exchange: The platform serves as a marketplace for digital assets, allowing for the exchange of these assets with scarce, tradable access and ownership rights. 
- Integration with Advanced Technologies: Elacity integrates advanced technologies like Elastos SmartWeb and the InterPlanetary File System (IPFS), reinforcing its commitment to decentralised and secure digital asset management. 
- Benefits for Stakeholders: Elacity offers numerous advantages, particularly for content creators and owners, such as:
- 
- Creator Autonomy: It provides global control and monetisation opportunities for owners. 
- Web3 Business Models: The platform supports various business models, like buy or rent, in a decentralised marketplace. 
- Real-Time Payment and Licensing Efficiency: Payments are processed in real-time, and licensing is more efficient compared to centralised systems. 
- Enhanced Security and Privacy: Leveraging decentralised technologies, Elacity ensures enhanced security and privacy for users and their digital assets. 
- 
- 
- 
-<p>&nbsp;</p>
-<p>The exponential growth of digital technologies underscores the need for systems like Elacity that adapt quickly. Blockchain, NFTs, and decentralised finance (DeFi) are pivotal in this new era, offering solutions for creating digital scarcity, automating complex agreements through smart contracts, and ensuring interoperability and scalability.</p>
-<p>On the 9th of January, Elacity will be launching DRM for video on Elastos, offering Bella holders exclusive access to mint video capsules and providing a global access token marketplace for anyone to buy and watch video content back using their decentralised identity. To be the first to find out and get the latest updates, <a href="https://twitter.com/Elacityofficial">follow Elacity on X.</a></p>
-<p>&nbsp;</p>
-<p></p>
-<p>The post <a href="https://elastos.info/blog/elacity-revolutionising-drm-in-the-digital-transformation-era/">Elacity: Revolutionising DRM in the Digital Transformation Era</a> appeared first on <a href="https://elastos.info">Elastos</a>.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://elastos.info/wp-content/uploads/2024/01/s_curve_showing_launch_growth_and_decline_Slide01-300x202.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:03 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Monday, 08. January 2024
  </h2>
@@ -20635,7 +21144,7 @@ type VerifiableCredentialEIP712 implements VerifiableCredential &amp; VCEIP712Pr
 
 <div class='item-footer'>
    13:52 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20695,7 +21204,7 @@ type VerifiableCredentialEIP712 implements VerifiableCredential &amp; VCEIP712Pr
 
 <div class='item-footer'>
    13:51 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20755,7 +21264,7 @@ type VerifiableCredentialEIP712 implements VerifiableCredential &amp; VCEIP712Pr
 
 <div class='item-footer'>
    13:49 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20869,7 +21378,7 @@ type VerifiableCredentialEIP712 implements VerifiableCredential &amp; VCEIP712Pr
 
 <div class='item-footer'>
    22:27 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20977,7 +21486,7 @@ type VerifiableCredentialEIP712 implements VerifiableCredential &amp; VCEIP712Pr
 
 <div class='item-footer'>
    22:26 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21097,7 +21606,7 @@ type VerifiableCredentialEIP712 implements VerifiableCredential &amp; VCEIP712Pr
 
 <div class='item-footer'>
    22:24 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21201,7 +21710,7 @@ type VerifiableCredentialEIP712 implements VerifiableCredential &amp; VCEIP712Pr
 
 <div class='item-footer'>
    22:22 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27590,365 +28099,6 @@ focus on solutions that build transparency into our digital ecosystem.
 
 <div class='item-footer'>
    07:43 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Wednesday, 06. December 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.energyweb.org/'>Energy Web</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://medium.com/energy-web-insights/not-for-profit-registry-launches-to-spur-sustainable-aviation-fuel-market-through-transparent-9a58e4b2e55d?source=rss----cc0d1aa19f01---4'>Not-for-Profit Registry Launches to Spur Sustainable Aviation Fuel Market Through Transparent…</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Not-for-Profit Registry Launches to Spur Sustainable Aviation Fuel Market Through Transparent Digital&nbsp;Tool  The SAFc Registry will transparently and rigorously connect corporate aviation customers to clean fuel deployment, reducing emissions from air travel and air&nbsp;freight.  Dubai, United Arab Emirates — December 6, 2023 — A new independent, not-for-profit sustainable aviation fuel certi
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*smZz03dvgxYc56rgkNQr3A.jpeg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- Not-for-Profit Registry Launches to Spur Sustainable Aviation Fuel Market Through Transparent Digital&nbsp;Tool  The SAFc Registry will transparently and rigorously connect corporate aviation customers to clean fuel deployment, reducing emissions from air travel and air&nbsp;freight. <p>Dubai, United Arab Emirates — December 6, 2023 — A new independent, not-for-profit sustainable aviation fuel certificate (SAFc) registry launched today at COP28, supporting major consumers of air travel and transport in their efforts to help directly decarbonize flight with an enterprise-grade digital tool. The registry was created by clean energy nonprofit RMI and the Environmental Defense Fund (EDF), in collaboration with the Sustainable Aviation Buyers Alliance (SABA) and digital solutions developer Energy&nbsp;Web.</p><p>The <a href="https://safcregistry.org/">SAFc Registry</a> connects corporate consumers, airlines, freight forwarders, and clean fuel producers in one universally accessible platform that will spur the use of sustainable aviation fuel (SAF) via the purchase of SAF certificates. Led by impartial nonprofits, the careful, transparent design of the registry builds on industry best practices and went through public consultation to ensure that the SAF certificates exchanged realize their intended environmental impact and can be claimed towards emissions reduction goals.</p><blockquote>“The SAFc Registry is the culmination of RMI’s ongoing work to catalyze the sustainable aviation fuel market. By creating a throughline from corporate consumers to fuel producers, we can expand investment in SAF infrastructure and increase supply of low-carbon fuels. Voluntary uptake is critical to scaling a burgeoning market, and we hope this registry can serve as an example for other sectors in the future.” said Bryan Fisher, Managing Director at the clean energy nonprofit RMI.</blockquote><p>SAF is made from renewable or waste materials and can decrease the lifecycle emissions of flight by more than 80%. However, the fuel is not yet widely available and carries a significant green price premium. The Registry helps address this market gap by connecting corporate demand for emissions reductions to SAF producers through an auditable ledger for certificates which decouples the emissions benefits of SAF use from the physical fuel supply. It is the final piece of market infrastructure — in addition to robust <a href="https://rsb.org/wp-content/uploads/2023/04/RSB-PRO-20-001-001-RSB-Book-and-Claim-Manual-3.0.pdf">standards</a>, <a href="https://www.weforum.org/publications/sustainable-aviation-fuel-certificate-safc-emissions-accounting-and-reporting-guidelines/">accounting guidelines</a>, and structured <a href="https://flysaba.org/2023/04/04/first-collective-purchase-of-sustainable-aviation-fuel-certificates/">RFPs</a> — to create a robust and de-risked market for SAFc investment.</p><blockquote>“For corporations and airlines, no other registry offers full transparency and tracks sustainable aviation fuel integrity to ensure high impact in fighting climate emissions,” said Elizabeth Sturcken, Managing Director, Net Zero Value Chains, at&nbsp;EDF.</blockquote><p>Major corporations that fly employees and goods around the world are urgently seeking ways to reduce the climate impacts from air transport. Emissions from travel, part of the “Scope 3” emissions in corporate emissions accounting, often represent the lion’s share of a business’ carbon footprint. SAF certificates enable companies to directly buy the auditable, credible emissions claims that represent a volume of sustainable aviation fuel displacing the same volume of conventional jet fuel for climate disclosures. These SAF certificates can be issued and retired in their name on the registry. Purchase of the certificates spurs fuel producers to invest in SAF production by sending a strong demand signal and creating a secondary value&nbsp;stream.</p><p>Major customers like Bank of America, Boom Supersonic, Boston Consulting Group, JPMorgan Chase &amp; Co. and Meta have already banded together to <a href="https://flysaba.org/2023/04/04/first-collective-purchase-of-sustainable-aviation-fuel-certificates/">collectively procure SAF certificates through SABA</a>, an alliance of the world’s most ambitious corporations addressing the emissions of flight through collective action. Future joint procurement efforts can use the SAFc Registry to seamlessly ensure the delivery of SAF certificates and sustainability assurances to&nbsp;buyers.</p><blockquote>“The SAFc Registry stands alone among other registries for being state-of-the-art, purely independent, and non-profit led. It should be the choice for any aviation customer looking to decarbonize their use of aviation,” said Kim Carnahan, Head of the SABA Secretariat and CEO of Neoteric Energy and&nbsp;Climate.</blockquote><p>The open-source software behind the SAFc Registry was designed to deliver an intuitive experience and great transparency to end-users. Each action on the SAFc Registry is validated, scrubbed of sensitive data, and digitally recorded. For registry users, the public, and auditors, this represents a continuous audit of registry operations.</p><blockquote>“We’re proud to support this best-in-class registry from inception and are already looking forward to new features focused on even easier ease-of-use and increased transparency,” said Jesse Morris, CEO at Energy&nbsp;Web.</blockquote><p>RMI, EDF, SABA and Energy Web will provide a tour of the new registry in a <a href="https://rmi.org/event/webinar-safc-registry-what-it-is-how-to-engage-and-why-it-matters/">webinar</a> on December 12th, 2023, and show how SAFc can help organizations meet sustainability goals by supporting auditable claims in climate disclosures.</p><p>Notes to&nbsp;Editors</p><p>About RMI</p><p>RMI, founded as Rocky Mountain Institute, is an independent nonprofit founded in 1982 that transforms global energy systems through market-driven solutions to align with a 1.5°C future and secure a clean, prosperous, zero-carbon future for all. We work in the world’s most critical geographies and engage businesses, policymakers, communities, and NGOs to identify and scale energy system interventions that will cut greenhouse gas emissions at least 50 percent by 2030. RMI has offices in Basalt and Boulder, Colorado; New York City; Oakland, California; Washington, D.C.; and Beijing. More information on RMI can be found at<a href="http://www.rmi.org/"> www.rmi.org</a> or<a href="https://www.linkedin.com/company/rocky-mountain-institute/"> LinkedIn.</a></p><p>About EDF</p><p>One of the world’s leading international nonprofit organizations, Environmental Defense Fund (<a href="https://www.edf.org/">edf.org</a>) creates transformational solutions to the most serious environmental problems. To do so, EDF links science, economics, law, and innovative private-sector partnerships. With more than 3 million members and offices in the United States, China, Mexico, Indonesia and the European Union, EDF’s scientists, economists, attorneys and policy experts are working in 28 countries to turn our solutions into action. Connect with us on Twitter <a href="https://twitter.com/envdefensefund">@EnvDefenseFund</a>.</p><p>About SABA</p><p>The Sustainable Aviation Buyers Alliance (SABA) is a joint initiative of RMI and the Environmental Defense Fund focused on accelerating the path to net-zero aviation by driving investment in, and adoption of, high-integrity sustainable aviation fuel (SAF) and supporting companies, airlines, and freight customers in achieving their climate goals. More information on SABA can be found at <a href="http://flysaba.wpengine.com/">flysaba.wpengine.com</a> or follow us on <a href="https://www.linkedin.com/company/sustainable-aviation-buyers-alliance-saba/">LinkedIn</a>.</p><p>About Energy&nbsp;Web</p><p>Energy Web is a global non-profit accelerating the clean energy transition by developing open-source technology solutions for energy systems. Our enterprise-grade solutions improve coordination across complex energy markets, unlocking the full potential of clean, distributed energy resources for businesses, grid operators, and customers. Our solutions for enterprise asset management, data exchange, and Green Proofs, our tool for registering and tracking low-carbon products, are underpinned by the Energy Web Chain, the world’s first public blockchain tailored to the energy sector. The Energy Web ecosystem comprises leading utilities, renewable energy developers, grid operators, corporate energy buyers, automotive, IoT, telecommunications leaders, and more. More information on Energy Web can be found at <a href="http://www.energyweb.org/">www.energyweb.org</a> or follow us on Twitter <a href="http://www.twitter.com/energywebx">@EnergyWebX</a></p> <p><a href="https://medium.com/energy-web-insights/not-for-profit-registry-launches-to-spur-sustainable-aviation-fuel-market-through-transparent-9a58e4b2e55d">Not-for-Profit Registry Launches to Spur Sustainable Aviation Fuel Market Through Transparent…</a> was originally published in <a href="https://medium.com/energy-web-insights">Energy Web</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*smZz03dvgxYc56rgkNQr3A.jpeg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:24 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://next-level-supply-chain-with-gs1us.podcastpage.io/'>Next Level Supply Chain Podcast with GS1</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://nextlevelsupplychainpodwithgs1us.libsyn.com/resiliancy-in-the-supply-chain-with-bob-ferrari'>Realigning Your Supply Chain for Resiliency and Success</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   As the supply chain is constantly changing and evolving, it is critical to understand the dynamic challenges ahead and leverage past experiences in these transformations.&nbsp;   In this episode, we speak with Bob Ferrari, Managing Director of the Ferrari Consulting and Research Group and Founder of the Supply Chain Matters blog. Bob speaks about hottest topics in supply chain today such as artifi
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>As the supply chain is constantly changing and evolving, it is critical to understand the dynamic challenges ahead and leverage past experiences in these transformations.&nbsp;</p> <p>In this episode, we speak with <a href="https://www.linkedin.com/in/bob-ferrari-36278/">Bob Ferrari</a>, Managing Director of the <a href="https://theferrarigroup.com/">Ferrari Consulting and Research Group</a> and Founder of the <a href="https://theferrarigroup.com/supply-chain-matters/">Supply Chain Matters blog</a>. Bob speaks about hottest topics in supply chain today such as artificial intelligence, machine learning, and specifically, generative AI. Bob shares how these innovations are transforming the supply chain landscape while also posing new challenges related to data security.</p> <p>We hear about the balance CIOs must strike between harnessing cutting-edge tech for competitive edge and maintaining robust cybersecurity and the importance of long-term strategies to mitigate future supply chain disruptions and the evolving skill sets required in the digital age.</p> <p>Key takeaways:&nbsp;</p>     <p>Adapting new technologies like AI, GPT, and Chat technology can lead to improved operations and help cope with rising consumer expectations. However, this adaptation should be gradual and risk-assessed, under the leadership of chief information officers.&nbsp;</p>     <p>Supply chain leaders need to adopt a mindset of agility and resiliency in order to navigate complex challenges and manage disruptions effectively. These qualities, coupled with an open-minded approach from senior leadership, are vital for successful supply chain transformations.</p>     <p>Learning from past disruptions and transformations is key. It's also paramount to prepare for future supply chain disruptions and shifts. Simulations and technology like digital twins can aid in scenario-based planning, helping businesses to anticipate and manage change more efficiently.</p>     <p>Connect with GS1 US:</p> <p>Our website - <a href="https://www.gs1us.org/upcs-barcodes-prefixes/how-to-get-a-upc-barcode/get-upc-barcodes?gclid=CjwKCAjwrdmhBhBBEiwA4Hx5g-YRJDMnWMGlYHx4BVA6paGhhat5XlyMsjwCNulVASbEothRP8QRbRoCSu8QAvD_BwE"> www.gs1us.org</a></p> <p><a href="https://www.linkedin.com/company/gs1-us/">GS1US on LinkedIn</a></p> <p>&nbsp;</p> <p>Connect with guests:</p> <p><a href="https://www.linkedin.com/in/bob-ferrari-36278/">Follow Bob Ferrari on LinkedIn</a></p> <p>&nbsp;</p> <p>&nbsp;</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   11:00 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Tuesday, 05. December 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://lissi.id/'>Lissi</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://lissi-id.medium.com/lissi-id-wallet-towards-eidas2-and-eudi-wallet-compatibility-0eec47d0b468?source=rss-7aca34b59aa8------2'>Lissi ID-Wallet: Towards eIDAS2 and EUDI-Wallet compatibility</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  The Lissi wallet supports selected eIDAS standards required for European digital identity&nbsp;wallets. In response to the revision of the eIDAS regulation, the European Union is introducing a common set of standards and technical specifications, which are designed to facilitate the seamless issuance, presentation and verification of verifiable identity data across borders. We are excited to announ
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*DPDTTBLjbA3ldZNtoFx6pg.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-The Lissi wallet supports selected eIDAS standards required for European digital identity&nbsp;wallets.<p>In response to the revision of the <a href="https://www.europarl.europa.eu/committees/en/european-digital-identity-provisional-ag/product-details/20231116CAN72103">eIDAS regulation</a>, the European Union is introducing a common set of standards and technical specifications, which are designed to facilitate the seamless issuance, presentation and verification of verifiable identity data across borders. We are excited to announce that the Lissi ID-Wallet supports selected standards, as we will further elaborate in this&nbsp;article.</p><p>The technical standards of the eIDAS 2.0 regulation are defined in the <a href="https://github.com/eu-digital-identity-wallet/eudi-doc-architecture-and-reference-framework">Architecture Reference Framework</a> (ARF). These standards are crucial as every <a href="https://neosfer.de/en/unveiling-eidas-2-0-the-dawn-of-the-eudi-wallet-era/">European Digital Identity Wallet</a> (EUDI Wallet) and applications interacting with it will need to support the required standards and technical specifications, which include communication protocols and credential formats among others. At <a href="https://www.lissi.id/">Lissi</a>, we have extended our wallet to ensure alignment with core standards:</p><p>Communication protocols: Currently, the only proposed communication protocol is OpenID4VC (OpenID for verifiable credentials), which we integrated as the worlds first wallet as part of a <a href="https://idunion.org/2023/04/26/contributing-to-the-development-of-openid4vc-with-idunion/">prototypical implementation in 2021</a>. It is mandated for the presentation of the foundational identity (eID or PID — Person Identification Data), which will be issued by a member state. With the current status of the regulation, member states will have the flexibility to choose their own issuance protocols for the PID, however QEAA and EAA need to be issued via this protocol.</p><p>Credential formats: The ARF standards currently propose multiple credential formats, including two different types of verifiable credentials as well as an ISO mobile driver’s license (mDL) credential format. In order to use the benefits of multiple credential formats, the PID will be issued as verifiable credential and ISO mDL simultaneously. For all other (qualified) electronic attribute attestations (such as an educational degree, employee pass, customer card, insurance claim etc.) the issuer is free to choose one of the supported types of credential formats according to the&nbsp;ARF.</p><p>We are thrilled to announce that the Lissi ID-Wallet, is now supporting these new crucial standards:</p>  OpenID4VC, which includes OpenID4VCI (OpenID for Verifiable Credential Issuance) and OpenID4VP (OpenID for Verifiable Presentations).  SD-JWT-based Verifiable Credentials with JSON payloads (<a href="https://datatracker.ietf.org/doc/html/draft-terbu-sd-jwt-vc-02">SD-JWT&nbsp;VC</a>).  <p>The wallet is publicly available as a beta version for both iOS (<a href="https://testflight.apple.com/join/guRQ8LaY">TestFlight</a>) and A<a href="https://play.google.com/store/apps/details?id=io.lissi.mobile.android.beta">ndroid</a> platforms. We encourage developers of issuance and verification software to test their implementations against our wallet to ensure interoperability and seamless functionality. We currently test our own issuance and verification software with selected clients. If you are interested in exploring our <a href="https://www.lissi.id/for-organisations">ID-Wallet connector software</a> with a free trial <a href="https://r82hs8os9o6.typeform.com/to/HDfiwoNP">reserve your spot on our waitlist&nbsp;now</a>.</p><p>The new standards are implemented based on the High Assurance Interoperability Profile (HAIP). It’s worth noting that there are other important standards as part of the eIDAS 2.0 regulation, such trust lists, public key infrastructure, digital signatures and more, which we will explore in future articles and won’t go into detail&nbsp;here.</p><p>In addition the Lissi ID-Wallet still supports the following standards which are not defined in the ARF, however, are used in many other identity projects:</p>  The DIDcomm communication protocol  Anonymous credentials also called “Anoncreds”  <p>As we witness the European community unite around a shared vision for a trusted digital future, we are proud to offer solutions that facilitate the required testing and integration of these pivotal standards. We look forward to continuing our journey alongside you, contributing to a harmonious and interconnected digital&nbsp;Europe.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*DPDTTBLjbA3ldZNtoFx6pg.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:15 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 04. December 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.weareopen.coop/'>We Are Open co-op</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.weareopen.coop/social-learning-the-heartbeat-of-communities-and-networks-55a9b3d33e8d?source=rss----23a60bcf8632---4'>Social Learning: The Heartbeat of Communities and Networks</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Mapping learning processes and&nbsp;outcomes  Often, when reflecting on ‘learning’, people recall their days of compulsory schooling, filled with specific content to learn and tests to complete. Yet, when we stop to think about it, most learning experiences differ from this. From learning to tie shoelaces, to the intricacies of how to interact on a social network, we learn by imitation and from&nb
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*ZfUDH8zEfHFyVyq3h-L9Jw.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- Mapping learning processes and&nbsp;outcomes <p>Often, when reflecting on ‘learning’, people recall their days of compulsory schooling, filled with specific content to learn and tests to complete. Yet, when we stop to think about it, most learning experiences differ from this. From learning to tie shoelaces, to the intricacies of how to interact on a social network, we learn by imitation and from&nbsp;others.</p><p>In other words, learning occurs both unintentionally and intentionally, both solo and collectively. It’s something that happens daily in all different kinds of ways. So when we’re thinking of designing learning experiences with and for others, we need to be aware of different forms of learning; each can be used effectively for various purposes.</p> Learning in four quadrants <p>A good place to start in understanding different forms of learning is with the work of <a href="https://www.sterksamenwerken.nl/userfiles/files/1B-Collectie-%20leren-Simons-De-Laat-2002.pdf">De Laat &amp; Simons</a> (2002). They map learning processes and learning outcomes against each other to create four ‘quadrants’ of learning. A slightly adapted version, with the quadrants renamed for clarity, can be found&nbsp;below:</p><p>To explain those four quadrants with some examples:</p> 1. Individual Learning <p>Self-directed learning processes and personal knowledge acquisition.</p><p>Examples:</p>  Learning to cook a new dish by following a recipe found in a cookbook or online, adjusting it through trial and error to suit one’s own&nbsp;taste.  An independent bookstore owner researching and implementing a new inventory system to better track sales and customer preferences.  An activist educating themselves on legal rights and protest strategies through various self-study materials to organise a non-violent civil disobedience campaign for social&nbsp;justice.   2. Networked Learning <p>Individual learning that occurs as a result of being part of a broader&nbsp;network.</p><p>Examples:</p>  Using a neighbourhood social networking app to exchange gardening tips and local plant knowledge with nearby residents.  A cafe owner joining a national coffee shop network to share insights on sustainable sourcing and eco-friendly practices.  Environmental scientists across the globe collaborating through a virtual network to share research on plastic degradation, aiming to develop new solutions to the plastic waste&nbsp;crisis.   3. Participatory Learning <p>Individuals actively engaging in learning communities.</p><p>Examples:</p>  Local people sharing knowledge and learning from each other’s experiences in a community garden about planting seasons, pest control, and crop rotation.  A coworking space that hosts weekly skill-sharing sessions where entrepreneurs share expertise on various topics such as marketing, legal issues, or funding strategies.  The forum of a social movement where members discuss and learn from each other about effective strategies for advocating policy changes to address income inequality.   4. Cooperative Learning <p>Structured group learning with common goals and shared knowledge creation.</p><p>Examples:</p>  A group of friends forming a book club where they read and discuss books together, each person bringing their own perspective to the discussion.  Renewable energy companies working together through a consortium to develop a shared framework for assessing the environmental impact of their products.  An international coalition of NGOs designing a cooperative learning program for young leaders from marginalised communities, focusing on climate action and sustainable development.   Types of social&nbsp;learning <p>As we can see, the difference here is not simply between ‘learning alone’ or ‘learning with others’. Putting to one side Individual Learning, let’s dig into the three types of learning involving a collective or ‘social’&nbsp;element:</p><p>Where do Communities of Practice (COPs) sit in relation to these three types of learning? The answer is that CoPs can involve all three, depending on the members of the community, how they interact, and what their goals are. This is why the value cycles we discussed in <a href="https://blog.weareopen.coop/community-conversations-93b689beee61">our post</a> about the Community Conversations workshops are so important. CoPs change and mature over time, with different forms of learning happening for different people at different times.</p> Conclusion <p>There is no one form of learning that is best for every situation. For example, you might find a manual useful for fixing a boiler, but a manual would be of little use when learning to&nbsp;abseil.</p><p>Using the right type of learning depends both on the process you want to follow and the outcome you want to&nbsp;reach:</p>  If you want to help people or organisations enhance their own knowledge or skills by interacting with others, then look at a Networked Learning approach.  If you want to help them work separately on the same (or similar) goals then consider a Participatory Learning approach.  If you want shared involvement to reach a common goal, then perhaps a Cooperative Learning approach would be best&nbsp;suited.  <p>Taking the time to understand both what you and your learners want from a situation can save a lot of time, money, and frustration. Designing a course to deliver the latest information might be important in the world of compliance training, but for the vast majority of learning experiences, it’s the social component that provides a lot of the&nbsp;value.</p> <p><a href="https://blog.weareopen.coop/social-learning-the-heartbeat-of-communities-and-networks-55a9b3d33e8d">Social Learning: The Heartbeat of Communities and Networks</a> was originally published in <a href="https://blog.weareopen.coop">We Are Open Co-op</a> on Medium, where people are continuing the conversation by highlighting and responding to this story.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*ZfUDH8zEfHFyVyq3h-L9Jw.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:17 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.identityatthecenter.com/'>Identity At The Center - Podcast</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-    
-      
-    <a href='https://infosec.exchange/@idacpodcast/111522205784760297'> It's time for the latest episode of the Identity at the Cent</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   It's time for the latest episode of the Identity at the Center Podcast! In this episode, we had an insightful discussion about cyber insurance with our special guest Jason Rebholz, Chief Information Security Officer at Corvus Insurance and YouTube’s Teach Me Cyber. We covered topics like the importance of cyber insurance, key security controls, and best practices for completing coverage applicatio
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>It's time for the latest episode of the Identity at the Center Podcast! In this episode, we had an insightful discussion about cyber insurance with our special guest Jason Rebholz, Chief Information Security Officer at Corvus Insurance and YouTube’s Teach Me Cyber. We covered topics like the importance of cyber insurance, key security controls, and best practices for completing coverage applications. Jason also shared his expertise on incident response and the evolving role of insurance providers in that space. Check it out at idacpodcast.com and your podcast app!</p><p><a href="https://infosec.exchange/tags/iam">#iam</a> <a href="https://infosec.exchange/tags/podcast">#podcast</a> <a href="https://infosec.exchange/tags/idac">#idac</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   12:43 &bull;
    3 months ago
 </div>
 
