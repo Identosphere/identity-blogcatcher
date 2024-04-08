@@ -706,7 +706,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:45 AM April 07, 2024 (UTC)</sup>
+<sup>Last Update 6:44 AM April 08, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -717,8 +717,961 @@
 
 
  <h2 class='new-date'>
+  Monday, 08. April 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/04/08/bff-secured-asp-net-core-application-using-downstream-api-and-an-oauth-client-credentials-jwt/'>BFF secured ASP.NET Core application using downstream API and an OAuth client credentials JWT</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement a web application using backend for frontend security architecture for authentication and consumes data from a downstream API protected using a JWT access token which can only be accessed using an app-to-app access token. The access token is acquired using the OAuth2 client credentials flow and the API does […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement a web application using backend for frontend security architecture for authentication and consumes data from a downstream API protected using a JWT access token which can only be accessed using an app-to-app access token. The access token is acquired using the OAuth2 client credentials flow and the API does not accept user access tokens from the UI application. OpenIddict is used as the OpenID Connect server. The STS provides both the OAuth2 client and the OpenID Connect client as well as the scope definitions.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/bff-aspnetcore-angular-downstream-api">https://github.com/damienbod/bff-aspnetcore-angular-downstream-api</a></p>
+
+
+
+<p></p>
+
+
+
+<p>The BFF web application is implemented using ASP.NET Core and Angular as the UI tech stack. The Angular part of the web application can only use the ASP.NET Core APIs and secure same site cookies are used to protect the access. The whole application is authenticated using an OpenID Connect confidential code flow client (PKCE). If the web application requires data from the downstream API, a second OAuth client credentials flow is used to acquire the access token. The downstream API does not accept the user delegated access tokens from the UI application.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ BFF OIDC code flow client 
+
+
+
+<p>Implementing the OpenID Connect confidential client is really simple in ASP.NET Core. The AddAuthentication method is used with cookies and OpenID Connect. The cookies are used to store the session and the OpenID Connect is used for the challenge. All server rendered applications are setup like this with small changes required for the OIDC challenge. Due to these small differences, the different OIDC implementations provide specific implementations of the client. These are normally focused and optimized for the specific OIDC servers and do not work good with other OIDC servers. Once you use more than one OIDC server or require multiple clients from the same OIDC server, the client wrappers cause problems and you should revert back to the standards.</p>
+
+
+  var stsServer = configuration["OpenIDConnectSettings:Authority"];
+
+services.AddAuthentication(options =&gt;
+{
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie()
+.AddOpenIdConnect(options =&gt;
+{
+    configuration.GetSection("OpenIDConnectSettings").Bind(options);
+
+    options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.ResponseType = OpenIdConnectResponseType.Code;
+
+    options.SaveTokens = true;
+    options.GetClaimsFromUserInfoEndpoint = true;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        NameClaimType = "name"
+    };
+});
+  
+
+
+<p></p>
+
+
+
+ Yarp Proxy 
+
+
+
+<p>The Angular UI can only request data from the ASP.NET Core backend using secure http only cookies. The Angular UI is deployed as part of the ASP.NET Core application in production builds. When creating applications, software developers need to use their preferred tools and YARP is used to support this in the development setup. As a further downstream API is used, YARP can also be used to support this. The proxy takes the API request, validates the cookie, uses another access token and forwards the request to the downstream API. YARP has an ITransformProvider interface which is used to implement this. This also means we have two different YARP configuration setups for development and deployments. (test, integration, production).</p>
+
+
+  using System.Net.Http.Headers;
+using Yarp.ReverseProxy.Transforms;
+using Yarp.ReverseProxy.Transforms.Builder;
+
+namespace BffOpenIddict.Server.ApiClient;
+
+public class JwtTransformProvider : ITransformProvider
+{
+    private readonly ApiTokenCacheClient _apiTokenClient;
+
+    public JwtTransformProvider(ApiTokenCacheClient apiTokenClient)
+    {
+        _apiTokenClient = apiTokenClient;
+    }
+
+    public void Apply(TransformBuilderContext context)
+    {
+        if (context.Route.RouteId == "downstreamapiroute")
+        {
+            context.AddRequestTransform(async transformContext =&gt;
+            {
+                var access_token = await _apiTokenClient.GetApiToken(
+                    "CC",
+                    "dataEventRecords",
+                    "cc_secret");
+
+                transformContext.ProxyRequest.Headers.Authorization
+                    = new AuthenticationHeaderValue("Bearer", access_token);
+            });
+        }
+    }
+
+    public void ValidateCluster(TransformClusterValidationContext context)
+    {
+    }
+
+    public void ValidateRoute(TransformRouteValidationContext context)
+    {
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>The AddReverseProxy is used to add the YARP services.</p>
+
+
+  builder.Services.AddReverseProxy()
+   .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
+   .AddTransforms&lt;JwtTransformProvider&gt;();
+  
+
+
+<p>And the middleware:</p>
+
+
+  app.MapReverseProxy();
+  
+
+
+ API client credentials client 
+
+
+
+<p>The YARP proxy uses the OAuth client credentials client to get an access token to access the downstream API. The token is stored in a cache and only rotated when it expires or is missing. The app-to-app security has nothing to do with the delegated client from the web application.</p>
+
+
+  using IdentityModel.Client;
+using Microsoft.Extensions.Caching.Distributed;
+
+namespace BffOpenIddict.Server.ApiClient;
+
+public class ApiTokenCacheClient
+{
+    private readonly ILogger&lt;ApiTokenCacheClient&gt; _logger;
+    private readonly HttpClient _httpClient;
+
+    private static readonly object _lock = new();
+    private readonly IDistributedCache _cache;
+    private readonly IConfiguration _configuration;
+    private const int cacheExpirationInDays = 1;
+
+    private class AccessTokenItem
+    {
+        public string AccessToken { get; set; } = string.Empty;
+        public DateTime ExpiresIn { get; set; }
+    }
+
+    public ApiTokenCacheClient(
+        IHttpClientFactory httpClientFactory,
+        ILoggerFactory loggerFactory,
+        IConfiguration configuration,
+        IDistributedCache cache)
+    {
+        _httpClient = httpClientFactory.CreateClient();
+        _logger = loggerFactory.CreateLogger&lt;ApiTokenCacheClient&gt;();
+        _cache = cache;
+        _configuration = configuration;
+    }
+
+    public async Task&lt;string&gt; GetApiToken(string api_name, string api_scope, string secret)
+    {
+        var accessToken = GetFromCache(api_name);
+
+        if (accessToken != null)
+        {
+            if (accessToken.ExpiresIn &gt; DateTime.UtcNow)
+            {
+                return accessToken.AccessToken;
+            }
+            else
+            {
+                // remove  =&gt; NOT Needed for this cache type
+            }
+        }
+
+        _logger.LogDebug("GetApiToken new from STS for {api_name}", api_name);
+
+        // add
+        var newAccessToken = await GetApiTokenInternal(api_name, api_scope, secret);
+        AddToCache(api_name, newAccessToken);
+
+        return newAccessToken.AccessToken;
+    }
+
+    private async Task&lt;AccessTokenItem&gt; GetApiTokenInternal(string api_name, string api_scope, string secret)
+    {
+        try
+        {
+            var disco = await HttpClientDiscoveryExtensions.GetDiscoveryDocumentAsync(
+                _httpClient,
+                _configuration["OpenIDConnectSettings:Authority"]);
+
+            if (disco.IsError)
+            {
+                _logger.LogError("disco error Status code: {discoIsError}, Error: {discoError}", disco.IsError, disco.IsError);
+                throw new ApplicationException($"Status code: {disco.IsError}, Error: {disco.Error}");
+            }
+
+            var tokenResponse = await HttpClientTokenRequestExtensions.RequestClientCredentialsTokenAsync(_httpClient, new ClientCredentialsTokenRequest
+            {
+                Scope = api_scope,
+                ClientSecret = secret,
+                Address = disco.TokenEndpoint,
+                ClientId = api_name
+            });
+
+            if (tokenResponse.IsError || tokenResponse.AccessToken == null)
+            {
+                _logger.LogError("tokenResponse.IsError Status code: {tokenResponseIsError}, Error: {tokenResponseError}", tokenResponse.IsError, tokenResponse.Error);
+                throw new ApplicationException($"Status code: {tokenResponse.IsError}, Error: {tokenResponse.Error}");
+            }
+
+            return new AccessTokenItem
+            {
+                ExpiresIn = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn),
+                AccessToken = tokenResponse.AccessToken
+            };
+
+        }
+        catch (Exception e)
+        {
+            _logger.LogError("Exception {e}", e);
+            throw new ApplicationException($"Exception {e}");
+        }
+    }
+
+    private void AddToCache(string key, AccessTokenItem accessTokenItem)
+    {
+        var options = new DistributedCacheEntryOptions()
+            .SetSlidingExpiration(TimeSpan.FromDays(cacheExpirationInDays));
+
+        lock (_lock)
+        {
+            _cache.SetString(key, System.Text.Json.JsonSerializer.Serialize(accessTokenItem), options);
+        }
+    }
+
+    private AccessTokenItem? GetFromCache(string key)
+    {
+        var item = _cache.GetString(key);
+        if (item != null)
+        {
+            return System.Text.Json.JsonSerializer.Deserialize&lt;AccessTokenItem&gt;(item);
+        }
+
+        return null;
+    }
+}
+  
+
+
+<p></p>
+
+
+
+ Downstream API 
+
+
+
+<p>The downstream API is protected using JWT access tokens. This is setup using the AddJwtBearer method. The scope and other claims should also be validated.</p>
+
+
+   services.AddAuthentication()
+           .AddJwtBearer("Bearer", options =&gt;
+           {
+               options.Audience = "rs_dataEventRecordsApi";
+               options.Authority = "https://localhost:44318/";
+               options.TokenValidationParameters = new TokenValidationParameters
+               {
+                   ValidateIssuer = true,
+                   ValidateAudience = true,
+                   ValidateIssuerSigningKey = true,
+                   ValidAudiences = ["rs_dataEventRecordsApi"],
+                   ValidIssuers = ["https://localhost:44318/"],
+               };
+           });
+  
+
+
+ Notes 
+
+
+
+<p>This setup can be used for all server rendered applications. You should always use an external identity provider in enterprise setups and never roll out your own identity system as this is expensive to maintain and many enterprise environments no longer accept this due to the extra operation costs.  Replacing Angular with react, Vue.js, Svelte or Blazor WASM does not require changes to the authentication. The different UI have differences on how the scripts are loaded or used and some require weaker session security setups. </p>
+
+
+
+<p>You should also avoid downstream APIs if not required. Modular monoliths have performance advantages.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://github.com/damienbod/bff-aspnetcore-angular">https://github.com/damienbod/bff-aspnetcore-angular</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/introduction-to-aspnet-core">https://learn.microsoft.com/en-us/aspnet/core/introduction-to-aspnet-core</a></p>
+
+
+
+<p><a href="https://nx.dev/getting-started/intro">https://nx.dev/getting-started/intro</a></p>
+
+
+
+<p><a href="https://github.com/isolutionsag/aspnet-react-bff-proxy-example">https://github.com/isolutionsag/aspnet-react-bff-proxy-example</a></p>
+
+
+
+<p><a href="https://github.com/openiddict">https://github.com/openiddict</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/bff-auth0-aspnetcore-angular">https://github.com/damienbod/bff-auth0-aspnetcore-angular</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/bff-azureadb2c-aspnetcore-angular">https://github.com/damienbod/bff-azureadb2c-aspnetcore-angular</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/bff-aspnetcore-vuejs">https://github.com/damienbod/bff-aspnetcore-vuejs</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/bff-MicrosoftEntraExternalID-aspnetcore-angular">https://github.com/damienbod/bff-MicrosoftEntraExternalID-aspnetcore-angular</a></p>
+
+
+
+<p><a href="https://microsoft.github.io/reverse-proxy/articles/transforms.html">https://microsoft.github.io/reverse-proxy/articles/transforms.html</a></p>
+
+
+
+<p><a href="https://github.com/microsoft/reverse-proxy/tree/main/samples/ReverseProxy.Transforms.Sample">https://github.com/microsoft/reverse-proxy/tree/main/samples/ReverseProxy.Transforms.Sample</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/04/context.png?w=481'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:43 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/04/08/the-irony-of.html'> The irony of a footer that tells you that you aren’t going t</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The irony of a footer that tells you that you aren’t going to get one of this annoying little pop ups asking you to sign up - and not being aware that it is dutifully delivered over and over again through the RSS feed on each post - sometimes even without a post. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The irony of a footer that tells you that you aren’t going to get one of this annoying little pop ups asking you to sign up - and not being aware that it is dutifully delivered over and over again through the RSS feed on each post - sometimes even without a post.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:27 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/04/08/alert-on-my.html'> Alert on my LOCK screen - via Spark - a single SPAM message </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Alert on my LOCK screen - via Spark - a single SPAM message promoting Le Creuset. 
+ Settings investigation in my future. 
+ Particularly since on opening Spark I found  lot of messages that I presume somebody/thing ‘thought’ were far less important! 
+ (To be fair .. some of them definitely were!) 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/b1011754b7.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Alert on my LOCK screen - via Spark - a single SPAM message promoting Le Creuset.</p>
+<p>Settings investigation in my future.</p>
+<p>Particularly since on opening Spark I found  lot of messages that I presume somebody/thing ‘thought’ were far less important!</p>
+<p>(To be fair .. some of them definitely were!)</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/b1011754b7.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:30 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Sunday, 07. April 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/04/08/gioias-rule-of.html'> 🚧 098/366
+🔗Gioia’s rule of the spheres. 
+  </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   🚧 098/366
+🔗Gioia’s rule of the spheres. 
+  
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/370ac8cf4c.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>🚧 098/366
+<a href="https://www.honest-broker.com/p/my-rule-of-the-6-spheres">🔗Gioia’s rule of the spheres.</a></p>
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/370ac8cf4c.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   19:57 &bull;
+   11 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Apr/7/the-lifecycle-of-a-code-ai-completion/#atom-everything'>The lifecycle of a code AI completion</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The lifecycle of a code AI completion 
+ Philipp Spiess provides a deep dive into how Sourcegraph's Cody code completion assistant works. Lots of fascinating details in here: 
+
+ "One interesting learning was that if a user is willing to wait longer for a multi-line request, it usually is worth it to increase latency slightly in favor of quality. For our production setup this means we use a more com
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://sourcegraph.com/blog/the-lifecycle-of-a-code-ai-completion">The lifecycle of a code AI completion</a></p>
+<p>Philipp Spiess provides a deep dive into how Sourcegraph's Cody code completion assistant works. Lots of fascinating details in here:</p>
+
+<p>"One interesting learning was that if a user is willing to wait longer for a multi-line request, it usually is worth it to increase latency slightly in favor of quality. For our production setup this means we use a more complex language model for multi-line completions than we do for single-line completions."</p>
+
+<p>This article is from October 2023 and talks about Claude Instant. The code for Cody is open source so I checked to see if they have switched to Haiku yet and found a commit from March 25th that adds Haiku as an A/B test.</p>
+
+    <p>Via <a href="https://news.ycombinator.com/item?id=39959380">Hacker News</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   19:37 &bull;
+   11 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://anhvn.com/posts/2024/making-version-noir/'>Making version noir</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ This is completely lovely: a responsive, noir-inspired personal homepage in the form of a comic. I'm inspired.  #Indieweb 
+             [Link] 
+         
+     
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>This is completely lovely: a responsive, noir-inspired personal homepage in the form of a comic. I'm inspired.  <a href="https://werd.io/tag/Indieweb">#Indieweb</a></p>
+            <p>[<a href="https://anhvn.com/posts/2024/making-version-noir/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:03 &bull;
+   17 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.the-reframe.com/blame-management/'>The Thing That's Coming</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ An interesting opinion piece about the collapse of the Francis Scott Key Bridge, the aftermath thereof, and how it all relates to the election. 
+
+ "But even if we had performed adequate maintenance, the bridge was probably doomed. Dali is the size and mass of a skyscraper (far larger than container ships used to be permitted to be, but larger ships lower prices in supply chain
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>An interesting opinion piece about the collapse of the Francis Scott Key Bridge, the aftermath thereof, and how it all relates to the election.</p>
+
+<p>"But even if we had performed adequate maintenance, the bridge was probably doomed. Dali is the size and mass of a skyscraper (far larger than container ships used to be permitted to be, but larger ships lower prices in supply chains, and lower prices in supply chains help profits, and profits are important)."</p>
+
+<p>And:</p>
+
+<p>"DEI is just diversity, equity, and inclusion, by the way. That's all it is. It's become the new word that racists say when they want to say a slur but they realize they're in mixed company. It's a handy watchword for people who have decided that every problem is the result of the proximal existence of Black people and other marginalized people groups, because what they actually intend is to end the existence of such people, as soon as they can, with as much violence as possible."</p>
+
+<p>And:</p>
+
+<p>"Things are already very very bad for a great number of people in this country; institutional supremacy sees to that, and this supremacy is mostly accommodated by power—not only by openly fascist power like the cabal of creepy Christian weirdos who want to control everyone's bodies, but by run-of-the mill power, because run-of-the-mill power is interested in keeping things as they are, and mostly recognizes supremacy as what it is, which is the way things are."  <a href="https://werd.io/tag/Democracy">#Democracy</a></p>
+            <p>[<a href="https://www.the-reframe.com/blame-management/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:39 &bull;
+   17 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://grist.org/energy/the-us-aims-to-crack-the-code-on-scaling-up-geothermal-energy-production/'>The US aims to 'crack the code' on scaling up geothermal energy production</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ This hadn't really been on my radar: 
+
+ "Just one type of next generation geothermal — called superhot rock energy, where deep drilling reaches temperatures 400 degrees Celsius (752 degrees Fahrenheit) or hotter — is abundant enough to theoretically fulfill the world’s power requirements. In fact, just 1 percent of the world’s superhot rock potential could provide 63 terawatts
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>This hadn't really been on my radar:</p>
+
+<p>"Just one type of next generation geothermal — called superhot rock energy, where deep drilling reaches temperatures 400 degrees Celsius (752 degrees Fahrenheit) or hotter — is abundant enough to theoretically fulfill the world’s power requirements. In fact, just 1 percent of the world’s superhot rock potential could provide 63 terawatts of clean firm power, which would meet global electricity demand nearly eight times over."</p>
+
+<p>What's absolutely fascinating to me is the idea that fracking techniques could be used to unlock geothermal energy. Is that good? Fracking has negative side effects that go beyond the carbon footprint from oil and gas. On the other hand, of course, moving away from fossil fuels is obviously great.  <a href="https://werd.io/tag/Climate">#Climate</a></p>
+            <p>[<a href="https://grist.org/energy/the-us-aims-to-crack-the-code-on-scaling-up-geothermal-energy-production/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:35 &bull;
+   17 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -775,7 +1728,7 @@
 
 <div class='item-footer'>
    05:59 &bull;
-   an hour ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -844,7 +1797,7 @@
 
 <div class='item-footer'>
    02:48 &bull;
-   4 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1064,7 +2017,7 @@
 
 <div class='item-footer'>
    02:45 &bull;
-   4 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1150,7 +2103,7 @@
 
 <div class='item-footer'>
    02:28 &bull;
-   4 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1222,7 +2175,7 @@
 
 <div class='item-footer'>
    00:14 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1296,7 +2249,7 @@
 
 <div class='item-footer'>
    00:08 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1366,7 +2319,7 @@
 
 <div class='item-footer'>
    00:04 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1440,7 +2393,7 @@
 
 <div class='item-footer'>
    23:31 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1506,7 +2459,7 @@
 
 <div class='item-footer'>
    22:40 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1593,7 +2546,7 @@
 
 <div class='item-footer'>
    20:49 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1617,7 +2570,8 @@
 
   
     
-    <a href='https://john.philpin.com/2024/04/07/ooh-ooh-heres.html'> OOH OOH - here’s an idea - let’s take a movie from 25 years </a>
+    <a href='https://john.philpin.com/2024/04/07/ooh-ooh-heres.html'> 🚧 097/366 
+ OOH OOH - here’s an idea - let’s take a movie fr</a>
   
 
 </h3>
@@ -1628,7 +2582,8 @@
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   OOH OOH - here’s an idea - let’s take a movie from 25 years ago and turn it into an 8 part mini series. 
+   🚧 097/366 
+ OOH OOH - here’s an idea - let’s take a movie from 25 years ago and turn it into an 8 part mini series. 
    
   
   
@@ -1643,6 +2598,7 @@
  -->
 <div class='wrap'>
 
+<p>🚧 097/366</p>
 <p>OOH OOH - here’s an idea - let’s take a movie from 25 years ago and turn it into an 8 part mini series.</p>
    
   
@@ -1654,7 +2610,7 @@
 
 <div class='item-footer'>
    20:36 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1718,7 +2674,7 @@
 
 <div class='item-footer'>
    20:33 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1797,7 +2753,7 @@
 
 <div class='item-footer'>
    17:45 &bull;
-   13 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1825,8 +2781,9 @@
 
   
     
-    <a href='https://john.philpin.com/2024/04/06/seperately-i-still.html'> 
- Seperately I still look forward to having MicroBlog and Re</a>
+    <a href='https://john.philpin.com/2024/04/06/seperately-i-still.html'> 🚧 096/366 
+ 
+ Seperately I still look forward to having Micr</a>
   
 
 </h3>
@@ -1837,10 +2794,11 @@
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   
+   🚧 096/366 
+ 
  Seperately I still look forward to having MicroBlog and Readwise just synch with my chosen folder in Newswire. And then I thought I read the other day that this is indeed possible. Is it? I can’t find anything about it anywhere. 🥺. But there’s more. I want the opportunity to change the order dynamically, based on ‘last post in’ - but no plans according to Manton. 
  
- .. from 🖇️ here - where i ha
+ .. from 🖇️ here 
    
   
   
@@ -1855,6 +2813,7 @@
  -->
 <div class='wrap'>
 
+<p>🚧 096/366</p>
 <blockquote>
 <p>Seperately I still look forward to having MicroBlog and Readwise just synch with my chosen folder in Newswire. And then I thought I read the other day that this is indeed possible. Is it? I can’t find anything about it anywhere. 🥺. But there’s more. I want the opportunity to change the order dynamically, based on ‘last post in’ - but no plans according to Manton.</p>
 </blockquote>
@@ -1869,7 +2828,7 @@
 
 <div class='item-footer'>
    01:25 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1941,7 +2900,7 @@
 
 <div class='item-footer'>
    22:58 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2020,7 +2979,7 @@
 
 <div class='item-footer'>
    20:07 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2090,7 +3049,7 @@
 
 <div class='item-footer'>
    05:35 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2176,7 +3135,7 @@ By expert acclaim, this is the best antenna for receiving hard-to-get over-the-a
 
 <div class='item-footer'>
    03:48 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2246,7 +3205,7 @@ There must be a ceasefire. Now.</p>
 
 <div class='item-footer'>
    23:49 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2310,7 +3269,7 @@ There must be a ceasefire. Now.</p>
 
 <div class='item-footer'>
    20:51 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2386,7 +3345,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    19:25 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2451,7 +3410,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    18:42 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2512,7 +3471,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    18:41 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2576,7 +3535,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    18:07 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2650,7 +3609,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    17:38 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2762,7 +3721,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    14:06 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2831,7 +3790,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    13:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2905,7 +3864,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    12:51 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2979,7 +3938,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    12:43 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3057,7 +4016,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    01:24 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3126,7 +4085,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    19:30 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3189,7 +4148,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    19:12 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3263,7 +4222,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    14:58 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3342,7 +4301,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    13:31 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3415,7 +4374,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    13:17 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3577,7 +4536,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    11:32 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3655,7 +4614,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    01:46 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3737,7 +4696,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    20:45 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3813,7 +4772,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    20:43 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3889,7 +4848,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    19:38 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3954,7 +4913,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    17:52 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4018,7 +4977,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    17:42 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4096,7 +5055,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    16:25 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4178,7 +5137,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    16:09 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4238,7 +5197,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    15:19 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4330,7 +5289,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    12:41 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4401,7 +5360,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    11:04 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4779,7 +5738,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    06:37 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4851,7 +5810,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    02:03 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4920,7 +5879,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    01:55 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4994,7 +5953,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    23:57 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5062,7 +6021,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    22:51 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5145,7 +6104,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    20:56 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5227,7 +6186,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    20:18 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5301,7 +6260,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    19:31 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5399,222 +6358,7 @@ channel on the <a href="https://pgtreats.info/slack-invite" title="Join the Post
 
 <div class='item-footer'>
    17:17 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/04/01/why-i-write.html'> 🔗 Why I write. 
- Do I agree? 
- YUP. </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   🔗 Why I write. 
- Do I agree? 
- YUP. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://manuelmoreale.com/@/page/EMdQMyHxCynwUzZ2">🔗 Why I write.</a></p>
-<p>Do I agree?</p>
-<p>YUP.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:20 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/04/01/two-perspectives-at.html'> 📸 Two perspectives - at least two in my mind. 
-
-</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   📸 Two perspectives - at least two in my mind. 
-
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/5be7eddfdaa44d99a4a120caaa04b691.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>📸 Two perspectives - at least two in my mind.</p>
-
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/5be7eddfdaa44d99a4a120caaa04b691.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:07 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/04/01/avoid-these-common.html'> 🔗Avoid these 3 common phrases—they make you look weak and in</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   🔗Avoid these 3 common phrases—they make you look weak and insecure, experts say (🍎 News) .. 
- I don’t know .. I am sorry to ask, I just wonder if anyone else thinks this is a croc? 
- It just tends to be how we talk in England. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://apple.news/AJUpoZZAgSPSfpvQh0zIW8g">🔗Avoid these 3 common phrases—they make you look weak and insecure, experts say</a> (🍎 News) ..</p>
-<p>I don’t know .. I am sorry to ask, I just wonder if anyone else thinks this is a croc?</p>
-<p>It just tends to be how we talk in England.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   04:29 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5698,7 +6442,7 @@ channel on the <a href="https://pgtreats.info/slack-invite" title="Join the Post
 
 <div class='item-footer'>
    21:53 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5758,7 +6502,7 @@ channel on the <a href="https://pgtreats.info/slack-invite" title="Join the Post
 
 <div class='item-footer'>
    21:20 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5838,7 +6582,7 @@ channel on the <a href="https://pgtreats.info/slack-invite" title="Join the Post
 
 <div class='item-footer'>
    20:16 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5900,7 +6644,7 @@ channel on the <a href="https://pgtreats.info/slack-invite" title="Join the Post
 
 <div class='item-footer'>
    15:17 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5974,7 +6718,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    06:02 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6040,7 +6784,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    22:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6106,7 +6850,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    21:13 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6180,7 +6924,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    19:01 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6430,7 +7174,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    17:59 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6494,7 +7238,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    13:51 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6570,7 +7314,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    13:35 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6634,7 +7378,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    12:37 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6729,7 +7473,7 @@ Is it called an OAuth "grant" or a "flow"? What about "grant type"?
 
 <div class='item-footer'>
    15:15 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6817,7 +7561,7 @@ Is it called an OAuth "grant" or a "flow"? What about "grant type"?
 
 <div class='item-footer'>
    14:40 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6892,7 +7636,7 @@ Is it called an OAuth "grant" or a "flow"? What about "grant type"?
 
 <div class='item-footer'>
    14:39 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6965,7 +7709,7 @@ Is it called an OAuth "grant" or a "flow"? What about "grant type"?
 
 <div class='item-footer'>
    00:33 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7040,7 +7784,7 @@ Is it called an OAuth "grant" or a "flow"? What about "grant type"?
 
 <div class='item-footer'>
    00:25 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7309,7 +8053,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    20:14 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7385,7 +8129,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    20:11 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7463,7 +8207,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    20:11 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7525,7 +8269,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    13:31 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7595,7 +8339,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    05:37 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7661,7 +8405,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    03:36 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7731,7 +8475,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    03:32 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7812,7 +8556,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    01:51 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7940,7 +8684,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    00:00 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8038,7 +8782,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    20:18 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8108,7 +8852,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    16:58 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8188,7 +8932,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    15:33 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8258,7 +9002,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    13:43 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8420,7 +9164,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    13:42 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8503,7 +9247,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    13:38 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8583,7 +9327,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    17:08 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8720,7 +9464,7 @@ git reset --soft HEAD~1
 
 <div class='item-footer'>
    15:37 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9078,7 +9822,7 @@ git reset --soft HEAD~1
 
 <div class='item-footer'>
    14:20 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9161,7 +9905,7 @@ git reset --soft HEAD~1
 
 <div class='item-footer'>
    13:44 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9241,86 +9985,7 @@ git reset --soft HEAD~1
 
 <div class='item-footer'>
    13:29 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.cnbc.com/2024/03/25/lawsuit-filed-by-elon-musks-x-against-ccdh-thrown-out-by-judge.html'>Lawsuit filed by Elon Musk's X against CCDH thrown out by judge</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "A federal judge in California dismissed a lawsuit filed by Elon Musk’s X against the nonprofit Center for Countering Digital Hate, writing in a judgement Monday that the “case is about punishing the Defendants for their speech.”" 
-
- Irony alert! 
-
- This was always going to happen: Musk's complaint sat on shaky ground, and the man himself is a hypocrite who says he believes in
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"A federal judge in California dismissed a lawsuit filed by Elon Musk’s X against the nonprofit Center for Countering Digital Hate, writing in a judgement Monday that the “case is about punishing the Defendants for their speech.”"</p>
-
-<p>Irony alert!</p>
-
-<p>This was always going to happen: Musk's complaint sat on shaky ground, and the man himself is a hypocrite who says he believes in free speech but is seeking to squash speech he doesn't like at every turn.</p>
-
-<p>My questions are about his other companies. He's shown his true colors through the Twitter acquisition; at what point do stakeholders at SpaceX and Tesla say enough is enough?  <a href="https://werd.io/tag/Technology">#Technology</a></p>
-            <p>[<a href="https://www.cnbc.com/2024/03/25/lawsuit-filed-by-elon-musks-x-against-ccdh-thrown-out-by-judge.html">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:10 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9384,7 +10049,7 @@ git reset --soft HEAD~1
 
 <div class='item-footer'>
    09:49 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9460,240 +10125,7 @@ git reset --soft HEAD~1
 
 <div class='item-footer'>
    06:47 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Mar/26/cohere-int8-binary-embeddings/#atom-everything'>Cohere int8 & binary Embeddings - Scale Your Vector Database to Large Datasets</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Cohere int8 &amp; binary Embeddings - Scale Your Vector Database to Large Datasets 
- Jo Kristian Bergum told me "The accuracy retention [of binary embedding vectors] is sensitive to whether the model has been using this binarization as part of the loss function." 
-
- Cohere provide an API for embeddings, and last week added support for returning binary vectors specifically tuned in this way. 
-
- 250
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://txt.cohere.com/int8-binary-embeddings/">Cohere int8 &amp; binary Embeddings - Scale Your Vector Database to Large Datasets</a></p>
-<p>Jo Kristian Bergum told me "The accuracy retention [of binary embedding vectors] is sensitive to whether the model has been using this binarization as part of the loss function."</p>
-
-<p>Cohere provide an API for embeddings, and last week added support for returning binary vectors specifically tuned in this way.</p>
-
-<p>250M embeddings (Cohere provide a downloadable dataset of 250M embedded documents from Wikipedia) at float32 (4 bytes) is 954GB.</p>
-
-<p>Cohere claim that reducing to 1 bit per dimension knocks that down to 30 GB (954/32) while keeping "90-98% of the original search quality".</p>
-
-    <p>Via <a href="https://twitter.com/jobergum/status/1772507515076415803">@jobergum</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:19 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://apnews.com/article/great-american-rail-trail-connecting-biking-hiking-aede7122a345fd32ae6567769b5951a0'>Pedal coast-to-coast without using a road? New program helps connect trails across the US</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- This is completely lovely and the kind of thing America absolutely should be doing. 
-
- "O’Neil hopes the trail born from eastern Indiana’s old railroad tracks will eventually become a central cog in the proposed Great American Rail-Trail — a continuous network of walking and biking routes spanning from Washington state to Washington, D.C." 
-
- Yes, please!  #Society 
-          
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>This is completely lovely and the kind of thing America absolutely should be doing.</p>
-
-<p>"O’Neil hopes the trail born from eastern Indiana’s old railroad tracks will eventually become a central cog in the proposed Great American Rail-Trail — a continuous network of walking and biking routes spanning from Washington state to Washington, D.C."</p>
-
-<p>Yes, please!  <a href="https://werd.io/tag/Society">#Society</a></p>
-            <p>[<a href="https://apnews.com/article/great-american-rail-trail-connecting-biking-hiking-aede7122a345fd32ae6567769b5951a0">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:33 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://theintercept.com/2024/03/25/elon-musk-x-dataminr-surveillance-privacy/'>Elon Musk, X Fought Surveillance While Profiting Off Surveillance</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "While it was unclear whether, under Musk, X would continue leasing access to its users to Dataminr — and by extension, the government — the emails from the Secret Service confirm that, as of last summer, the social media platform was still very much in the government surveillance business." 
-
- The hypocrisy shouldn't be particularly surprising, of course. And we have to assum
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"While it was unclear whether, under Musk, X would continue leasing access to its users to Dataminr — and by extension, the government — the emails from the Secret Service confirm that, as of last summer, the social media platform was still very much in the government surveillance business."</p>
-
-<p>The hypocrisy shouldn't be particularly surprising, of course. And we have to assume that something similar is happening with every centralized system. But there is an undeniably rich irony in the gap between what Musk says and what he does.</p>
-
-<p>"Privacy advocates told The Intercept that X’s Musk-era warnings of government surveillance abuses are contradictory to the company’s continued sale of user data for the purpose of government surveillance."</p>
-
-<p>Quite.  <a href="https://werd.io/tag/Technology">#Technology</a></p>
-            <p>[<a href="https://theintercept.com/2024/03/25/elon-musk-x-dataminr-surveillance-privacy/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:07 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10822,7 +11254,7 @@ America/New_York]. Thanks for coming!</p>
 
 <div class='item-footer'>
    21:49 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10905,7 +11337,7 @@ Dr. Patrick Breyer</blockquote>
 
 <div class='item-footer'>
    14:16 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10983,7 +11415,7 @@ Dr. Patrick Breyer</blockquote>
 
 <div class='item-footer'>
    02:44 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11051,7 +11483,7 @@ Dr. Patrick Breyer</blockquote>
 
 <div class='item-footer'>
    02:12 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11971,7 +12403,7 @@ Example: <a href="https://formulae.brew.sh/docs/api/#analytics" title="Homebrew 
 
 <div class='item-footer'>
    18:50 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12094,7 +12526,7 @@ Example: <a href="https://formulae.brew.sh/docs/api/#analytics" title="Homebrew 
 
 <div class='item-footer'>
    02:05 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12162,7 +12594,7 @@ The post <a href="https://realestatecafe.com/will-nar-settlement-turn-into-conce
 
 <div class='item-footer'>
    20:46 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12271,7 +12703,7 @@ Category: Topical History</p>
 
 <div class='item-footer'>
    22:00 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12497,7 +12929,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    21:55 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12573,7 +13005,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    17:20 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12651,7 +13083,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    15:01 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12767,7 +13199,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    12:04 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12864,7 +13296,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    11:55 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13022,7 +13454,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    22:00 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13133,7 +13565,7 @@ you. Links:</p>
 
 <div class='item-footer'>
    18:06 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13297,7 +13729,7 @@ you. Links:</p>
 
 <div class='item-footer'>
    04:55 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14072,7 +14504,7 @@ Greg Sabino Mullane started a longish thread on the things we want to do and bui
 
 <div class='item-footer'>
    20:05 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14148,7 +14580,7 @@ Greg Sabino Mullane started a longish thread on the things we want to do and bui
 
 <div class='item-footer'>
    09:51 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14243,7 +14675,7 @@ Greg Sabino Mullane started a longish thread on the things we want to do and bui
 
 <div class='item-footer'>
    09:42 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14325,7 +14757,7 @@ Greg Sabino Mullane started a longish thread on the things we want to do and bui
 
 <div class='item-footer'>
    15:00 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14409,7 +14841,7 @@ Greg Sabino Mullane started a longish thread on the things we want to do and bui
 
 <div class='item-footer'>
    10:53 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14484,7 +14916,7 @@ Eleanor Oman, Alaska, circa 1942
 
 <div class='item-footer'>
    01:03 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14562,7 +14994,7 @@ Eleanor Oman, Alaska, circa 1942
 
 <div class='item-footer'>
    14:57 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14638,7 +15070,7 @@ Eleanor Oman, Alaska, circa 1942
 
 <div class='item-footer'>
    04:06 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14710,7 +15142,7 @@ Eleanor Oman, Alaska, circa 1942
 
 <div class='item-footer'>
    13:52 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15194,7 +15626,7 @@ Eleanor Oman, Alaska, circa 1942
 
 <div class='item-footer'>
    07:09 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15260,7 +15692,7 @@ Eleanor Oman, Alaska, circa 1942
 
 <div class='item-footer'>
    23:02 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15328,7 +15760,7 @@ The post <a href="https://realestatecafe.com/back2refuture-move-past-gated-listi
 
 <div class='item-footer'>
    19:19 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15406,7 +15838,7 @@ The post <a href="https://realestatecafe.com/back2refuture-move-past-gated-listi
 
 <div class='item-footer'>
    14:37 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -15492,7 +15924,7 @@ The post <a href="https://realestatecafe.com/back2refuture-move-past-gated-listi
 
 <div class='item-footer'>
    08:58 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17690,7 +18122,7 @@ public class DelegatedTokenAcquisitionTokenCredential : TokenCredential
 
 <div class='item-footer'>
    19:58 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17941,7 +18373,7 @@ index file. <a href="https://social.semiotic.systems/@rjbs/111971794172471384" t
 
 <div class='item-footer'>
    19:33 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -25306,301 +25738,6 @@ gpg -a --export &lt;your-pub-key&gt;
 
 
  <h2 class='new-date'>
-  Wednesday, 13. December 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/12/13/securing-a-mudblazor-ui-web-application-using-security-headers-and-microsoft-entra-id/'>Securing a MudBlazor UI web application using security headers and Microsoft Entra ID</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how a Blazor application can be implemented in a secure way using MudBlazor UI components and Microsoft Entra ID as an identity provider. The MudBlazor UI components adds some inline styles and requires a specific CSP setup due to this and the Blazor WASM script requirements. Code: https://github.com/damienbod/MicrosoftEntraIDMudBlazor Setup The application is […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how a Blazor application can be implemented in a secure way using MudBlazor UI components and Microsoft Entra ID as an identity provider. The MudBlazor UI components adds some inline styles and requires a specific CSP setup due to this and the Blazor WASM script requirements. </p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/MicrosoftEntraIDMudBlazor">https://github.com/damienbod/MicrosoftEntraIDMudBlazor</a></p>
-
-
-
-<p></p>
-
-
-
- Setup 
-
-
-
-<p>The application is setup using a Blazor WASM UI hosted in an ASP.NET Core application. The MudBlazor Nuget package was added to client project. Some MudBlazor components were added to the UI using MudBlazor <a href="https://mudblazor.com/docs/overview">documentation</a>.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Security Headers 
-
-
-
-<p>The security headers need to be added to protect the session of the web application. I use NetEscapades.AspNetCore.SecurityHeaders to implement the headers. We can protect the UI using CSP nonces and so the NetEscapades.AspNetCore.SecurityHeaders.TagHelpers Nuget package is also used. The following packages are added to the server project. </p>
-
-
-
- 
- NetEscapades.AspNetCore.SecurityHeaders 
-
-
-
- NetEscapades.AspNetCore.SecurityHeaders.TagHelpers 
- 
-
-
-
-<p></p>
-
-
-
-<p>The SecurityHeadersDefinitions class adds the security headers as best possible for this technical setup. A nonce is used in the CSP for the scripts tag. The ‘unsafe-eval’ value is added to the script CSP definition due to the Blazor WASM technical setup. This reduces the security protections. The unsafe inline is added as a fallback for older browsers. The style CSP definition allows unsafe inline due to the MudBlazor UI components.</p>
-
-
-  namespace MicrosoftEntraIdMudBlazor.Server;
-
-public static class SecurityHeadersDefinitions
-{
-    public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev, string? idpHost)
-    {
-        if(idpHost == null)
-        {
-            throw new ArgumentNullException(nameof(idpHost));
-        }
-
-        var policy = new HeaderPolicyCollection()
-            .AddFrameOptionsDeny()
-            .AddContentTypeOptionsNoSniff()
-            .AddReferrerPolicyStrictOriginWhenCrossOrigin()
-            .AddCrossOriginOpenerPolicy(builder =&gt; builder.SameOrigin())
-            .AddCrossOriginResourcePolicy(builder =&gt; builder.SameOrigin())
-            .AddCrossOriginEmbedderPolicy(builder =&gt; builder.RequireCorp()) // remove for dev if using hot reload
-            .AddContentSecurityPolicy(builder =&gt;
-            {
-                builder.AddObjectSrc().None();
-                builder.AddBlockAllMixedContent();
-                builder.AddImgSrc().Self().From("data:");
-                builder.AddFormAction().Self().From(idpHost);
-                builder.AddFontSrc().Self();        
-                builder.AddBaseUri().Self();
-                builder.AddFrameAncestors().None();
-
-                builder.AddStyleSrc()
-                    .UnsafeInline() // due to Mudblazor
-                    .Self();
-
-                builder.AddScriptSrc()
-                    .WithNonce()
-                    .UnsafeEval() // due to Blazor WASM
-                    .UnsafeInline();
-
-                // disable script and style CSP protection if using Blazor hot reload
-                // if using hot reload, DO NOT deploy with an insecure CSP
-            })
-            .RemoveServerHeader()
-            .AddPermissionsPolicy(builder =&gt;
-            {
-                builder.AddAccelerometer().None();
-                builder.AddAutoplay().None();
-                builder.AddCamera().None();
-                builder.AddEncryptedMedia().None();
-                builder.AddFullscreen().All();
-                builder.AddGeolocation().None();
-                builder.AddGyroscope().None();
-                builder.AddMagnetometer().None();
-                builder.AddMicrophone().None();
-                builder.AddMidi().None();
-                builder.AddPayment().None();
-                builder.AddPictureInPicture().None();
-                builder.AddSyncXHR().None();
-                builder.AddUsb().None();
-            });
-
-        if (!isDev)
-        {
-            // maxage = one year in seconds
-            policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(
-        maxAgeInSeconds: 60 * 60 * 24 * 365);
-        }
-
-        policy.ApplyDocumentHeadersToAllResponses();
-
-        return policy;
-    }
-}
-  
-
-
-<p></p>
-
-
-
-<p>The UseSecurityHeaders adds the security headers middleware.</p>
-
-
-  app.UseSecurityHeaders(SecurityHeadersDefinitions
-    .GetHeaderPolicyCollection(env.IsDevelopment(), 
-         configuration["AzureAd:Instance"]));
-  
-
-
-<p></p>
-
-
-
-<p>A nonce is used to protect the UI application and the tag helpers are used for this.</p>
-
-
-  @addTagHelper *, NetEscapades.AspNetCore.SecurityHeaders.TagHelpers
-  
-
-
-<p>The asp-add-nonce adds the nonce to the scripts for all the HTTP responses.</p>
-
-
-      &lt;script asp-add-nonce src="_framework/blazor.webassembly.js"&gt;&lt;/script&gt;
-    &lt;script asp-add-nonce src="_content/MudBlazor/MudBlazor.min.js"&gt;&lt;/script&gt;
-    &lt;script asp-add-nonce src="antiForgeryToken.js"&gt;&lt;/script&gt;
-  
-
-
-<p></p>
-
-
-
- Microsoft Entra ID 
-
-
-
-<p>Microsoft Entra ID is used to protect the Blazor application. The Microsoft.Identity.Web packages are used to implement the OpenID Connect client. The application authentication security is implemented using backend for frontend (BFF) security architecture. The UI part, is a view belonging to the server backend. All security is implemented using the trusted backend and the session is persisted using a secure HTTP only cookie. The WASM uses this cookie for the secure data requests.</p>
-
-
-
- 
- Microsoft.Identity.Web 
-
-
-
- Microsoft.Identity.Web.UI 
-
-
-
- Microsoft.Identity.Web.GraphServiceClient 
- 
-
-
-
-<p></p>
-
-
-
-<p>The AddMicrosoftIdentityWebAppAuthentication implements the UI OpenID Connect client.</p>
-
-
-  var scopes = configuration.GetValue&lt;string&gt;("DownstreamApi:Scopes");
-string[] initialScopes = scopes!.Split(' ');
-
-services.AddMicrosoftIdentityWebAppAuthentication(configuration)
-    .EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
-    .AddMicrosoftGraph("https://graph.microsoft.com/v1.0", initialScopes)
-    .AddInMemoryTokenCaches();
-  
-
-
-<p>Note: if using in-memory cache, the cache gets reset after every application restart, but not the cookie. You need to use a persistent cache or reset the cookie when the tokens are missing.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://mudblazor.com/">https://mudblazor.com/</a></p>
-
-
-
-<p><a href="https://github.com/MudBlazor/MudBlazor/">https://github.com/MudBlazor/MudBlazor/</a></p>
-
-
-
-<p><a href="https://github.com/damienbod/Blazor.BFF.AzureAD.Template">https://github.com/damienbod/Blazor.BFF.AzureAD.Template</a></p>
-
-
-
-<p><a href="https://me-id-mudblazor.azurewebsites.net/">https://me-id-mudblazor.azurewebsites.net/</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2023/12/secure-mudblazor_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:58 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Sunday, 10. December 2023
  </h2>
 
@@ -26833,7 +26970,7 @@ Thanks <a href="https://tantek.com/">tantek.com</a> for initiating this.)</p>
 
 <div class='item-footer'>
    15:29 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
