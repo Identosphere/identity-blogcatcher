@@ -706,12 +706,1193 @@
 
 </div>
 </div>
-<sup>Last Update 8:05 AM April 14, 2024 (UTC)</sup>
+<sup>Last Update 6:44 AM April 15, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 15. April 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/04/15/implement-a-secure-blazor-web-application-using-openid-connect-and-security-headers/'>Implement a secure Blazor Web application using OpenID Connect and security headers</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement a secure .NET 8 Blazor Web application using OpenID Connect and security headers with CSP nonces. The NetEscapades.AspNetCore.SecurityHeaders nuget package is used to implement the security headers and OpenIddict is used to implement the OIDC server. Code: https://github.com/damienbod/BlazorWebOidc OpenIddict is used as the identity provider and an OpenID connect
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement a secure .NET 8 Blazor Web application using OpenID Connect and security headers with CSP nonces. The NetEscapades.AspNetCore.SecurityHeaders nuget package is used to implement the security headers and OpenIddict is used to implement the OIDC server.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/BlazorWebOidc">https://github.com/damienbod/BlazorWebOidc</a></p>
+
+
+
+<p>OpenIddict is used as the identity provider and an OpenID connect client is setup to allow an OpenID Connect confidential code flow PKCE client. The Web application is a server rendered application using Blazor server components implemented using Blazor Web, ASP.NET Core and .NET 8.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Step 1: Init solution from the .NET Blazor samples 
+
+
+
+<p>The solution was created using the Blazor samples from Microsoft. The .NET 8 BlazorWebAppOidc project was used to setup the solution.</p>
+
+
+
+<p><a href="https://github.com/dotnet/blazor-samples/tree/main/8.0/BlazorWebAppOidc">https://github.com/dotnet/blazor-samples/tree/main/8.0/BlazorWebAppOidc</a></p>
+
+
+
+<p>The code sample implements the client profile parts and the CSRF protection. Login and Logout plumbing is also implemented.</p>
+
+
+
+ Step 2: Switch the OpenID Connect server 
+
+
+
+<p>OpenIddict is used as the identity provider and so the OIDC client set up needs to be changed. The program file was updated and the OpenID Connect Microsoft Entra ID client was replaced with the OpenIddict client. The client on the server is setup directly in the worker class in the Openiddict server. Both of the setups must match. The client uses an OpenID Connect confidential client with code flow and PKCE.</p>
+
+
+
+<p></p>
+
+
+  builder.Services.AddAuthentication(OIDC_SCHEME)
+    .AddOpenIdConnect(OIDC_SCHEME, options =&gt;
+    {
+        // From appsettings.json, keyvault, user-secrets
+        // "OpenIDConnectSettings": {
+        //  "Authority": "https://localhost:44318",
+        //  "ClientId": "oidc-pkce-confidential",
+        //  "ClientSecret": "--secret-in-key-vault-user-secrets--"
+        // },
+        builder.Configuration.GetSection("OpenIDConnectSettings").Bind(options);
+
+        options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.ResponseType = OpenIdConnectResponseType.Code;
+
+        options.SaveTokens = true;
+        options.GetClaimsFromUserInfoEndpoint = true;
+        options.MapInboundClaims = false; // Remove Microsoft mappings
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            NameClaimType = "name"
+        };
+    })
+    .AddCookie();
+  
+
+
+<p></p>
+
+
+
+<p>Note: You could also use the OpenIddict client packages to implement the client. I like to use the defaults.</p>
+
+
+
+ Step 3: Disable WASM mode 
+
+
+
+<p>Any web application should protect the session, not just implement authentication using an OIDC server. One of the most important browser protection is the CSP header and a good CSP uses a nonce. Blazor Web using WASM does not support this and so this must be disabled. Remove the WASM part from the middleware.</p>
+
+
+
+<p>In the program.cs, update Blazor Web to:</p>
+
+
+  builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+  
+
+
+<p>and</p>
+
+
+  app.MapRazorComponents&lt;App&gt;()
+    .AddInteractiveServerRenderMode()
+    .AddAdditionalAssemblies(
+            typeof(BlazorWebAppOidc.Client._Imports).Assembly);
+  
+
+
+<p>Remove the WASM usage in the UI components. Switch to InteractiveServer mode.</p>
+
+
+      &lt;HeadOutlet @rendermode="InteractiveServer" /&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;Routes @rendermode="InteractiveServer" /&gt;
+  
+
+
+ Step 4: Add CSP nonce middleware 
+
+
+
+<p>The CSP nonce can be used in Blazor (Server) components with some extra effort because the Blazor components cannot read the HTTP headers from the responses. The CircuitHandler class can be used for this. A BlazorNonceService class can be created to add the nonce. This class inherits the CircuitHandler implementation.</p>
+
+
+  using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Server.Circuits;
+
+namespace BlazorWebAppOidc.CspServices;
+
+/// &lt;summary&gt;
+/// Original src: https://github.com/javiercn/BlazorWebNonceService
+/// &lt;/summary&gt;
+public class BlazorNonceService : CircuitHandler, IDisposable
+{
+    private readonly PersistentComponentState _state;
+    private readonly PersistingComponentStateSubscription _subscription;
+
+    public BlazorNonceService(PersistentComponentState state)
+    {
+        if (state.TryTakeFromJson("nonce", out string? nonce))
+        {
+            if (nonce is not null)
+            {
+                Nonce = nonce;
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                         "Nonce can't be null when provided");
+            }
+        }
+        else
+        {
+            _subscription = state.RegisterOnPersisting(PersistNonce);
+        }
+
+        _state = state;
+    }
+
+    public string? Nonce { get; set; }
+
+    private Task PersistNonce()
+    {
+        _state.PersistAsJson("nonce", Nonce);
+        return Task.CompletedTask;
+    }
+
+    public void SetNonce(string nonce)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nonce);
+
+        if (Nonce != null)
+        {
+            throw new InvalidOperationException("Nonce already defined");
+        }
+
+        Nonce = nonce;
+    }
+
+    public void Dispose() =&gt; ((IDisposable)_subscription)?.Dispose();
+}
+  
+
+
+<p>A NonceMiddleware ASP.NET Core middleware service can now be used to read the nonce from the headers and set this in the BlazorNonceService CircuitHandler implementation. NetEscapades.AspNetCore.SecurityHeaders is used to implement the security headers and if a CSP nonce is created, the NETESCAPADES_NONCE  http header is set.</p>
+
+
+  namespace BlazorWebAppOidc.CspServices;
+
+public class NonceMiddleware
+{
+    private readonly RequestDelegate _next;
+
+    public NonceMiddleware(RequestDelegate next)
+    {
+        _next = next;
+    }
+
+    public async Task Invoke(HttpContext context, 
+              BlazorNonceService blazorNonceService)
+    {
+        var success = context.Items
+                  .TryGetValue("NETESCAPADES_NONCE", out var nonce);
+        if (success &amp;&amp; nonce != null)
+        {
+            blazorNonceService.SetNonce(nonce.ToString()!);
+        }
+        await _next.Invoke(context);
+    }
+}
+  
+
+
+<p>The middleware for the nonce is added to the ASP.NET Core services.</p>
+
+
+  builder.Services.TryAddEnumerable(
+     ServiceDescriptor.Scoped&lt;CircuitHandler, BlazorNonceService&gt;(sp =&gt;
+     sp.GetRequiredService&lt;BlazorNonceService&gt;()));
+
+builder.Services.AddScoped&lt;BlazorNonceService&gt;();
+  
+
+
+<p>Use the middleware is in the ASP.NET Core pipelines.</p>
+
+
+  app.UseMiddleware&lt;NonceMiddleware&gt;();
+  
+
+
+ Step 5: Add HTTP browser security headers 
+
+
+
+<p>The NetEscapades.AspNetCore.SecurityHeaders nuget package is used to implement the security headers as best possible for this type of application. The SecurityHeadersDefinitions class implements this. CSP nonces are configuration as well as other security headers.</p>
+
+
+  namespace BlazorWebAppOidc;
+
+public static class SecurityHeadersDefinitions
+{
+    public static HeaderPolicyCollection GetHeaderPolicyCollection(
+        bool isDev, string? idpHost)
+    {
+        ArgumentNullException.ThrowIfNull(idpHost);
+
+        var policy = new HeaderPolicyCollection()
+            .AddFrameOptionsDeny()
+            .AddContentTypeOptionsNoSniff()
+            .AddReferrerPolicyStrictOriginWhenCrossOrigin()
+            .AddCrossOriginOpenerPolicy(builder =&gt; builder.SameOrigin())
+            .AddCrossOriginResourcePolicy(builder =&gt; builder.SameOrigin())
+            .AddCrossOriginEmbedderPolicy(builder =&gt; builder.RequireCorp())
+            .AddContentSecurityPolicy(builder =&gt;
+            {
+                builder.AddObjectSrc().None();
+                builder.AddBlockAllMixedContent();
+                builder.AddImgSrc().Self().From("data:");
+                builder.AddFormAction().Self().From(idpHost);
+                builder.AddFontSrc().Self();
+                builder.AddBaseUri().Self();
+                builder.AddFrameAncestors().None();
+
+                builder.AddStyleSrc()
+                    .UnsafeInline()
+                    .Self();
+
+                // due to Blazor
+                builder.AddScriptSrc()
+                      .WithNonce()
+                      .UnsafeEval() // due to Blazor WASM
+                      .StrictDynamic()
+                      .OverHttps()
+                      .UnsafeInline(); // only a fallback for older browsers
+            })
+            .RemoveServerHeader()
+            .AddPermissionsPolicy(builder =&gt;
+            {
+                builder.AddAccelerometer().None();
+                builder.AddAutoplay().None();
+                builder.AddCamera().None();
+                builder.AddEncryptedMedia().None();
+                builder.AddFullscreen().All();
+                builder.AddGeolocation().None();
+                builder.AddGyroscope().None();
+                builder.AddMagnetometer().None();
+                builder.AddMicrophone().None();
+                builder.AddMidi().None();
+                builder.AddPayment().None();
+                builder.AddPictureInPicture().None();
+                builder.AddSyncXHR().None();
+                builder.AddUsb().None();
+            });
+
+        if (!isDev)
+        {
+            // maxage = one year in seconds
+            policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains();
+        }
+
+        policy.ApplyDocumentHeadersToAllResponses();
+
+        return policy;
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>The security headers are added using middleware as early as possible in the pipeline. I add the headers for all requests.</p>
+
+
+  app.UseSecurityHeaders(
+    SecurityHeadersDefinitions.GetHeaderPolicyCollection(
+        app.Environment.IsDevelopment(),
+        app.Configuration["OpenIDConnectSettings:Authority"]));
+  
+
+
+<p>The CSP nonce can now be used in the Blazor components and scripts can only be read using the nonce. Unsecure scripts or unsecure inline scripts should never be read anywhere in a browser application.</p>
+
+
+  &lt;pre class="wp-block-syntaxhighlighter-code"&gt; &lt;a href="http://_framework/blazor.web.js"&gt;http://_framework/blazor.web.js&lt;/a&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+
+@code
+{
+    /// &lt;summary&gt;
+    /// Original src: https://github.com/javiercn/BlazorWebNonceService
+    /// &lt;/summary&gt;
+    [CascadingParameter] HttpContext Context { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        var nonce = GetNonce();
+        if (nonce != null)
+        {
+            BlazorNonceService.SetNonce(nonce);
+        }
+    }
+
+    public string? GetNonce()
+    {
+        if (Context.Items.TryGetValue("nonce", out var item) 
+            &amp;&amp; item is string nonce and not null)
+        {
+            return nonce;
+        }
+
+        return null;
+    }
+}&lt;/pre&gt;
+  
+
+
+<p></p>
+
+
+
+<p>The applications can be started and the authentication and the session protection can be validated. Using the WASM mode in Blazor Web requires a weaker security setup and you need to disable the CSP nonces. This is not a good idea.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://github.com/dotnet/blazor-samples/tree/main/8.0/BlazorWebAppOidc">https://github.com/dotnet/blazor-samples/tree/main/8.0/BlazorWebAppOidc</a></p>
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2024/02/19/using-a-csp-nonce-in-blazor-web/">Using a CSP nonce in Blazor&nbsp;Web</a></blockquote>
+ 
+
+
+
+<p><a href="https://github.com/damienbod/BlazorServerOidc">https://github.com/damienbod/BlazorServerOidc</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/04/context-1.png?w=261'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:03 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/04/15/long-said-that.html'> Long said that I speak three languages; English, Music and M</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Long said that I speak three languages; English, Music and Math(s) .. sounds like @andysylvester is on a 🔗 similar track. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Long said that I speak three languages; English, Music and Math(s) .. sounds like <a href="https://micro.blog/andysylvester">@andysylvester</a> is on a <a href="https://andysylvester.com/2024/04/14/the-language-of-music/">🔗 similar track</a>.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:05 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Apr/15/jason-d-clinton/#atom-everything'>Quoting Jason D. Clinton, Anthropic</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    [On complaints about Claude 3 reduction in quality since launch] The model is stored in a static file and loaded, continuously, across 10s of thousands of identical servers each of which serve each instance of the Claude model. The model file never changes and is immutable once loaded; every shard is loading the same model file running exactly the same software. We haven’t changed the temperature
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <blockquote cite="https://www.reddit.com/r/ClaudeAI/comments/1c3f1yc/comment/kzj7n4s/"><p>[On complaints about Claude 3 reduction in quality since launch] The model is stored in a static file and loaded, continuously, across 10s of thousands of identical servers each of which serve each instance of the Claude model. The model file never changes and is immutable once loaded; every shard is loading the same model file running exactly the same software. We haven’t changed the temperature either. We don’t see anywhere where drift could happen. The files are exactly the same as at launch and loaded each time from a frozen pristine copy.</p></blockquote><p>— <a href="https://www.reddit.com/r/ClaudeAI/comments/1c3f1yc/comment/kzj7n4s/">Jason D. Clinton, Anthropic</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:27 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.sakimura.org'>@_Nat Zone</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.sakimura.org/2024/04/5723/'>NHK「最深日本研究～外国人博士の目～」からメタバースとアイデンティティとプライバシーについて考えてみる</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  4/13(土) 午前8:10-午前8:40にNHKで「最深日本研究～外国人博士の目～」という番組が放映されました。4/20(土) 午前8:39 までNHK+で視聴可能です。スイスの文化人類学者、リュドミラ・プレディキナ博士(31)の、文化人類学的見地からの日本における「メタバース…
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>4/13(土) 午前8:10-午前8:40にNHKで「最深日本研究～外国人博士の目～」という番組が放映されました。4/20(土) 午前8:39 まで<a href="https://plus.nhk.jp/watch/st/g1_2024041412226">NHK+で視聴可能</a>です。スイスの文化人類学者、リュドミラ・プレディキナ博士(31)の、文化人類学的見地からの日本における「メタバース」という地域・文化、とくに男性の大部分がなぜ「バーチャル美少女キャラ〜バ美肉」化するかということへのアプローチです。</p>
+
+
+
+<p>この背景として、日本の伝統文化である歌舞伎では女性を男性が演じること、人形のようなキャラクターを演じるということでは、人形浄瑠璃との関係もプレディキナ博士の論文「Babiniku」<a href="https://www.sakimura.org/2024/04/5723/#easy-footnote-bottom-1-5723" title="Bredikhina, Liudmila. (2022) Babiniku: what lies behind the virtual performance. Contesting gender norms through technology and Japanese theatre. Electronic Journal of Contemporary Japanese Studies. https://shs.hal.science/halshs-03781957/ ">1</a>では触れられているようです。また、日本における「理想」の実体化としての「カワイイ」の考察などもされています。昨今、アイデンティティとプライバシーの国際標準化の分野でもメタバースが関心の対象になってきているところなので、とても参考になりました。</p>
+
+
+
+<p>以下に番組概要のメモと、その後にアイデンティティやプライバシーの観点での考察を記載します。</p>
+
+
+
+ 番組概要 
+
+
+
+<p>番組の概要はこんな感じです。なぐり書きメモなんで整っていませんが、まぁなんとなくは分かるでしょう。NHK+での番組公開終了までは、<a href="https://plus.nhk.jp/watch/st/g1_2024041412226">ぜひ番組をご覧になることをおすすめします</a>。</p>
+
+
+
+ 導入部 
+
+
+
+ 
+ 2000年代以降ネット上に広がったもう一つの世界、メタバース。人々はアバターと呼ばれる自らの分身を使い見知らぬ人との出会いを楽しむ。 
+
+
+
+ その中で、日本人コミュニティではバ美肉が目立つ。 
+
+
+
+ スイスの文化人類学者リュドミラ・プレディキナ博士(31)<a href="https://www.sakimura.org/2024/04/5723/#easy-footnote-bottom-2-5723" title="Dr Liudmila Bredikhina">2</a>はこのことに興味を持つ。 
+
+
+
+ なぜ日本人男性は美少女キャラクターになりたがるのか、その答えを求めて研究 
+
+
+
+ アニメ・和食・J-POP日本文化に注がれる世界からの熱い視線。そして、日本を愛しわれわれには無い目線でより深く日本を知ろうとする外国人研究者 
+
+
+
+ 彼らに日本はどう写っているか。バーチャル人類学者がわれわれの知らない日本の真の姿を解き明かす〜最深日本研究 
+ 
+
+
+
+ 第１章：最新メタバース体験施設を調査 
+
+
+
+ 
+ スイスにはこのような施設はない 
+
+
+
+ メタバースを体験するためのすべてが揃っている 
+
+
+
+ 初心者には案内人もついている。やはり美少女キャラクター 
+
+
+
+ 一般視聴者に向けたメタバースの紹介
+ 
+ アバターの選択〜好きなアバターになる〜アイデンティティの表出 
+
+
+
+ バーチャル空間では一瞬で何十万もある世界を移動できる
+ 
+ そこで景色を楽しんだり、人々とお酒を飲んで交流したりなど、現実世界と同じように楽しめる 
+ 
+ 
+
+
+
+ メタバースの利用者は世界中でおよそ４億人 
+
+
+
+ 花火をましたから見上げるなどここでしかできない体験 
+ 
+ 
+ 
+
+
+
+ 第２章：日本のバーチャル世界を研究したい 
+
+
+
+ 
+ 博士がバーチャル世界の研究を始めたのは４年前 
+
+
+
+ 研究調査で驚きを持って知った言葉「バ美肉」（バーチャル美少女受肉）男性が美少女キャラを持つときに使われることば 
+
+
+
+ 「受肉」には西洋では宗教的な意味があるが、バ美肉たちは宗教に全く関心がない。そこに博士は興味を惹かれた。 
+
+
+
+ 調査をすると驚くべきことがわかった。男性のおよそ８割が美少女キャラクターを使っている
+ 
+ 女性　78.3% 
+
+
+
+ 男性　15.2% 
+
+
+
+ その他　6.5% 
+ 
+ 
+
+
+
+ その見た目には大きな特徴：アニメに出るような可愛い女の子。これに対して西洋では、クールでセクシー。カワイイとは違って強い女性という印象を受ける。 
+ 
+
+
+
+<a href="https://i0.wp.com/www.sakimura.org/wp-content/uploads/2024/04/image-1.png?ssl=1"></a>
+
+
+
+<p>（出所）NHK「最深日本研究～外国人博士の目～」</p>
+
+
+
+ 
+ 博士：わたしは西洋で育ち、女性として美しくエレガントでありたいと思っていた。なぜ日本の男性はカワイイと言われたいのか。西洋人としてこの異なる視点をもっと理解したいと思います。 
+
+
+
+ 文化人類学の紹介
+ 
+ 20世紀初頭に一つの学問領域として確立。
+ 
+ クロード・レヴィ・ストロース 
+
+
+
+ ルース・ベネディクト 
+
+
+
+ 梅棹忠夫 
+ 
+ 
+
+
+
+ 机に向かうだけではなく、現地に赴き直接人と触れあるフィールドワークという手法で人間とは何かを探求する学問 
+
+
+
+ 人類学者は世界各地の民族を訪ね、彼らとともに暮らし、彼らの生活をつぶさに観察、自分の属する社会と比較することで、その共通点や違い、多様性を明らかにしてきた 
+
+
+
+ バーチャル世界という新たな地平 
+
+
+
+ 最初SNSを使いバ美肉たちに話しかけたが、部外者であるわたしは信用されなかった。わたしが西洋人であり女性だったから。そこで、博士は人類学の手法であるフィールドワークを使ってバ美肉たちに接近。自分のアバターを作ることは重要だった。バーチャル世界で彼らの信用を得ることができたから。 
+
+
+
+ アバターを纏うことでバ美肉たちと同じ目線に立ち直接ふれあい始めたリュドミラ 
+
+
+
+ ときには一緒にライブ配信を行い、オリジナル曲の英訳を買って出た 
+
+
+
+ そして１年ほどかけて、徐々にコミュニティの中に入っていった 
+ 
+ 
+ 
+
+
+
+ 第３章　声までカワイイってどういうこと？ 
+
+
+
+ 
+ 両声類<a href="https://www.sakimura.org/2024/04/5723/#easy-footnote-bottom-3-5723" title="男性でありながら女性の声を出せるなど、両性の声を出せる人">3</a>の紹介
+ 
+ 声は男性のままか音声変換器を使うのが一般的 
+
+
+
+ しかし、<a href="https://www.youtube.com/@johnko_amachi">あまちじょんこ(youtube: @johnko_amachi </a> X: <a href="https://twitter.com/johnko20100711">@johnko20100711</a>)などは自らの超絶技巧で声を変える。 
+
+
+
+ 中の人は、じょんアニキ。
+ 
+ めざすもの：天真爛漫で無邪気で、こういう小さい子っているよねという女の子をしたい。 
+
+
+
+ 高い声にするだけだと、男の人の高い声になってしまう。声は楽器と一緒なので楽器の形を変えてあげる。そうやって音質を変えて、その上で音の高さを変える。両方が合わさってじょんこの声になる 
+
+
+
+ ２年かけ、理想の可愛い声を獲得した 
+
+
+
+ 「別の自分になれるってめちゃくちゃ楽しくて。で、なんかそれで、ただ楽しいということを突き詰めていく。天才じゃないから頑張るしかない。」 
+
+
+
+ カワイイ動きのトレーニング。いざやっていむと難しい。ちいさい子の気持ちになって動かないといけない。たとえば、歩くときに右の足を出すと右に重心がよってしまう。これを繰り返すとふらふら見える。このふらふらした動きが、見ている人からしたら守ってあげたいというので可愛く見える。 
+ 
+ 
+
+
+
+ 博士
+ 
+ 歩く時にかわいいを意識したことがなかったのでとてもおもしろいと思った 
+
+
+
+ 前は日本の男性といえばサラリーマンかオタクという表層的なステレオタイプなイメージしかなかった。しかし、研究をしてみると、日本人男性の多様性や日本文化の寛容性を知りとても面白いということがわかってきた 
+ 
+ 
+ 
+ 
+
+
+
+ 博士の生い立ちの説明
+ 
+ ロシア生れ。１２歳でスイスに移住。フランス語の勉強に日本の漫画。<a href="https://amzn.to/3xsVDqz">「天使禁猟区」</a><a href="https://www.sakimura.org/2024/04/5723/#easy-footnote-bottom-4-5723" title="<a href=&quot;https://www.amazon.co.jp/%E7%94%B1%E8%B2%B4%E9%A6%99%E7%B9%94%E9%87%8C/e/B0034P2S76/ref=dp_byline_cont_ebooks_1&quot;>由貴香織里</a>「天使禁猟区」（白泉社）<a href=&quot;https://amzn.to/3vRNefW&quot;>https://amzn.to/3vRNefW</a>">4</a>。今までこのような美しい絵を見たことがなかったので新しい世界が開けた。 
+
+
+
+ 27際のときに日本文化を学ぶためにジュネーブ大学の修士課程に。 
+
+
+
+ 論文を発表「Babiniku」<a href="https://www.sakimura.org/2024/04/5723/#easy-footnote-bottom-5-5723" title="Bredikhina, Liudmila. (2022) Babiniku: what lies behind the virtual performance. Contesting gender norms through technology and Japanese theatre. Electronic Journal of Contemporary Japanese Studies. <a href=&quot;https://shs.hal.science/halshs-03781957/&quot;>https://shs.hal.science/halshs-03781957/</a> ">5</a>
+ 
+ 日本の伝統芸能の一つである歌舞伎の女形と同様に男性が美少女キャラクターを演じる類似点 
+
+
+
+ 人形浄瑠璃とアバターをあやつるバ美肉の共通性など日本の伝統文化を通してバ美肉を考察した論文は大学から学術賞を受けた 
+
+
+
+ 日本の文化はとても興味深く、趣味と実益を兼ねた研究をしたいと考えた 
+ 
+ 
+
+
+
+ ブレンダ・マーフィー教授
+ 
+ 「彼女の研究の魅力は西洋で主流ではない”日本文化”に着目している点です」 
+
+
+
+ バーチャル人類学はとても新しい分野であり、彼女はグローバルな文化への挑戦者といえる 
+ 
+ 
+
+
+
+ リュドミラが来日するのはこれで６度目。街に行けば目につくのは美少女キャラクター。看板や飲食店など町のいたるところで見かける。美少女キャラクターは秋葉原だけでなく日本文化で不可欠な存在 
+
+
+
+ アニメや漫画の専門店に立ち寄り、次々に新しいものが生まれる日本のサブカルチャーも博士にとって研究の一環 
+ 
+ 
+ 
+
+
+
+ 第４章　美少女キャラに会いたい 
+
+
+
+ 
+ アイドルVTuber <a href="https://www.youtube.com/@NoraCat0415">のらきゃっと</a> (@NoraCat0415 ch. 登録者86000人以上）。ファンネーム「ねずみさん」 
+
+
+
+ これを生み出したのが<a href="https://www.youtube.com/@PIMR">「のらねこP」(@PIMR</a>, <a href="https://twitter.com/VR_Produce_Nora">X: @VR_Produce_Nora</a>)インタビュー
+ 
+ のらきゃっとにガチ恋だと言っているファンとの関係についておしえて
+ 
+ のらちゃんがちょっとドジなところもあってでも強くて可愛くてというのはファンがそう思っているから作られたという部分が多くて、ネズミさんたちがのらきゃっとという存在にそうあってほしいという願いのもとに作られたのでファンからの影響はとても強い 
+ 
+ 
+
+
+
+ のらきゃっとがファンから可愛いと言われるとどう感じるか
+ 
+ 娘が公園で仲の良い友達と遊んでいて幸せそうだと親が感じるのに似ている 
+ 
+ 
+
+
+
+ のらきゃっとが生まれて人生は変わったか？
+ 
+ 今までの仕事に行って帰ってきて家で寝るだけという生活でそんなに友達もいないというような人生から、本当に楽しく話せる友達が10倍以上に増えた。誰かと話したいときに話せるので寂しいと思う瞬間がなくなった 
+ 
+ 
+
+
+
+ かわいい美少女になれるって最高ですね「みんななれる〜」 
+
+
+
+ ファンから求められることで美少女キャラはよりかわいくくなり、その美少女を生み出した彼の生活も豊かにしている。今日いちばん重要な発見だった 
+ 
+ 
+ 
+
+
+
+ 第５章　美少女になる理由を知りたい 
+
+
+
+ 
+ バーチャル美少女とファンとの交流はさらに進化。現実世界のファンが集まる店。友人のバ美肉が出演すると聞き訪ねた。「新宿ねむバー」 
+
+
+
+ バーチャル美少女ねむさん(<a href="https://www.youtube.com/@nemchan_nel">Youtube @nemchan_nel</a>, <a href="https://twitter.com/nemchan_nel">X @nemchan_nel</a> )＝<a href="https://amzn.to/3VUkM7X">『メタバース進化論』（技術評論社）</a>の著者で、博士の研究の頼もしい協力者 
+
+
+
+ 博士：「直接あって美少女やメタバースとか私達が情熱を注いでいることについてもっと話そう」 
+
+
+
+ ねむさん：「楽しそう。たくさん話すのを楽しみにしてるよ」 
+
+
+
+ 博士：「ではリアル世界で」 
+
+
+
+ ねむはプライベート時間の殆どをメタバースで過ごし、専門書<a href="https://www.sakimura.org/2024/04/5723/#easy-footnote-bottom-6-5723" title="『メタバース進化論』（技術評論社）<a href=&quot;https://amzn.to/3VUkM7X&quot;>https://amzn.to/3VUkM7X</a> ">6</a>を出版するほどこの世界について考え続けてきた人物。 
+
+
+
+ 博士：直接美少女キャラクターになる理由を訊いてみたい 
+
+
+
+ 匿名で活動したいというねむさんの希望により映像と音声を加工しています→モザイクの大きさはかなり調整したらしい 
+
+
+
+ SNSを通じ知り合ったのは4年前。ねむさんとはメタバースユーザの生活実態を一緒に調査したことも。 
+
+
+
+ 博士によるねむさんへのインタビュー 
+
+
+
+ 初めてねむになったときどう思ったの？
+ 
+ すごく恥ずかしかった。 
+
+
+
+ 罪悪感〜違う自分になるというのが悪いことをしているような感覚だった 
+
+
+
+ でもだんだんいつもの自分では出てこないような言葉が口から出てきた 
+ 
+ 
+
+
+
+ 美少女になると自己表現も変わるということか？
+ 
+ 「現実の自分だとカッコつけちゃうのかな」 
+
+
+
+ 「そこまで心揺れ動かない結構冷静な人間だと自分のことを思っていたけど、ねむちゃんのときはそういうのから開放されてもっと自由に表現できる」 
+ 
+ 
+
+
+
+ あなたにとっての美少女ってどういう存在なのか？
+ 
+ “カワイイ”という概念を具現化した存在が美少女キャラクターだと思っている 
+
+
+
+ 肩書とか現実世界のしがらみを剥ぎ取ると人間の本質ってすごくカワイイ。魂って実はカワイイと思っていて、カワイイはその人の本質を褒めている気がする。 
+
+
+
+ 自信になるというか、ありのままでちゃんと意味があるんだと思える気がする 
+ 
+ 
+
+
+
+ なぜ日本人男性が美少女になりたいと思うのか。その答えを求めてフィールドワークを続けてきた博士の今考える結論
+ 
+ 日本人男性は美少女になりカワイイを獲得することでストレスから開放される。 
+
+
+
+ なぜならカワイイは失敗しても許されるし責任を負わなくていいからです。 
+
+
+
+ 私は日本文化から生まれたカワイイに可能性を感じました 
+
+
+
+ しかし私は人類学者としてコミュニティを一般化するのではなく、これからも多くの人たちの声に耳を傾けたいと思っています 
+ 
+ 
+ 
+
+
+
+<p>エンド：若き人類学者が日本のバーチャル世界に分け入っていく</p>
+
+
+
+ 考察 
+
+
+
+ アイデンティティとバ美肉 
+
+
+
+<p>アイデンティティという言葉は番組の中に出て来ませんが、多くの発言は「アイデンティティ」関連だとわたしの中では整理されました。たとえば、じょんこさんの「別の自分になれるってめちゃくちゃ楽しくて。で、なんかそれで、ただ楽しいということを突き詰めていく。」という発言は、現実社会の仕事だとか交友関係という既存のコンテキストを超えた新たなコンテキストでの自我の確立とその表出（自観するアイデンティティの表出）およびそれがコミュニティ内で他の人に観測されるもののフィードバック（他観）という関係性の享受から幸福感を得ているように見えます。（自観と他観のあたりは、<a href="https://www.sakimura.org/2011/06/1124/">「非技術者のためのデジタルアイデンティティ入門」</a>をご参照ください）</p>
+
+
+
+<p>類似のことは、ねむさんの「（最初ねむになったとき）すごく恥ずかしかった。罪悪感〜違う自分になるというのが悪いことをしているような感覚だった。でもだんだんいつもの自分では出てこないような言葉が口から出てきた。」「ねむちゃんのときはそういうのから開放されてもっと自由に表現できる。」という言葉にも出てきます。</p>
+
+
+
+<p>一方、のらねこPの「のらちゃんがちょっとドジなところもあってでも強くて可愛くてというのはファンがそう思っているから作られたという部分が多くて、ネズミさんたちがのらきゃっとという存在にそうあってほしいという願いのもとに作られたのでファンからの影響はとても強い。」という発言は、自観と他観のズレの最小化を、表出する属性の調整によって他観の方を変えて行うという「通常」のやり方とは逆で、他観の方に自観をあわせてしまうというアプローチに見えます。根源的自我に他観を合わせに行くのではなく、自我の方を調整してしまうわけですね。ただ、これが本当に自分の自我だとかなり心理的負荷が大きくなってくるのではないかと思われます。心理的負荷を減らすには、自分の中からその人格を外だししてしまって客観化してしまうことが必要であるようにも思えます。</p>
+
+
+
+<p>このあたりが、のらねこPの「娘が公園で仲の良い友達と遊んでいて幸せそうだと親が感じるのに似ている」という発言からも表出されているように感じられました。</p>
+
+
+
+<p>ここの部分で、プレディキナ博士は「ファンから求められることで美少女キャラはよりかわいくくなり、その美少女を生み出した彼の生活も豊かにしている。今日いちばん重要な発見だった」と述べています。</p>
+
+
+
+ 免罪符としては機能しない美少女キャラクターとプライバシー 
+
+
+
+<p>次に検討してみたいのが、博士の「日本人男性は美少女になりカワイイを獲得することでストレスから開放される。なぜならカワイイは失敗しても許されるし責任を負わなくていいから。」という発言です。わたしの解釈違いかもしれませんが、カワイイが免罪符的に機能するので、日本人男性はカワイイを獲得したいと言っているように聞こえます。「日本人男性は」としているので、この「カワイイ」の概念とその通用する範囲が日本にまず限定されているのだろうということは想像できます。そのうえで「カワイイ」が免罪符的に機能するのかと言うと、これはちょっと難しいところだと思っています。</p>
+
+
+
+<p>「カワイイ」を体現するものとしては、いわゆるアイドルVTuberなどがいると思います。ところが、その免罪符を持っているはずの彼女たちは、時として誹謗中傷されたりコミュニティから叩かれ、「卒業」を余儀なくされたりしているのは、このあたりをちょっと追っている人ならよくご存知のことと思います。もし「カワイイ」が免罪符として機能するならばこういうことは起きないと思うのです。</p>
+
+
+
+<p>おそらく理想としての「カワイイ」には人々の期待がつまっていて、その期待を裏切ると叩かれるという構図があるのではないかとも思えます。つまり「カワイイ」が免罪符として機能するわけではない。ある意味、「”カワイイ”という概念を具現化した存在としての美少女キャラクター」は現代の巫女であり、古代と同じく、期待を裏切ったときにはスケープゴートにされる存在だと言えるかもしれません。で、わたしはスケープゴートって作ってはいけないと思うんですよね。</p>
+
+
+
+<p>現代の巫女がスケープゴート化してしまう原因の多くは、コンテキスト外の情報の当該コンテキストへの混入です。たとえば、誰かからのチャットが画面に映り込んでしまったとか、他の人の声が混入してしまったとか、自分の顔が反射で映り込んでしまったとかですね。今後は他のワールドでの行動が当該ワールドにレポーティングされてしまうというような形の情報混入も起きてくることでしょう。場合によっては悪意の人が監視用のキャラクターを各所に配置して意図的にこれをやってくることも考えられます。中の人と、その人が運用する異なるアバターの名寄せとかもこの中に入ってきます。</p>
+
+
+
+<p>番組の中でねむさんは「匿名で活動したい」としてモザイクをかけて声も変えて登場していますが、これも望まない名寄せであるとか情報の混入を防ぐ取り組みの一環と整理することもできます。</p>
+
+
+
+<p>こうしたことをどうやって防ぐかとか取り締まっていくかなどが、メタバースにおけるプライバシーの尊重という意味では重要性を増してくると思われます。メタバースプライバシーの国際標準作成作業が始まっている背景でもあります。</p>
+
+
+
+ しがらみを削ぎ落とした存在としての「ありのままの自分＝美少女キャラクター」 
+
+
+
+<p>さて、ではなぜ日本人男性はバ美肉化するのか？上記のことを勘案すると、博士のいう「日本人男性は美少女になりカワイイを獲得することでストレスから開放される。なぜならカワイイは失敗しても許されるし責任を負わなくていいから。」というのはちょっと違いそうです。</p>
+
+
+
+<p>番組内でねむさんは「”カワイイ”という概念を具現化した存在が美少女キャラクターだと思っている。肩書とか現実世界のしがらみを剥ぎ取ると人間の本質ってすごくカワイイ。魂って実はカワイイと思っていて、カワイイはその人の本質を褒めている気がする。自信になるというか、ありのままでちゃんと意味があるんだと思える気がする。」とおっしゃっておられます。現実世界のしがらみを剥ぎ取った人の本質は「カワイイ」であり、そのありのままの自分の自我「自観」を表出すると、日本文化においては美少女になるということでしょうか。そうかもしれません。なにせ、８割近くのひとがそうあろうとするのですから。</p>
+
+
+
+<p>番組では、各被取材者ごとに数時間のインタビューがあったのがそれぞれ５分くらいにまとめられてしまっているようです。削ぎ落とされたものの中に、このあたりに光を当ててくれる発言も多くあったことでしょう。その意味で、アフタートークも準備されているようなので、それに期待したいと思います。</p>
+
+
+
+ 
+<blockquote><p>【ガチ勢各位】<br>実際にはみんな2 ～3時間喋った内容をそれぞれ一般人向けに5分くらいにまとめられてるので、ガチ勢のみんなとしたはぶっちゃけ物足りない面もあると思う。という訳で、アフタートーク企画中です！！！ <a href="https://twitter.com/hashtag/%E6%9C%80%E6%B7%B1%E6%97%A5%E6%9C%AC%E7%A0%94%E7%A9%B6?src=hash&amp;ref_src=twsrc%5Etfw">#最深日本研究</a> <a href="https://t.co/db9ToxqQpl">https://t.co/db9ToxqQpl</a></p>— バーチャル美少女ねむ/Nem4/13 NHK「最深日本研究」出演！ (@nemchan_nel) <a href="https://twitter.com/nemchan_nel/status/1779473091284107483?ref_src=twsrc%5Etfw">April 14, 2024</a></blockquote>
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/www.sakimura.org/wp-content/uploads/2024/04/image-1.png?resize=546%2C411&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:20 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -726,8 +1907,573 @@
 
 
 <h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/i-decided-to-give-tesla-fsd-a'>I decided to give Tesla FSD a ...</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I decided to give Tesla FSD a second chance today. Aside from the bit where it decided to turn onto an actual municipal train track and use it as a road, it did really well! 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>I decided to give Tesla FSD a second chance today. Aside from the bit where it decided to turn onto an actual municipal train track and use it as a road, it did really well!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:29 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/04/15/i-just-sent.html'> I just sent this to Readdle. 
+ 
+ I hit inbox zero and you in</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I just sent this to Readdle. 
+ 
+ I hit inbox zero and you invite me to share with x - as a Ukraine Company I am  surprised that you would promote a space owned by someone who’s goal is to solve the war by handing Ukraine over to Russia. 
+ 
+ 
+ If you must .. at least give your customers the chance to promote their success into a platform that we use or at least a free, fair, open platform - which t
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/b609fea43e.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I just sent this to Readdle.</p>
+<blockquote>
+<p>I hit inbox zero and you invite me to share with x - as a Ukraine Company I am  surprised that you would promote a space owned by someone who’s goal is to solve the war by handing Ukraine over to Russia.</p>
+</blockquote>
+<blockquote>
+<p>If you must .. at least give your customers the chance to promote their success into a platform that we use or at least a free, fair, open platform - which that fiasco most certainly isn’t.</p>
+</blockquote>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/b609fea43e.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:11 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://kentbull.com/'>Kent Bull</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://kentbull.com/2024/04/14/keri-update-major-release-and-branch-strategy-change/'>KERI Update: Major release and Branch Strategy Change</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The WebOfTrust community recently released a major update to the Key Event Receipt Infrastructure (KERI) and Authentic Chained Data Containers (ACDC) implementation as a coordinated release across the suite of WebOfTrust repositories. Coordinated Release This resulted in the following release versions: Branch Strategy Change Recent Blog Posts See Nuttawut Kongsuwan’s […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The WebOfTrust community recently released a major update to the Key Event Receipt Infrastructure (KERI) and Authentic Chained Data Containers (ACDC) implementation as a coordinated release across the suite of WebOfTrust repositories. </p>
+
+
+
+ Coordinated Release 
+
+
+
+<p>This resulted in the following release versions:</p>
+
+
+
+ 
+ Repository: KERIpy (used for witnesses, command line-managed decentralized identities, and as the core library for the Python KERY space)<br>Version: 1.1.12 (<a href="https://pypi.org/project/keri/1.1.12/">PyPi</a>) – Apr 9, 2024 
+
+
+
+ Repository: KERIA (agent server used for individual decentralized identity agents – your data sits here)<br>Version: 0.2.0.dev0 Pre-Release (<a href="https://pypi.org/project/keria/0.2.0.dev0/">PyPi</a>) – Apr 11, 2024 
+
+
+
+ Repository: SignifyPy (edge-signing client implementation – your keys sit here)<br>Version: 0.1.0 (<a href="https://pypi.org/project/signifypy/0.1.0/">PyPi</a>) – Feb 13, 2024 
+ 
+
+
+
+ Branch Strategy Change 
+
+
+
+ 
+ “development” branch merged to “main” as the old GitFlow style branching strategy was dropped in favor of <a href="https://trunkbaseddevelopment.com/">trunk-based development</a> (single main branch strategy). See the <a href="https://github.com/WebOfTrust/keripy/discussions/726">keripy#726 GitHub discussion</a> for the rationale.
+ 
+ This occurred for the following repositories:
+ 
+ Python
+ 
+ <a href="https://github.com/WebOfTrust/keripy">KERIpy</a> 
+
+
+
+ <a href="https://github.com/WebOfTrust/keria">KERIA</a> 
+
+
+
+ <a href="https://github.com/WebOfTrust/signifypy">SignifyPy</a> 
+ 
+ 
+
+
+
+ Typescript
+ 
+ <a href="https://github.com/WebOfTrust/signify-ts">SignifyTS</a> 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+<p>Recent Blog Posts</p>
+
+
+
+<p>See Nuttawut Kongsuwan’s explanation of how to use KERI in his “<a href="https://medium.com/finema/the-hitchhikers-guide-to-keri-part-3-how-do-you-use-keri-2d1724afa432">The Hitchhiker’s Guide to KERI. Part 3: How do you use KERI?</a>“</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:02 &bull;
+   13 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Apr/14/redka/#atom-everything'>redka</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   redka 
+ Anton Zhiyanov's new project to build a subset of Redis (including protocol support) using Go and SQLite. Also works as a Go library. 
+
+ The guts of the SQL implementation are in the internal/sqlx folder. 
+
+     Via @ohmypy 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://github.com/nalgeon/redka">redka</a></p>
+<p>Anton Zhiyanov's new project to build a subset of Redis (including protocol support) using Go and SQLite. Also works as a Go library.</p>
+
+<p>The guts of the SQL implementation are in the internal/sqlx folder.</p>
+
+    <p>Via <a href="https://twitter.com/ohmypy/status/1779489065173467385">@ohmypy</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:21 &bull;
+   15 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/04/14/i-am-still.html'> I am still running these words in my mind … 
+ 
+ Starting rig</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I am still running these words in my mind … 
+ 
+ Starting right now we must invest time and resources to hone, sculpt and architect the six key skills will be essential in the future to complement machines, co-exist with change, and ensure continuous re-invention.   
+Three of these have to do with individual competence (Cognition, Creativity, Curiosity) and three how we connect with each other and 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I am still running these words in my mind …</p>
+<blockquote>
+<p>Starting right now we must invest time and resources to hone, sculpt and architect the six key skills will be essential in the future to complement machines, co-exist with change, and ensure continuous re-invention.  <br>
+Three of these have to do with individual competence (Cognition, Creativity, Curiosity) and three how we connect with each other and the world outside our minds including new AI agents. (Collaborate, Communicate, Convince).</p>
+</blockquote>
+<p>💬 Media Village</p>
+<p><a href="https://www.mediavillage.com/?type=latest&amp;page=1">🖇️Their Site</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   11:12 &bull;
+   20 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://john.philpin.com/2024/04/14/an-interview-with.html'>An Interview With An AI</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   There are so many of these things popping up (AIs that is), you need an AI to track the AIs. 
+ Pi is one that caught my eye a while back, and I have had some noodles and doodles with it - when time allows. Clearly 🔗 David had a bit more time than me - because he sat down and interviewed them (?) .. or is it still an ‘it’? 
+ Yes, as David explains at the beginning of the podcast, sometimes the flow
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>There are so many of these things popping up (AIs that is), you need an AI to track the AIs.</p>
+<p>Pi is one that caught my eye a while back, and I have had some noodles and doodles with it - when time allows. Clearly <a href="https://www.linkedin.com/in/4mdbrown/">🔗 David</a> had a bit more time than me - because he sat down and interviewed them (?) .. or is it still an ‘it’?</p>
+<p>Yes, as David explains at the beginning of the podcast, sometimes the flow is a bit stilted - and through my ears sounded robotic (though I think that is being fixed next week!)</p>
+<p>The point is - which is the same point that David concludes with - yes - it is not there - but holy hell in a hand basket … the ‘interview was waaaaaay better than many I start, a darn sight more interesting and really - if you were to drop this in the middle of a bunch of reptiles … talking heads … politicians talking - who do you think is gong to hold the attention best - and I choose that particular category because they are used to being interviewed, to pitching, to telling stories. Some have even been trained ….</p>
+ BUT 
+<p>Even with the passionless voice - I found more passion and definitely more reasoning from Pi than a lot of people that puncture my days and nights.</p>
+<p>Worried yet?</p>
+<p><a href="https://overcast.fm/+BBSjnVyST8">🎙️ An Interview with Pi</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   09:59 &bull;
+   21 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/04/14/have-to-say.html'> Have to say that were somebody to back me up against a wall </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Have to say that were somebody to back me up against a wall - put a gun to my head and ask me 🖇️ who my top 10 artists - ever - were, XTC would be on that list. 
+ 📼 Just finished watching this 
+ Just lovely and a tremendous trip down memory lane. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Have to say that were somebody to back me up against a wall - put a gun to my head and ask me <a href="https://john.philpin.com/top10artists/">🖇️ who my top 10 artists</a> - ever - were, XTC would be on that list.</p>
+<p><a href="https://youtu.be/ytc9fv96ZGg">📼 Just finished watching this</a></p>
+<p>Just lovely and a tremendous trip down memory lane.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   08:53 &bull;
+   22 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -791,7 +2537,7 @@
 
 <div class='item-footer'>
    03:57 &bull;
-   4 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -889,7 +2635,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    02:53 &bull;
-   5 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -973,7 +2719,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    02:28 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1011,7 +2757,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
    📺 One Lane Bridge 
  Two seasons worth. Another in the style of ‘Kiwi Scandinavian Noir’ 😁. It’s not a cracker - but good enough to watch both seasons over time. (Trust me - there are many a show I start - never finish - and a review of which you will not find in here.) 
- Gray on 🔗 Reelgood 
+ One Lane Bridge on 🔗 Reelgood 
  ’All’ My TV Show Reviews 
  &nbsp; 
   
@@ -1037,7 +2783,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <p>📺 One Lane Bridge</p>
 <p>Two seasons worth. Another in the style of ‘Kiwi Scandinavian Noir’ 😁. It’s not a cracker - but good enough to watch both seasons over time. (Trust me - there are many a show I start - never finish - and a review of which you will not find in here.)</p>
-<p>Gray on <a href="https://reelgood.com/show/one-lane-bridge-2020">🔗 Reelgood</a></p>
+<p>One Lane Bridge on <a href="https://reelgood.com/show/one-lane-bridge-2020">🔗 Reelgood</a></p>
 <p><a href="https://john.philpin.com/categories/myshows">’All’ My TV Show Reviews</a></p>
 <p>&nbsp;</p>
 <p></p>
@@ -1057,7 +2803,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    02:24 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1095,7 +2841,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
    📺 The Brothers Sun 
  Despite writing this back in February - it didn’t. Quirky. Funny. Great Action - and Michelle Yeoh. I mean - c’mon. 
- Gray on 🔗 Reelgood 
+ The Brothers Sun on 🔗 Reelgood 
  ’All’ My TV Show Reviews 
  &nbsp; 
   
@@ -1121,7 +2867,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <p>📺 The Brothers Sun</p>
 <p>Despite writing <a href="https://john.philpin.com/2024/02/07/watched-first-episode.html">this</a> back in February - it didn’t. Quirky. Funny. Great Action - and Michelle Yeoh. I mean - c’mon.</p>
-<p>Gray on <a href="https://reelgood.com/show/the-brothers-sun-2024">🔗 Reelgood</a></p>
+<p>The Brothers Sun on <a href="https://reelgood.com/show/the-brothers-sun-2024">🔗 Reelgood</a></p>
 <p><a href="https://john.philpin.com/categories/myshows">’All’ My TV Show Reviews</a></p>
 <p>&nbsp;</p>
 <p></p>
@@ -1141,7 +2887,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    02:20 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1179,7 +2925,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
    📺 Criminal Record 
  ‘Truth to Power’. Solid, gritty, Brit detective drama. 
- Gray on 🔗 Reelgood 
+ Criminal Record on 🔗 Reelgood 
  ’All’ My TV Show Reviews 
  &nbsp; 
   
@@ -1205,7 +2951,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <p>📺 Criminal Record</p>
 <p>‘Truth to Power’. Solid, gritty, Brit detective drama.</p>
-<p>Gray on <a href="https://reelgood.com/show/criminal-record-2024">🔗 Reelgood</a></p>
+<p>Criminal Record on <a href="https://reelgood.com/show/criminal-record-2024">🔗 Reelgood</a></p>
 <p><a href="https://john.philpin.com/categories/myshows">’All’ My TV Show Reviews</a></p>
 <p>&nbsp;</p>
 <p></p>
@@ -1225,7 +2971,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    02:15 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1263,7 +3009,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
    📺 The Gulf 
  Coincidentally found myself living on/in ‘The Gulf’ when I discovered the show, so watched it with a little bit of a ’travelogue’ perspective. 😁 One of those dark Kiwi shows - they seem to be emulating ’Scandinavian Noir’ - if that is a term. If it isn’t, it should be. Great show. 
- Gray on 🔗 Reelgood 
+ The Gulf on 🔗 Reelgood 
  ’All’ My TV Show Reviews 
  &nbsp; 
   
@@ -1289,7 +3035,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <p>📺 The Gulf</p>
 <p>Coincidentally found myself living on/in ‘The Gulf’ when I discovered the show, so watched it with a little bit of a ’travelogue’ perspective. 😁 One of those dark Kiwi shows - they seem to be emulating ’Scandinavian Noir’ - if that is a term. If it isn’t, it should be. Great show.</p>
-<p>Gray on <a href="https://reelgood.com/show/the-gulf-2019">🔗 Reelgood</a></p>
+<p>The Gulf on <a href="https://reelgood.com/show/the-gulf-2019">🔗 Reelgood</a></p>
 <p><a href="https://john.philpin.com/categories/myshows">’All’ My TV Show Reviews</a></p>
 <p>&nbsp;</p>
 <p></p>
@@ -1309,7 +3055,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    02:05 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1393,7 +3139,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    02:00 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1454,7 +3200,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    01:41 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1535,7 +3281,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    23:44 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1599,7 +3345,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    21:23 &bull;
-   11 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1679,7 +3425,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    20:54 &bull;
-   11 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1753,7 +3499,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    18:39 &bull;
-   13 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1827,7 +3573,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    23:09 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1930,7 +3676,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    21:34 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2006,7 +3752,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    15:49 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2077,7 +3823,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    14:53 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2148,7 +3894,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    14:31 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2235,7 +3981,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    12:56 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2299,7 +4045,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    12:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2387,7 +4133,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    12:20 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2472,7 +4218,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    06:43 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2557,7 +4303,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    01:46 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2654,7 +4400,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    20:46 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2724,7 +4470,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    16:12 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2812,7 +4558,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    13:05 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2881,7 +4627,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    05:14 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2942,7 +4688,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    05:02 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3008,7 +4754,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    04:06 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3104,7 +4850,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    01:39 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3168,153 +4914,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    01:27 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/04/11/two-pieces-that.html'> Two pieces that in some ways seem to contradict each other a</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Two pieces that in some ways seem to contradict each other and themselves - even down to one being quite serious and the other with more humor. 
- 🔗 Fergie Chambers Is Heir to One of America’s Richest Families and Determined to See the U.S. Fall. (Readwise with Highlights) 
- … 🔗 The original Rolling Stone Link) 
- and 
- 🔗 America is too Lazy for a Second Civil War (Readwise with Highlights) 
- … 🔗 Th
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Two pieces that in some ways seem to contradict each other and themselves - even down to one being quite serious and the other with more humor.</p>
-<p><a href="https://readwise.io/reader/shared/01hv4r7r29m6s3jj4w0mmrc6nc">🔗 Fergie Chambers Is Heir to One of America’s Richest Families and Determined to See the U.S. Fall.</a> (Readwise with Highlights)</p>
-<p>… <a href="https://www.rollingstone.com/culture/culture-features/fergie-chambers-cox-enterprises-heir-overthrow-us-1234983156/">🔗 The original Rolling Stone Link</a>)</p>
-<p>and</p>
-<p><a href="https://readwise.io/reader/shared/01hv4ren2ng1zd9fk7wswncf3f/">🔗 America is too Lazy for a Second Civil War</a> (Readwise with Highlights)</p>
-<p>… <a href="https://thatguyfromtheinternet.substack.com/p/america-is-too-lazy-for-a-second">🔗 The original Sam Colt Link</a></p>
-<p>That said, you can read both and wonder where you fit on the spectrum, because to me it is not altogether clear.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:09 &bull;
-   3 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/04/11/gamify-my-community.html'> 
- Gamify my community 
- 
- Seriously Mighty Networks? Serious</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- Gamify my community 
- 
- Seriously Mighty Networks? Seriously? 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<blockquote>
-<p>Gamify my community</p>
-</blockquote>
-<p>Seriously Mighty Networks? Seriously?</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:39 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3386,7 +4986,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    23:17 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3448,7 +5048,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    23:14 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3508,7 +5108,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    23:09 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3582,7 +5182,7 @@ At the beginning of the year I had grand plans for this series. A daily long-for
 
 <div class='item-footer'>
    20:32 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4667,7 +6267,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    20:27 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4747,7 +6347,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    15:07 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4823,7 +6423,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    13:54 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4917,193 +6517,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    13:12 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2024/04/10/ranked-the-worlds.html'>Ranked: The World’s Top Flight Routes, by Revenue</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   🔗 Sydney to Melbourne. Really? 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.visualcapitalist.com/worlds-top-flight-routes-by-revenue/">🔗 Sydney to Melbourne. Really?</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   09:27 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/04/10/if-anyone-feels.html'> If anyone feels inspired to pop over to 🔗 this page on Linke</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   If anyone feels inspired to pop over to 🔗 this page on LinkedIN that I just made public, it is the very early beginnings of our new initiative ‘The Future Found’. More will be forthcoming. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>If anyone feels inspired to pop over to <a href="https://www.linkedin.com/company/thefuturefound">🔗 this page on LinkedIN that I just made public</a>, it is the very early beginnings of our new initiative ‘The Future Found’. More will be forthcoming.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:27 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/04/10/i-think-it.html'> I think it was ‘eclipsy’ that @dave called out as not a real</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I think it was ‘eclipsy’ that @dave called out as not a real word. 
- Might I add ‘winningest’ to the new ‘un-dictionary’ 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I think it was ‘eclipsy’ that <a href="https://micro.blog/dave">@dave</a> called out as not a real word.</p>
-<p>Might I add ‘winningest’ to the new ‘un-dictionary’</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:25 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5276,7 +6690,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    05:09 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5346,7 +6760,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    02:38 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5412,7 +6826,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    02:31 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5484,7 +6898,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    23:03 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5618,7 +7032,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    18:39 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5686,7 +7100,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    16:19 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5757,7 +7171,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    15:46 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5827,7 +7241,7 @@ where I think Jonathan Katz will talk about the TLE vision and specifics.</p>
 
 <div class='item-footer'>
    15:24 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5934,7 +7348,7 @@ I don’t know how to measure the boost it gave me. But I do know that I’ll ne
 
 <div class='item-footer'>
    15:19 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6004,7 +7418,7 @@ I don’t know how to measure the boost it gave me. But I do know that I’ll ne
 
 <div class='item-footer'>
    01:06 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6442,7 +7856,7 @@ cat README.md | llm -c \
 
 <div class='item-footer'>
    20:40 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6574,7 +7988,7 @@ cat README.md | llm -c \
 
 <div class='item-footer'>
    18:35 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6653,7 +8067,7 @@ Contrails in the stratosphere, smearing sideways into broad cloud cover.&nbsp; T
 
 <div class='item-footer'>
    16:04 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6819,7 +8233,7 @@ Contrails in the stratosphere, smearing sideways into broad cloud cover.&nbsp; T
 
 <div class='item-footer'>
    14:40 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6897,7 +8311,7 @@ Contrails in the stratosphere, smearing sideways into broad cloud cover.&nbsp; T
 
 <div class='item-footer'>
    13:59 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6989,7 +8403,7 @@ Contrails in the stratosphere, smearing sideways into broad cloud cover.&nbsp; T
 
 <div class='item-footer'>
    13:56 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7099,7 +8513,7 @@ Contrails in the stratosphere, smearing sideways into broad cloud cover.&nbsp; T
 
 <div class='item-footer'>
    13:22 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7515,7 +8929,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    05:43 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7667,7 +9081,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    14:03 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7748,7 +9162,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    13:39 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7823,7 +9237,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    13:35 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8043,7 +9457,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    02:45 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8115,7 +9529,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    00:14 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8183,7 +9597,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    22:40 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8262,7 +9676,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    17:45 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8334,7 +9748,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    22:58 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8413,7 +9827,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    20:07 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8483,7 +9897,7 @@ public class ApiTokenCacheClient
 
 <div class='item-footer'>
    05:35 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8569,7 +9983,7 @@ By expert acclaim, this is the best antenna for receiving hard-to-get over-the-a
 
 <div class='item-footer'>
    03:48 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8639,7 +10053,7 @@ There must be a ceasefire. Now.</p>
 
 <div class='item-footer'>
    23:49 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8703,7 +10117,7 @@ There must be a ceasefire. Now.</p>
 
 <div class='item-footer'>
    20:51 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8843,7 +10257,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    18:07 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8917,7 +10331,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    17:38 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9029,7 +10443,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    14:06 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9098,7 +10512,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    13:48 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9172,7 +10586,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    12:51 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9246,7 +10660,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    12:43 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9324,7 +10738,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    01:24 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9337,80 +10751,6 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
  <h2 class='new-date'>
   Wednesday, 03. April 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Apr/3/enforcing-conventions-in-django/#atom-everything'>Enforcing conventions in Django projects with introspection</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Enforcing conventions in Django projects with introspection 
- Luke Plant shows how to use the Django system checks framework to introspect models on startup and warn if a DateTime or Date model field has been added that doesn't conform to a specific naming convention. 
-
- Luke also proposes "*_at" as a convention for DateTimes, contrasting with "*_on" or "*_date" (I prefer the latter) for Dates. 
-
-
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://lukeplant.me.uk/blog/posts/enforcing-conventions-in-django-projects-with-introspection/">Enforcing conventions in Django projects with introspection</a></p>
-<p>Luke Plant shows how to use the Django system checks framework to introspect models on startup and warn if a DateTime or Date model field has been added that doesn't conform to a specific naming convention.</p>
-
-<p>Luke also proposes "*_at" as a convention for DateTimes, contrasting with "*_on" or "*_date" (I prefer the latter) for Dates.</p>
-
-    <p>Via <a href="https://lobste.rs/s/4nnfdb/enforcing_conventions_django_projects">lobste.rs</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:58 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -9479,7 +10819,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    13:31 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9552,7 +10892,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    13:17 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9714,7 +11054,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    11:32 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9792,7 +11132,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    01:46 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9805,82 +11145,6 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
  <h2 class='new-date'>
   Tuesday, 02. April 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Apr/2/cally-accessibility-statement/#atom-everything'>Cally: Accessibility statement</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Cally: Accessibility statement 
- Cally is a neat new open source date (and date range) picker Web Component by Nick Williams. 
-
- It's framework agnostic and weighs less than 9KB grilled, but the best feature is this detailed page of documentation covering its accessibility story, including how it was tested - in JAWS, NVDA and VoiceOver. 
-
- I'd love to see other open source JavaScript libraries fo
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://wicky.nillia.ms/cally/accessibility/">Cally: Accessibility statement</a></p>
-<p>Cally is a neat new open source date (and date range) picker Web Component by Nick Williams.</p>
-
-<p>It's framework agnostic and weighs less than 9KB grilled, but the best feature is this detailed page of documentation covering its accessibility story, including how it was tested - in JAWS, NVDA and VoiceOver.</p>
-
-<p>I'd love to see other open source JavaScript libraries follow this example.</p>
-
-    <p>Via <a href="https://twitter.com/wickynilliams/status/1775208741392052299">@wickynilliams</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:38 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -9934,7 +11198,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    17:42 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10012,7 +11276,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    16:25 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10104,7 +11368,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    12:41 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10482,7 +11746,7 @@ I asked ChatGPT to give me “people eating blogs” and got this after it sugge
 
 <div class='item-footer'>
    06:37 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10582,7 +11846,7 @@ channel on the <a href="https://pgtreats.info/slack-invite" title="Join the Post
 
 <div class='item-footer'>
    17:17 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10658,7 +11922,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    06:02 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10724,7 +11988,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    22:00 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10790,7 +12054,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    21:13 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10850,7 +12114,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    13:51 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10926,7 +12190,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    13:35 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10990,7 +12254,7 @@ The trade industry needs a “universal translator” First we.trade failed in m
 
 <div class='item-footer'>
    12:37 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11085,7 +12349,7 @@ Is it called an OAuth "grant" or a "flow"? What about "grant type"?
 
 <div class='item-footer'>
    15:15 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11160,7 +12424,7 @@ Is it called an OAuth "grant" or a "flow"? What about "grant type"?
 
 <div class='item-footer'>
    14:39 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11233,7 +12497,7 @@ Is it called an OAuth "grant" or a "flow"? What about "grant type"?
 
 <div class='item-footer'>
    00:33 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11308,7 +12572,7 @@ Is it called an OAuth "grant" or a "flow"? What about "grant type"?
 
 <div class='item-footer'>
    00:25 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11577,7 +12841,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    20:14 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11653,7 +12917,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    20:11 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11731,68 +12995,6 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    20:11 &bull;
-   16 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/advertising-share-intents-with-microformats'>Advertising share intents with microformats</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- Yesterday I published a fediverse-aware / indieweb-aware version of a "share to..." / AddThis-like tool. It allows you to easily add a “share to ..” button to your website that works with as many social platforms as possible, and attempts to use whatever share intent a platform might have available.  One of the things it does is look for HTML header metadata like&nbsp;&lt;link rel="share-url" hr
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p>Yesterday <a href="https://werd.io/2024/share-openly">I published a fediverse-aware / indieweb-aware version of a "share to..." / AddThis-like tool</a>. It allows you to easily add a “share to ..” button to your website that works with as many social platforms as possible, and attempts to use whatever share intent a platform might have available.</p><p>One of the things it does is look for HTML header metadata like&nbsp;<code>&lt;link rel="share-url" href="https://werd.io/share/?text={text}"&gt;</code> in order to figure out how to share to a given platform.</p><p>It was a first draft, and I'd like to socialize that idea — what should it look like to advertise a share intent on a platform using <a href="https://microformats.org/wiki/microformats2">microformats</a>?</p><p>There was an attempt over a decade ago called <a href="https://github.com/oexchange">OExchange</a>, which used data stored in <code>.well-known</code>. I'm okay with supporting it, but it never took off, and I feel like something simpler would be more effective.</p> 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:31 &bull;
    17 days ago
 </div>
 
@@ -11921,7 +13123,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    00:00 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11982,7 +13184,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
  The business does exist. See eleven companies in <a href="https://cyber.harvard.edu/projectvrm/VRM_Development_Work#Markets_for_personal_data">Markets for personal data</a> listed among <a href="https://cyber.harvard.edu/projectvrm/VRM_Development_Work">many other VRM-ish businesses</a> on the <a href="https://cyber.harvard.edu/projectvrm/">ProjectVRM wiki</a>. 
  The business category harvesting the most personal data is <a href="https://duckduckgo.com/?q=adtech&amp;ia=web">adtech (aka ad tech</a> and “programmatic”) advertising, which is the surveillance-based side of the advertising business. It is at the heart of what <a href="https://en.wikipedia.org/wiki/Shoshana_Zuboff">Shoshana Zuboff</a> calls <a href="https://en.wikipedia.org/wiki/Surveillance_capitalism">surveillance capitalism</a>, and is now <a href="https://www.marketingcharts.com/advertising-trends/programmatic-and-rtb-111372">most of</a> what advertising has become online. It’s roughly a trillion-dollar business. It is also nothing like advertising of the <a href="https://en.wikipedia.org/wiki/Mad_Men">Mad Men</a> kind. (Credit where due: old-fashioned advertising, aimed at whole populations, gave us nearly all the brand names known to the world). As I put it in <a href="https://dsearls.medium.com/separating-advertisings-wheat-and-chaff-47858adfcb20#.i6msx57rv">Separating Advertising’s Wheat and Chaff</a>, Madison Avenue fell asleep, direct response marketing ate its brain, and it woke up as an alien replica of itself. 
  Adtech pays nothing to people for their data or data about them. Not personally. Google may pay carriers for traffic data harvested from phones, and corporate customers of auctioned personal data may pay publishers for moments in which ads can be placed in front of tracked individuals’ ears or eyeballs. Still, none of that money has ever gone to individuals for any reason, including compensation for the insults and inconveniences the system requires. So there is little if any existing infrastructure on which paying people for personal data can be scaffolded up. Nor are there any policy motivations. In fact, 
- Regulations have done nothing to slow down the juggernaut of growth in the adtech industry. For Google, Facebook, and other adtech giants, paying huge fines for violations (of the GDPR, the CCPA, the DMA, or whatever) is just the cost of doing business. In fact, the GDPR compliance services business is itself n the multi-$billion range, and growing fast. In fact, 
+ Regulations have done nothing to slow down the juggernaut of growth in the adtech industry. For Google, Facebook, and other adtech giants, paying huge fines for violations (of the GDPR, the CCPA, the DMA, or whatever) is just the cost of doing business. The GDPR compliance services business is also in the multi-$billion range, and growing fast. In fact, 
  Regulations have made the experience of using the Web worse for everyone. Thank the GDPR for all the consent notices subtracting value from every website you visit while adding cognitive overhead and other costs to site visitors and operators. In nearly every case, these notices are ways for site operators to obey the letter of the GDPR while violating its spirit. And, although all these agreements are contracts, you have no record of what you’ve agreed to. So they are worse than worthless. 
  Tracking people without their clear and conscious invitation or a court order is wrong on its face. Period. Full stop. That tracking is The Way Things Are Done online does not make it right, any more than driving drunk or smoking in crowded elevators was just fine in the 1950s. When the Digital Age matures, decades from now, we will look back on our current time as one thick with extreme moral compromises that were finally corrected after the downsides became clear and more ethically sound technologies and economies came along. One of those corrections will be increasing personal agency rather than just corporate capacities. In fact, 
  Increasing personal independence and agency will be good for markets, because&nbsp;free customers are more valuable than captive ones. Having ways to gather, keep, and make use of personal data is an essential first step toward that goal. We have made very little progress in that direction so far. (Yes, there are lots of good projects listed <a href="https://cyber.harvard.edu/projectvrm/VRM_Development_Work">here</a>, but there we still a long way to go.) 
@@ -12019,7 +13221,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    20:18 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12089,7 +13291,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    13:43 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12251,7 +13453,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    13:42 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12611,7 +13813,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    14:20 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12675,7 +13877,7 @@ Prompt: “a field of many different kinds of people being harvested by machines
 
 <div class='item-footer'>
    09:49 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13803,7 +15005,7 @@ America/New_York]. Thanks for coming!</p>
 
 <div class='item-footer'>
    21:49 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13886,7 +15088,7 @@ Dr. Patrick Breyer</blockquote>
 
 <div class='item-footer'>
    14:16 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13964,7 +15166,7 @@ Dr. Patrick Breyer</blockquote>
 
 <div class='item-footer'>
    02:44 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14032,7 +15234,7 @@ Dr. Patrick Breyer</blockquote>
 
 <div class='item-footer'>
    02:12 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15075,7 +16277,7 @@ Example: <a href="https://formulae.brew.sh/docs/api/#analytics" title="Homebrew 
 
 <div class='item-footer'>
    02:05 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15143,7 +16345,7 @@ The post <a href="https://realestatecafe.com/will-nar-settlement-turn-into-conce
 
 <div class='item-footer'>
    20:46 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15252,7 +16454,7 @@ Category: Topical History</p>
 
 <div class='item-footer'>
    22:00 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15478,7 +16680,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    21:55 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15554,7 +16756,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    17:20 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15632,7 +16834,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    15:01 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15790,7 +16992,7 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    22:00 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15901,7 +17103,7 @@ you. Links:</p>
 
 <div class='item-footer'>
    18:06 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16065,7 +17267,7 @@ you. Links:</p>
 
 <div class='item-footer'>
    04:55 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16840,7 +18042,7 @@ Greg Sabino Mullane started a longish thread on the things we want to do and bui
 
 <div class='item-footer'>
    20:05 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -18855,154 +20057,6 @@ to see it go!</p><p>Links:</p>  <p><a href="https://blender.org/">Blender</a></p
 
 <div class='item-footer'>
    06:09 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Thursday, 29. February 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.sakimura.org'>@_Nat Zone</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.sakimura.org/2024/03/5575/'>MyData Japan から「電子署名等に係る地方公共団体情報システム機構の認証業務に関する法律施行規則の一部を改正する命令」に対する意見募集に関し、パブリックコメントを提出しました。</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  去る１月２６日に公示されていた「電子署名等に係る地方公共団体情報システム機構の認証業務に関する法律施行規則の一部を改正する命令案に対する意見募集」に対して、２月２９日、MyData Japan 公共政策委員会（委員長：森亮二）からパブリックコメントを提出しました。 これは、いわゆ…
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>去る１月２６日に公示されていた「電子署名等に係る地方公共団体情報システム機構の認証業務に関する法律施行規則の一部を改正する命令案に対する意見募集」に対して、２月２９日、MyData Japan 公共政策委員会（委員長：森亮二）からパブリックコメントを提出しました。</p>
-
-
-
-<p>これは、いわゆるデジタル庁デジタル認証アプリの提供に伴うものです。このデジタル認証アプリは、マイナンバーカードを認証手段として使うOpenID Connectの認証サーバです。マイナンバーカードに入っている利用者証明用電子証明書と券面情報を使って、OpenID Connectでアイデンティティ連携をできるようにするものです。</p>
-
-
-
-<p>これ自体はとても便利なものになると思いますが、一方ではプライバシー上の懸念もマスコミなども通じて表明されています。</p>
-
-
-
- 
- 例
- 
- <a href="https://xtech.nikkei.com/search/?KEYWORD=%E9%95%B7%E5%80%89%20%E5%85%8B%E6%9E%9D&amp;author=1">長倉 克枝</a> (2024)<a href="https://xtech.nikkei.com/atcl/nxt/column/18/00989/022000140/">「マイナカード利用「認証アプリ」、個人の利用状況を国が一元管理のプライバシーリスク」</a>日経クロステック (2024-02-26) 
-
-
-
- 富士榮 尚寛(2024)<a href="https://idmlab.eidentity.jp/2024/01/blog-post_28.html">「デジタル認証アプリがやってくる」</a>IdM実験室 (2024-01-28) 
- 
- 
- 
-
-
-
-<p>MyData Japanでも２月２０日に公共政策委員会を開き、本件について検討しました。その後約１週間のドラフティングを経てパブリックコメントを２月２９日に提出しました。</p>
-
-
-
-<p>パブリックコメントは</p>
-
-
-
- 
- 市民のサービス利用先情報の政府への蓄積に関する規律の必要性 
-
-
-
- 提供されるデータの利用目的の適正性およびデータ最小化のための規律の必要性 
-
-
-
- 提供にあたっての同意取得の方法に関する規律の必要性 
- 
-
-
-
-<p>の３点についてです。詳しい内容は、MyData Japan (代表理事：﨑村夏彦）の<a href="https://mydatajapan.org/documents/public_comments/pc-2024-2-29/">ページ</a>からご参照ください。</p>
-
-
-
-<p>【参考資料】</p>
-
-
-
- 
- 電子署名等に係る地方公共団体情報システム機構の認証業務に関する法律施行規則の一部を改正する命令案に対する意見募集について&nbsp;<a href="https://public-comment.e-gov.go.jp/servlet/Public?CLASSNAME=PCMMSTDETAIL&amp;id=290310311&amp;Mode=0">https://public-comment.e-gov.go.jp/servlet/Public?CLASSNAME=PCMMSTDETAIL&amp;id=290310311&amp;Mode=0</a> 
-
-
-
- 意見公募要領&nbsp;<a href="https://public-comment.e-gov.go.jp/servlet/PcmFileDownload?seqNo=0000267535">https://public-comment.e-gov.go.jp/servlet/PcmFileDownload?seqNo=0000267535</a> 
-
-
-
- 電子署名等に係る地方公共団体情報システム機構の認証業務に関する法律施行規則の一部を改正する命令案について（概要）&nbsp;<a href="https://public-comment.e-gov.go.jp/servlet/PcmFileDownload?seqNo=0000267537">https://public-comment.e-gov.go.jp/servlet/PcmFileDownload?seqNo=0000267537</a> 
-
-
-
- 電子署名等に係る地方公共団体情報システム機構の認証業務に関する法律施行規則の一部を改正する命令（案）&nbsp;<a href="https://public-comment.e-gov.go.jp/servlet/PcmFileDownload?seqNo=0000267536">https://public-comment.e-gov.go.jp/servlet/PcmFileDownload?seqNo=0000267536</a> 
-
-
-
- 電子署名等に係る地方公共団体情報システム機構の認証業務に関する法律施行規則&nbsp;<a href="https://elaws.e-gov.go.jp/document?lawid=415M60000008120">https://elaws.e-gov.go.jp/document?lawid=415M60000008120</a> 
-
-
-
- デジタル認証アプリについて&nbsp;<a href="https://public-comment.e-gov.go.jp/servlet/PcmFileDownload?seqNo=0000267538">https://public-comment.e-gov.go.jp/servlet/PcmFileDownload?seqNo=0000267538</a> 
-
-
-
- マイナンバーカード 券面AP&nbsp;<a href="https://www.soumu.go.jp/kojinbango_card/03.html">https://www.soumu.go.jp/kojinbango_card/03.html</a> 
- 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:00 &bull;
    1 months ago
 </div>
 
@@ -23224,7 +24278,7 @@ used the <code>zip</code> command, instead.</p>
 
 <div class='item-footer'>
    06:15 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -23327,7 +24381,7 @@ Ideally, tools like GeoGebra and Metabase provide interfaces so intuitive that y
 
 <div class='item-footer'>
    17:40 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -23401,7 +24455,7 @@ Ideally, tools like GeoGebra and Metabase provide interfaces so intuitive that y
 
 <div class='item-footer'>
    15:04 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27007,246 +28061,6 @@ So, don’t look ahead to the top of the hill, and don’t look down at the road
 
 
  <h2 class='new-date'>
-  Monday, 18. December 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2023/12/18/signing-git-commits-on-windows-and-using-with-github/'>Signing git commits on Windows and using with Github</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to setup and sign git commits on Windows for Github. Most of this is already documented on the Github docs, but I ran into trouble when using this with git Extensions on a windows host. My commits could not be signed until I set the home system variable on the windows […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to setup and sign git commits on Windows for Github. Most of this is already documented on the Github docs, but I ran into trouble when using this with git Extensions on a windows host. My commits could not be signed until I set the home system variable on the windows host.</p>
-
-
-
- Install gpg on Windows 
-
-
-
-<p>To sign git commits, you can download the windows <a href="https://www.gpg4win.org/">gpg4win</a> and install it. Git should already be installed. No extra features are required.</p>
-
-
-
- Generate a key on Windows 
-
-
-
-<p>The Windows cmd line is used to generate a new gpg key. I have a safe host PC and do not require a passphrase. Other than this, I just used the default settings to generate a new gpg key. </p>
-
-
-
-<p>Note: The requested email needs to match the email used on your Github account.</p>
-
-
-  gpg --full-generate-key
-  
-
-
-<p>Github docs: <a href="https://docs.github.com/en/authentication/managing-commit-signature-verification/generating-a-new-gpg-key">https://docs.github.com/en/authentication/managing-commit-signature-verification/generating-a-new-gpg-key</a></p>
-
-
-
-
-
-
-
-<p>The pub key can be used to export the pub key and upload it to the Github account.</p>
-
-
-
- Use Git Extensions and apply the signing per repo 
-
-
-
-<p>I would like to use this key for a single repository. I have multiple user accounts for multiple systems and each have different git requirements. For one Github repository, I would like to sign all commits. I generated the key  in the global user profile but only use the key on this repository.</p>
-
-
-
-<p></p>
-
-
-
-<p>In the git bash window from the repository, if you want to sign the commits, the following commands can be executed. I open the bash through git extensions. If you already have the key id from the creating of it, you can skip step 3.</p>
-
-
-  git config commit.gpgsign true
-
-git config --global gpg.program "C:\Program Files (x86)\GnuPG\bin\gpg.exe"
-
-gpg --list-secret-keys --keyid-format=long
-
-git config user.signingkey &lt;your key&gt;
-  
-
-
- Signing key not found 
-
-
-
-<p>If the signing key is not found on windows, it is probably because the application is looking in the wrong location for the gpg key. To validate this, open the git bash from the repository and find the Home: value. This must match the value in the windows command line. </p>
-
-
-  gpg --version
-  
-
-
-<p>Find the value for Home:</p>
-
-
-
-<p>Now open and the value in the windows cmd and check that it matches the git bash console. If it does not match, take the window cmd Home: value and add this to the system variables.</p>
-
-
-
-<p>Add an environment variable called <code>GNUPGHOME</code> with the value found in the <code>gpg --version</code> cmd</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>Now the commit should be signed. Next step is to setup Github to use this key.</p>
-
-
-
- Add the gpg key to your Github account 
-
-
-
-<p>The gpg key can be attached to the Github account. The docs explain this good.</p>
-
-
-
-<p>Github docs: <a href="https://docs.github.com/en/authentication/managing-commit-signature-verification/adding-a-gpg-key-to-your-github-account">https://docs.github.com/en/authentication/managing-commit-signature-verification/adding-a-gpg-key-to-your-github-account</a></p>
-
-
-  gpg --list-secret-keys
-
-gpg -a --export &lt;your-pub-key&gt;
-  
-
-
-<p></p>
-
-
-
-<p>Display the verified commits on Github: <a href="https://docs.github.com/en/authentication/managing-commit-signature-verification/displaying-verification-statuses-for-all-of-your-commits">https://docs.github.com/en/authentication/managing-commit-signature-verification/displaying-verification-statuses-for-all-of-your-commits</a></p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>When you commit and push, Github should display a verified status</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>You can now require that all commits are verified for a repository</p>
-
-
-
-
-
-
-
- Links 
-
-
-
-<p><a href="https://www.gnupg.org">https://www.gnupg.org</a></p>
-
-
-
-<p><a href="https://www.gpg4win.org/">https://www.gpg4win.org/</a></p>
-
-
-
-<p><a href="https://docs.github.com/en/authentication/managing-commit-signature-verification/telling-git-about-your-signing-key">https://docs.github.com/en/authentication/managing-commit-signature-verification/telling-git-about-your-signing-key</a></p>
-
-
-
-<p><a href="https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-personal-account-on-github/managing-email-preferences/setting-your-commit-email-address">https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-personal-account-on-github/managing-email-preferences/setting-your-commit-email-address</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2023/12/gpg_02.png?w=933'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:47 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Saturday, 16. December 2023
  </h2>
 
@@ -27569,7 +28383,7 @@ gpg -a --export &lt;your-pub-key&gt;
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://kentbullcom.files.wordpress.com/2023/12/poc.png?w=960'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://kentbull.com/wp-content/uploads/2023/12/poc.png?w=960'>
       </div>
     
   
@@ -28437,7 +29251,7 @@ Thanks <a href="https://tantek.com/">tantek.com</a> for initiating this.)</p>
 
 <div class='item-footer'>
    03:38 &bull;
-   4 months ago
+   5 months ago
 </div>
 
 </div><!-- item-body -->
@@ -31067,91 +31881,6 @@ This specification defines Hybrid public-key encryption (HPKE) for use with Java
 
 <div class='item-footer'>
    22:01 &bull;
-   6 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Saturday, 21. October 2023
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://self-issued.info'>Mike Jones: self-issued</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://self-issued.info/?p=2437'>OAuth 2.0 Protected Resource Metadata updated in preparation for IETF 118</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Aaron Parecki and I have updated the “OAuth 2.0 Protected Resource Metadata” specification in preparation for presentation and discussions at IETF 118 in Prague. The updates address comments received during the discussions at IETF 117 and afterwards. As described in the History entry, the changes were: Renamed scopes_provided to scopes_supported Added security consideration for scopes_supported […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://twitter.com/aaronpk">Aaron Parecki</a> and I have updated the “OAuth 2.0 Protected Resource Metadata” specification in preparation for presentation and discussions at <a href="https://www.ietf.org/how/meetings/118/">IETF 118 in Prague</a>.  The updates address comments received during the discussions at IETF 117 and afterwards.  As described in the History entry, the changes were:</p>
- 
- Renamed <code>scopes_provided</code> to <code>scopes_supported</code> 
- Added security consideration for <code>scopes_supported</code> 
- Use BCP 195 for TLS recommendations 
- Clarified that resource metadata can be used by clients and authorization servers 
- Added security consideration recommending audience-restricted access tokens 
- Mention FAPI Message Signing as a use case for publishing signing keys 
- Updated references 
- 
-<p>The specification is available at:</p>
- 
- <a href="https://www.ietf.org/archive/id/draft-ietf-oauth-resource-metadata-01.html">https://www.ietf.org/archive/id/draft-ietf-oauth-resource-metadata-01.html</a> 
- 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://self-issued.info/images/oauth_logo_120x120.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:34 &bull;
    6 months ago
 </div>
 
