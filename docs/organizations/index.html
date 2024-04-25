@@ -459,7 +459,7 @@
     </ul>
 </div>
 </div>
-<sup>Last Update 6:17 PM April 24, 2024 (UTC)</sup>
+<sup>Last Update 6:18 PM April 25, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Organizations | Identosphere Blogcatcher</h1>
@@ -469,8 +469,707 @@
 
 
  <h2 class='new-date'>
+  Thursday, 25. April 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blog.ceramic.network/'>Ceramic Network</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://blog.ceramic.network/exploring-ceramics-new-features-set-account-relations-immutable-fields-and-should-index-flag/'>Ceramic Feature Release: SET Account Relations, Immutable Fields and shouldIndex flag</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The powerful new features in Ceramic and ComposeDB offer users a sophisticated toolkit for data management. Explore the SET account relation, immutable fields and the benefits of shouldIndex flag.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p></p><p>The functionality of Ceramic and ComposeDB has been recently enhanced by a number of new features that give developers more control over model definitions and data accessibility. More specifically, you can now use the following tools to enhance your applications:</p>  <a href="https://developers.ceramic.network/docs/composedb/guides/data-modeling/relations?ref=blog.ceramic.network#model-to-model">SET account relation</a> - enabling users to enforce a constraint where each user account (or DID) can create only one instance of a model for a specific record of another model.  <a href="https://developers.ceramic.network/docs/composedb/guides/data-modeling/schemas?ref=blog.ceramic.network#type-validation-directives">Immutable fields</a> - allow specific data to be prevented from being altered.  <a href="https://developers.ceramic.network/docs/composedb/interact-with-data?ref=blog.ceramic.network#removerestore-record-from-index">shouldIndex flag</a> - gives developers an option to manage the data visibility by choosing which fields should be indexed.  <p>In this blog post, we are going to dive into these features in more detail. For a video walkthrough, check out <a href="https://www.youtube.com/watch?v=T2BRQqPI354&amp;ref=blog.ceramic.network">this video tutorial</a>.</p> SET account relations <p>SET relations in ComposeDB enable developers to define relations between the data models that follow specific constraints and include the user as part of the relationship. SET model relation allows users to enforce the constraint that a specific account (DID) can have only one instance of a model for a specific record of another model.</p><p>The best example to illustrate the “like” feature of a social media application. SET relation can be utilized to make sure that the user (DID) can “like” a specific post only once, while at the same time allowing the user to like multiple posts.</p><p>Let’s have a look at how SET Relations can be used in practice.</p> Ceramic Layer <p>To use SET account relation in Ceramic, you will first have to define a SET <code>accountRelation</code> in your model definition. An example below consists of two simple models - <code>POST_MODEL</code> representing the model definition for social media posts, and <code>LIKE_MODEL</code> representing the model definition for users liking the posts.</p><p>The model definition for <code>POST_MODEL</code> has the <a href="https://developers.ceramic.network/docs/composedb/guides/data-modeling/relations?ref=blog.ceramic.network#types-of-relations">accountRelation</a> as a list, meaning that one user account will be allowed to create multiple posts.</p><p>The model definition for <code>LIKE_MODEL</code> has a <code>SET</code> accountRelation and includes the fields which should be used to create the unique relation - <code>postID</code> and <code>userID</code>. This defines that a specific user can create only one "like" record for a specific post.</p><p></p> <code>const POST_MODEL: ModelDefinition = {
+  name: 'Post',
+  version: '2.0',
+  interface: false,
+  implements: [],
+  accountRelation: {type: 'list'},
+  schema: {
+    $schema: '&lt;https://json-schema.org/draft/2020-12/schema&gt;',
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      content: {type: 'string', maxLength: 500},
+      author: {type: 'string'},
+    },
+    required: ['content', 'author'],
+  },
+}
+
+const LIKE_MODEL: ModelDefinition = {
+  name: 'Like',
+  version: '2.0',
+  interface: false,
+  implements: [],
+  accountRelation: {type: 'set', fields: ['postID', 'userID']},
+  schema: {
+    $schema: '&lt;https://json-schema.org/draft/2020-12/schema&gt;',
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      postID: {type: 'string'},
+      userID: {type: 'string'},
+    },
+    required: ['postID', 'userID'],
+  },
+}
+
+</code>  ComposeDB Layer <p>Now let's see an example of how you can use SET account relations in ComposeDB. Similar to the example above, the key component that allows you to define the SET account relation for a specific model is the <code>accountRelation</code> scalar alongside the fields that should be used to define the unique relation.</p><p>Take the example below. Here we have two models defined using GraphQL schema definition language. The first model is a model for storing data about a Picture - the source and the dimensions of the image. The model definition Favourite implements the behavior of the user setting a picture as a favorite. Note that this model has an <code>accountRelation</code> defined as SET. The field that is used to define the relation is <code>docID</code>, which refers to the document ID of the picture record.</p> <code>type Picture @createModel(description: "A model for pictures", accountRelation: SINGLE) {
+  src: String! @string(maxLength: 150),
+  mimeType: String! @string(maxLength: 50),
+  width: Int! @int(min:1),
+  height: Int! @int(min:1),
+  size: Int! @int(min:1),
+}
+
+type Favourite @createModel(description: "A set of favourite documents", accountRelation: SET, accountRelationFields: ["docID"]){
+  docID: StreamID! @documentReference(model: "Picture")
+  doc: Node @relationDocument(property: "docID")
+  note: String @string(maxLength: 500)
+}
+
+</code> <p>All this means that the user will be able to set only one image as a favorite. They can set different pictures as favorites, but only one record per picture.</p> Immutable Fields <p>Another feature that has been recently added to Ceramic is Immutable Fields. With Immutable Fields, you are able to define which fields (for example, some critical data) should remain unchangeable no matter what and be accessible as read-only data. Any attempt to alter the data set as immutable would result in an error message.</p> Ceramic Layer <p>Defining specific fields as immutable is pretty simple. Below we have an example of a simple model defining a Person - their address, name, and other details. To make these fields immutable you simply need to include them into the <code>immutableFields</code> array. In the example below, fields like <code>address</code>, <code>name</code>, <code>myArray</code>, and <code>myMultipleType</code> will be set as immutable, meaning that once this data is created, it will be unchangeable:</p> <code>const example_model : ModelDefinition = {
+  name : 'Person',
+  views : {},
+  schema : {
+    type : 'object',
+    $defs : {
+      Address : {
+        type : 'object',
+        title : 'Address',
+        required : [ 'street', 'city', 'zipCode' ],
+        properties : {
+          city : {type : 'string', maxLength : 100, minLength : 5},
+          street : {type : 'string', maxLength : 100, minLength : 5},
+          zipCode : {type : 'string', maxLength : 100, minLength : 5},
+        },
+        additionalProperties : false,
+      },
+    },
+    $schema : '&lt;https://json-schema.org/draft/2020-12/schema&gt;',
+    required : [ 'name', 'address' ],
+    properties : {
+      name : {type : 'string', maxLength : 100, minLength : 10},
+      address : {$ref : '#/$defs/Address'},
+      myArray : {type : 'array', maxItems : 3, items : {type : 'integer'}},
+      myMultipleType : {oneOf : [ {type : 'integer'}, {type : 'string'} ]},
+    },
+    additionalProperties : false,
+  },
+  version : '2.0',
+  interface : false,
+  relations : {},
+  implements : [],
+  description : 'Simple person with immutable field',
+  accountRelation : {type : 'list'},
+  immutableFields : [ 'address', 'name', 'myArray', 'myMultipleType' ],
+}</code>  ComposeDB Layer <p>In ComposeDB, a specific field can be set as immutable by adding a directive <code>@immutable</code> to the fields that should remain unchangeable. For example:</p> <code>type ModelWithImmutableProp@createModel(
+  accountRelation: SINGLE, 
+  description: "Test model with an immutable int property"
+  ) {
+    uniqueValue: Int@immutable 
+    uniqueValue2: Int@immutable
+  }
+}</code> <p></p><p>Here, we set that fields <code>uniqueValue</code> and <code>uniqueValue2</code> are going to be immutable.</p> shouldIndex Flag <p>Last but not least, let’s talk about the shouldIndex Flag available in Ceramic and ComposeDB. shouldIndex Flag allows you to control the stream indexing by toggling a boolean metadata flag. It enables you to manage data visibility and indexing. By setting the shouldIndex Flag to <code>false</code>, you can disable the stream from being indexed, making it “invisible” for indexing operations. Let’s take a look at how you can use this feature.</p> Ceramic Layer <p>When working with model documents, <code>ModelInstanceDocument</code>, there is a new method called <code>shouldIndex(boolean-value)</code> where false would indicate the stream corresponding to this model should not be indexed, and can be called with value = true to reindex an existing document, e.g.:</p> <code>const document = await ModelInstanceDocument.create(ceramic, CONTENT0, midMetadata)
+// Unindex
+await document.shouldIndex(false)
+</code>  ComposeDB Layer <p>There are two ways to signal that a stream shouldn’t be indexed using ComposeDB. The first one is by including the <code>shouldIndex</code>option in a mutation query, setting it to <code>true</code> if it should be indexed and set to <code>false</code> in the contrary:</p> <code>const runtime = new ComposeRuntime({ ceramic, context, definition: composite.toRuntime() })
+await runtime.executeQuery&lt;{
+updateProfile: { viewer: { profile: { name: string } } }
+}&gt;(`
+  mutation UpdateProfile($input: UpdateProfileInput!) {
+    updateProfile(input: $input) {
+      viewer {
+        profile {
+          name
+        }
+      }
+    }
+  }
+`, { input: { id: profileID, content: {}, options: { shouldIndex: false } } },
+)</code> <p>The second way is to use a mutation type called enableIndexing, just like a create or update mutation, it should be paired with the model’s name, sending the streamId and shouldIndex value as part of the input, e.g.:</p> <code>const enableIndexingPostMutation = `mutation EnableIndexingPost($input: EnableIndexingPostInput!) {
+  enableIndexingPost(input: $input) {
+    document {
+      id
+    }
+  }
+}`
+
+await runtime.executeQuery&lt;{ enableIndexingPost: { document: { id: string } } }&gt;
+enableIndexingPostMutation, { input: { id, shouldIndex: false } },)
+</code> <p>Note that the shouldIndex flag doesn’t delete the data. If set to <code>false</code>, the stream will still exist on the network; however, it will not be indexed and will not be available for data interactions.</p>  Summary <p>The powerful new features in Ceramic and ComposeDB offer users a sophisticated toolkit for data management. From enforcing unique constraints with SET account relations to securing key data with immutable fields and controlling indexing operations using the shouldIndex flag, these features empower developers to build robust and efficient data models for their applications. Check out the <a href="https://developers.ceramic.network/?ref=blog.ceramic.network">Ceramic documentation</a> for more information and examples.</p><p>Let us know how you are using all of these new features by posting on our <a href="https://forum.ceramic.network/?ref=blog.ceramic.network">Ceramic developer community forum</a>.</p>  Ceramic Resources <p>Developer Documentation:&nbsp;<a href="https://developers.ceramic.network/?ref=blog.ceramic.network">https://developers.ceramic.network/</a></p><p>Discord: <a href="https://chat.ceramic.network/?ref=blog.ceramic.network">https://chat.ceramic.network/</a></p><p>Github: <a href="https://github.com/ceramicnetwork?ref=blog.ceramic.network">https://github.com/ceramicnetwork</a></p><p>Twitter: <a href="https://twitter.com/ceramicnetwork?ref=blog.ceramic.network">https://twitter.com/ceramicnetwork</a></p><p>Website: <a href="https://ceramic.network/?ref=blog.ceramic.network">https://ceramic.network/</a></p><p>Forum: <a href="https://forum.ceramic.network/?ref=blog.ceramic.network">https://forum.ceramic.network/</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blog.ceramic.network/content/images/2024/04/set_relations2.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:55 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.hyperledger.org/'>Hyperledger Foundation</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.hyperledger.org/blog/introducing-the-telecom-decentralized-identity-network-tdidn-a-new-approach-to-security-efficiency-and-privacy'>Introducing the Telecom Decentralized Identity Network (TDIDN)</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    
+    
+  
+ This solution brief introduces the groundbreaking concept of a Telecom Decentralized Identity Network (TDIDN), a new way to improve identity management using decentralized identifiers (DID) and blockchain. This brief explores how TDIDN's innovative approach can improve security, efficiency, and privacy in telecom operations. 
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://www.hyperledger.org/hubfs/Canva%20images/Hyperledger%20Telecom%20SIG_Solutions.jpeg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  
+ <a href="https://www.hyperledger.org/blog/introducing-the-telecom-decentralized-identity-network-tdidn-a-new-approach-to-security-efficiency-and-privacy" title="">  </a> 
+  
+<p>This <a href="https://www.hyperledger.org/research">solution brief</a> introduces the groundbreaking concept of a Telecom Decentralized Identity Network (TDIDN), a new way to improve identity management using decentralized identifiers (DID) and blockchain. This brief explores how TDIDN's innovative approach can improve security, efficiency, and privacy in telecom operations.</p>  
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.hyperledger.org/hubfs/Canva%20images/Hyperledger%20Telecom%20SIG_Solutions.jpeg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:00 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://restofworld.org/'>ResofWorld</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://restofworld.org/2024/exporter-us-tiktok-ban/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>The TikTok ban is bigger than just ByteDance</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The U.S. clampdown on Chinese-owned companies won't end here.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+After years of trying, the U.S. has finally issued ByteDance with an ultimatum: Sell TikTok or the app will be banned. The bill passed Congress with overwhelming support on Tuesday...
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   11:00 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://restofworld.org/2024/singapore-ev-cars-2030/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>Singapore’s EV challenge: High prices and high-rises</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The country’s new EV push is clashing with long-standing policies to discourage car ownership in general.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+For Koh Jie Ming, the decision to switch to an electric vehicle five years ago was easy — there were significant savings to be had. But there were no EV...
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   10:00 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://elastos.org/'>Elastos Foundation</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://elastos.info/news/bitcoin-bit-index-elastos-bel2/'>Embracing Bitcoin’s Promise through the BIT Index and Elastos’ Innovations</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Bitcoin fundamentally transforms access to financial services by operating on a decentralized network, where trust is built through cryptographic proofs rather than a centralised authority. This is crucial in places like Nigeria and Brazil, where traditional banking either falls short or imposes prohibitive costs on users. Bitcoin’s promise, therefore, isn’t just theoretical but a practical […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Bitcoin fundamentally transforms access to financial services by operating on a decentralized network, where trust is built through cryptographic proofs rather than a centralised authority. This is crucial in places like Nigeria and Brazil, where traditional banking either falls short or imposes prohibitive costs on users. Bitcoin’s promise, therefore, isn’t just theoretical but a practical solution to real economic constraints faced by millions. Its potential to safeguard assets against inflation and political instability makes it particularly appealing in these markets.</p>
+<p>&nbsp;</p>
+ The Creation and Significance of the BIT Index 
+<p>Elastos launched the <a href="https://elastos.info/wp-content/uploads/2024/04/BitcoinSurveyOff.pdf">BIT Index</a> to track the understanding and usage of Bitcoin globally. This index serves a vital role by providing empirical data on how deeply Bitcoin is ingrained in the daily lives of its users, especially in tech-savvy demographics across various countries. By focusing on markets where digital currencies could leapfrog traditional financial systems, the BIT Index highlights areas where Bitcoin’s impact is most profound, quantifying trust and optimism in contrast to established economies. <a href="https://elastos.info/wp-content/uploads/2024/04/BitcoinSurveyOff.pdf">See here!</a></p>
+<p></p>
+<p>&nbsp;</p>
+ The Integration of BeL2 and Elastos’ Technologies to Enhance Bitcoin 
+<p><a href="https://elastos.info/">Elastos</a> redefines the structural framework of the internet with its SmartWeb platform, where Bitcoin’s blockchain plays a central role, being <a href="https://elastos.info/news/ela-queen-of-bitcoin/">merged-mined and secured</a> by Bitcoin’s network, a concept suggested by <a href="https://bitcointalk.org/index.php?topic=1790.220">Satoshi Nakamoto in 2010</a>. This opens up a new symbiotic door, where Bitcoin’s utility and energy resources can be enhanced in ways not previously considered possible, enhancing ‘Be Your Own Bank’ into ‘Be Your Own Internet,’ allowing you to control and monetise your data with Bitcoin in a world that is increasingly being digitised.</p>
+<p><a href="http://bel2.org">BeL2</a> by Elastos introduces a ‘BTC Oracle’ and a second-layer interoperability solution to Bitcoin’s network, allowing a data feed to be generated on Bitcoin that can communicate with Ethereum blockchains, making deals, executing contracts, and expanding its influence without ever compromising its integrity. As a result, Bitcoin users globally can extend the utility of their Bitcoin to interact with services and operate with reduced fees and increased speed. By using a layer atop the existing Bitcoin blockchain, BeL2 enables Layer 2 solutions which simplify transactions and further reduce the need for intermediaries, aligning with decentralisation and user empowerment.</p>
+<p></p>
+<p>BeL2’s ability to enable smart contracts directly on Bitcoin transforms it from a passive asset into an active tool for decentralised applications (dApps). This capability allows Bitcoin to engage in complex financial transactions and agreements, directly on its blockchain, without the need to convert into other crypto tokens. But what’s more, BeL2’s BTC Oracle data feed could be expanded to support decentralized indices, such as enhancing the BIT Index, by providing crucial privacy-preserving insights to stakeholders in Bitcoin markets regarding transactions, volume, and value.</p>
+<p>Additionally, this data feed could offer market liquidity measures, real-time alerts for unusual activity, and insights into network health metrics. It could also facilitate risk management by identifying transaction patterns and market depth, and support regulatory compliance by aggregating anonymized data for AML and CFT compliance. So, after initial research has been conducted, what have we discovered? Let’s dive in!</p>
+<p>&nbsp;</p>
+ Evaluating the Current Impact and Future Trajectory of Bitcoin with BeL2 and Elastos 
+<p>According to the inaugural BIT Index, 20% of Nigerian consumers use Bitcoin daily, which is significantly higher than the global average of 15%. In the UAE, daily usage stands at 20%, compared to only 8% and 9% in more developed markets like Germany and the UK, respectively. This stark difference underscores the effectiveness of Bitcoin in fulfilling the financial needs of users in emerging markets, where traditional banking systems often fail to meet these needs due to high fees or lack of accessibility. As BeL2 broadens Bitcoin’s capabilities and integrates it into more daily transactions and contracts, the BIT Index could track an increase in Bitcoin’s usage and trust levels, particularly in regions eager for more sophisticated financial tools.</p>
+<p></p>
+<p>The future of Bitcoin, particularly in these emerging markets, looks optimistic. The BIT Index shows that 78% of Nigerian respondents and 70% of Brazilians believe Bitcoin’s usage and value will continue to rise. This optimism, coupled with the technological advancements provided by BeL2 and Elastos, sets the stage for a more robust adoption of Bitcoin. As these technologies mature, they are likely to catalyze the next wave of innovations in financial services, making Bitcoin not only a store of value but also a cornerstone for new economic interactions on the SmartWeb.</p>
+<p>The integration of Bitcoin with technologies like BeL2 and the strategic insights provided by the BIT Index paint a promising picture for the future of decentralized finance. Through a simplified, secure, and user-centric approach, Bitcoin is poised to transform the economic landscape, especially in regions that stand to benefit the most from its promises.</p>
+<p>Interested in staying up to date? Follow Elastos&nbsp;<a href="https://twitter.com/ElastosInfo">here</a> and join our live community <a href="https://t.me/elastosgroup/1">telegram</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://elastos.info/wp-content/uploads/2024/04/BIT-Image.001-1-300x144.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   08:56 &bull;
+   9 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://lionsgate.io/'>LionsGate Digital</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://follow.it/'>PLEASE UPDATE THE RSS FEED</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The RSS feed URL you're currently using https://follow.it/lions-gate-digital-advocacy will stop working shortly. Please add /rss at the and of the URL, so that the URL will be https://follow.it/lions-gate-digital-advocacy/rss 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>The RSS feed URL you're currently using <a href="https://follow.it/lions-gate-digital-advocacy">https://follow.it/lions-gate-digital-advocacy</a> will stop working shortly. Please add /rss at the and of the URL, so that the URL will be <a href="https://follow.it/lions-gate-digital-advocacy/rss">https://follow.it/lions-gate-digital-advocacy/rss</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   08:00 &bull;
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Wednesday, 24. April 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://njedge.net/'>EdgeSecure</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://njedge.net/blog/edges-chief-digital-learning-officer-joins-united-states-distance-learning-association-usdla-public-policy-committee-confirmed-to-present-at-2024-national-usdla-conference/?utm_source=rss&utm_medium=rss&utm_campaign=edges-chief-digital-learning-officer-joins-united-states-distance-learning-association-usdla-public-policy-committee-confirmed-to-present-at-2024-national-usdla-conference'>Edge’s Chief Digital Learning Officer Joins United States Distance Learning Association (USDLA) Public Policy Committee; Confirmed to Present at 2024 National USDLA Conference</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   The post Edge’s Chief Digital Learning Officer Joins United States Distance Learning Association (USDLA) Public Policy Committee; Confirmed to Present at 2024 National USDLA Conference appeared first on NJEdge Inc. 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+       
+	 
+		 
+			 
+				   
+ 
+	 
+		<p>NEWARK, NJ, April 24, 2024 – Edge’s Chief Digital Learning Officer, Joshua Gaul, joins an esteemed group of distance learning practitioners, vendors, and individuals with an academic interest in distance learning pedagogy, on the United States Distance Learning Association (USDLA) Public Policy Committee.&nbsp;</p>
+<p>USDLA is the premier professional membership organization designed to advocate and support the needs of distance education leaders. USDLA’s resources support the Distance Education Professional Community who serve education, business, health, and government. Founded in 1987, its vision and mission to advocate, research, and share best practices in the utilization of distance learning modalities in education, business, health, and government nationally and internationally continues today.</p>
+<p>Notes Gaul, Chief Digital Learning Officer, Edge, “I’m proud to join the diverse group of members on the USDLA’s Public Policy Committee. Our shared passion for all-things-distance-learning will enable us to focus on the countless public policy issues related to digital/distance learning that are top-of-mind with the USDLA Board of Directors and its members.”</p>
+	 
+ 
+
+
+
+
+			  
+		 
+	  
+  
+		       
+	 
+		 
+			 
+				
+ 
+	 
+		<p>“I’m proud to join the diverse group of members on the USDLA’s Public Policy Committee. Our shared passion for all-things-distance-learning will enable us to focus on the countless public policy issues related to digital/distance learning that are top-of-mind with the USDLA Board of Directors and its members.”</p>
+ — Joshua Gaul<br>
+Chief Digital Learning Officer, Edge<br>
+ 
+	 
+ 
+
+
+
+
+			  
+		 
+	  
+
+	 
+		 
+			 
+				 
+       
+          
+           
+            
+           
+         
+       
+     
+			  
+		 
+	  
+  
+		       
+	 
+		 
+			 
+				
+ 
+	 
+		<p>Josh will serve as a presenter at the 2024 National Conference for the 37th edition of the National Distance Learning Conference. With a theme of Gateway to the Future of Distance and Digital Learning, the event will take place June 17-20, 2024 at the Marriott St. Louis Grand. Josh’s presentation, Sustainable Online Learning for All: Developing and Accelerating High-Quality Online Programs with Nonprofit Consortium will take place June 18 at 3:30 pm. Those interested in registering for the event, may do so via <a href="https://usdla.org/2024-conference-registration/">https://usdla.org/2024-conference-registration/</a>.</p>
+<p>To learn more about the USDLA, visit <a href="https://usdla.org/about/history/">https://usdla.org/about/history/</a>.&nbsp;</p>
+ 
+<p>About Edge</p>
+<p>Edge serves as a member-owned, nonprofit provider of high performance optical fiber networking and internetworking, Internet2, and a vast array of best-in-class technology solutions for cybersecurity, educational technologies, cloud computing, and professional managed services. Edge provides these solutions to colleges and universities, K-12 school districts, government entities, hospital networks and nonprofit business entities as part of a membership-based consortium. Edge’s membership spans the northeast, along with a growing list of EdgeMarket participants nationwide. Edge’s common good mission ensures success by empowering members for digital transformation with affordable, reliable and thought-leading purpose-built, advanced connectivity, technologies and services.</p>
+	 
+ 
+
+
+
+
+			  
+		 
+	  
+  
+<p>The post <a href="https://njedge.net/blog/edges-chief-digital-learning-officer-joins-united-states-distance-learning-association-usdla-public-policy-committee-confirmed-to-present-at-2024-national-usdla-conference/">Edge’s Chief Digital Learning Officer Joins United States Distance Learning Association (USDLA) Public Policy Committee; Confirmed to Present at 2024 National USDLA Conference</a> appeared first on <a href="https://njedge.net">NJEdge Inc</a>.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://njedge.net/wp-content/uploads/2024/04/20665576-usdla-751x703-1-300x281.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:25 &bull;
+   24 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -524,7 +1223,7 @@ When IBM posted an ad for a remote job in Brazil last September, it included a c
 
 <div class='item-footer'>
    10:00 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -588,7 +1287,7 @@ When IBM posted an ad for a remote job in Brazil last September, it included a c
 
 <div class='item-footer'>
    09:00 &bull;
-   9 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -652,7 +1351,7 @@ When IBM posted an ad for a remote job in Brazil last September, it included a c
 
 <div class='item-footer'>
    07:36 &bull;
-   11 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -772,7 +1471,7 @@ When IBM posted an ad for a remote job in Brazil last September, it included a c
 
 <div class='item-footer'>
    03:26 &bull;
-   15 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -844,7 +1543,7 @@ When IBM posted an ad for a remote job in Brazil last September, it included a c
 
 <div class='item-footer'>
    18:09 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -908,7 +1607,7 @@ When IBM posted an ad for a remote job in Brazil last September, it included a c
 
 <div class='item-footer'>
    15:39 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -991,7 +1690,7 @@ When IBM posted an ad for a remote job in Brazil last September, it included a c
 
 <div class='item-footer'>
    14:18 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1055,7 +1754,7 @@ Bruce thought he’d landed his dream job. The young American engineer had been 
 
 <div class='item-footer'>
    10:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1115,7 +1814,7 @@ Tidjane Deme is a general partner at Partech, a global tech investment firm. He 
 
 <div class='item-footer'>
    10:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1225,7 +1924,7 @@ Tidjane Deme is a general partner at Partech, a global tech investment firm. He 
 
 <div class='item-footer'>
    20:12 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1306,7 +2005,7 @@ ScanGive is currently being tested in various religious establishments throughou
 
 <div class='item-footer'>
    17:42 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1385,7 +2084,7 @@ ScanGive is currently being tested in various religious establishments throughou
 
 <div class='item-footer'>
    16:02 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1512,7 +2211,7 @@ ScanGive is currently being tested in various religious establishments throughou
 
 <div class='item-footer'>
    15:55 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1579,7 +2278,7 @@ ScanGive is currently being tested in various religious establishments throughou
 
 <div class='item-footer'>
    11:42 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1653,7 +2352,7 @@ ScanGive is currently being tested in various religious establishments throughou
 
 <div class='item-footer'>
    11:28 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1717,7 +2416,7 @@ When Nigerian edtech startup, Flexisaf, decided to cut costs earlier this year, 
 
 <div class='item-footer'>
    10:00 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1898,7 +2597,7 @@ Fri, 04/19/2024 - 16:46
 
 <div class='item-footer'>
    16:46 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1962,7 +2661,7 @@ Four years after Indonesian President Joko Widodo announced that he would move t
 
 <div class='item-footer'>
    10:00 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2026,7 +2725,7 @@ Four years after Indonesian President Joko Widodo announced that he would move t
 
 <div class='item-footer'>
    07:45 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2091,7 +2790,7 @@ Four years after Indonesian President Joko Widodo announced that he would move t
 
 <div class='item-footer'>
    06:35 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2157,7 +2856,7 @@ Gig work has become universal, used for everything from remote copywriting in So
 
 <div class='item-footer'>
    10:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2217,7 +2916,7 @@ When Bangladesh inaugurated its first technology business park — a sprawling c
 
 <div class='item-footer'>
    10:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2318,7 +3017,7 @@ RF on Limited Terms Mode</p>
 
 <div class='item-footer'>
    19:23 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2383,7 +3082,7 @@ RF on Limited Terms Mode</p>
 
 <div class='item-footer'>
    16:20 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2444,7 +3143,7 @@ RF on Limited Terms Mode</p>
 
 <div class='item-footer'>
    16:12 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2511,7 +3210,7 @@ RF on Limited Terms Mode</p>
 
 <div class='item-footer'>
    11:12 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2575,7 +3274,7 @@ Since its release in March 2022, the Telugu-language film RRR has become one of 
 
 <div class='item-footer'>
    10:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2635,7 +3334,7 @@ Since its release in March 2022, the Telugu-language film RRR has become one of 
 
 <div class='item-footer'>
    10:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2699,7 +3398,7 @@ Since its release in March 2022, the Telugu-language film RRR has become one of 
 
 <div class='item-footer'>
    09:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2775,131 +3474,7 @@ Since its release in March 2022, the Telugu-language film RRR has become one of 
 
 <div class='item-footer'>
    14:51 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://restofworld.org/'>ResofWorld</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://restofworld.org/2024/tracking-global-election-ai/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>How we’re tracking AI incidents around global elections</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Rest of World is collecting examples of AI being used for campaigning, misinformation, and memes in a regularly updated tracker.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-From the general election in Bangladesh in January to the one in Ghana in December, this year will see around 2 billion people across the world casting their votes. While...
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   10:01 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://restofworld.org/2024/3-minutes-with-tarun-mehta-ather-energy/?utm_source=rss&utm_medium=rss&utm_campaign=feeds'>The co-founder driving India’s two-wheeler EV revolution for over a decade</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Tarun Mehta is the co-founder and CEO of Indian electric two-wheeler company Ather Energy.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates from the elite Indian Institute of Technology Madras — founded Ather Energy in 2013, electric scooters were a...
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   10:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3138,7 +3713,7 @@ When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates 
 
 <div class='item-footer'>
    00:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3278,7 +3853,7 @@ When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates 
 
 <div class='item-footer'>
    20:58 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3361,7 +3936,7 @@ When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates 
 
 <div class='item-footer'>
    16:00 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3428,7 +4003,7 @@ When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates 
 
 <div class='item-footer'>
    11:31 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3494,7 +4069,7 @@ When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates 
 
 <div class='item-footer'>
    19:03 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3558,7 +4133,7 @@ When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates 
 
 <div class='item-footer'>
    16:43 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3618,7 +4193,7 @@ When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates 
 
 <div class='item-footer'>
    16:42 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3678,7 +4253,7 @@ When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates 
 
 <div class='item-footer'>
    16:42 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3738,7 +4313,7 @@ When Tarun Mehta and his co-founder Swapnil Jain — both engineering graduates 
 
 <div class='item-footer'>
    16:41 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4923,7 +5498,7 @@ American Association of Colleges and Universities (AAC&amp;U)</p>
 
 <div class='item-footer'>
    15:02 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5081,7 +5656,7 @@ South Orange, NJ 07079</p>
 
 <div class='item-footer'>
    14:59 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5403,7 +5978,7 @@ Minimalist design as a spanning layer for higher-layer protocolsThe single most 
 
 <div class='item-footer'>
    21:31 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5479,7 +6054,7 @@ Minimalist design as a spanning layer for higher-layer protocolsThe single most 
 
 <div class='item-footer'>
    15:57 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5543,7 +6118,7 @@ Minimalist design as a spanning layer for higher-layer protocolsThe single most 
 
 <div class='item-footer'>
    08:51 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5696,7 +6271,7 @@ Assistant Vice President for Research, Innovation, and Sponsored Programs, Edge<
 
 <div class='item-footer'>
    20:46 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5841,7 +6416,7 @@ Assistant Vice President for Research, Innovation, and Sponsored Programs, Edge<
 
 <div class='item-footer'>
    17:53 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5906,7 +6481,7 @@ Assistant Vice President for Research, Innovation, and Sponsored Programs, Edge<
 
 <div class='item-footer'>
    14:15 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5970,7 +6545,7 @@ Assistant Vice President for Research, Innovation, and Sponsored Programs, Edge<
 
 <div class='item-footer'>
    11:46 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6046,7 +6621,7 @@ Assistant Vice President for Research, Innovation, and Sponsored Programs, Edge<
 
 <div class='item-footer'>
    08:06 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6272,7 +6847,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    00:12 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6475,7 +7050,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    20:38 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6542,7 +7117,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    11:34 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6608,7 +7183,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    20:09 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6668,7 +7243,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    20:09 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6728,7 +7303,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    20:07 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6788,7 +7363,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    20:06 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6939,7 +7514,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    10:07 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7024,7 +7599,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    15:00 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7148,7 +7723,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    13:57 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7222,7 +7797,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    11:52 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7406,7 +7981,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    16:54 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7473,7 +8048,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    12:10 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7537,7 +8112,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    09:00 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7714,7 +8289,7 @@ fingerprinting technology.
 
 <div class='item-footer'>
    21:00 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7836,7 +8411,7 @@ Tue, 04/02/2024 - 18:43
 
 <div class='item-footer'>
    18:43 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7970,7 +8545,7 @@ Tue, 04/02/2024 - 18:43
 
 <div class='item-footer'>
    16:43 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8085,7 +8660,7 @@ Tue, 04/02/2024 - 18:43
 
 <div class='item-footer'>
    13:01 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8155,7 +8730,7 @@ Tue, 04/02/2024 - 18:43
 
 <div class='item-footer'>
    13:00 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8237,7 +8812,7 @@ Tue, 04/02/2024 - 18:43
 
 <div class='item-footer'>
    20:16 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8304,7 +8879,7 @@ Tue, 04/02/2024 - 18:43
 
 <div class='item-footer'>
    11:51 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8385,7 +8960,7 @@ Tue, 04/02/2024 - 18:43
 
 <div class='item-footer'>
    04:04 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8607,7 +9182,7 @@ Meeting Password：2404</p>
 
 <div class='item-footer'>
    01:13 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8673,7 +9248,7 @@ Meeting Password：2404</p>
 
 <div class='item-footer'>
    15:39 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8733,7 +9308,7 @@ Meeting Password：2404</p>
 
 <div class='item-footer'>
    15:34 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8793,7 +9368,7 @@ Meeting Password：2404</p>
 
 <div class='item-footer'>
    15:33 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9126,7 +9701,7 @@ images, audio, and video from a simple text prompt.
 
 <div class='item-footer'>
    14:40 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9200,7 +9775,7 @@ images, audio, and video from a simple text prompt.
 
 <div class='item-footer'>
    14:21 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9276,7 +9851,7 @@ images, audio, and video from a simple text prompt.
 
 <div class='item-footer'>
    18:38 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9346,7 +9921,7 @@ images, audio, and video from a simple text prompt.
 
 <div class='item-footer'>
    16:26 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9418,7 +9993,7 @@ images, audio, and video from a simple text prompt.
 
 <div class='item-footer'>
    21:31 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9680,7 +10255,7 @@ GDSN Data Pools should contact the GS1 GDSN Data Pool Helpdesk to understand the
 
 <div class='item-footer'>
    16:20 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9952,7 +10527,7 @@ Associate Vice President, Programs &amp; Services, Edge<br>
 
 <div class='item-footer'>
    14:19 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10026,7 +10601,7 @@ Associate Vice President, Programs &amp; Services, Edge<br>
 
 <div class='item-footer'>
    13:23 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10098,7 +10673,7 @@ Associate Vice President, Programs &amp; Services, Edge<br>
 
 <div class='item-footer'>
    00:00 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10422,7 +10997,7 @@ Associate Vice President, Programs &amp; Services, Edge<br>
 
 <div class='item-footer'>
    14:44 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -13365,7 +13940,7 @@ Cross-Industry Interoperability</p>
 
 <div class='item-footer'>
    12:20 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -15187,81 +15762,6 @@ if (finalPoint.completePoint.dataToAppend.length === 1) {
 
 
 <h4 class='feed-title'>
-  <a href='https://elastos.org/'>Elastos Foundation</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://elastos.info/news/simplifying-the-elastos-crypto-case-a-legal-conundrum/'>Open Questions After Elastos Crypto Class Action Settlement</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  The cryptocurrency world is new, exciting, and complex in relation to governing laws and jurisdictions around the world. The Elastos Foundation’s settlement of a class action lawsuit highlights the ongoing debate over digital assets and securities law. Bradley D. Simon, a seasoned legal expert with a background as both an assistant U.S. attorney and a […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>The cryptocurrency world is new, exciting, and complex in relation to governing laws and jurisdictions around the world. The Elastos Foundation’s settlement of a class action lawsuit highlights the ongoing debate over digital assets and securities law. <a href="https://nymag.com/article/2019/12/bradley-d-simon.html">Bradley D. Simon</a>, a seasoned legal expert with a background as both an assistant U.S. attorney and a trial attorney with the U.S. Department of Justice, recently provided an insightful analysis titled, “Open Questions After Elastos Crypto Class Action Settlement”, in his recent article on Law360. <a href="https://www.law360.com/articles/1801639/open-questions-after-elastos-crypto-class-action-settlement">Read the full article here</a>.</p>
- Core Points Simplified: 
- 
- Litigation Resolution: The <a href="http://elastos.info">Elastos Foundation</a> settled a major legal case without admitting fault, demonstrating its ability to navigate complex legal challenges effectively. 
- Security Classification Challenge: Elastos successfully argued that its ELA token is not a security, emphasizing the need for a refined understanding of cryptocurrencies in regulatory contexts. 
- International Jurisdiction: Elastos showcased the difficulty of applying U.S. securities laws to decentralized, international entities, highlighting the need for global legal perspectives. 
- Technology and Decentralization: Operating as a <a href="https://www.cyberrepublic.org/">DAO</a> and using decentralized blockchain technology, Elastos leads in innovating digital economies. 
- E-Discovery Challenges: The case exposed the inadequacy of current e-discovery tools for modern communication platforms, stressing the need for legal processes to evolve alongside technology. 
- Regulatory Dialogue: The settlement advances discussions on cryptocurrency regulation, advocating for more nuanced legal frameworks for digital assets. 
- Future Litigation Precedent: Elastos’s case offers insights for future crypto litigation, potentially shaping legal approaches to digital currencies. 
- 
-<p>The Elastos Foundation’s legal battle underscores the need for clarity in how cryptocurrencies are regulated as securities. Simon’s analysis not only sheds light on the intricacies of this particular case but also on the broader challenges facing the regulation of digital assets. As the legal landscape continues to evolve, this case serves as a crucial reference point for both legal practitioners and participants in the cryptocurrency market. Be sure to read <a href="https://www.law360.com/articles/1801639/open-questions-after-elastos-crypto-class-action-settlement">here</a>!</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:35 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://blog.identity.foundation/'>DIF Blog</a>
 </h4>
 
@@ -16341,207 +16841,6 @@ Designing and managing online courses can be a challenging task, especially with
 
 <div class='item-footer'>
    20:01 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://njedge.net/blog/the-growing-demand-for-instructional-designers/?utm_source=rss&utm_medium=rss&utm_campaign=the-growing-demand-for-instructional-designers'>The Growing Demand for Instructional Designers</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   The post The Growing Demand for Instructional Designers appeared first on NJEdge Inc. 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-       
-	 
-		 
-			 
-				   
- 
-	 
-		<p>As the wave of digital transformation continues to change and shape higher education, the demand for highly-skilled talent who understands instructional design is growing too. Especially over the last couple of years when online learning skyrocketed, institutions had to quicken their pace in offering remote classes, while also creating new online courses, programs, and degrees as we entered a modern era of learning. Instructional designers or learning designers have become essential members of an organization, but not only are they difficult to find, many with these credentials do not pursue roles in higher education. And for those who do work at colleges and universities, the increasing pressure to be experts in a multi-faceted profession where institutions are investing in technology at an astounding rate is causing many instructional designers to experience workplace burnout.</p>
-<p>Many instructional designers find themselves responsible for designing courses, building learning materials, coding, project management, and ensuring the effective delivery of instructional materials and experiences. With such a high bar, it can be challenging for these individuals to keep up. “Many institutions look at their instructional designers as workhorses,” says Joshua Gaul, Associate Vice President &amp; Chief Digital Learning Officer, Edge. “Oftentimes, faculty members bring the content to the instructional designer and they then organize the content and build the course from a technical standpoint.”</p>
-<p>“The biggest benefit of instructional design is not just knowing how to use the learning management system (LMS) or how to repurpose your content and put a discussion board together,” continues Gaul. “These experts work with faculty and leadership to bounce off ideas and integrate learning theory and pedagogy. Instead of shouldering faculty members with learning design on top of teaching and working to elevate the curriculum, instructional designers can help lighten this load and bring an expert perspective that can be hugely valuable to an institution.”</p>
-	 
- 
-
-
-
-   
-			  
-		 
-	  
-  
-		       
-	 
-		 
-			 
-				
- 
-	 
-		<p>“The biggest benefit of instructional design is not just knowing how to use the learning management system (LMS) or how to repurpose your content and put a discussion board together. These experts work with faculty and leadership to bounce off ideas and integrate learning theory and pedagogy. Instead of shouldering faculty members with learning design on top of teaching and working to elevate the curriculum, instructional designers can help lighten this load and bring an expert perspective that can be hugely valuable to an institution.”</p>
-<p>— Josh Gaul<br>
-Associate Vice President &amp; Chief Digital Learning Officer<br>
-Edge</p>
-	 
- 
-
-
-
-
-			  
-		 
-	  
-
-	 
-		 
-			 
-				 
-       
-          
-           
-            
-           
-         
-       
-     
-			  
-		 
-	  
-  
-		       
-	 
-		 
-			 
-				   
- 
-	 
-		<p>Quality Assurance in Online Learning<br>
-The approach to instructional design and how the field is regarded varies across the higher education community, and even between departments within an organization. “Institutions view instructional designers differently and it’s often tied to their current digital learning path,” shares Gaul. “The schools that were already forward thinking during the pandemic, didn’t have as large a shift in their business processes. The organizations seeing the most change in these processes are the ones who embraced the change but had to adjust on the fly. For the schools that do have instructional designers on staff, there is not always a unified approach to instructional design. The school of biology has different looking courses than the school of journalism, for example, but there need to be instructional design standards to ensure quality and compliance and can offer a clear model for all courses to follow.”</p>
-<p>“Rubrics like QSCQR and Quality Matters (QM) establish an instructional design support framework,” continues Gaul. “Some organizations fear a centralized online learning approach will make courses too uniform, when in actuality, standardization gives faculty more academic freedom to customize their courses without worrying about accessibility. For instance, think about a textbook. Each has a table of contents, an index, and is broken into chapters. While the subject matter may be vastly different, it still follows this basic format and when a student opens the book, they know how to use it to get the information that they need.”</p>
-	 
- 
-
-
-
-
-			  
-		 
-	  
-  
-		       
-	 
-		 
-			 
-				 
-       
-          
-           
-            
-           
-         
-       
-     
-			  
-		 
-	  
-
-	 
-		 
-			 
-				   
- 
-	 
-		<p>Aligning Business Goals with Instructional Design<br>
-Instructional design not only encompasses online learning, but extends to in-person instruction and hybrid learning as well. Many in this profession report long hours, lack of support, tight deadlines, and unrealistic expectations, all of which can lead to frustration and fatigue. “Some smaller institutions have a centralized instructional design office, but it’s often poorly staffed and leans more toward instructional technology training,” says Gaul. “This team will train faculty on how to use the LMS or the educational technology tools.”</p>
-<p>Gaul continues, “Not every organization is going to have the budget to employ an instructional designer, especially someone who has an advanced education and necessary skill set. This is where Edge can be of value and offer instructional design support. With a team of over twenty seasoned instructional designers, we have consultants across the country, all with at least a master’s degree and several years of experience. Our instructional designers will work with an organization’s subject matter experts to analyze, design, develop, implement, and evaluate instructional materials and programs for an institution.”</p>
-<p>As a longtime partner of Edge, Rowan University has a full team of instructional designers, but wanted to free them up to focus on faculty support and taking learning to the next level. “Rowan was able to move the course development and term to term updates to Edge and give their instructional design team the ability to work more closely with faculty members to elevate their courses and create more engaging, student centric content that meets quality standards. However, we understand many schools do not have the budget for a large instructional design team and that is why EdgeLearn can be a valuable solution for institutions. Edge can provide the expert support, strategy, and tools needed to enhance teaching, learning, and student engagement, without breaking the bank.”</p>
-<p>One of the most important factors in successfully implementing digital learning programs and systems is ensuring business processes and goals align with instructional design initiatives. “Technology doesn’t drive the mission, but the technology can be informed by and follow the academic mission of the institution,” says Gaul. “As long as you have the right tools in place and the people who understand those tools and processes, you can accomplish amazing things with a small group of instructional designers. Edge can supplement an institution’s existing team or provide expert assistance in developing student-focused curriculum.”</p>
-<p>“Edge can come in and hit the ground running because our team knows every tool,” continues Gaul. “We understand how to use data to glean important insights about an organization’s instructional design or ways artificial intelligence (AI) can open doors to new opportunities for digital learning. No matter what LMS an institution is using, or what rubric they follow, we can offer the specialized support needed to help fill any gaps and create superior teaching and learning experiences—anytime, anywhere.”</p>
-	 
- 
-
-
-
-
-			  
-		 
-	  
-  
-		       
-	 
-		 
-			 
-				
- 
-	 
-		<p>Ready to discover how Edge’s Digital Learning, Strategy, and Instructional Excellence experts can help your organization?<br>
-Visit <a href="https://njedge.net/solutions-overview/digital-learning/">njedge.net/solutions-overview/digital-learning/</a>.</p>
-	 
- 
-
-
-
-   <a href="https://www.flipsnack.com/njedge/vfte-winter-spring2024-vol12/full-view.html?p=18">View Article in View From The Edge Magazine</a>
-			  
-		 
-	  
-  
-<p>The post <a href="https://njedge.net/blog/the-growing-demand-for-instructional-designers/">The Growing Demand for Instructional Designers</a> appeared first on <a href="https://njedge.net">NJEdge Inc</a>.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://njedge.net/wp-content/uploads/2021/05/edtech-gaul.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:36 &bull;
    2 months ago
 </div>
 
@@ -19865,89 +20164,6 @@ solutions to authenticating digita
 
 <div class='item-footer'>
    15:27 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.hyperledger.org/'>Hyperledger Foundation</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.hyperledger.org/blog/hyperledger-mentorship-spotlight-iroha-2-blockchain-explorer'>Hyperledger Mentorship Spotlight: Iroha 2 Blockchain Explorer</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    
-    
-  
- Engaging in the Iroha 2 Blockchain Explorer project through the Hyperledger Mentorship project has been an exhilarating journey marked by technical challenges, continuous learning, and a profound sense of contributing to the broader technical community. As a mentee in this project, I immersed myself in various facets that not only enhanced my technical skills but also offered valuable i
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://www.hyperledger.org/hubfs/Hyperledger%20Mentorship%20Round-up%20blog%20%281200%20%C3%97%20675%20px%29.jpeg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  
- <a href="https://www.hyperledger.org/blog/hyperledger-mentorship-spotlight-iroha-2-blockchain-explorer" title="">  </a> 
-  
-<p>Engaging in the <a href="https://wiki.hyperledger.org/display/INTERN/Iroha+2%3A+blockchain+explorer+update">Iroha 2 Blockchain Explorer project</a> through the Hyperledger Mentorship project has been an exhilarating journey marked by technical challenges, continuous learning, and a profound sense of contributing to the broader technical community. As a mentee in this project, I immersed myself in various facets that not only enhanced my technical skills but also offered valuable insights on becoming a more effective contributor to the open-source realm.</p>  
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.hyperledger.org/hubfs/Hyperledger%20Mentorship%20Round-up%20blog%20%281200%20%C3%97%20675%20px%29.jpeg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:24 &bull;
    2 months ago
 </div>
 
@@ -26181,368 +26397,6 @@ and solutions for achieving semantic interoperability in data exchange.
 
 <div class='item-footer'>
    16:21 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://contentauthenticity.org'>Content Authenticity Initiative</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://contentauthenticity.org/blog/community-story-respeecher'>How a voice cloning marketplace is using Content Credentials to fight misuse</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  It has become easier for people to create and deploy deepfakes at scale. 
-Learn how Respeecher has embraced transparency in AI by integrating Content 
-Credentials into their audio marketplace.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-
-          
-        
-        
-
-        
-          
-            
-          
-            
-                
-                
-                
-                
-                
-                
-                
-                
-
-            
-          
-        
-          
-        
-
-        
-      
-        
-      
-
-    
-  
-
-
-  
-
-
-
-
-
-  <p>By Coleen Jose, Head of Community, CAI</p><p>Taylor Swift isn’t selling Le Creuset cookware. However,<a href="https://www.nbcnews.com/tech/taylor-swift-ai-generated-le-creuset-ad-not-real-rcna133285"> deepfake advertisements recently appeared</a> that used video clips of the pop star and synthesized versions of her voice to look and sound as if she were doing a giveaway offer. Unsuspecting fans and others who trusted Swift’s brand clicked the ads and entered their personal and credit card information for a chance to win.</p><p>Public figures are prime targets for scams that are being created and scaled with help from voice cloning and video deepfake tools.</p><p>In July 2023, a video of Lord of the Rings star Elijah Wood appeared on social media. Originally created with Cameo, an app that lets people purchase personalized video messages from celebrities, the clip featured Wood sharing words of encouragement with someone named Vladimir who was struggling with substance abuse. “I hope you get the help that you need,” the actor said.</p><p>Soon after, it emerged that the heavily edited video was part of a Russian<a href="https://www.wsj.com/podcasts/the-journal/actors-recorded-videos-for-vladimir-it-turned-into-russian-propaganda/efe045b0-79c6-43bd-afb6-cc9a0f497fac"> disinformation campaign</a> that sought to insinuate that Ukrainian President Volodymyr Zelensky had a drug and alcohol problem. At least six other celebrities, including boxer Mike Tyson and Scrubs actor John McGinley, unwittingly became part of the scheme. Despite clumsy editing, the videos were shared widely on social platforms.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-  
-
-
-
-<blockquote> <a href="https://www.instagram.com/p/C15eSAustvC/?utm_source=ig_embed&amp;utm_campaign=loading">       View this post on Instagram            </a><p><a href="https://www.instagram.com/p/C15eSAustvC/?utm_source=ig_embed&amp;utm_campaign=loading">A post shared by New York Post (@nypost)</a></p></blockquote> 
-
-
-  <p>Now, imagine if the level of effort required to create these videos dropped to zero. Instead of commissioning content on Cameo, one could choose a celebrity or obtain enough video content of an individual and use AI to make them say or do anything.</p><p>This challenge is intensifying with the spread of AI-enabled audio and voice cloning technology that can produce convincing deepfakes. Governments have started taking steps to protect the public; for example, the US Federal Trade Commission issued a<a href="https://consumer.ftc.gov/consumer-alerts/2023/03/scammers-use-ai-enhance-their-family-emergency-schemes"> consumer warning</a> about scams enabled by voice cloning and<a href="https://www.ftc.gov/businessguidanceblog/2023/11/FTCannounceschallengetopreventtheharmsofAIenabledvoicecloning"> announced a prize</a> for a solution to address the threat. Both the Biden administration and the European Union have called for clear labeling of AI-generated content.&nbsp;</p><p>These scams and non-consensual imagery, which range from fake product endorsements to geopolitical campaigns, are<a href="https://www.wired.com/story/deepfake-porn-is-out-of-control/"> increasingly targeting people</a> who aren’t famous singers or politicians.</p><p>A commitment to verifiable AI-generated audio</p><p>Dmytro Bielievstov knows that top-down regulation isn’t enough. In 2017, along with Alex Serdiuk and Grant Reaber, the Ukraine-based software engineer co-founded<a href="https://www.respeecher.com?utm_campaign=PR&amp;utm_medium=blogarticle&amp;utm_source=contentauthenticityorg"> Respeecher</a>, a tool that allows anyone to speak in another person's voice using AI. “If someone uses our platform to pretend to be someone they are not, such as a fake news channel with synthetic characters, it might be challenging for the audience to catch that because of how realistic our synthetic voices are,” he said.</p><p>Keenly aware of the potential for misuse, the Respeecher team has embraced the use of<a href="https://contentcredentials.org/"> Content Credentials</a> through the Content Authenticity Initiative’s (CAI)<a href="https://opensource.contentauthenticity.org/"> open-source tools</a>. Content Credentials are based on the C2PA open standard to verify the source and history of digital content. With an estimated 4 billion people around the world heading to the polls in over 50 elections this year, there’s an urgent need to ensure clarity about the origins and history of the visual stories and media we experience online. And there’s<a href="https://contentauthenticity.org/blog/cai-symposium-2023"> momentum for C2PA adoption</a> across industries and disciplines.</p><p>We recently spoke with Dmytro about how Respeecher implemented Content Credentials, his tips for getting started, and why provenance is critical for building trust into the digital ecosystem.</p><p>This interview has been edited for length and clarity.</p><p>How would you describe Respeecher?</p><p>Respeecher lets one person perform in the voice of another. At the heart of our product is a collection of high-quality voice conversion algorithms. We don't use text as input; instead, we utilize speech. This enables individuals to not just speak but also perform with various vocal styles, including nonverbal and emotional expressions. For example, we enable actors to embody different vocal masks, similar to how they can put on makeup.&nbsp;</p><p>Who are you looking to reach with the Voice Marketplace?</p><p>Initially, our focus was on the film and TV industry. We’ve applied our technology in big studio projects, such as Lucasfilm’s limited series “Obi-Wan Kenobi,” where we synthesized James Earl Jones’ voice for Darth Vader.&nbsp;</p><p>Now, we’re launching our Voice Marketplace, which democratizes the technology we’ve used in Hollywood for everyone. The platform allows individuals to speak using any voice from our library. This will enable small creators to develop games, streams, and other content, including amateur productions. While we’ll maintain oversight of content moderation and voice ownership, we’ll now have less control over the content’s destination and usage.&nbsp;</p><p>What motivated you to join the Content Authenticity Initiative?</p><p>First, the CAI aids in preventing misinformation. We do not allow user-defined voices (say President Biden’s), as controlling that would be quite difficult. Still, users should know that the content they’re consuming involves synthetic speech. As a leader in this space, we want to ensure that all generated content from our marketplace has Content Credentials. In the future, as all browsers and content distribution platforms support data provenance, it will be easy for consumers to verify how the audio in a video was produced. If something lacks cryptographic Content Credentials, it will automatically raise suspicion about authenticity.&nbsp;</p><p>Secondly, the initiative addresses the needs of content creators. By embedding credentials in the audio they produce, they can make it clear that the work is their own artistic creation.&nbsp;</p><p>How do Content Credentials work in Respeecher?</p><p>We have integrated CAI's open-source C2PA tool into our marketplace. Whenever synthetic audio is rendered on our servers, it is automatically cryptographically signed as being a product of the Respeecher marketplace. When clients download the audio, it contains metadata with Content Credentials stating that it was converted into a different voice by Respeecher. GlobalSign, our third-party certificate authority, signs our credentials with its cryptographic key so that anyone who receives our content can automatically verify that it was signed by us and not an impersonator.</p><p>The metadata isn't a watermark but rather a side component of the file. If the metadata is removed, consumers are alerted that the file's source is uncertain. If the file is modified after it’s downloaded (say someone changes the name of the target voice), the cryptographic signature won't match the file's contents. So it’s impossible to manipulate the metadata without invalidating Respeecher’s signature.&nbsp;</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-  
-
-
-
-<p>All voice cloned audio files downloaded from Respeecher Marketplace includes Content Credentials for AI transparency. </p>
-
-
-  <p>What challenges did you encounter while implementing Content Credentials technology?</p><p>Surprisingly, the biggest challenge was obtaining keys from our certificate authority. We had to prove that we were a legitimate organization, which took several weeks and some back and forth with GlobalSign.</p><p>Another challenge was that cryptography, particularly public key infrastructure (PKI), can be challenging to grasp for someone who isn’t an expert. Our team had to understand the specifics of C2PA, figure out appropriate configurations, and determine whether we needed a third-party certificate authority. These nuances required time and effort, especially since we don’t have a cryptographic expert on our team. However, the CAI team and community were incredibly helpful in assisting us with these challenges.</p><p>What advice do you have for other developers getting started with Content Credentials and the CAI’s open-source tools?</p><p>Start with <a href="https://opensource.contentauthenticity.org/docs/introduction">CAI’s Getting Started guide</a>, but then dedicate time to read the <a href="https://c2pa.org/specifications/specifications/1.4/index.html#_technical_specifications">C2PA specification document</a>. Although it is somewhat long and intimidating, it’s surprisingly comprehensible for non-experts.&nbsp;</p><p>Also, utilize ChatGPT to help explain complex concepts to you. Even though ChatGPT doesn’t know the technical details of C2PA (because its current version has limited access to information beyond certain dates), it still does a great job explaining concepts such as PKI and cryptographic signatures.</p><p>What's next for you when it comes to advances in AI safety and Content Credentials?</p><p>We’re planning to give users of our marketplace the option to add their own authorship credentials to the Content Credentials. Currently, the metadata indicates that the audio was modified by Respeecher, but it doesn't attribute the audio to its creator. Some users may prefer to remain anonymous, but others will choose to include their credentials.&nbsp;</p><p>Respeecher will continue to be at the forefront of initiatives to adopt data provenance standards across the AI synthetic media industry. It’s essential for companies to create a unified authentication layer for audio and video content, and content distribution platforms like YouTube and news websites have a crucial role to play in embracing this technology. Just as a lack of HTTPS warns users of potential security issues, a similar mechanism could alert users to the source of an audio file, enhancing transparency and authenticity.</p><p>We are also closely watching how the concept of cloud-hosted metadata develops. Embedding hard-to-remove watermarks in audio and video signals without making them obvious remains a largely unsolved problem. By storing metadata in the cloud and enabling checks for pre-signed content, we can potentially simplify authentication and the synthetic media detection problem.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-
-    
-  
-    
-
-      
-
-      
-        
-          
-        
-        
-
-        
-          
-            
-          
-            
-                
-                
-                
-                
-                
-                
-                
-                
-
-            
-          
-        
-          
-        
-
-        
-          
-          
-            <p>The Respeecher team pictured in their office in Kiev, Ukraine has won awards for their projects with global brands including an Emmy and Webby. Photo courtesy: Respeecher</p>
-          
-        
-      
-        
-      
-
-    
-  
-
-
-  
-
-
-
-
-
-    <p><a href="https://www.linkedin.com/showcase/content-authenticity-initiative/">Stay connected</a> on LinkedIn and <a href="https://contentauthenticity.org/membership">consider joining</a> the movement to restore trust and transparency online.</p>  <p><a href="https://contentauthenticity.org/newsletter">Subscribe to the CAI newsletter</a> to receive ecosystem news.</p>  <p>For implementers, explore the <a href="https://opensource.contentauthenticity.org">CAI’s open-source tools</a> to integrate verifiable Content Credentials to services, websites, and apps.</p>  
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://images.squarespace-cdn.com/content/v1/60d0a2a4d571dc3fb759f38f/e5828779-1416-4bc6-bbee-3e24d40f4a38/Respeecher+asset+-+FINAL.png?format=1000w'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:45 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Friday, 19. January 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://fidoalliance.org/content/fido-news-center/'>FIDO Alliance</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://fidoalliance.org/computer-weekly-thanks-to-ai-tools-attackers-also-have-an-easy-time-of-it/'>Computer Weekly: Thanks to AI tools, attackers also have an easy time of it</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Instead of fighting AI with AI, it’s time for companies to rewrite the rules and get to the root of the problem – and that’s traditional login methods. A byline […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Instead of fighting AI with AI, it’s time for companies to rewrite the rules and get to the root of the problem – and that’s traditional login methods. A byline from Rolf Lindemann.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:31 &bull;
    3 months ago
 </div>
 
