@@ -711,7 +711,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:44 AM May 12, 2024 (UTC)</sup>
+<sup>Last Update 6:44 AM May 13, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -722,8 +722,1129 @@
 
 
  <h2 class='new-date'>
+  Monday, 13. May 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/05/13/using-sonarcloud-with-asp-net-core-angular-and-github-actions/'>Using SonarCloud with ASP.NET Core, Angular and github actions</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article demonstrates how to implement code analysis and Static Application Security Testing (SAST) using SonarCloud and GitHub Actions. The solution involves building a secure web application with ASP.NET Core for the backend and an Angular UI for the frontend, following a backend-for-frontend security architecture. Both the ASP.NET Core (C#) codebase and the Angular (TypeScript […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article demonstrates how to implement code analysis and Static Application Security Testing (SAST) using SonarCloud and GitHub Actions. The solution involves building a secure web application with ASP.NET Core for the backend and an Angular UI for the frontend, following a backend-for-frontend security architecture. Both the ASP.NET Core (C#) codebase and the Angular (TypeScript and JavaScript) files undergo analysis during the quality build process with SonarCloud.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/EndToEndSecurity">https://github.com/damienbod/EndToEndSecurity</a></p>
+
+
+
+<p></p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Solution Setup 
+
+
+
+<p>The application uses an Angular UI implemented with NX tools and services. During deployment builds, the UI is integrated into the ASP.NET Core backend, while in development, it operates as a standalone component. Microsoft YARP facilitates the connection between Angular development and local ASP.NET Core APIs. The Angular application is an integral part of the backend system when deployed. Both technical stacks require code analysis and Static Application Security Testing (SAST). Additionally, the solution is secured as a single OpenID Connect confidential client, utilizing the code flow with Proof Key for Code Exchange (PKCE).</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ SonarCloud setup 
+
+
+
+<p>I set up SonarCloud testing and integrated it with GitHub Actions using the repository from <a href="https://www.linkedin.com/in/marcrufer/">Marc Rufer</a>.</p>
+
+
+
+<p><a href="https://github.com/rufer7/github-sonarcloud-integration">https://github.com/rufer7/github-sonarcloud-integration</a></p>
+
+
+
+<p>This references the docs from SonarCloud and all the steps required for setting up a build and analysis of the different technical stacks are documented.</p>
+
+
+
+ ASP.NET Core project setup 
+
+
+
+<p>To enable SonarCloud to analyze both the ASP.NET Core project and the Angular projects, you’ll need to make adjustments in the .NET Core csproj file settings. Specifically, the Angular components should be added as hidden elements so that SonarCloud can properly detect and analyze them.</p>
+
+
+  &lt;ItemGroup&gt;
+&lt;!-- This is required to include ts and js files in SonarCloud analysis --&gt;
+&lt;!-- Add to the sonar cloud build: EndToEndSecurity == github repo --&gt;
+&lt;!-- /d:sonar.projectBaseDir="D:\a\EndToEndSecurity\EndToEndSecurity" /d:sonar.exclusions=**/node_modules/** --&gt;
+&lt;!-- See https://docs.sonarsource.com/sonarqube/9.8/analyzing-source-code/scanners/sonarscanner-for-dotnet/#advanced-topics --&gt;
+   &lt;Content Include="..\ui\**\*.ts" Visible="false"&gt;
+      &lt;CopyToOutputDirectory&gt;Never&lt;/CopyToOutputDirectory&gt;
+   &lt;/Content&gt;
+   &lt;Content Include="..\ui\**\*.js" Visible="false"&gt;
+      &lt;CopyToOutputDirectory&gt;Never&lt;/CopyToOutputDirectory&gt;
+   &lt;/Content&gt;
+&lt;/ItemGroup&gt;
+  
+
+
+ Quality build 
+
+
+
+<p>The SonarCloud github action YAML file implements the quality build. Normally this would be integrated with the default build, PRs and feature branches would run this. The dotnet testing tools are added but not active. The build uses a windows-latest image and java. When testing the code of the two technical stacks, you should ignore folders like node_modules and so on. This can be excluded in the YAML file. For this to work, the SonarCloud project must match the YAML file definitions. This is well documented in the Sonar documentation.</p>
+
+
+  name: SonarCloud
+on:
+  push:
+    branches:
+      - develop
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+jobs:
+  build:
+    name: Analyze dotnet and Augular projects
+    runs-on: windows-latest
+    steps:
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: 'zulu' # Alternative distribution options are available.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~\sonar\cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+      - name: Cache SonarCloud scanner
+        id: cache-sonar-scanner
+        uses: actions/cache@v4
+        with:
+          path: .\.sonar\scanner
+          key: ${{ runner.os }}-sonar-scanner
+          restore-keys: ${{ runner.os }}-sonar-scanner
+      - name: Install SonarCloud scanner
+        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          New-Item -Path .\.sonar\scanner -ItemType Directory
+          dotnet tool update dotnet-sonarscanner --tool-path .\.sonar\scanner
+      - name: Install dotnet-coverage # not used as not tests exist in backend
+        shell: powershell
+        run: |
+          dotnet tool install --global dotnet-coverage
+      - name: Build and analyze
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        shell: powershell
+        run: |
+          .\.sonar\scanner\dotnet-sonarscanner begin /k:"damienbod_EndToEndSecurity" /o:"damienbod" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io" /d:sonar.projectBaseDir="D:\a\EndToEndSecurity\EndToEndSecurity" /d:sonar.exclusions=**/node_modules/**
+          dotnet build .\Bff.sln --configuration Release
+          # dotnet-coverage collect 'dotnet test .\src\--testproj--.Tests\--testproj--.Tests.csproj' -f xml  -o 'coverage.xml'
+          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+
+  
+
+
+ Badges 
+
+
+
+<p>Badges from SonarCloud can be added directly in the readme file of the github repository. The badges are created in SonarCloud and I switched them to the overall results and not just the last delta. By clicking the badges in the readme, you are redirected to the SonarCloud test results.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>SonarCloud is a great service for code quality analysis and has a good SAST implementation with very good access into the github UI and tools. Security alerts can be directly viewed in github.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://docs.sonarsource.com/sonarcloud/getting-started/github">https://docs.sonarsource.com/sonarcloud/getting-started/github</a></p>
+
+
+
+<p><a href="https://github.com/rufer7/github-sonarcloud-integration">https://github.com/rufer7/github-sonarcloud-integration</a></p>
+
+
+
+ 
+<blockquote><a href="https://blog.rufer.be/2023/10/06/howto-integrate-sonarcloud-analysis-in-an-azure-devops-yaml-pipeline/">[HOWTO] Integrate SonarCloud analysis in an Azure DevOps YAML&nbsp;pipeline</a></blockquote>
+ 
+
+
+
+<p><a href="https://community.sonarsource.com/t/code-coverage-report-for-net-not-working-on-linux-agent/62087">https://community.sonarsource.com/t/code-coverage-report-for-net-not-working-on-linux-agent/62087</a></p>
+
+
+
+<p><a href="https://docs.sonarsource.com/sonarcloud/advanced-setup/ci-based-analysis/sonarscanner-for-net/#analyzing-languages-other-than-c-and-vb">https://docs.sonarsource.com/sonarcloud/advanced-setup/ci-based-analysis/sonarscanner-for-net/#analyzing-languages-other-than-c-and-vb</a></p>
+
+
+
+<p><a href="https://andreiepure.ro/2023/08/20/analyze-web-files-with-s4net.html">https://andreiepure.ro/2023/08/20/analyze-web-files-with-s4net.html</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2024/04/sonarcloud_github_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:57 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/05/13/im-no-developer.html'> I’m no developer … but I disagree … what do you all think. 
+</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I’m no developer … but I disagree … what do you all think. 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/d79d4fcf0c.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I’m no developer … but I disagree … what do you all think.</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/d79d4fcf0c.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:50 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/May/13/gpus-go-brrr/#atom-everything'>GPUs Go Brrr</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   GPUs Go Brrr 
+Fascinating, detailed low-level notes on how to get the most out of NVIDIA's H100 GPUs (currently selling for around $40,000 a piece) from the research team at Stanford who created FlashAttention, among other things. 
+ 
+ The swizzled memory layouts are flat-out incorrectly documented, which took considerable time for us to figure out. 
+ 
+
+     Via Hacker News 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://hazyresearch.stanford.edu/blog/2024-05-12-tk">GPUs Go Brrr</a></p>
+Fascinating, detailed low-level notes on how to get the most out of NVIDIA's H100 GPUs (currently selling for around $40,000 a piece) from the research team at Stanford who created FlashAttention, among other things.<p></p>
+<blockquote>
+<p>The swizzled memory layouts are flat-out incorrectly documented, which took considerable time for us to figure out.</p>
+</blockquote>
+
+    <p>Via <a href="https://news.ycombinator.com/item?id=40337936">Hacker News</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:08 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Sunday, 12. May 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://wrenchinthegears.com/2024/05/12/blessings/'>Blessings</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  It’s mother’s day. Some get to celebrate with loved ones, while others navigate the bittersweet reality of bereavement or estrangement. My heart is with you all. If there’s one lesson I’ve learned these past few years it is the importance of love, even across distance, even when it may appear to be unreciprocated. The system [...]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>It’s mother’s day. Some get to celebrate with loved ones, while others navigate the bittersweet reality of bereavement or estrangement. My heart is with you all. If there’s one lesson I’ve learned these past few years it is the importance of love, even across distance, even when it may appear to be unreciprocated. The system seeks to harness the power of mothers’ hearts through token engineering, but our hearts are wild and unruly. Our torus fields will not be tamed.&nbsp;</p>
+<p>Today I enjoyed many blessings. I am working to move forward from a place of gratitude, so I want to acknowledge them in this short post with a few pictures from Shrine Mont, Virginia. It is a resort maintained by the Anglican Church that includes several mineral springs that were sacred to the original people’s of the Shenandoah. At some point in the past year, I looked up who founded MIT. It turns out it was a Virginia geologist <a href="https://en.wikipedia.org/wiki/William_Barton_Rogers">William Barton Rogers</a>. Having studied the role of water as a solvent on minerals and overseen the state geological survey in 1835, Rogers would have been familiar with these springs. His survey was made three years after Andrew Jackson put the <a href="https://www.nps.gov/hosp/learn/historyculture/index.htm">hot springs of Arkansas</a> under federal ownership. In addition to the springs, the area also features a subtle energy vortex that you can read about <a href="http://basyevortex.com/index.php?option=com_content&amp;task=view&amp;id=70&amp;Itemid=115">here</a>.</p>
+<p>This is my second visit. I made a video of my first trip in the summer of 2022.&nbsp;</p>
+<p></p>
+<p>Things for which I am grateful today:&nbsp;</p>
+<p>Friends of like mind who offer good conversation, a soft bed, hot shower, and laundry services to a wayward traveler.</p>
+<p>Unconditional love from an affectionate dog.</p>
+<p>A swift recovery from a debilitating migraine.</p>
+<p>A sky of clear blue, full of natural, puffy clouds.&nbsp;</p>
+<p>Stands of purple and white woodland phlox.</p>
+<p>A burbling brook with a nicely-spaced stone crossing.&nbsp;</p>
+<p>A labyrinth to walk.&nbsp;</p>
+<p>An abundance of tulip poplar buds.</p>
+<p>Varied shades in pink in myrtle flowers and lady slipper orchids.</p>
+<p>The sweet fragrance of locust tree blossoms.</p>
+<p>A quiet moment to enjoy the view of white wooden buildings with dark bottle green trim beyond a pond ringed by last season’s cattails and trilling red-winged blackbirds.</p>
+<p></p>
+<p></p>
+<p></p>
+<p></p>
+<p></p>
+<p></p>
+<p></p>
+<p></p>
+<p></p>
+<p></p>
+<p></p>
+<p>&nbsp;</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/05/img_5626-1.jpg?resize=768%2C1024&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:32 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/05/13/i-must-have.html'> I must have missed the announcement at the time but apparent</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I must have missed the announcement at the time but apparently Break Dancng is now an Olympic sport .. no mention why the centuries old waltz has been an outcast  since it all started. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I must have missed the announcement at the time but apparently Break Dancng is now an Olympic sport .. no mention why the centuries old waltz has been an outcast  since it all started.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:31 &bull;
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/May/12/parsing-png-images-in-mojo/#atom-everything'>Parsing PNG images in Mojo</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Parsing PNG images in Mojo 
+It’s still very early days for Mojo, the new systems programming language from Chris Lattner that imitates large portions of Python and can execute Python code directly via a compatibility layer. 
+
+ Ferdinand Schenck reports here on building a PNG decoding routine in Mojo, with a detailed dive into both the PNG spec and the current state of the Mojo language.
+
+      Via
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://fnands.com/blog/2024/mojo-png-parsing/">Parsing PNG images in Mojo</a></p>
+It’s still very early days for Mojo, the new systems programming language from Chris Lattner that imitates large portions of Python and can execute Python code directly via a compatibility layer.<p></p>
+
+<p>Ferdinand Schenck reports here on building a PNG decoding routine in Mojo, with a detailed dive into both the PNG spec and the current state of the Mojo language.
+
+    </p><p>Via <a href="https://news.ycombinator.com/item?id=40328338">Hacker News</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:17 &bull;
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://herestomwiththeweather.com'>Heres Tom with the Weather</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://herestomwiththeweather.com/social/2024/05/12/71385/'></a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   19:49 &bull;
+   11 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.reuters.com/world/uk/british-newspaper-groups-warn-apple-over-ad-blocking-plans-ft-reports-2024-05-12/'>British newspaper groups warn Apple over ad-blocking plans, FT reports</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ "British newspaper groups have warned Apple that any move to impose a so-called "web eraser" tool to block advertisements would put the financial sustainability of journalism at risk, the Financial Times reported on Sunday."  
+
+ Counterpoint: block the ads. 
+
+ The web is designed to be a flexible platform that can be mixed and remixed however you need. One of the points of CSS
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>"British newspaper groups have warned Apple that any move to impose a so-called "web eraser" tool to block advertisements would put the financial sustainability of journalism at risk, the Financial Times reported on Sunday." </p>
+
+<p>Counterpoint: block the ads.</p>
+
+<p>The web is designed to be a flexible platform that can be mixed and remixed however you need. One of the points of CSS was that you could have your own styles for a site and they would supersede the interface that came out of the box.</p>
+
+<p>Relying on ads is a race to the bottom. There are plenty of other ways to make money and build deeper relationships with your audience - many of which don't require paywalls or any invasive technology at all.</p>
+
+<p>Ad technology profiles and tracks users; slows down websites; wastes energy; obliterates the user experience; and isn't even all that profitable. It's hard to square an organization that claims to be acting in the public interest advocating for them.  <a href="https://werd.io/tag/Media">#Media</a></p>
+            <p>[<a href="https://www.reuters.com/world/uk/british-newspaper-groups-warn-apple-over-ad-blocking-plans-ft-reports-2024-05-12/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:27 &bull;
+   13 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/May/12/ardc/#atom-everything'>About ARDC (Amateur Radio Digital Communications)</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   About ARDC (Amateur Radio Digital Communications) 
+In ham radio adjacent news, here's a foundation that it's worth knowing about: 
+ 
+ ARDC makes grants to projects and organizations that are experimenting with new ways to advance both amateur radio and digital communication science. 
+ 
+ In 1981 they were issued the entire 44.x.x.x block of IP addresses - 16 million in total. In 2019 they sold a qu
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://www.ardc.net/about/">About ARDC (Amateur Radio Digital Communications)</a></p>
+In ham radio adjacent news, here's a foundation that it's worth knowing about:<p></p>
+<blockquote>
+<p>ARDC makes grants to projects and organizations that are experimenting with new ways to advance both amateur radio and digital communication science.</p>
+</blockquote>
+<p>In 1981 they were issued the entire 44.x.x.x block of IP addresses - 16 million in total. In 2019 they sold a quarter of those IPs to Amazon for about $100 million, providing them with a very healthy endowment from which they can run their grants program!</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:21 &bull;
+   13 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www-cnbc-com.cdn.ampproject.org/c/s/www.cnbc.com/amp/2024/05/07/abortion-bans-drive-away-up-to-half-of-young-talent-new-cnbc/generation-lab-youth-survey-finds.html'>Abortion bans drive away young talent: New CNBC/Generation Lab survey</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+
+ "The youngest generation of American workers is prepared to move away from states that pass abortion bans and to turn down job offers in states where bans are already in place, a new survey from CNBC/Generation Lab finds." 
+
+ This stands to reason: why would you move to a place where government wants to control what you do with your body? Whether you have a uterus or not, cari
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+
+<p>"The youngest generation of American workers is prepared to move away from states that pass abortion bans and to turn down job offers in states where bans are already in place, a new survey from CNBC/Generation Lab finds."</p>
+
+<p>This stands to reason: why would you move to a place where government wants to control what you do with your body? Whether you have a uterus or not, caring for the well-being of people who do is obvious. And all the societal overreach and Handmaid's Tale overtones affect everybody.</p>
+
+<p>I'm interested to see how this affects those locations over time. Of course, there are other implications of this legislation, too: it's likely to be one of the major drivers for voters in November.  <a href="https://werd.io/tag/Business">#Business</a></p>
+            <p>[<a href="https://www-cnbc-com.cdn.ampproject.org/c/s/www.cnbc.com/amp/2024/05/07/abortion-bans-drive-away-up-to-half-of-young-talent-new-cnbc/generation-lab-youth-survey-finds.html">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:21 &bull;
+   13 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://aaronparecki.com'>Aaron Parecki</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://aaronparecki.com/2024/05/12/3/fedcm-for-indieauth'>FedCM for IndieAuth</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  IndieWebCamp Düsseldorf took place this weekend, and I was inspired to work on a quick hack for demo day to show off a new feature I've been working on for IndieAuth.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>IndieWebCamp <a href="https://events.indieweb.org/2024/05/indiewebcamp-d%C3%BCsseldorf-2024-lPSJYTuqCdL2">Düsseldorf</a> took place this weekend, and I was inspired to work on a quick hack for demo day to show off a new feature I've been working on for <a href="https://indieauth.net/">IndieAuth</a>.</p>
+
+<p>Since I do actually use my website to log in to different websites on a regular basis, I am often presented with the login screen asking for my domain name, which is admittedly an annoying part of the process. I don't even like having to enter my email address when I log in to a site, and entering my domain isn't any better.</p>
+
+
+  
+
+
+<p>So instead, I'd like to get rid of this prompt, and let the browser handle it for you! Here's a quick video of logging in to a website using my domain with the new browser API:</p>
+
+<p></p>
+
+<p>So how does this work?</p>
+
+<p>For the last couple of years, there has been an ongoing effort at the Federated Identity Community Group at the W3C to build a new API in browsers that can sit in the middle of login flows. It's primarily being driven by Google for their use case of letting websites show a Google login popup dialog without needing 3rd party cookies and doing so in a privacy-preserving way. There's a lot to unpack here, more than I want to go into in this blog post. You can check out <a href="https://blog.timcappalli.me/p/preso-osw24-fedcm101/">Tim Cappalli's slides from the OAuth Security Workshop</a> for a good explainer on the background and how it works.</p>
+
+<p>However, there are a few experimental features that are being considered for the API to accommodate use cases beyond the "Sign in with Google" case. The one that's particularly interesting to the IndieAuth use case is the <a href="https://github.com/fedidcg/FedCM/issues/240">IdP Registration API</a>. This API allows any website to register itself as an identity provider that can appear in the account chooser popup, so that a relying party website doesn't have to list out all the IdPs it supports, it can just say it supports "any" IdP. This maps to how IndieAuth is already used today, where a website can accept any user's IndieAuth server without any prior relationship with the user. For more background, check out my previous blog post "<a href="https://aaronparecki.com/2018/07/07/7/oauth-for-the-open-web">OAuth for the Open Web</a>".</p>
+
+<p>So now, with the IdP Registration API in FedCM, your website can tell your browser that it is an IdP, then when a website wants to log you in, it asks your browser to prompt you. You choose your account from the list, the negotiation happens behind the scenes, and you're logged in!</p>
+
+
+  
+
+
+<p>One of the nice things about combining FedCM with IndieAuth is it lends itself nicely to running the FedCM IdP as a separate service from your actual website. I could run an IndieAuth IdP service that you could sign up for and link your website to. Since your identity is your website, your website would be the thing ultimately sent to the relying party that you're signing in to, even though it was brokered through the IdP service. Ultimately this means much faster adoption is possible, since all it takes to turn your website into a FedCM-supported site is adding a single <code>&lt;link&gt;</code> tag to your home page.</p>
+
+<p>So if this sounds interesting to you, leave a comment below! The IdP registration API is currently an early experiment, and Google needs to see actual interest in it in order to keep it around! In particular, they are looking for Relying Parties who would be interested in actually using this to log users in. I am planning on launching this on <a href="https://webmention.io">webmention.io</a> as an experiment. If you have a website where users can sign in with IndieAuth, feel free to get in touch and I'd be happy to help you set up FedCM support as well!</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://aaronparecki.com/2024/05/12/3/image-1.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:39 &bull;
+   16 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/May/12/link-in-bio-is-a-slow-knife/#atom-everything'>“Link In Bio” is a slow knife</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   “Link In Bio” is a slow knife 
+Anil Dash writing in 2019 about how Instagram’s “link in bio” thing (where users cannot post links to things in Instagram posts or comments, just a single link field in their bio) is harmful for linking on the web. 
+
+ Today it’s even worse. TikTok has the same culture, and LinkedIn and Twitter both algorithmically de-boost anything with a URL in it, encouraging users
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://www.anildash.com//2019/12/10/link-in-bio-is-how-they-tried-to-kill-the-web/">“Link In Bio” is a slow knife</a></p>
+Anil Dash writing in 2019 about how Instagram’s “link in bio” thing (where users cannot post links to things in Instagram posts or comments, just a single link field in their bio) is harmful for linking on the web.<p></p>
+
+<p>Today it’s even worse. TikTok has the same culture, and LinkedIn and Twitter both algorithmically de-boost anything with a URL in it, encouraging users to  share screenshots (often unsourced) rather than linking to content and reducing their distribution.</p>
+
+<p>It’s gross.
+
+    </p><p>Via <a href="https://mastodon.social/@mhoye/112428510848577054">@mhoye</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:15 &bull;
+   17 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -778,7 +1899,7 @@
 
 <div class='item-footer'>
    03:41 &bull;
-   3 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -853,7 +1974,7 @@
 
 <div class='item-footer'>
    02:38 &bull;
-   4 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -929,7 +2050,7 @@
 
 <div class='item-footer'>
    02:35 &bull;
-   4 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -965,7 +2086,7 @@
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  Welcome to the inner workings of the Python implementation of KERI. HIO stands for = Hierarchical IO, an asynchronous runtime and input/output (IO) framework written by Dr. Samuel Smith. This post is for a technical audience who have a need to read and understand the WebOfTrust Python implementation of the […]
+  Welcome to the inner workings of the Python implementation of KERI! HIO stands for Hierarchical IO. Have you ever wanted to contribute to the KERI ecosystem and been curious about the way the Python implementations are written? Or have you wanted to build on top of or modify the Python […]
    
   
   
@@ -986,7 +2107,49 @@
  
 
 
-<p>Welcome to the inner workings of the Python implementation of KERI. <a href="https://github.com/ioflo/hio">HIO</a> stands for = Hierarchical IO, an asynchronous runtime and input/output (IO) framework written by <a href="https://keri.one/131-2/">Dr. Samuel Smith</a>. This post is for a technical audience who have a need to read and understand the <a href="https://github.com/WebOfTrust">WebOfTrust</a> Python implementation of the <a href="https://trustoverip.github.io/tswg-keri-specification/">KERI</a>, <a href="https://trustoverip.github.io/tswg-acdc-specification/#go.draft-ssmith-acdc.html">ACDC</a>, and <a href="https://trustoverip.github.io/tswg-cesr-specification/">CESR</a> Trust over IP (ToIP) specifications. </p>
+<p>Welcome to the inner workings of the Python implementation of KERI! <a href="https://github.com/ioflo/hio">HIO</a> stands for Hierarchical IO. </p>
+
+
+
+<p>Have you ever wanted to contribute to the KERI ecosystem and been curious about the way the Python implementations are written? Or have you wanted to build on top of or modify the Python KERI codebase? </p>
+
+
+
+<p>Not to worry, this technical series on KERI internals has your back. You will be ready to read through, understand, and build on top of the Python KERI code base once you understand the HIO async runtime, the focus of this article. </p>
+
+
+
+<p>You are wanted as a contributor to the KERI ecosystem! The goal of this article is to assist you in becoming a KERI contributor or technology user. </p>
+
+
+
+ HIO Introduction 
+
+
+
+<p>HIO is an asynchronous runtime and input/output (IO) framework written by <a href="https://keri.one/131-2/">Dr. Samuel Smith</a> that supports cooperative multitasking. It is used throughout the Python implementation of the KERI suite of protocols.</p>
+
+
+
+<p>By the end of this article you will have been introduced to HIO’s three primary classes composing the basis for the asynchronous runtime of HIO as well as the lifecycle context functions for the main task class, the <code>Doer</code>. Additionally, you will have an idea of how these concepts relate to similar concepts in Python’s AsyncIO runtime. The three HIO classes include:</p>
+
+
+
+ 
+ the <code>Doist</code>, the root scheduler, 
+
+
+
+ the <code>DoDoer</code>, the heirarchical container of <code>Doer</code> and <code>DoDoer</code> instances 
+
+
+
+ <code>Doer</code>, the core task concept in HIO. 
+ 
+
+
+
+<p>Disclaimer: this post is for a technical audience who have a need to read and understand the <a href="https://github.com/WebOfTrust">WebOfTrust</a> Python implementation of the <a href="https://trustoverip.github.io/tswg-keri-specification/">KERI</a>, <a href="https://trustoverip.github.io/tswg-acdc-specification/#go.draft-ssmith-acdc.html">ACDC</a>, and <a href="https://trustoverip.github.io/tswg-cesr-specification/">CESR</a> Trust over IP (ToIP) specifications.</p>
 
 
 
@@ -994,11 +2157,35 @@
 
 
 
+<p>In order to understand the purpose of three classes mentioned above and how they compare to Python’s AsyncIO it is important to clarify terminology around concurrent and asynchronous programming in Python. As Python’s <code>async/await</code> is much more common and familiar than HIO this article starts there to introduce the concepts.</p>
+
+
+
+ Why is HIO used in KERIpy, KERIA, and SignifyPy? 
+
+
+
+<p>Performance, control, and features, at a high level, are the reason why HIO was used for KERIpy. HIO’s use of what are called “classic coroutines” and asynchronous buffers for I/O provide a level of control and performance that is difficult to achieve with Python’s AsyncIO implementation. An API into the timing system used for the event loop and scheduler provide tight, deterministic control over scheduling order of tasks.</p>
+
+
+
+<p>A future article will go deeper than this short overview into the argument for using HIO and what specifically sets it apart from other async frameworks like AsyncIO, <a href="https://curio.readthedocs.io/en/latest/">Curio</a>, and <a href="https://trio.readthedocs.io/en/latest/">Trio</a>.</p>
+
+
+
  Async Framework Short Comparison 
 
 
 
-<p>An asynchronous framework typically consists of a number of major abstractions including an event loop, task or coroutine, scheduler, queues for communicating between tasks, futures, callbacks, non-blocking I/O, synchronization primitives (locks, semaphores), timeouts and cancellation, and some notion of lifecycle for tasks. This article focuses specifically on the event loop, scheduler, and task abstractions in HIO and Python’s AsyncIO. Many reading this article may have no experience with concurrency in Python so a quick primer is in order.</p>
+<p>An asynchronous framework typically consists of a number of major abstractions including an event loop, task or coroutine, scheduler, queues for communicating between tasks, futures, callbacks, non-blocking I/O, synchronization primitives (locks, semaphores), timeouts and cancellation, and some notion of lifecycle for tasks. This article focuses specifically on the event loop, scheduler, and task abstractions in HIO and Python’s AsyncIO. </p>
+
+
+
+ Cooperative Multitiasking 
+
+
+
+<p>Both HIO and AsyncIO allow you to accomplish what is called “cooperative multitasking” which is where each coroutine yields control to a central scheduler so that other coroutines can be activated for their next execution. In AsyncIO the scheduler is the <code>asyncio</code> event loop and a coroutine is any function declared with the <code>async def</code> syntax. In HIO the scheduler is the <code>Doist</code> class and the coroutine is the <code>Doer</code> class.</p>
 
 
 
@@ -1032,7 +2219,11 @@
 
 
 
-<p>Parallelism is a special case of concurrency. In Python <code>threading</code>, <code>multiprocessing</code>, and <code>asyncio</code> are the core packages for concurrent programming. In this post we only address the <code>asyncio</code> package, which supports what are called native coroutines. </p>
+<p>Parallelism is a special case of concurrency. In Python <code>threading</code>, <code>multiprocessing</code>, and <code>asyncio</code> are the core packages for concurrent programming. In this post we only address the <code>asyncio</code> package, which supports what are called native coroutines.</p>
+
+
+
+ Python’s AsyncIO package 
 
 
 
@@ -1040,7 +2231,7 @@
 
 
 
-<p>A native coroutine is any function that uses the <code>async def</code> syntax to define a function, introduced with <a href="https://peps.python.org/pep-0492/">PEP-492</a> in Python 3.5 (2015). Calling an <code>async def</code> function does not automatically execute the code in the function. To execute the code the <code>await</code> keyword must be used when calling the function to instruct the <code>asyncio</code> event loop to schedule execution of the function.</p>
+<p>A native coroutine is any function that, as mentioned earlier, uses the <code>async def</code> syntax to define a function, introduced with <a href="https://peps.python.org/pep-0492/">PEP-492</a> in Python 3.5 (2015). Calling an <code>async def</code> function does not automatically execute the code in the function. To execute the code the <code>await</code> keyword must be used when calling the function. This instructs the <code>asyncio</code> event loop to schedule execution of the function. </p>
 
 
   import asyncio
@@ -1081,6 +2272,14 @@ asyncio.run(main())
 
 
 
+ Summary of AsyncIO 
+
+
+
+<p>AsyncIO has a few main concepts for the async runtime, the asyncio event loop and an <code>async def</code> function as a coroutine. These basic concepts map nicely onto the HIO concepts of a <code>Doist</code>, the root scheduler in HIO, and the <code>Doer</code>, the coroutine or task concept in HIO. The main point where AsyncIO and HIO differ are that HIO has an explicit construct for creating hierarchies of tasks, the <code>DoDoer</code>. While there is no explicit construct in AsyncIO for a <code>DoDoer</code> any <code>async/await</code> coroutine could be considered to be a container for other coroutines.</p>
+
+
+
  Combining AsyncIO and HIO 
 
 
@@ -1089,7 +2288,7 @@ asyncio.run(main())
 
 
 
-<p>Yet first we must describe what HIO is.</p>
+<p>Yet first we must describe what HIO is. The subject of combining AsyncIO and HIO will be covered in a future article. This article is a short introduction to the three main classes of HIO’s async runtime implementation.</p>
 
 
 
@@ -1100,7 +2299,33 @@ asyncio.run(main())
  
 
 
-<p>HIO stands for Hierarchical IO. The README [1] describes it as weightless, hierarchical asynchronous coroutines and I/O in Python. This means that the task abstractions in HIO allow for nesting subtasks within tasks. HIO makes heavy use of what are now known as “<a href="https://www.fluentpython.com/extra/classic-coroutines/">classic coroutines</a>“[2] where the <code>.send()</code> function is used to send data into  a <a href="https://wiki.python.org/moin/Generators">Python generator function</a> being used as a coroutine, which means a function with the <code>yield</code> keyword in the body. HIO also uses an approach grounded in <a href="https://en.wikipedia.org/wiki/Structured_concurrency">structured concurrency</a> where there are clear entry and exit points to tasks, errors in concurrently executing tasks propagate up the task chain, and clear expression of control flow within the structure of source code despite the presence of concurrency.</p>
+<p>HIO stands for Hierarchical IO. The README [1] describes it as weightless, hierarchical asynchronous coroutines and I/O in Python. This means that the task abstractions in HIO allow for nesting subtasks within tasks. HIO has three primary classes that make up its asynchronous runtime: <br>1. the <code>Doist</code>, or the root scheduler,<br>2. the <code>DoDoer</code>, a container holding either other <code>DoDoer</code> instances or <code>Doer</code> instances allowing you to create task hierarchies,<br>3. the <code>Doer</code>, the basic task or coroutine construct in HIO.</p>
+
+
+
+<p>HIO makes heavy use of what are now known as “<a href="https://www.fluentpython.com/extra/classic-coroutines/">classic coroutines</a>“[2] where the scheduler uses the <code>my_coro.send(data)</code> function to send data into a <a href="https://wiki.python.org/moin/Generators">Python generator function</a>. This generator function is the classic coroutine. </p>
+
+
+
+<p>A few keywords distinguish classical coroutines including:</p>
+
+
+
+ 
+ <code>yield</code>: used to pause execution of a coroutine (generator function), send a value out of a coroutine, and receive a value into a coroutine. 
+
+
+
+ <code>yield from</code>: used when nesting generators (inner generators) to pause execution of the outer generator and pass, or delegate, conrol to a sub-generator. Once the sub-generator completes then control is passed back to the outer generator. 
+ 
+
+
+
+<p>The <code>yield</code> keyword used in the body of a Python generator function allows it to receive values from the <code>my_coro.send()</code> function, similar to how Erlang/Elixir use the OTP to pass messages between processes with <code>send</code> and <code>receive</code>. The Python <code>my_coro.send(data)</code> is the “send” and the <code>myvar = yield from</code> invocation is the “receive.” And the <code>yield from</code> keyword used in the body of a classic coroutine allows delegating to, or transferring execution to, a nested or sub-generator.</p>
+
+
+
+<p>This classic coroutine approach HIO uses is grounded in <a href="https://en.wikipedia.org/wiki/Structured_concurrency">structured concurrency</a> where there are clear entry and exit points to tasks, errors in concurrently executing tasks propagate up the task chain, and clear expression of control flow within the structure of source code despite the presence of concurrency. The context methods of a HIO <code>Doer</code> task provide the clear entry and exit points as well as a clear exception handling mechanism.</p>
 
 
 
@@ -1108,27 +2333,31 @@ asyncio.run(main())
 
 
 
-<p>The main concepts from HIO we cover in this post include the root scheduler, the Doist, the hierarchical task concept, the DoDoer, and the core task concept, the Doer, as shown below in the diagram.</p>
+<p>The root scheduler, the Doist, processes an array of <code>Doer</code> and <code>DoDoer</code> tasks. The <code>DoDoer</code> is the hierarchical task concept, and the <code>Doer</code> is the core task concept as shown below in the diagram.</p>
 
 
  
  
 
 
-<p>Your program, the Python process, runs the Doist</p>
+<p>Your program, the Python process, runs the Doist and the Doist runs the list of tasks until they finish or the program is terminated.</p>
 
 
   # from github.com/WebOfTrust/keripy/src/keri/app/cli/directing.py
 # module: keri.app.cli.directing
 
-
-def runController(doers, expire=0.0):  # &lt;-- receives a list of tasks for the scheduler to run
+# receives a list of tasks for the scheduler to run
+def runController(doers, expire=0.0): 
     """
-    Utiitity Function to create doist to run doers
+    Utility Function to create doist to run doers
     """
     tock = 0.03125
-    doist = doing.Doist(limit=expire, tock=tock, real=True)  # &lt;-- creates the Doist, the root scheduler
-    doist.do(doers=doers)  # &lt;-- adds tasks to the Doist to run. Calling "do" runs the Doist
+
+    # creates the Doist, the root scheduler
+    doist = doing.Doist(limit=expire, tock=tock, real=True)  
+   
+    # adds tasks to the Doist to run. Calling "do" runs the Doist
+    doist.do(doers=doers)  
 
   
 
@@ -1145,27 +2374,23 @@ def runWitness(name="witness", base="", alias="witness", bran="", tcp=5631, http
     Setup and run one witness
     """
 
-    ks = keeping.Keeper(name=name,
-                        base=base,
-                        temp=False,
-                        reopen=True)
+    ks = keeping.Keeper(name=name, base=base, temp=False, reopen=True)
 
     aeid = ks.gbls.get('aeid')
-
     if aeid is None:
         hby = habbing.Habery(name=name, base=base, bran=bran)
     else:
         hby = existing.setupHby(name=name, base=base, bran=bran)
 
     hbyDoer = habbing.HaberyDoer(habery=hby)  # setup doer
-    doers = [hbyDoer]  # &lt;-- list of tasks
+    
+    doers = [hbyDoer]  # list of tasks
 
-    doers.extend(indirecting.setupWitness(alias=alias,
-                                          hby=hby,
-                                          tcpPort=tcp,
-                                          httpPort=http))  # &lt;-- extends the task list with the tasks from indirecting.setupWitness
+    # extends the task list with the tasks from indirecting.setupWitness
+    doers.extend(indirecting.setupWitness(alias=alias, hby=hby, tcpPort=tcp, httpPort=http)) 
 
-    directing.runController(doers=doers, expire=expire)  # &lt;-- calls the Doist root scheduler with a list of tasks
+    # calls the Doist root scheduler with a list of tasks
+    directing.runController(doers=doers, expire=expire)
   
 
 
@@ -1205,11 +2430,13 @@ def runWitness(name="witness", base="", alias="witness", bran="", tcp=5631, http
     tock = 0.03125
     doist = doing.Doist(tock=tock)
 
-    doer0 = doing.ExDoer(tock=tock, tymth=doist.tymen())  # &lt;-- creates a Doer, an example doer (ExDoer)
-    doer2 = doing.ExDoer(tock=tock, tymth=doist.tymen())  # &lt;-- creates a Doer, an example doer (ExDoer)
+    # creates a Doer, an example doer 
+    doer0 = doing.ExDoer(tock=tock, tymth=doist.tymen())
+    # creates a Doer, an example doer 
+    doer2 = doing.ExDoer(tock=tock, tymth=doist.tymen())
     doers = [doer0, doer1]
 
-    doist.do(doers=doers)  # &lt;-- run the Doist
+    doist.do(doers=doers)  # run the Doist
     assert doer0.done == True
   
 
@@ -1218,7 +2445,7 @@ def runWitness(name="witness", base="", alias="witness", bran="", tcp=5631, http
 
 
 
-<p>The six context functions in the <code>Doer</code> are run by the <code>enter</code> and <code>exit</code> functions of the <code>Doist</code> as well as the <code>do</code> function of the <code>Doer</code>. Each of these functions serve as a lifecycle hook for a different time in the execution of the <code>Doer</code>. The <code><a href="https://github.com/ioflo/hio/blob/main/src/hio/base/doing.py#L541">.do</a></code> function is reproduced below to show when each context function is executed.</p>
+<p>The six context functions in the <code>Doer</code> are run by the <code>enter</code> and <code>exit</code> functions of the <code>Doist</code> as well as the <code>do</code> function of the <code>Doer</code>. Each of these functions serve as a lifecycle hook for a different time in the execution of the <code>Doer</code>. The <code><a href="https://github.com/ioflo/hio/blob/main/src/hio/base/doing.py#L541">.do</a></code> function reproduced below shows where each context function is executed after calling <code>Doer.do</code>. Take special notice of the <code>while</code> loop inside of the <code>try/except</code> block. This is the loop that continues to run the body of the <code>Doer</code>, the function or generator that does the work of the <code>Doer</code>.</p>
 
 
   # from github.com/ioflo/hio/src/hio/base.doing.py
@@ -1227,8 +2454,7 @@ class Doer(tyming.Tymee):
 
     def do(self, tymth, *, tock=0.0, **opts):
         """
-        Generator method to run this doer.
-        Calling this method returns generator.
+        Generator method to run this doer. Calling this method returns generator.
         Interface matches generator function for compatibility.
         To customize create subclasses and override the lifecycle methods:
             .enter, .recur, .exit, .close, .abort
@@ -1244,35 +2470,35 @@ class Doer(tyming.Tymee):
             self.wind(tymth)  # update tymist dependencies
             self.tock = tock  #  set tock to parameter
             self.done = False  # allows enter to override completion state
-            self.enter()  # &lt;-- first context function, enter
+            self.enter()  # (1) first context function, enter
 
             #recur context
             if isgeneratorfunction(self.recur):  #  .recur is generator method
-                self.done = yield from self.recur()  # recur context delegated
+                self.done = yield from self.recur()  # (2) recur context delegated, second context function
             else:  # .recur is standard method so iterate in while loop
                 while (not self.done):  # recur context
                     tyme = (yield (self.tock))  # yields .tock then waits for next send
-                    self.done = self.recur(tyme=tyme)   # &lt;-- second context function, recur
+                    self.done = self.recur(tyme=tyme)   # (2) second context function, recur
 
         except GeneratorExit:  # close context, forced exit due to .close
-            self.close()  # &lt;-- third context function, close
+            self.close()  # (3) third context function, close
 
         except Exception as ex:  # abort context, forced exit due to uncaught exception
-            self.abort(ex=ex)   # &lt;-- fourth context function, abort
+            self.abort(ex=ex)   # (4) fourth context function, abort
             raise
 
         else:  # clean context
-            self.clean()  # &lt;-- fifth context function, clean
+            self.clean()  # (5) fifth context function, clean
 
         finally:  # exit context, exit, unforced if normal exit of try, forced otherwise
-            self.exit()  # &lt;-- sixth context function, exit
+            self.exit()  # (6) sixth context function, exit
 
         # return value of yield from or StopIteration.value indicates completion
         return self.done  # Only returns done state if normal return not close or abort raise
   
 
 
-<p>In the normal execution of a <code>Doer</code> the <code>.do()</code> function calls, in this order, <code>enter</code>, <code>recur</code>, and then <code>clean</code>. The <code>close</code> context function is only executed when it is explicitly called by some higher level construct such as a <code>DoDoer</code> or the <code>Doist</code> scheduler itself. </p>
+<p>In the normal execution of a <code>Doer</code> the <code>.do()</code> function calls, in this order, <code>enter</code>, <code>recur</code>, <code>clean</code>, and then <code>exit</code>. The <code>close</code> context function is only executed when it is explicitly called by some higher level construct such as a <code>DoDoer</code> or the <code>Doist</code> scheduler itself.</p>
 
 
 
@@ -1284,15 +2510,19 @@ class Doer(tyming.Tymee):
 
 
 
-<p>This post touches lightly on <code>DoDoer</code>s to say that the <code>DoDoer</code> provides hierarchical task management which means you can nesting tasks for a clear hierarchy of task execution for groups of tasks. A future article will detail the definition and usage of the <code>DoDoer</code>.</p>
+<p>This post touches lightly on <code>DoDoer</code>s to say that the <code>DoDoer</code> provides hierarchical task management which means you can nest tasks for a clear hierarchy of task execution for groups of tasks. A future article will detail the definition and usage of the <code>DoDoer</code>.</p>
 
 
 
- How do they compare? 
+ AsyncIO vs HIO – How do they compare? 
 
 
 
-<p>Classic coroutines are very powerful constructs that provide a richer control flow construct as compared to AsyncIO. This is because you can use any number of <code>yield</code> or <code>yield from</code> statements in the body of a classic coroutine. You can also repeatedly accept information into a classic coroutine through the <code>yield from</code> syntax. The fact that classic coroutines are just generator functions means you have full control over iteration of that generator from an async context with all the power of Python iterators. </p>
+<p>Classic coroutines are very powerful constructs that provide a richer control flow construct as compared to AsyncIO’s <code>async def</code> coroutine construc. This is because you can use any number of <code>yield</code> or <code>yield from</code> statements in the body of a classic coroutine, which provides you with the ability to custom-fit the execution of a generator-based coroutine to your specific use case. The <code>async/await</code> syntax does a similar thing for you, yet with a standard syntax that you cannot customize.</p>
+
+
+
+<p>With HIO you can also repeatedly accept information into a classic coroutine instance through the <code>yield from</code> syntax. The fact that classic coroutines are just generator functions means you have full control over iteration of that generator, and all of it’s contained state including any state it has closed over, from an async context with all the power of Python iterators.</p>
 
 
 
@@ -1300,19 +2530,23 @@ class Doer(tyming.Tymee):
 
 
 
-<p>Yet with this additional power comes the potential to have complicated and hard to understand control flow. It is understandable why there would be so much support in the Python community for a simpler, less powerful syntax, which is what <code>async/await</code> is. </p>
+<p>Yet with this additional power comes the potential to have complicated and hard to understand control flow. It is understandable why there would be so much support in the Python community for a simpler, less powerful syntax, which is what <code>async/await</code> is. The linked <a href="https://www.fluentpython.com/extra/classic-coroutines/">article</a>[2] from Luciano Ramalho goes in depth on the features of both classic coroutines and Python’s AsyncIO.</p>
 
 
 
- Wrap up and Net Steps 
+ Wrap up and Next Steps 
 
 
 
-<p>The raw power of classic coroutines significantly influenced the decision to use them in HIO as well as in KERIpy, KERIA, and SignifyPy. Yet, this is not an either-or, all-or-nothing situation. You can use HIO and AsyncIO together. Future articles will delve deeper into the rationale behind HIO, how and when to use it properly, as well as how to use HIO and AsyncIO together. To gain a deeper understanding of HIO one of your next steps would be to read some of the <a href="https://github.com/ioflo/hio/tree/main/tests">tests</a> in the HIO source code repository, specifically the <code><a href="https://github.com/ioflo/hio/blob/main/tests/base/test_doist.py#L30">test_doist_once</a></code> and <code><a href="https://github.com/ioflo/hio/blob/main/tests/base/test_doist.py#L691">test_nested_doers</a></code> tests.</p>
+<p>This article focused on the “what” of the async framework side of HIO, specifically the three primary classes at the core of the async runtime in HIO, the <code>Doist</code> scheduler, <code>DoDoer</code> hierarchical task container, and the <code>Doer</code> task class. The raw power of classic coroutines significantly influenced the decision to use them in HIO as well as in KERIpy, KERIA, and SignifyPy. Yet, this is not an either-or, all-or-nothing situation. You can use HIO and AsyncIO together. </p>
 
 
 
-<p>Topics not covered in this article that are important to understand HIO include details of the <code>DoDoer</code> and the network and file I/O capabilities of the HIO package. </p>
+<p>Major topics not covered in this article that are important to understand HIO include details of the <code>DoDoer</code> and the network and file I/O capabilities of the HIO package.</p>
+
+
+
+<p>Future articles will delve deeper into the “why” of HIO, the rationale behind HIO, how and when to use it properly, as well as how to use HIO and AsyncIO together. To gain a deeper understanding of HIO one of your next steps would be to read some of the <a href="https://github.com/ioflo/hio/tree/main/tests">tests</a> in the HIO source code repository, specifically the <code><a href="https://github.com/ioflo/hio/blob/main/tests/base/test_doist.py#L30">test_doist_once</a></code> and <code><a href="https://github.com/ioflo/hio/blob/main/tests/base/test_doist.py#L691">test_nested_doers</a></code> tests.</p>
 
 
 
@@ -1324,11 +2558,11 @@ class Doer(tyming.Tymee):
 
 
 
-<p>[2] L. Ramalho, “Classic Coroutines,” Fluent Python, the lizard book, Apr. 2022. <a href="https://www.fluentpython.com/extra/classic-coroutines/">https://www.fluentpython.com/extra/classic-coroutines/</a> (accessed May 11, 2024).</p>
+<p>[2] L. Ramalho, “Classic Coroutines,” Fluent Python, the lizard book, Apr. 2022. <a href="https://www.fluentpython.com/extra/classic-coroutines">https://www.fluentpython.com/extra/classic-coroutines</a> (accessed May 11, 2024).</p>
 
 
 
-<p>[3] Real Python, “Async IO in python: A complete walkthrough,” Real Python, <a href="https://realpython.com/async-io-python/">https://realpython.com/async-io-python/</a> (accessed May 9, 2024).</p>
+<p>[3] Real Python, “Async IO in python: A complete walkthrough,” Real Python, <a href="https://realpython.com/async-io-python">https://realpython.com/async-io-python</a> (accessed May 9, 2024).</p>
    
   
   
@@ -1345,7 +2579,7 @@ class Doer(tyming.Tymee):
 
 <div class='item-footer'>
    00:11 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1467,7 +2701,7 @@ class Doer(tyming.Tymee):
 
 <div class='item-footer'>
    22:02 &bull;
-   9 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1533,7 +2767,7 @@ class Doer(tyming.Tymee):
 
 <div class='item-footer'>
    20:34 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1612,7 +2846,7 @@ class Doer(tyming.Tymee):
 
 <div class='item-footer'>
    19:38 &bull;
-   11 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1688,7 +2922,7 @@ class Doer(tyming.Tymee):
 
 <div class='item-footer'>
    19:33 &bull;
-   11 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1769,7 +3003,7 @@ class Doer(tyming.Tymee):
 
 <div class='item-footer'>
    19:33 &bull;
-   11 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1837,7 +3071,7 @@ I scraped a pass of my Ham radio general exam this morning. One of the tools I u
 
 <div class='item-footer'>
    19:16 &bull;
-   11 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1894,7 +3128,7 @@ I scraped a pass of my Ham radio general exam this morning. One of the tools I u
  -->
 <div class='wrap'>
 
- The “oil lights” of cryptographic key management.  TL;DR   KERI is an open, decentralized protocol for discovery, recovery, and management of cryptographic keys. KERI enables anyone to digitally sign digital things and to verify what others have signed, without the need for shared networks, blockchains, registries, platforms, or identity providers.  KERI solves seven hard problems of key management: Rotation, Recovery, Detectability, Discovery, Delegability, Revocability, and Multi-Signature.  KERI has three Detectability functions — Witnesses, Watchers, and Anchored Issuances — that are like the oil light of a car: they detect key compromise and malicious behaviors of Signers and service providers.  <p>With KERI Detectability functions…</p><p>Signers can&nbsp;detect:</p>  Their own compromised keys when used by hackers for&nbsp;signing;  Their own compromised keys when used by hackers to rotate, delegate, or revoke their signing&nbsp;keys.  <p>And Verifiers can&nbsp;detect:</p>  Compromised Signers;  Malicious Signers;  Their own malicious or compromised verification service provider.  <p>Without KERI Anchored Issuances in particular, if a Signer suspects key compromise and performs a rotation, it cannot determine which issuances were made fraudulently, and must revoke and reissue all previously issued credentials. (!)</p><p>With KERI Anchored Issuances, fraudulently issued credentials will not successfully verify before or after key rotations, whereas authentically issued credentials will continue to successfully verify, even after an unlimited number of key rotations.</p> What is&nbsp;KERI? <p>KERI — Key Event Receipt Infrastructure — is a new (2019), open, decentralized protocol for discovering, recovering, and managing <a href="https://www.cloudflare.com/learning/ssl/what-is-a-cryptographic-key/">cryptographic keys</a>. KERI enables people, organizations, and things to <a href="https://www.cisa.gov/news-events/news/understanding-digital-signatures">sign</a> digital things and verify what others have signed, without the need for shared networks, blockchains, registries, platforms, or identity providers.</p><p>With KERI, Signers and Verifiers worldwide maintain their own infrastructure without anything in common, but they do share one game-changing thing: a protocol for discovering the Signer’s current key state. This enables Verifiers to securely confirm that a piece of data has been signed by a particular Signer, and it hasn’t been tampered with, revoked, or&nbsp;expired.</p><p>KERI is “end verifiable”; the means through which data travels needn’t be secure for it to be verifiably authentic. KERI is zero trust, enabling objective verifiability without subjective trust, and it creates no centralized troves of valuable data. KERI is quantum-resistant and uses existing cryptography and cloud infrastructure.</p><p>In short, KERI brings the ability to distinguish fake from real in the digital realm, across networks, borders, and boundaries of all&nbsp;kinds.</p> Seven Hard Problems of Key Management <p>KERI address seven hard problems of key management, listed below. Most were previously not solvable in a decentralized manner, and some not in a centralized one.</p><p>Seven hard problems (with the KERI solution):</p>  Rotation (change current keys for new, without re-issuing past issuances)  Recovery (from private key loss or compromise, without re-issuing past issuances)  Detectability (of key compromise or malicious Signer behavior)  Discovery (just-in-time discovery of key&nbsp;state)  Delegability (directly from one Signer/key controller to&nbsp;another)  Revocability (decentralized, instant, with&nbsp;privacy)  Multi-signature (weighted m-of-n, verifiable)   Detectability: Witnesses, Watchers, &amp; Anchored Issuances  Detectability Is the ‘Oil Light’ of Key Management <p>Together, KERI Witnesses, Watchers, and Anchored Issuances, all described below, enable Detectability. Detectability is like the oil light of a car: ignore it, disconnect it, or omit it at your peril, because it is the most critical indicator on your dashboard.</p><p>Removing Witnesses, Watchers, and Anchored Issuances from a system removes Detectability.</p><p>Without Detectability, Signers cannot&nbsp;detect:</p>  Their own compromised keys when used by hackers for&nbsp;signing;  Their own compromised keys when used by hackers to rotate, delegate, or revoke the Signer’s&nbsp;keys.  <p>And Verifiers cannot&nbsp;detect:</p>  A Signer’s compromised keys;  Malicious Signers;  Their own malicious or compromised verification service provider.   What Are Witnesses? <p>KERI <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#a998">Witnesses</a> are secure, distributed replicas of a Signer’s <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#7c43">key event log</a>. They are established (built or bought) and controlled by a <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#2627">Signer</a> (also a “key controller” or “issuer”). A Signer can be anyone or anything, anywhere.</p><p>Witnesses make separate, additional replicated points of verification available to <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#1f72">Verifiers</a>, enabling Verifiers to detect both compromised and malicious behaviors by Signers. Witnesses can be web servers, distributed databases, blockchains, or any other addressable data&nbsp;source.</p><p>To compromise a KERI <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#7344">identifier</a>, each of its Witnesses must also be compromised.</p><p>There are no limits or requirements as to whether a Signer uses Witnesses at all or how many; the KERI protocol simply enables any number of Witnesses to be established, deployed however the Signer&nbsp;chooses.</p> What Are Watchers? <p>KERI <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#0d21">Watchers</a> are services established (built or bought) by a Verifier — who can be anyone or anything anywhere — that enable the Verifier to confidently rely on what their own service providers are telling them about a Signer’s <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#7344">key&nbsp;state</a>.</p><p>Watchers help Verifiers avoid the single-oracle problem: if you have only one source of truth, you cannot know if that source has been compromised or is acting maliciously (deliberately lying to you). When multiple distinct Watchers all report the same key state of a Signer, it can be more safely relied upon. Having Watchers removes a tempting single point of vulnerability for&nbsp;hackers.</p><p>As with Witnesses, there are no limits or requirements as to whether Watchers are used at all or how many; the KERI protocol simply enables any number of Watchers to be established and deployed however&nbsp;desired.</p> Anchored Issuances: A Breakthrough in Detecting and Preventing the Use of Stolen&nbsp;Keys <p>Another critical element of Detectability, separate from Witnesses and Watchers, is “Anchored Issuances” (referred to as “seals” in the KERI white&nbsp;paper).</p><p>When issued credentials are properly anchored in one’s Key Event Log (KEL) and properly witnessed and watched, it becomes impossible for a hacker of your private keys to use them without your detection; the unauthorized issuances will not successfully verify. With un-anchored / “unbound” issuances, hackers can use stolen private keys as they please with zero detectability and, unfortunately, every issuance they make will successfully verify.</p><p>Akin to a check register, Anchored Issuances provide a secure record of issued credentials that can be instantly and cryptographically confirmed by Verifiers. No other system we are aware of provides detectability or prevention of the use of stolen private&nbsp;keys.</p> No Detectability? Rotate, Revoke, and Re-Issue Everything. (Really) <p>Some alternative key management systems borrow KERI’s primary functions — <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#0a82">pre-rotation</a>, <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#909c">SCIDS</a>, etc. — but forgo its Detectability functions. For them and for all non-KERI key management systems, a big future headache awaits: if a Signer suspects key compromise and performs a rotation, there is no way to distinguish valid issuances from invalid ones — they will all continue to verify successfully — so a Signer must revoke and reissue all previously issued credentials. (!)</p><p>That is, if a Signer wishes to maintain a positive reputation for its credentials. Revoking and reissuing everything would likely be a user experience nightmare, which alone defeats the purpose of having pre-rotation. Pre-rotation is arguably KERI’s greatest innovation, but does not achieve its full potential without Detectability.</p> Can’t We Just Rotate More&nbsp;Often? <p>Yes, but it won’t help much. KERI pre-rotation can be done repeatedly without downstream costs or consequences for KERI identifiers, a breathtaking breakthrough in key management. But… while a Signer’s more-frequent rotation might attempt to repair one vulnerability — compromise of the Signer’s keys — it does not address other vulnerabilities listed in the “KERI Detectability” section, and it still leaves the ugly problem of revoking and re-issuing everything if a compromise is suspected. In other words, removing Detectability leaves significant holes in the security model no matter how often a Signer rotates their&nbsp;keys.</p><p>Such a tradeoff may be acceptable for less critical use cases or at smaller scale, but is likely unacceptable for most organizations.</p> In Conclusion <p>KERI Witnesses, Watchers, and Anchored Issuances are the ‘oil lights’ of cryptographic key management, enabling robust detectability of malicious or compromised digital signing behaviors for both Signers and Verifiers. KERI Anchored Issuances goes beyond detection to full-on prevention, actively blocking the use of stolen private keys for credential signing.</p><p>KERI Detectability brings critical advances in key management specifically and cybersecurity generally, and should be seriously considered for inclusion within any comprehensive cybersecurity, identity, or key management system.</p>
+ The “oil lights” of cryptographic key management.  TL;DR   KERI is an open, decentralized protocol for discovery, recovery, and management of cryptographic keys. KERI enables anyone to digitally sign digital things and to verify what others have signed, without the need for shared networks, blockchains, registries, platforms, or identity providers.  KERI solves seven hard problems of key management: Rotation, Recovery, Detectability, Discovery, Delegability, Revocability, and Multi-Signature.  KERI has three Detectability functions — Witnesses, Watchers, and Anchored Issuances — that are like the oil light of a car: they detect key compromise and malicious behaviors of Signers and service providers.  <p>With KERI Detectability functions…</p><p>Signers can&nbsp;detect:</p>  Their own compromised keys when used by hackers for&nbsp;signing;  Their own compromised keys when used by hackers to rotate, delegate, or revoke their signing&nbsp;keys.  <p>And Verifiers can&nbsp;detect:</p>  Compromised Signers;  Malicious Signers;  Their own malicious or compromised verification service provider.  <p>Without KERI Anchored Issuances in particular, if a Signer suspects key compromise and performs a rotation, it cannot determine which issuances were made fraudulently, and must revoke and reissue all previously issued credentials. (!)</p><p>With KERI Anchored Issuances, fraudulently issued credentials will not successfully verify before or after key rotations, whereas authentically issued credentials will continue to successfully verify, even after an unlimited number of key rotations.</p> What is&nbsp;KERI? <p>KERI — Key Event Receipt Infrastructure — is a new (2019), open, decentralized protocol for discovering, recovering, and managing <a href="https://www.cloudflare.com/learning/ssl/what-is-a-cryptographic-key/">cryptographic keys</a>. KERI enables people, organizations, and things to <a href="https://www.cisa.gov/news-events/news/understanding-digital-signatures">sign</a> digital things and verify what others have signed, without the need for shared networks, blockchains, registries, platforms, or identity providers.</p><p>With KERI, Signers and Verifiers worldwide maintain their own infrastructure without anything in common, but they do share one game-changing thing: a protocol for discovering the Signer’s current key state. This enables Verifiers to securely confirm that a piece of data has been signed by a particular Signer, and that it hasn’t been tampered with, revoked, or&nbsp;expired.</p><p>KERI is “end verifiable”; the means through which data travels needn’t be secure for it to still be verifiably authentic when it arrives at its destination. KERI is zero trust, enabling objective verifiability without subjective trust, and it creates no centralized troves of valuable data. KERI is quantum-resistant and uses existing cryptography and cloud infrastructure.</p><p>In short, KERI brings the ability to distinguish fake from real in the digital realm, across networks, borders, and boundaries of all&nbsp;kinds.</p> Seven Hard Problems of Key Management <p>KERI address seven hard problems of key management, listed below. Most were previously not solvable in a decentralized manner, and some not in a centralized one.</p><p>Seven hard problems (with the KERI solution):</p>  Rotation (change current keys for new, without re-issuing past issuances)  Recovery (from private key loss or compromise, without re-issuing past issuances)  Detectability (of key compromise or malicious Signer behavior)  Discovery (just-in-time discovery of key&nbsp;state)  Delegability (directly from one Signer/key controller to&nbsp;another)  Revocability (decentralized, instant, with&nbsp;privacy)  Multi-signature (weighted m-of-n, verifiable)   Detectability: Witnesses, Watchers, &amp; Anchored Issuances  Detectability Is the ‘Oil Light’ of Key Management <p>Together, KERI Witnesses, Watchers, and Anchored Issuances, all described below, enable Detectability. Detectability is like the oil light of a car: ignore it, disconnect it, or omit it at your peril, because it is the most critical indicator on your dashboard.</p><p>Removing Witnesses, Watchers, and Anchored Issuances from a system removes Detectability.</p><p>Without Detectability, Signers cannot&nbsp;detect:</p>  Their own compromised keys when used by hackers for&nbsp;signing;  Their own compromised keys when used by hackers to rotate, delegate, or revoke the Signer’s&nbsp;keys.  <p>And Verifiers cannot&nbsp;detect:</p>  A Signer’s compromised keys;  Malicious Signers;  Their own malicious or compromised verification service provider.   What Are Witnesses? <p>KERI <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#a998">Witnesses</a> are secure, distributed replicas of a Signer’s <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#7c43">key event log</a>. They are established (built or bought) and controlled by a <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#2627">Signer</a> (also a “key controller” or “issuer”). A Signer can be anyone or anything, anywhere.</p><p>Witnesses make separate, additional replicated points of verification available to <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#1f72">Verifiers</a>, enabling Verifiers to detect both compromised and malicious behaviors by Signers. Witnesses can be web servers, distributed databases, blockchains, or any other addressable data&nbsp;source.</p><p>To compromise a KERI <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#7344">identifier</a>, each of its Witnesses must also be compromised.</p><p>There are no limits or requirements as to whether a Signer uses Witnesses at all or how many; the KERI protocol simply enables any number of Witnesses to be established, deployed however the Signer chooses, and for Verifiers to verify that all Witnesses are acting in unanimity about the Signer’s key&nbsp;state.</p> What Are Watchers? <p>KERI <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#0d21">Watchers</a> are services established (built or bought) by a Verifier — who can be anyone or anything anywhere — that enable the Verifier to confidently rely on what their own service providers are telling them about a Signer’s <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#7344">key&nbsp;state</a>.</p><p>Watchers help Verifiers avoid the single-oracle problem: if you have only one source of truth, you cannot know if that source has been compromised or is acting maliciously (deliberately lying to you). When multiple distinct Watchers all report the same key state of a Signer, it can be more safely relied upon. Having Watchers removes a tempting single point of vulnerability for&nbsp;hackers.</p><p>As with Witnesses, there are no limits or requirements as to whether Watchers are used at all or how many; the KERI protocol simply enables any number of Watchers to be established and deployed however&nbsp;desired.</p> Anchored Issuances: A Breakthrough in Detecting and Preventing the Use of Stolen&nbsp;Keys <p>Another critical element of Detectability, separate from Witnesses and Watchers, is “Anchored Issuances” (referred to as “seals” in the KERI white&nbsp;paper).</p><p>When issued credentials are properly anchored in one’s Key Event Log (KEL) and properly witnessed and watched, it becomes impossible for a hacker of your private keys to use them without your detection; the unauthorized issuances will not successfully verify. With un-anchored / “unbound” issuances, hackers can use stolen private keys as they please with zero detectability and, unfortunately, every issuance they make will successfully verify.</p><p>Akin to a check register, Anchored Issuances provide a secure record of issued credentials that can be instantly and cryptographically confirmed by Verifiers. No other system we are aware of provides detectability or prevention of the use of stolen private&nbsp;keys.</p> No Detectability? Rotate, Revoke, and Re-Issue Everything. (Really) <p>Some alternative key management systems borrow KERI’s primary functions — <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#0a82">pre-rotation</a>, <a href="https://medium.com/finema/keri-jargon-in-a-nutshell-part-1-fb554d58f9d0#909c">SCIDS</a>, etc. — but forgo its Detectability functions. For them and for all non-KERI key management systems, a big future headache awaits: if a Signer suspects key compromise and performs a rotation, there is no way to distinguish valid issuances from invalid ones — they will all continue to verify successfully — so a Signer must revoke and reissue all previously issued credentials. (!)</p><p>That is, if a Signer wishes to maintain a positive reputation for its credentials. Revoking and reissuing everything would likely be a user experience nightmare, which alone defeats the purpose of having pre-rotation. Pre-rotation is arguably KERI’s greatest innovation, but does not achieve its full potential without Detectability.</p> Can’t We Just Rotate More&nbsp;Often? <p>Yes, but it won’t help much. KERI pre-rotation can be done repeatedly without downstream costs or consequences for KERI identifiers, a breathtaking breakthrough in key management. But… while a Signer’s more-frequent rotation might attempt to repair one vulnerability — compromise of the Signer’s keys — it does not address other vulnerabilities listed in the “KERI Detectability” section, and it still leaves the ugly problem of revoking and re-issuing everything if a compromise is suspected. In other words, removing Detectability leaves significant holes in the security model no matter how often a Signer rotates their&nbsp;keys.</p><p>Such a tradeoff may be acceptable for less critical use cases or at smaller scale, but is likely unacceptable for most organizations.</p> In Conclusion <p>KERI Witnesses, Watchers, and Anchored Issuances are the ‘oil lights’ of cryptographic key management, enabling robust detectability of malicious or compromised digital signing behaviors for both Signers and Verifiers. KERI Anchored Issuances goes beyond detection to full-on prevention, actively blocking the use of stolen private keys for credential signing.</p><p>KERI Detectability brings critical advances in key management specifically and cybersecurity generally, and should be seriously considered for inclusion within any comprehensive cybersecurity, identity, or key management system.</p>
    
   
   
@@ -1911,7 +3145,7 @@ I scraped a pass of my Ham radio general exam this morning. One of the tools I u
 
 <div class='item-footer'>
    18:35 &bull;
-   12 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1990,7 +3224,7 @@ I scraped a pass of my Ham radio general exam this morning. One of the tools I u
 
 <div class='item-footer'>
    01:39 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2085,7 +3319,7 @@ I scraped a pass of my Ham radio general exam this morning. One of the tools I u
 
 <div class='item-footer'>
    18:21 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2212,7 +3446,7 @@ plan or join us in the <a href="https://postgresteam.slack.com/archives/C056ZA93
 
 <div class='item-footer'>
    18:13 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2295,7 +3529,7 @@ A real tour de force of data engineering. Wilson Lin fetched 40 million posts an
 
 <div class='item-footer'>
    16:42 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2364,7 +3598,7 @@ A neat new feature of the <code>uv pip install</code> command is the <code>--exc
 
 <div class='item-footer'>
    16:35 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2541,7 +3775,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    16:25 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3023,7 +4257,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    15:50 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3089,7 +4323,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    15:15 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3172,7 +4406,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    14:07 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3234,7 +4468,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    11:33 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3304,7 +4538,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    10:16 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3365,7 +4599,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    05:56 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3428,7 +4662,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    01:59 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3489,7 +4723,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    01:38 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3559,7 +4793,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    00:34 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3633,7 +4867,7 @@ The Xz story from <a href="https://simonwillison.net/2024/Apr/5/everything-i-kno
 
 <div class='item-footer'>
    22:26 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3705,7 +4939,7 @@ Run Microsoft’s excellent Phi-3 model directly in your browser, using WebGPU s
 
 <div class='item-footer'>
    22:21 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3769,7 +5003,7 @@ Alex Garcia built this plugin for Datasette Cloud, and as with almost every Data
 
 <div class='item-footer'>
    18:29 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3856,7 +5090,7 @@ Alex Garcia built this plugin for Datasette Cloud, and as with almost every Data
 
 <div class='item-footer'>
    17:15 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3918,7 +5152,7 @@ Alex Garcia built this plugin for Datasette Cloud, and as with almost every Data
 
 <div class='item-footer'>
    13:28 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3983,7 +5217,7 @@ Alex Garcia built this plugin for Datasette Cloud, and as with almost every Data
 
 <div class='item-footer'>
    11:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4044,7 +5278,7 @@ Alex Garcia built this plugin for Datasette Cloud, and as with almost every Data
 
 <div class='item-footer'>
    11:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4119,7 +5353,7 @@ Alex Garcia built this plugin for Datasette Cloud, and as with almost every Data
 
 <div class='item-footer'>
    11:38 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4180,7 +5414,7 @@ Alex Garcia built this plugin for Datasette Cloud, and as with almost every Data
 
 <div class='item-footer'>
    10:35 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4265,7 +5499,7 @@ Alex Garcia built this plugin for Datasette Cloud, and as with almost every Data
 
 <div class='item-footer'>
    05:51 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4377,7 +5611,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    02:28 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4457,7 +5691,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    00:24 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4531,7 +5765,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    23:46 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4597,7 +5831,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    21:50 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4672,7 +5906,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    21:37 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4736,7 +5970,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    20:24 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4803,7 +6037,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    19:12 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4899,7 +6133,7 @@ If you are reading this post on my site, the inline video gives an error. Click 
 
 <div class='item-footer'>
    18:24 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4973,7 +6207,7 @@ New from OpenAI, a detailed specification describing how they want their models 
 
 <div class='item-footer'>
    18:15 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5052,7 +6286,7 @@ insert into events(event) values (
 
 <div class='item-footer'>
    16:55 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5131,7 +6365,7 @@ insert into events(event) values (
 
 <div class='item-footer'>
    16:50 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5210,7 +6444,7 @@ insert into events(event) values (
 
 <div class='item-footer'>
    16:26 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5648,7 +6882,7 @@ The “new” Barnes on the Ben Franklin Parkway
 
 <div class='item-footer'>
    16:26 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5722,7 +6956,7 @@ Mike Ash digs into a fascinating implementation detail of macOS.<p></p>
 
 <div class='item-footer'>
    14:23 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5801,7 +7035,7 @@ Mike Ash digs into a fascinating implementation detail of macOS.<p></p>
 
 <div class='item-footer'>
    13:43 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5863,7 +7097,7 @@ Mike Ash digs into a fascinating implementation detail of macOS.<p></p>
 
 <div class='item-footer'>
    13:35 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5925,7 +7159,7 @@ Mike Ash digs into a fascinating implementation detail of macOS.<p></p>
 
 <div class='item-footer'>
    12:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5993,7 +7227,7 @@ Mike Ash digs into a fascinating implementation detail of macOS.<p></p>
 
 <div class='item-footer'>
    10:31 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6084,7 +7318,7 @@ Mike Ash digs into a fascinating implementation detail of macOS.<p></p>
 
 <div class='item-footer'>
    04:01 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6158,7 +7392,7 @@ Geoffrey Litt has been working with Ink &amp; Switch exploring UI patterns for a
 
 <div class='item-footer'>
    01:44 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6232,7 +7466,7 @@ Geoffrey Litt has been working with Ink &amp; Switch exploring UI patterns for a
 
 <div class='item-footer'>
    00:41 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6302,7 +7536,7 @@ Geoffrey Litt has been working with Ink &amp; Switch exploring UI patterns for a
 
 <div class='item-footer'>
    00:39 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6372,7 +7606,7 @@ The mysterious <code>gpt2-chatbot</code> model that showed up in the <a href="ht
 
 <div class='item-footer'>
    00:33 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6385,71 +7619,6 @@ The mysterious <code>gpt2-chatbot</code> model that showed up in the <a href="ht
  <h2 class='new-date'>
   Tuesday, 07. May 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/05/08/i-think-it.html'> via Chris Lockhead. 🔗📼 Enjoy. - Siri for Midwesterners.😂 </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   via Chris Lockhead. 🔗📼 Enjoy. - Siri for Midwesterners.😂 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>via Chris Lockhead. <a href="https://www.youtube.com/watch?v=l_8n2q5iI4E">🔗📼 Enjoy.</a> - Siri for Midwesterners.😂</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:58 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -7524,7 +8693,7 @@ see you next time</p>
 
 <div class='item-footer'>
    22:12 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7702,7 +8871,7 @@ class TrainEnthusiastsEnrichment(Enrichment):
 
 <div class='item-footer'>
    19:49 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7773,74 +8942,6 @@ Matt Yeung introduces Deterministic Quoting, a technique to help reduce the risk
 
 <div class='item-footer'>
    19:08 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/05/08/protests-then-and.html'> 🔗 Protests, Then and Now 
- I highlighted too much to even st</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   🔗 Protests, Then and Now 
- I highlighted too much to even start to choose a great quote. Just read the article .. talking the ‘differalities’ of the 60s to today. Written by a 75 year old Vietnam vet who was awarded the a Purple Heart and came back and joined the peace movement. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://www.currentaffairs.org/2024/05/protests-then-and-now/">🔗 Protests, Then and Now</a></p>
-<p>I highlighted too much to even start to choose a great quote. Just read the article .. talking the ‘differalities’ of the 60s to today. Written by a 75 year old Vietnam vet who was awarded the a Purple Heart and came back and joined the peace movement.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:23 &bull;
    5 days ago
 </div>
 
@@ -7857,10 +8958,6 @@ Matt Yeung introduces Deterministic Quoting, a technique to help reduce the risk
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -7905,7 +9002,7 @@ Matt Yeung introduces Deterministic Quoting, a technique to help reduce the risk
 
 <div class='item-footer'>
    15:59 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7975,7 +9072,7 @@ Matt Yeung introduces Deterministic Quoting, a technique to help reduce the risk
 
 <div class='item-footer'>
    15:01 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8059,7 +9156,7 @@ Rage, rage against the dying of the light.</p>
 
 <div class='item-footer'>
    13:37 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8133,7 +9230,7 @@ Rage, rage against the dying of the light.</p>
 
 <div class='item-footer'>
    12:14 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8203,7 +9300,7 @@ New feature in the OpenAI streaming API that I've been wanting for a long time: 
 
 <div class='item-footer'>
    02:46 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8284,7 +9381,7 @@ New feature in the OpenAI streaming API that I've been wanting for a long time: 
 
 <div class='item-footer'>
    23:59 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8346,7 +9443,7 @@ New feature in the OpenAI streaming API that I've been wanting for a long time: 
 
 <div class='item-footer'>
    19:28 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8410,7 +9507,7 @@ New feature in the OpenAI streaming API that I've been wanting for a long time: 
 
 <div class='item-footer'>
    15:39 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8487,7 +9584,7 @@ New feature in the OpenAI streaming API that I've been wanting for a long time: 
 
 <div class='item-footer'>
    14:51 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8563,7 +9660,7 @@ New feature in the OpenAI streaming API that I've been wanting for a long time: 
 
 <div class='item-footer'>
    14:29 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8627,7 +9724,7 @@ New feature in the OpenAI streaming API that I've been wanting for a long time: 
 
 <div class='item-footer'>
    13:52 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8703,7 +9800,7 @@ New feature in the OpenAI streaming API that I've been wanting for a long time: 
 
 <div class='item-footer'>
    11:31 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8783,7 +9880,7 @@ New feature in the OpenAI streaming API that I've been wanting for a long time: 
 
 <div class='item-footer'>
    20:06 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8857,7 +9954,7 @@ Useful guide to the many new CSS features that have become widely enough support
 
 <div class='item-footer'>
    14:08 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8925,7 +10022,7 @@ Useful guide to the many new CSS features that have become widely enough support
 
 <div class='item-footer'>
    21:03 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8989,7 +10086,7 @@ Useful guide to the many new CSS features that have become widely enough support
 
 <div class='item-footer'>
    16:26 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9057,7 +10154,7 @@ I love a good migration story. Figma had their own custom language that compiled
 
 <div class='item-footer'>
    14:08 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9125,7 +10222,7 @@ I love a good migration story. Figma had their own custom language that compiled
 
 <div class='item-footer'>
    19:46 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9189,7 +10286,7 @@ I love a good migration story. Figma had their own custom language that compiled
 
 <div class='item-footer'>
    18:17 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9295,7 +10392,7 @@ I love a good migration story. Figma had their own custom language that compiled
 
 <div class='item-footer'>
    17:10 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9361,7 +10458,7 @@ Alex Garcia is working on <code>sqlite-vec</code>, a spiritual successor to his 
 
 <div class='item-footer'>
    03:16 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9437,7 +10534,7 @@ Alex Garcia is working on <code>sqlite-vec</code>, a spiritual successor to his 
 
 <div class='item-footer'>
    22:06 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9501,7 +10598,7 @@ Alex Garcia is working on <code>sqlite-vec</code>, a spiritual successor to his 
 
 <div class='item-footer'>
    19:44 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9569,7 +10666,7 @@ Stephen Bond demonstrates some ingenious tricks for creating surprisingly usable
 
 <div class='item-footer'>
    14:28 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9671,7 +10768,7 @@ Stephen Bond demonstrates some ingenious tricks for creating surprisingly usable
 
 <div class='item-footer'>
    14:17 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9746,7 +10843,7 @@ Stephen Bond demonstrates some ingenious tricks for creating surprisingly usable
 
 <div class='item-footer'>
    13:17 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9826,7 +10923,7 @@ Stephen Bond demonstrates some ingenious tricks for creating surprisingly usable
 
 <div class='item-footer'>
    09:55 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9896,67 +10993,7 @@ Molly White’s beautifully optimistic manifesto for creating a better web. Read
 
 <div class='item-footer'>
    02:41 &bull;
-   10 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/May/2/tom-eastman/#atom-everything'>Quoting Tom Eastman</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    I'm old enough to remember when the Internet wasn't a group of five websites, each consisting of screenshots of text from the other four.   — Tom Eastman 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <blockquote cite="https://twitter.com/tveastman/status/1069674780826071040"><p>I'm old enough to remember when the Internet wasn't a group of five websites, each consisting of screenshots of text from the other four.</p></blockquote><p>— <a href="https://twitter.com/tveastman/status/1069674780826071040">Tom Eastman</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:40 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9969,80 +11006,6 @@ Molly White’s beautifully optimistic manifesto for creating a better web. Read
  <h2 class='new-date'>
   Wednesday, 01. May 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/May/1/llama-3-prompt-formats/#atom-everything'>Llama 3 prompt formats</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Llama 3 prompt formats 
-I’m often frustrated at how thin the documentation around the prompt format required by an LLM can be. 
-
- Llama 3 turns out to be the best example I’ve seen yet of clear prompt format documentation. Every model needs documentation this good!
-
-      Via James O'Leary 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://llama.meta.com/docs/model-cards-and-prompt-formats/meta-llama-3/">Llama 3 prompt formats</a></p>
-I’m often frustrated at how thin the documentation around the prompt format required by an LLM can be.<p></p>
-
-<p>Llama 3 turns out to be the best example I’ve seen yet of clear prompt format documentation. Every model needs documentation this good!
-
-    </p><p>Via <a href="https://twitter.com/jpohhhh/status/1785721018507513966">James O'Leary</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:32 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -10102,81 +11065,7 @@ I’m often frustrated at how thin the documentation around the prompt format re
 
 <div class='item-footer'>
    16:57 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/May/1/claude-team-plan-and-ios-app/#atom-everything'>Introducing the Claude Team plan and iOS app</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Introducing the Claude Team plan and iOS app 
-The iOS app seems nice, and provides free but heavily rate-limited access to Sonnet (the middle-sized Claude 3 model)—I ran two prompts just now and it told me I could have 3 more, resetting in five hours. 
-
- For $20/month you get access to Opus and 5x the capacity—which feels a little ungenerous to me. 
-
- The new $30/user/month team plan provides high
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.anthropic.com/news/team-plan-and-ios">Introducing the Claude Team plan and iOS app</a></p>
-The iOS app seems nice, and provides free but heavily rate-limited access to Sonnet (the middle-sized Claude 3 model)—I ran two prompts just now and it told me I could have 3 more, resetting in five hours.<p></p>
-
-<p>For $20/month you get access to Opus and 5x the capacity—which feels a little ungenerous to me.</p>
-
-<p>The new $30/user/month team plan provides higher rate limits but is a minimum of five seats.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:06 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10240,80 +11129,7 @@ The iOS app seems nice, and provides free but heavily rate-limited access to Son
 
 <div class='item-footer'>
    13:14 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/May/1/save-the-web-by-being-nice/#atom-everything'>Save the Web by Being Nice</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Save the Web by Being Nice 
-This is a neat little article by Andrew Stephens who calls for more people to participate in building and supporting nice things on the web. 
- 
- The very best thing to keep the web partly alive is to maintain some content yourself - start a blog, join a forum and contribute to the conversation, even podcast if that is your thing. But that takes a lot of time and not eve
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://sheep.horse/2024/4/save_the_web_by_being_nice.html">Save the Web by Being Nice</a></p>
-This is a neat little article by Andrew Stephens who calls for more people to participate in building and supporting nice things on the web.<p></p>
-<blockquote>
-<p>The very best thing to keep the web partly alive is to maintain some content yourself - start a blog, join a forum and contribute to the conversation, even podcast if that is your thing. But that takes a lot of time and not everyone has the energy or the knowhow to create like this.</p>
-<p>The second best thing to do is to show your support for pages you enjoy by being nice and making a slight effort.</p>
-</blockquote>
-<p>Like, comment-on, share and encourage people who make things you like. If you have the time or energy, make your own things and put them online.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:34 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10393,7 +11209,7 @@ Dr. Patrick Breyer</blockquote>
 
 <div class='item-footer'>
    20:31 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10468,7 +11284,7 @@ Dr. Patrick Breyer</blockquote>
 
 <div class='item-footer'>
    16:10 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10560,7 +11376,7 @@ for a link or, if you’d like a calendar invitation.</p>
 
 <div class='item-footer'>
    13:44 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10656,7 +11472,7 @@ for a link or, if you’d like a calendar invitation.</p>
 
 <div class='item-footer'>
    12:10 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10838,7 +11654,7 @@ for a link or, if you’d like a calendar invitation.</p>
 
 <div class='item-footer'>
    16:40 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10918,7 +11734,7 @@ for a link or, if you’d like a calendar invitation.</p>
 
 <div class='item-footer'>
    14:56 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10992,7 +11808,7 @@ for a link or, if you’d like a calendar invitation.</p>
 
 <div class='item-footer'>
    03:23 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11005,156 +11821,6 @@ for a link or, if you’d like a calendar invitation.</p>
  <h2 class='new-date'>
   Saturday, 27. April 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.joinmastodon.org/2024/04/mastodon-forms-new-u.s.-non-profit/'>Mastodon forms new U.S. non-profit</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- Mastodon has established itself as a US 501(c)(3) with a really exciting new board. I'm a long-term fan of Esra’a Al Shafei in particular - but the whole group is quite something. 
-
- This coincides with Germany stripping Mastodon of non-profit status for unknown reasons. Hopefully that wont' be too disruptive; it looks like the organization continues to be in safe hands.  #Tec
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>Mastodon has established itself as a US 501(c)(3) with a really exciting new board. I'm a long-term fan of Esra’a Al Shafei in particular - but the whole group is quite something.</p>
-
-<p>This coincides with Germany stripping Mastodon of non-profit status for unknown reasons. Hopefully that wont' be too disruptive; it looks like the organization continues to be in safe hands.  <a href="https://werd.io/tag/Technology">#Technology</a></p>
-            <p>[<a href="https://blog.joinmastodon.org/2024/04/mastodon-forms-new-u.s.-non-profit/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:40 &bull;
-   14 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://zeteo.com/p/i-am-a-jewish-student-at-columbia?triggerShare=true'>I Am a Jewish Student at Columbia. Don’t Believe What You’re Being Told About ‘Campus Antisemitism’</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "Here’s what you’re not being told: The most pressing threats to our safety as Jewish students do not come from tents on campus. Instead, they come from the Columbia administration inviting police onto campus, certain faculty members, and third-party organizations that dox undergraduates." 
-
- A useful first-hand perspective on what the protests on campus are actually like. Sed
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"Here’s what you’re not being told: The most pressing threats to our safety as Jewish students do not come from tents on campus. Instead, they come from the Columbia administration inviting police onto campus, certain faculty members, and third-party organizations that dox undergraduates."</p>
-
-<p>A useful first-hand perspective on what the protests on campus are actually like. Seders and peaceful sit-ins don't scream antisemitism - but external actors, provocateurs, and police make them markedly less safe. Protest is a key democratic right, and this is fundamentally a movement about freeing an oppressed people. It's heartening to see so many people taking a stand for human rights.  <a href="https://werd.io/tag/Democracy">#Democracy</a></p>
-            <p>[<a href="https://zeteo.com/p/i-am-a-jewish-student-at-columbia?triggerShare=true">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:59 &bull;
-   15 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -11220,7 +11886,7 @@ for a link or, if you’d like a calendar invitation.</p>
 
 <div class='item-footer'>
    01:09 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11322,7 +11988,7 @@ for a link or, if you’d like a calendar invitation.</p>
 
 <div class='item-footer'>
    07:39 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12532,7 +13198,7 @@ at noon Eastern and 4pm UTC. Thank you everybody for coming.</p>
 
 <div class='item-footer'>
    22:40 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12603,7 +13269,7 @@ at noon Eastern and 4pm UTC. Thank you everybody for coming.</p>
 
 <div class='item-footer'>
    16:03 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12767,7 +13433,7 @@ and excludes <code>META.json</code> from the project repository in <a href="http
 
 <div class='item-footer'>
    19:34 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12867,7 +13533,7 @@ and excludes <code>META.json</code> from the project repository in <a href="http
 
 <div class='item-footer'>
    11:41 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12969,7 +13635,7 @@ and excludes <code>META.json</code> from the project repository in <a href="http
 
 <div class='item-footer'>
    09:50 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13077,7 +13743,7 @@ Exploring the range of possibilities used to be arduous, time-consuming and hard
 
 <div class='item-footer'>
    00:06 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13216,7 +13882,7 @@ by the updated platform.</p>
 
 <div class='item-footer'>
    20:08 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13286,7 +13952,7 @@ by the updated platform.</p>
 
 <div class='item-footer'>
    16:01 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13406,7 +14072,7 @@ by the updated platform.</p>
 
 <div class='item-footer'>
    12:21 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13716,7 +14382,7 @@ by the updated platform.</p>
 
 <div class='item-footer'>
    11:20 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13835,7 +14501,7 @@ wherever fine podcasts are streamed, including:</p>
 
 <div class='item-footer'>
    16:28 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13919,7 +14585,7 @@ wherever fine podcasts are streamed, including:</p>
 
 <div class='item-footer'>
    15:23 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13989,7 +14655,7 @@ wherever fine podcasts are streamed, including:</p>
 
 <div class='item-footer'>
    14:37 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14099,7 +14765,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    03:02 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14236,7 +14902,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    02:05 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14329,7 +14995,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    01:36 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14405,7 +15071,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    22:30 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14474,7 +15140,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    17:02 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14546,7 +15212,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    11:03 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14625,7 +15291,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    22:44 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14700,7 +15366,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    15:23 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14770,7 +15436,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    00:07 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14866,7 +15532,7 @@ on the <a href="https://pgtreats.info/slack-invite" title="Join the Postgres Sla
 
 <div class='item-footer'>
    15:22 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15318,7 +15984,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    05:03 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15956,7 +16622,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    01:20 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16090,7 +16756,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    18:02 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16166,7 +16832,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    18:39 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16239,7 +16905,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    14:53 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16310,7 +16976,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    14:31 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20142,7 +20808,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    20:14 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20218,7 +20884,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    20:11 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20287,7 +20953,7 @@ dependencies without wiping out Perl modules the systems depend on. 🤦🏻‍�
 
 <div class='item-footer'>
    16:51 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -26999,7 +27665,7 @@ as well as the <a href="https://2024.pgconf.dev/about/">PGConf.dev organizers</a
 
 <div class='item-footer'>
    17:46 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27191,7 +27857,7 @@ standard. I hope it will benefit us all; your input will ensure it does.</p>
 
 <div class='item-footer'>
    17:19 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -30893,201 +31559,6 @@ used the <code>zip</code> command, instead.</p>
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://wrenchinthegears.com/2024/01/31/magical-realism-among-the-raindrops/'>Magical Realism Among The Raindrops</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  I woke up with piles of boxes filling one end of my living room. They’d been there since last weekend when I hauled them up from the basement and down from the third floor. Given our recent investigations into fascia, the psyche, and computation, perhaps the physicality of my cardboard wrangling was a subconscious tactic [...]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I woke up with piles of boxes filling one end of my living room. They’d been there since last weekend when I hauled them up from the basement and down from the third floor. Given our recent investigations into fascia, the psyche, and computation, perhaps the physicality of my cardboard wrangling was a subconscious tactic to help me process the loss. Contained within an assemblage of Playmobil, YA fantasy novels, vintage ephemera, and yellowed diplomas were the remaining belongings of two-thirds of my tiny nuclear family. At 8:30am movers were scheduled to arrive to whisk everything to storage, so I made sure to be up and out of the house early. Everything was organized and labelled with notes for my husband on what was to go, and which items were to be relocated in the house. It’s what moms do, right?</p>
-<p></p>
-<p>The night before I tucked away “Piggy,” my child’s beloved stuff animal companion, threadbare again after one flesh-colored terry cloth “chest” transplant. I gave him one last big hug and placed him gently next to “Brown Wolf,” both of them atop a quilt of wild 70s prints made by my grandmother in the summer camp trunk covered with Dolly’s Dairy Bar stickers, a Brevard, NC staple. It is the end of an era. I wept softly and alone in the chill of the sewing room.</p>
-<p>After I had a few years of parenting under my belt, I would proffer parents of infants this insight – no matter how terrible or how wonderful life is at any given moment, the one constant is change. Cherish the sweet moments and know that the miserable ones will pass eventually. It may seem like forever, but it isn’t. I still think it’s solid advice, though bittersweet all the same. I’ve come to accept the situation and scrabble for scraps of grace to get through another day until the house sells and I can start to start over. We are still human, right? Feeling all of the big feelings is part of the job description, and yes, I’m here for it.</p>
-<p>While packing up some lovely textiles woven by my husband’s late mother, I came across a few concert t-shirts from back in the day when he wore army jackets and his hair longish and was a DJ for late night hardcore shows that aired on college radio stations. Me? I was pretty square, naive, knew very little of the world. We met during a study abroad semester in Venice. On foggy fall nights we would walk holding hands to the tip of Dorsoduro, past the Salute plague church, to “the point,” Punta Della Dogana – young love. There we would sit watching the lights edging St. Mark’s Square where the Canale Grande met La Giudecca, the deep channel.</p>
-<p></p>
-<p>Back then I had no conception of water memory, Neptune, &nbsp;psi, or waves of consciousness. Unseen from street level, Atlas and Fortuna kept watch over the point, the latter holding a rudder aloft showing the direction of the wind, and our fate. I can look back and see my course was set when I was just a callow child off on a big adventure that would eventually sweep me to the City of Brotherly Love nestled between the Delaware and the Schuylkill, and then on, apparently, to the very different burbling 4,000-year-old waters of the Ozarks.</p>
-<p>A few years back, my friend Dru shared with me the Chinese parable of the man who lost his horse. The gist was that when something happens in our lives that is apparently good or apparently bad, it is best to keep a neutral outlook, because the good might lead to the bad, or the bad to the good. Life cycles up and down. That our lives together started out under the globe of the heavens held by two atlas figures topped by a seventeenth century statue of Fortune charting human weather, commerce, navigation, bureaucratic systems…it’s quite a perfect summation of the tapestry I’ve been weaving without quite being aware of it until now.</p>
-<p></p>
-<p>Good? Bad? I guess I shall stay the course and see what comes next and try to hold onto my sense of wonder and playfulness as the trickster energy bubbles up around me.</p>
-<p>I texted my soon-to-be-ex-husband a picture of “Misfits: Legacy of Brutality,” saying it seems the tables have turned. Now he’s an institutional administrator while I’ve gradually slid over into the outlier spot. Earlier in the process of letting go I spent a few days sifting through drawers of old cards and letters and report cards and crayon drawings, the fleeting realms of moms. Back then I was still a beloved wife and mother and daughter. The cards said so, at least. Now, I am an out-of-tune, dissonant dissident in a world rushing obliviously forward. Only a handful of people seem to be able to see and comprehend the layers of logic protocols and invisible sensors bathing us in invisible harmonic frequencies and smart cybernetic governance to tap into our soulful connection to the divine.</p>
-<p></p>
-<p>This is the world my child will navigate. Capably, I have no doubt. </p>
-<p>And me? I will watch the phase shift coalesce from the sidelines. If I’m lucky I will view the etheric confluence barefoot peeking over a bed of glorious rainbow zinnias with a tomato sandwich in hand, juice running down my forearm, and when the sandwich is done, I will put a kayak on my aging Subaru and point it towards the crystal clear waters of Lake Ouachita.</p>
-<p>I have a memory of being in a circle of families. Our children were part of a semester school in the Pisgah Forest south of Asheville. We were about to entrust our precious ones to four months of expeditionary learning, which in retrospect wasn’t my best parenting choice but you do the best with the information you have at the time. One of the teachers read Khalil Gibran’s poem “On Children.”</p>
-<p>&nbsp;</p>
-<p>And a woman who held a babe against her bosom said, Speak to us of Children.</p>
-<p>And he said:</p>
-<p>Your children are not your children.</p>
-<p>They are the sons and daughters of Life’s longing for itself.</p>
-<p>They come through you but not from you,</p>
-<p>And though they are with you yet they belong not to you.</p>
-<p>You may give them your love but not your thoughts,</p>
-<p>For they have their own thoughts.</p>
-<p>You may house their bodies but not their souls,</p>
-<p>For their souls dwell in the house of tomorrow, which you cannot visit, not even in your dreams.</p>
-<p>You may strive to be like them but seek not to make them like you.</p>
-<p>For life goes not backward nor tarries with yesterday.</p>
-<p>You are the bows from which your children as living arrows are sent forth.</p>
-<p>The archer sees the mark upon the path of the infinite, and He bends you with</p>
-<p>His might that His arrows may go swift and far.</p>
-<p>Let your bending in the archer’s hand be for gladness.</p>
-<p>For even as He loves the arrow that flies, so He loves also the bow that is stable.</p>
-<p>&nbsp;</p>
-<p>I remember being nonplussed and unsettled. I wasn’t ready, but we never are. I understand more about information fields and the divine creation and energy than I did then. My child did come through me, and settled so far, so far away, launched from breast milk, home cooked dinners from our CSA farm box, hand sewn Halloween costumes, art classes, bedtime stories, family trips, walks to the library, and kisses on the brow, even after adopting the habit of pushing me away in annoyance.</p>
-<p>With everything in order, I headed out to get a leisurely breakfast at a restaurant that was about a twenty-minute walk from home just off the Ben Franklin Parkway, Mr. Electric himself. There was a steady rain washing away last week’s snow leaving craggy miniature mountains of ice chips languishing on the soggy drifts of leaves that didn’t manage to get bagged up during the fall – crystalline phase shift. It was a mild, drizzly rain, the kind that has a hint of the spring that is to come. There wasn’t much wind, and the misty droplets coated all the edges, plants and buildings with sparkly beads of water – billions of miniscule lenses abstracting and expanding the limits of the ordinary material world. It was magical.</p>
-<p></p>
-<p>&nbsp;</p>
-<p></p>
-<p></p>
-<p>Ironically the umbrella I’d grabbed wasn’t my regular rainbow one, or even the boring black one, but another that was emblazoned with the UPenn Arts and Sciences logo on it. The past week or so I’ve spent some time learning about Mark Johnson, a philosopher from the University of Oregon who spent his career talking about the ways we use our body to make meaning in the world. You see, our intelligence isn’t just in our brains and the nervous system that keeps it jumping, it’s also in our body and the liquid crystal fascia is an amazing part of that system. Art, culture, creativity, sports, dance are all gifts we toss back and forth with the quantum field of our collective consciousness.</p>
-<p>These goofballs really want to meld all of that with natural philosophy, STEM we call it now, to create a unified computational system. This goal of melding social and natural sciences extends back at least to Leibniz who sought to create a universal computer where the grace of the human soul might be leveraged to shine a light on the secrets of the cosmos. I don’t think it’s likely to work, at least not how they think, but I chuckled all the same that the umbrella I’d unthinkingly grabbed on the way out the door had a special message for me. I was walking away from the life represented by that UPenn logo and soon heading south into the unknown, and the water was there as my witness.</p>
-<p>In his “Stalking the Wild Pendulum” Itzhak Bentov wrote of our lives as embodied information organizers, pattern seekers, and meaning makers. Bentov felt that as we make sense of the material world through our experiences, our epiphanies, heartbreaks, and joy, there are invisible tapestries woven on the warp and weft of psyche and biology. These complex works of art, infinitely varied, are gradually gifted to the universal mind upon the passing of our bodies. That vision really resonates with me, particularly in combination with Johnson’s theories about non-linguistic communication and the importance of art and culture and the movement of the body in carrying out that important work on both and individual and social level.</p>
-<p>Stephers shared with me a fascinating paper about social systems and how we use artefacts to leave traces of ourselves on our environments and those traces then influence the behaviors of others. Our use of cultural artefacts to imprint our consciousness on the energetic fields of the universe that vibrates around us is similar to the concept of pheromones that coordinate the collective efforts of eusocial creatures like ants or termites. My sense is that Web3 hopes to make cultural artefacts calculable at scale, converting them into universal coordinating signals to coax digital harmonies from the remaining wild corners that are slowly being overtaken by silicon. I <a href="https://embed.kumu.io/dc9b79f81e2bb35bc4fce22d59dde62b#untitled-map?s=bm9kZS1iU0kxa29DZA%3D%3D">mapped out some notes</a> on this in my Dallas Mythos map below.&nbsp;</p>
-<p></p><a href="https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/01/artefact-map.png?ssl=1"></a>Source: <a href="https://embed.kumu.io/dc9b79f81e2bb35bc4fce22d59dde62b#untitled-map?s=bm9kZS1iU0kxa29DZA%3D%3D">https://embed.kumu.io/dc9b79f81e2bb35bc4fce22d59dde62b#untitled-map?s=bm9kZS1iU0kxa29DZA%3D%3D</a><p></p>
-<p>What follows are images from my walk to breakfast and back, with a slight extension of the route to the former GlaxoSmithKline US headquarters that has since been turned into a String Theory charter school. This embodied meaning making exhorts us to go out into the world, the real world and see what’s out there to be seen! For me, since everything turned upside down, I’ve felt inclined to stay close to home and disconnect. Maybe it’s not a healthy way to be, but for right now cocooning feels right. Still, when I go out with intention and my eyes open, the universe tells me stories and leaves me clues. No, not like I’m “hearing” things or “getting downloads,” more like I’m just aligned with the symbolic language of the universe and open to exploring in a wondering, wandering way.</p>
-<p>First, I encountered&nbsp; a large puddle at an intersection. I paused for a few minutes watch the ripples of the raindrops and all of the rings that danced across the surface of the water. Bentov’s book spoke of information being stored in interference patterns. He described a three-pebble experiment where the ripples where flash frozen into a holographic information storage system in the water. In my case there weren’t pebbles, but dancing drops that captivated me.</p>
-<p></p>
-<p>And then just a half block down I had to stop again and take a picture of this surprising gift – a fish ornamented with spirals swimming through a colorful mosaic sea, as if to remind me that we don’t get to choose our river. We can, however, pay attention and find the best way to work with the flow.</p>
-<p></p>
-<p>And after I finished my mushroom toast, all the better to get in touch with the mycelial elements, I came out of the restaurant and saw that in the chainlink fence surrounding the empty lot across the street someone had created an impromptu party cup installation, mashing the plastic into the gaps to spell out the word “HOPE” in crude, but very legible letters. I smiled.</p>
-<p></p>
-<p>At this point I decided to go a bit further afield rather than head straight back to the house. I passed the Temple of the Church of Jesus Christ of Latter Day Saints, which stands about a block and a half from the Catholic Cathedral of Saints Peter and Paul.</p>
-<p></p>
-<p></p>
-<p>And between the two on a sidewalk above the I-676 crosstown highway was a pretty lame art installation of Ben Franklin with his lightening bolts and keys, all electrical potential and trusted cryptography and Metaverse portals. It’s all right there if you have the eyes to see it. In the background is the former GlaxoSmithKline building.</p>
-<p></p>
-<p></p>
-<p>I knew I wanted to take a photo of the Zenos Frudakis 2000 bronze sculpture “Freedom.” Zenos is the name of an Old Testament prophet featured in the Book of Mormon, which is interesting since you can see the temple from the piece. The composition was inspired by Rodin’s “Gates of Hell,” in turn inspired by Dante, which can be found a few blocks further along the Parkway.</p>
-<p></p>
-<p>I’d seen the piece a few times before in passing, but I’d never stopped to look at it very closely. I was kind of shocked.</p>
-<p></p>
-<p>The image conveys a person escaping the confines of the background block. For me, however, knowing the multiverse phase shift that is underway this “freedom,” especially one sponsored by a company working with Google Alphabet’s Verily on electroceutical development, feels a bit off.</p>
-<p></p>
-<p>Could it be the animal skull at the base?</p>
-<p></p>
-<p>Or the smirking cat staring out?</p>
-<p></p>
-<p>Or an incongruous jester, which is totally out of keeping wit the rest of the piece?</p>
-<p></p>
-<p>The texture of the figures spoke to me of fascia – movement, communication through embodiment, fractal tissues, today glistening with water.</p>
-<p></p>
-<p></p>
-<p>Bodies at different scales embedded in their environment, a miniature twin tucked in one corner.</p>
-<p></p>
-<p></p>
-<p></p>
-<p>I felt drawn to reach out and put my hand on the outstretched hand. It reminded me of my dad, whose hands were so big and the way his fingers would curl down over mine and give them a firm squeeze. I miss that.</p>
-<p></p>
-<p>As I headed west to go home there was a colorfully odd sticker on a metal plate. A ghost with rainbow balloons – the souls are with us in all of their photonic playfulness.</p>
-<p></p>
-<p></p>
-<p>Tucked up next to the retaining was of the highway was a clutch of pine trees with an abundance of small cones scattered on the pavers below, which I took as a sign that I should fill my pockets and proceed to Sister Cities Park.</p>
-<p>It’s an uptight pocket park, managed within an inch of its life in that Disneyesque, public-private partnership, “don’t walk on the grass”, “we have the rights to all pictures taken of you here,” and “yes, you need a permit authorization to do anything fun,” neutered nature tamed and contained vibe.</p>
-<p></p>
-<p>&nbsp;</p>
-<p></p>
-<p></p>
-<p>Oh, and this is the first time I noticed a wayside elucidating the fact that the site was formerly a pauper’s burial ground and execution site. Not sure how our Sister Cities, Tel Aviv among them, would feel if they knew. St. Peter in his alcove with his keys overlooks the <a href="https://crystalfountains.com/our-story/">crystal fountain</a> (based in Toronto). At the corner where the park met the sidewalk was Robert Indiana’s Latin take on his iconic Love statue. “Amor” commissioned in 2015 for the papal visit and World Meeting of Families.</p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p>Of course I wanted to leave a heart on the LED light fountain. Today’s kids don’t get swimming pools, just interactive splash pads. Who knows how that’s going to fit into stigmergic social computational artefacts once we’re all hydrosapiens. As I was laying down the pine cones the security guard hustled over. Now, it’s January and raining and no one but me is in the park, so she must have been inside watching me on some closed circuit cameras. She asked what I was doing and I replied what does it look like I’m doing? She said are those acorns? I said they were pine cones and just kept doing what I was doing. She turned and left saying I had to “clean it up.” I encircled the heart with needles from a few pine branches than had dropped in the storm and set an intention. Then I crossed over to the Cathedral. As soon as I stepped away she swooped in with a broom and dustpan to rid the park of my dissonant heart. But she didn’t pick up the actual litter under the bench even after I pointed it out. Then she and the other guard went and hid inside the closed cafe.</p>
-<p></p>
-<p>&nbsp;</p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p>So I decided to make another heart. This one at the base of the Shakepeare statue outside the library – all the world’s a stage. I used rock salt left over on the sidewalks for the outline and filled it in with small magnolia pods and a few springs of yarrow that were unbelievably still a very cheery yarrow. I guess I should cut the security guard some slack. It is a spectacle after all, and she was simply playing her assigned archetypal role.</p>
-<p></p>
-<p></p>
-<p></p>
-<p>I went inside the library thinking that I would take a photo of the computer terminals in the children’s department that annoyed me so much when we made visits when my child was so little. I was pleasantly surprised to see that the beeping, jarring computer game terminals for toddlers were gone. Yay. I did see a display in the lobby that the public transit division wanted your daydreams, which is pretty creepy. I also had a long and rewarding conversation with the social worker who was manning the services desk in the lobby. I explained to her about social impact bonds and pay for success and blockchaining unhoused people (MyPass in Austin) and offered my theory that it was about biohybrid computing. She looked up Michael Levin on her phone and seemed genuinely interested, which gave some meaning to a morning that would otherwise have been rather bleak.</p>
-<p></p>
-<p></p>
-<p>Three is such a nice number, so I decided to make a final heart on the fountain outside the Barnes Foundation – talk about the power of curated artifacts! I remember back to the lockdown days when a few of us did an esoteric tour of the Parkway and left some lovely crystals in the water. The water was turned off for the season, but there was a bit in one corner from the rain. This one was simple – not too much material around – twigs, sycamore ball fluff, an auburn oak leaf, and a smidge of pine.</p>
-<p></p>
-<p></p>
-<p></p>
-<p>The rest of the way home was pretty uneventful. I stopped to dip my hand in the water of the PeCO electrical manhole cover – liquid portal.&nbsp;</p>
-<p></p>
-<p>I saw an acupuncture&nbsp;storefront with the sign for Still Waters.</p>
-<p></p>
-<p>And a window with artwork that looked like a black and white concept game – the Niantic Pokemon Go version of digital “Playful Cities” in abstracted, quantifiable reality.</p>
-<p></p>
-<p>And as I got to my house I saw my tree, that I will miss very much. In the city you only have room for at most one tree in the front. Ours was a thornless honey locust and we put it in when we bought our house in 1998. The past year or so the bark started peeling back and I noticed some larvae under it and I was worried for it. We had an injection put into the roots to stop the sucking bugs. A big hunk of bark fell off last year and I was very upset. But now six months later it’s healing up with new bark. You can still see the scarred place, but I want to believe it will bounce back, even in spite of all the incessant geoengineering.&nbsp;</p>
-<p></p>
-<p>I am a Sagitarrius and we are rather mercurial, but as spring arrives I will try to remember the parable of the man who lost his horse. Good-bad, bad-good – we just need to practice swimming in the flow in which we’ve found ourselves. I hope you’ve enjoyed coming with me on this damp stroll through the city that I loved and that I’m leaving. I’m sure I will find new stories in new places to share.</p>
-<p></p>
-<p></p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/01/img_0039.jpg?resize=768%2C1024&ssl=1'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:15 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Tuesday, 30. January 2024
  </h2>
@@ -33191,615 +33662,6 @@ public class Program
 
 <div class='item-footer'>
    12:44 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 08. January 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://herestomwiththeweather.com'>Heres Tom with the Weather</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://herestomwiththeweather.com/2024/01/08/otisburg.social-move-post-mortem/'>Otisburg.social move post-mortem</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I moved my account from @herestomwiththeweather@mastodon.social to @tom@herestomwiththeweather.com on January 2nd.  In the spirit of learning from post-mortems, I am documenting a few mistakes I made. 
-
- One of the main motivations for the move was that over a year ago, I had configured webfinger on this site to point to the account I had on mastodon.social. But once someone has found me on mastod
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>I moved my account from <a href="https://mastodon.social/@herestomwiththeweather">@herestomwiththeweather@mastodon.social</a> to <a href="https://otisburg.social/actor/tom@herestomwiththeweather.com">@tom@herestomwiththeweather.com</a> on January 2nd.  In the spirit of learning from <a href="https://github.com/danluu/post-mortems/">post-mortems</a>, I am documenting a few mistakes I made.</p>
-
-<p>One of the main motivations for the move was that <a href="https://github.com/herestomwiththeweather/herestomwiththeweather.github.io/commit/16a5882581d2bfb044a6537a629033698adc80a7">over a year ago</a>, I had configured webfinger on this site to point to the account I had on <a href="https://mastodon.social/">mastodon.social</a>. But once someone has found me on mastodon, I would from then on be known by my mastodon identifier rather than the identifier with my personal domain.  If I lost access to that particular mastodon account for whatever reason, I would be unreachable by that mastodon identifier.  However, as I described in <a href="https://herestomwiththeweather.com/2023/09/22/webfinger-expectations/">Webfinger Expectations</a>, if my webfinger configuration points me to a server that will allow me to participate on the <a href="https://en.wikipedia.org/wiki/Fediverse">fediverse</a> with my own personal identifier using my own domain, then in theory, if I lose access to the account on that server, I can swap it out with another similar server and be reachable again with my personal identifier.  So, last week <a href="https://docs.joinmastodon.org/user/moving/">I moved</a> to <a href="https://otisburg.social">Otisburg.social</a> which is running what I consider a minimum viable activitypub server called <a href="https://github.com/herestomwiththeweather/irwin">Irwin</a>.  As it is experimental, I am the only user on the server.</p>
-
-<p>So what did I screw up?  I didn’t plan for two things.  Both are related to the diversity of software and configurations on the Fediverse.</p>
-
-<p>First, although I was vaguely aware of the optional <a href="https://docs.joinmastodon.org/admin/config/#authorized_fetch">Authorized Fetch</a> mastodon feature, I didn’t anticipate that it would prevent me from re-following some of my followers.  Prior to the migration, I assumed this feature would not be enabled on any of the servers the people I followed were using.  I quickly realized that I could not re-follow people on 3 servers which had this feature enabled.  So, I lost contact with the people on those servers for a few days until I <a href="https://github.com/herestomwiththeweather/irwin/commit/ba5bd101a5870c50fef8c0312118ae792e85f20e">fixed it</a> by also signing GET requests in addition to POST requests.</p>
-
-<p>Second, I didn’t adequately prepare for the possibility that some of my followers would not automatically move to the new server.  Of 96 followers, I had about 15 that did not successfully re-follow.  It seems that some of these failed because they were not on a Mastodon server and their server did not adequately handle the <a href="https://docs.joinmastodon.org/spec/activitypub/#Move">Move</a> activity sent by mastodon.social.  Unfortunately, although mastodon allowed me to download a csv file of the people I followed, it did not provide a link to download a file of followers so I don’t know everyone I lost during the move.</p>
-
-<p>Otherwise, the move went well and it is a great feature and I’m glad to see <a href="https://w3c.github.io/activitypub/data-portability-report.html">an effort underway to standardize it</a>.</p>
-
-<p>One unresolved issue is that when someone visits my profile on a mastodon site, selecting “open original page” will fetch https://otisburg.social/actor/tom@herestomwiththeweather.com and the user would expect to see my status updates or toots or whatever you call them.  However, currently that url redirects to this website and activitypub status updates are not available here.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:38 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Friday, 05. January 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.mydigitalfootprint.com/'>MyDigitalFootprint</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.mydigitalfootprint.com/2024/01/the-cdo-is-dead-long-live-cdo.html'>The CDO is dead, long live the CDO</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  
-       Hierarchy appears to be the only option to pull a large group of individuals together toward a common goal. Many insects did it well before humans, but over the last 10,0000 years, humans have moved from decentralised clans into centralised nation-states consisting of hundreds of millions of people.&nbsp; From the pharaohs to Max Weber’s 20th bureaucratic management structure, we can now ex
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://lh7-us.googleusercontent.com/xEBE01PaFJjGxD-zlN5q7TWzI2mSSzULE1uaVGzs7nxYV4lGtwreaAK57OoM-KZcA-hQSPyHsSWj-Fbd-dDhyEHAldSFT0y6PP1K6EwrLZ2aYGgb8iK-ARkr49QUvkxMGx1hr8jzbiDEE4PHHemOvWQ'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  
- <p><br></p><p></p><p>Hierarchy appears to be the only option to pull a large group of individuals together toward a common goal. Many insects did it well before humans, but over the last 10,0000 years, humans have moved from decentralised clans into centralised nation-states consisting of hundreds of millions of people.&nbsp; From the pharaohs to Max Weber’s 20th bureaucratic management structure, we can now exist only in such a system because as a society or organisation grows beyond a few dozen people, the hierarchical pyramid is seen as the only option for the organisation.&nbsp; The justification is that it is nature and natural.&nbsp;</p><p>The “ideal organisation” was defined by <a href="https://en.wikipedia.org/wiki/Max_Weber">Max Weber</a> as a clear and strong hierarchy underpinned by the division of tasks based on specialisation. A fundamental assumption was that each unit takes care of one piece of the chain and the division of tasks within the unit is clearly defined, work can be executed much more efficiently. Weber envisioned this as a “superior structure” because it focused on rationality and equal treatment of all - assuming everyone was happy with their 1984 dystopian jobs and oversight. By formalising processes within organisations, but especially in government, favouritism and abuse of power could be prevented - as he assumed that those in charge and specialised workers remained. A really poor underlying assumption was that people act rationally, efficiently, and professionally.&nbsp; He also ignored the concept of <a href="https://en.wikipedia.org/wiki/Shareholder_primacy">shareholder primacy</a> that would emerge.&nbsp; However, so strong is the argument that it remains the leading business philosophy today, and we still teach that hierarchy, administration and bureaucracy driven by efficiency and effective thinking underpinned by a better division of tasks and responsibilities to drive organisational performance measurable objective is still best practice. The justification is that it represents nature and is natural.&nbsp;</p><p>Different models emerged from the internet, web, and digital thinking allowing us to ponder if something better is possible. Small iterations, such as matrix management, never really changed the fundamentals and whilst embracing all <a href="https://en.wikipedia.org/wiki/Stakeholder_theory">stakeholders </a>and <a href="https://en.wikipedia.org/wiki/Environmental,_social,_and_corporate_governance">ESG</a> has added complexity to the decisions and models - hierarchy remains. However, it is possible to sense in the noise signals that “Data” is finally about to disrupt and dislodge a love/ hate affair with hierarchy, power, and control.&nbsp;</p><p>Counter to this and according to both scientists, individuals, including leaders, do not make their decisions after a thorough analysis, but first decide, unconsciously and intuitively, and then rationalise their decision. We have become experts in seeking out framed and biased data to justify and provide a rational argument for a decision we have already made.</p><p>-----</p><p>Endless inches have been written about structure, who and how to lead and what a digital organisation looks like. However, right now, we are likely to be in the death phase for a pure CDO (chief data/ digital officer) role as it becomes clear that the CTO, CIO and CDO roles have very similar mandates and are now actually competing for power, resources and a clear value to the organisation. The ridged ideals of separation and specialism models driving structures, management, incentives, KPI’s and hierarchy cannot work with the emergence of highly complex interdependency in a digital age - are we witnessing that the division of labour falls apart at scale because of complexity and speed?&nbsp;</p><p>For a complicated task, the separation of that task into modules, and components to create the scale of efficiency and effectiveness works, and it works really well. For any task where the output directly and immediately, because of close feedback loops, changes the inputs for the next unit of creation and consumption - the hierarchy fails.&nbsp; The ridged division of labour into separate tasks, modules, parts or components does not work - because it fundamentally needs repeatability.&nbsp;&nbsp;&nbsp;</p><p>When operating at speed and scale - but there is a high level of repeatability, hierarchy delivers, and we know its problems.&nbsp; However, data is enabling us to operate at speed, scale and uniqueness (non-repeatability) - this is different.&nbsp;</p><p>However, data is enabling us to operate at speed, scale and uniqueness (non-repeatability) - this is different.&nbsp;</p><p>---</p><p>We have recognised for a while that leadership/ chief roles are actually a representation of the ontology of an organisation (structure), the question has never been if you need a CEO, CFO, CMO, CTO as these were clearly delineated roles and specialisms.&nbsp; We understand the roles, mandates, powers and delegated authority the experts and leaders bring and have.&nbsp;&nbsp;</p><p>In a digital business, we have created four roles CTO, CIO, CDO and CISO. But the reality is that the CMO and CDO need the CFO’s data. The CFO wants the COO and CMO’s data. The CIO has lots of data but no direct path to showing value. The CISO needs other data from outside the organisation and the CTO needs data the CMO has not yet imagined. Organisations opted to create new roles such as Chief Data or Digital Officer to address the emerging complexity and to avoid too much power being vested in the CTO.&nbsp;&nbsp;</p><p>Breaking the axis of old - the CEO/ CFO</p><p>The CEO/CFO axis has this framing; we’ll do more things that are cheaper in the short term and less of those that are more expensive in the long term as our incentive and remuneration guide us.&nbsp; In a company with unified incentives, there is a uniciation of framing which means it is difficult for new ideas to emerge.&nbsp; This incentive friction or incentive dependency means we always face the same decisions in the same way.</p><p>Many leaders are realising that data is forging changes, and this change is not about tech, data or analysis, but it is about whether we, the leadership, exec or board, are making the right decisions.&nbsp; Decisions of the past were framed by the ideal hierarchy underpinned by efficiency and effectiveness at scale driven by the demands for specialisation. However, to know we are making the right decision going forward, we need to understand we have the right choices today, which means we need all “data” and our data can no longer be about isolation, separation or specialisation.&nbsp;</p><p>I expect that we are about to see a new axis of power arrive with the emergence of a new chief role as we realise, we need a new power dynamic structure.&nbsp; A two-way axis (CEO/CFO) becomes a three-way stool.&nbsp; The emergence of the CEO/ CFO/ CxO. The CEO/ CFO will maintain the remits of controlling and understanding the speed and scale at which the hierarchy operates,&nbsp; with the new role focussing on uniqueness - how data breaks the old hierarchy. &nbsp; It does not matter what you call the X, the point is what is their mandate.&nbsp; They have to own:&nbsp;</p>  <p>the data philosophy</p>  <p>all data emerging from the company and its ecosystem&nbsp;</p>  <p>data governance and security</p>  <p>direct the current and future platform's abilities, functionality and performance</p>  <p>The point here is that this role is not about the analysis of the data but about ensuring the quality, attestation, providence, provenance, function, form, taxonomy, ontology and pedagogy of the data needed for decision and that we will continue to access to and enjoy the data we need to make better decisions.</p><p>The critical point is that once the CEO/CFO could know if they were making the right decisions as the framing they needed was about efficiency and effectiveness within a specialism model, however going forward, this axis is not only insufficient, it is damaging. This new third member is needed to provide modern-day stabilisation and governance to ensure that as an expanded team, “we know we are making the right decisions”, as we must regularly ask efficacy questions that were not needed under the old repeatability model, as the mission was sufficient as the guide.&nbsp;&nbsp;</p><p>The first victim will be the CDO, as it exists in a specialisation-driven hierarchy that has no choice but to change - not its structure and how it thinks.&nbsp;</p><br><br><br><br> 
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://lh7-us.googleusercontent.com/xEBE01PaFJjGxD-zlN5q7TWzI2mSSzULE1uaVGzs7nxYV4lGtwreaAK57OoM-KZcA-hQSPyHsSWj-Fbd-dDhyEHAldSFT0y6PP1K6EwrLZ2aYGgb8iK-ARkr49QUvkxMGx1hr8jzbiDEE4PHHemOvWQ'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   09:24 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Wednesday, 03. January 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2024/01/03/securing-a-blazor-server-application-using-openid-connect-and-security-headers/'>Securing a Blazor Server application using OpenID Connect and security headers</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to secure a Blazor Server application. The application implements an OpenID Connect confidential client with PKCE using .NET 8 and configures the security headers as best possible for the Blazor Server application. OpenIddict is used to implement the identity provider and the OpenID Connect server. Code: https://github.com/damienbod/BlazorServerOidc OpenID Connect flow In […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to secure a Blazor Server application. The application implements an OpenID Connect confidential client with PKCE using .NET 8 and configures the security headers as best possible for the Blazor Server application. OpenIddict is used to implement the identity provider and the OpenID Connect server.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/BlazorServerOidc">https://github.com/damienbod/BlazorServerOidc</a></p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- OpenID Connect flow 
-
-
-
-<p>In the first step, the authentication can be solved using OpenID Connect. With this, the process of user authentication is removed from the client application and delegated to an identity provider. In this demo, <a href="https://github.com/openiddict/openiddict-core">OpenIddict </a>is used. The <a href="https://openid.net/developers/how-connect-works/">OpenID Connect</a> code flow with PKCE is used and the application uses a client secret to authenticate. This can be further improved by using a certificate and client assertions when using the  code from the OpenID Connect flow to request the tokens. The flow can also be improved to use OAuth 2.0 Pushed Authorization Requests <a href="https://datatracker.ietf.org/doc/html/rfc9126">PAR</a>, if the identity provider supports this. </p>
-
-
-
-<p>In ASP.NET Core or Blazor, this can be implemented using the Microsoft ASP.NET Core OpenIdConnect package.</p>
-
-
-
- 
- Microsoft.AspNetCore.Authentication.OpenIdConnect 
- 
-
-
-
-<p>The authentication flow requires some service setup as well as middleware changes in the pipelines. The solution uses the OpenID Connect scheme to take care of the user authentication and saves this in a cookie. The name claim is set to use the “name” claim. This is different with every identity provider and also depending how the ASP.NET Core application maps this. All razor page requests must be authenticated unless otherwise specified.</p>
-
-
-  builder.Services.AddAuthentication(options =&gt;
-{
-  options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-  options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
-})
-.AddCookie()
-.AddOpenIdConnect(options =&gt;
-{
-  builder.Configuration.GetSection("OpenIDConnectSettings").Bind(options);
-
-  options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-  options.ResponseType = OpenIdConnectResponseType.Code;
-
-  options.SaveTokens = true;
-  options.GetClaimsFromUserInfoEndpoint = true;
-  options.TokenValidationParameters = new TokenValidationParameters
-  {
-	  NameClaimType = "name"
-  };
-});
-
-builder.Services.AddRazorPages().AddMvcOptions(options =&gt;
-{
-  var policy = new AuthorizationPolicyBuilder()
-	  .RequireAuthenticatedUser()
-	  .Build();
-  options.Filters.Add(new AuthorizeFilter(policy));
-});
-
-builder.Services.AddControllersWithViews(options =&gt;
-    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
-  
-
-
-<p>The application pipeline is setup after the services are built. ASP.NET Core adds some automatic claim mapping and renames some claims per default. This can be reset to use the exact claims sent back from the identity provider. </p>
-
-
-  var app = builder.Build();
-
-JsonWebTokenHandler.DefaultInboundClaimTypeMap.Clear();
-
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Error");
-    app.UseHsts();
-}
-
-app.UseSecurityHeaders(
-    SecurityHeadersDefinitions.GetHeaderPolicyCollection(
-        app.Environment.IsDevelopment(),
-        app.Configuration["OpenIDConnectSettings:Authority"]));
-
-app.UseHttpsRedirection();
-
-app.UseStaticFiles();
-
-app.UseRouting();
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.MapRazorPages();
-app.MapControllers();
-
-app.MapBlazorHub().RequireAuthorization();
-app.MapFallbackToPage("/_Host");
-
-app.Run();
-  
-
-
- CascadingAuthenticationState 
-
-
-
-<p>The CascadingAuthenticationState is used to force and share the authentication requirements in the UI and the Blazor Server components. If the application and the user are not authenticated and authorized, the user is redirected to the identity provider.</p>
-
-
-  @inject NavigationManager NavigationManager
-
-&lt;CascadingAuthenticationState&gt;
-    &lt;Router AppAssembly="@typeof(App).Assembly"&gt;
-        &lt;Found Context="routeData"&gt;
-            &lt;AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)"&gt;
-                &lt;NotAuthorized&gt;
-                    @{
-                        var returnUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
-                        NavigationManager.NavigateTo($"api/account/login?redirectUri={returnUrl}", forceLoad: true);
-                    }
-                &lt;/NotAuthorized&gt;
-                &lt;Authorizing&gt;
-                    Wait...
-                &lt;/Authorizing&gt;
-            &lt;/AuthorizeRouteView&gt;
-        &lt;/Found&gt;
-        &lt;NotFound&gt;
-            &lt;LayoutView Layout="@typeof(MainLayout)"&gt;
-                &lt;p&gt;Sorry, there's nothing at this address.&lt;/p&gt;
-            &lt;/LayoutView&gt;
-        &lt;/NotFound&gt;
-    &lt;/Router&gt;
-&lt;/CascadingAuthenticationState&gt;
-  
-
-
-<p></p>
-
-
-
- Authentication flow UI Pages 
-
-
-
-<p>The menu needs to display the login or the logout buttons depends on the state of the application. Blazor provides an AuthorizeView component for this. This can be used in the UI to hide or show elements depending on the authenticate state.</p>
-
-
-  &lt;AuthorizeView&gt;
-    &lt;Authorized&gt;
-        &lt;span&gt;@context.User.Identity?.Name&lt;/span&gt;
-        &lt;form action="api/account/logout" method="post"&gt;
-            &lt;button type="submit" class="nav-link btn btn-link text-dark"&gt;
-                 Logout 
-            &lt;/button&gt;
-        &lt;/form&gt;
-    &lt;/Authorized&gt;
-    &lt;NotAuthorized&gt;
-        &lt;a href="api/account/login?redirectUri=/"&gt;Log in&lt;/a&gt;
-    &lt;/NotAuthorized&gt;
-&lt;/AuthorizeView&gt;
-  
-
-
-<p>I added a log in, log out in an account controller and signed out Razor page to handle the authentication requests from the UI. The application automatically authenticates so the login is only used in the signed out page. The login removes the authenticated user from both schemes; the cookie and the OpenID Connect scheme. To remove the authenticated user from the identity provider, the application needs to redirect. This cannot be implemented in an ajax request.</p>
-
-
-  [IgnoreAntiforgeryToken] // need to apply this to the form post request
-[Authorize]
-[HttpPost("Logout")]
-public IActionResult Logout()
-{
-    return SignOut(
-        new AuthenticationProperties { RedirectUri = "/SignedOut" },
-        CookieAuthenticationDefaults.AuthenticationScheme,
-        OpenIdConnectDefaults.AuthenticationScheme);
-}
-  
-
-
-<p>The SignedOut is the only unauthorized page, component in the application. The AllowAnonymous is used for this. </p>
-
-
-  using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc.RazorPages;
-
-namespace BlazorServerOidc.Pages;
-
-[AllowAnonymous]
-public class SignedOutModel : PageModel
-{
-    public void OnGet() { }
-}
-  
-
-
-<p></p>
-
-
-
- Security headers 
-
-
-
-<p>The user is authenticated. The application need to protect the session as well. I use NetEscapades.AspNetCore.SecurityHeaders for this. </p>
-
-
-
- 
- NetEscapades.AspNetCore.SecurityHeaders 
-
-
-
- NetEscapades.AspNetCore.SecurityHeaders.TagHelpers 
- 
-
-
-
-<p>Blazor Server is a severed rendered application with UI components. The application can implement nonce based CSP. All the typical security headers are added as best possible for this technology.</p>
-
-
-  namespace BlazorServerOidc;
-
-public static class SecurityHeadersDefinitions
-{
-    public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev, string? idpHost)
-    {
-        ArgumentNullException.ThrowIfNull(idpHost);
-
-        var policy = new HeaderPolicyCollection()
-            .AddFrameOptionsDeny()
-            .AddContentTypeOptionsNoSniff()
-            .AddReferrerPolicyStrictOriginWhenCrossOrigin()
-            .AddCrossOriginOpenerPolicy(builder =&gt; builder.SameOrigin())
-            .AddCrossOriginResourcePolicy(builder =&gt; builder.SameOrigin())
-            .AddCrossOriginEmbedderPolicy(builder =&gt; builder.RequireCorp()) // remove for dev if using hot reload
-            .AddContentSecurityPolicy(builder =&gt;
-            {
-                builder.AddObjectSrc().None();
-                builder.AddBlockAllMixedContent();
-                builder.AddImgSrc().Self().From("data:");
-                builder.AddFormAction().Self().From(idpHost);
-                builder.AddFontSrc().Self();        
-                builder.AddBaseUri().Self();
-                builder.AddFrameAncestors().None();
-
-                builder.AddStyleSrc()
-                    .UnsafeInline() 
-                    .Self();
-
-                builder.AddScriptSrc()
-                    .WithNonce()
-                    .UnsafeInline(); // only a fallback for older browsers when the nonce is used
-
-                // disable script and style CSP protection if using Blazor hot reload
-                // if using hot reload, DO NOT deploy with an insecure CSP
-            })
-            .RemoveServerHeader()
-            .AddPermissionsPolicy(builder =&gt;
-            {
-                builder.AddAccelerometer().None();
-                builder.AddAutoplay().None();
-                builder.AddCamera().None();
-                builder.AddEncryptedMedia().None();
-                builder.AddFullscreen().All();
-                builder.AddGeolocation().None();
-                builder.AddGyroscope().None();
-                builder.AddMagnetometer().None();
-                builder.AddMicrophone().None();
-                builder.AddMidi().None();
-                builder.AddPayment().None();
-                builder.AddPictureInPicture().None();
-                builder.AddSyncXHR().None();
-                builder.AddUsb().None();
-            });
-
-        if (!isDev)
-        {
-            // maxage = one year in seconds
-            policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains();
-        }
-
-        policy.ApplyDocumentHeadersToAllResponses();
-
-        return policy;
-    }
-}
-  
-
-
-<p>The CSP nonces are added to all scripts in the UI.</p>
-
-
-  @using Microsoft.AspNetCore.Components.Web
-@namespace BlazorServerOidc.Pages
-@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
-@addTagHelper *, NetEscapades.AspNetCore.SecurityHeaders.TagHelpers
-
-&lt;!DOCTYPE html&gt;
-&lt;html lang="en"&gt;
-&lt;head&gt;
-    &lt;meta charset="utf-8" /&gt;
-    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0" /&gt;
-    &lt;base href="~/" /&gt;
-    &lt;link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" /&gt;
-    &lt;link href="css/site.css" rel="stylesheet" /&gt;
-    &lt;link href="BlazorServerOidc.styles.css" rel="stylesheet" /&gt;
-    &lt;component type="typeof(HeadOutlet)" render-mode="ServerPrerendered" /&gt;
-&lt;/head&gt;
-&lt;body&gt;
-    @RenderBody()
-
-    &lt;div id="blazor-error-ui"&gt;
-        &lt;environment include="Staging,Production"&gt;
-            An error has occurred. This application may no longer respond until reloaded.
-        &lt;/environment&gt;
-        &lt;environment include="Development"&gt;
-            An unhandled exception has occurred. See browser dev tools for details.
-        &lt;/environment&gt;
-        &lt;a href="" class="reload"&gt;Reload&lt;/a&gt;
-        &lt;a class="dismiss"&gt;🗙&lt;/a&gt;
-    &lt;/div&gt;
-
-    &lt;script asp-add-nonce src="_framework/blazor.server.js"&gt;&lt;/script&gt;
-&lt;/body&gt;
-&lt;/html&gt;
-  
-
-
- Next steps 
-
-
-
-<p>In a follow up blog, I would like to implement the same type of security for the new .NET 8 Blazor web applications.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/aspnet/core/blazor/security/server/">https://learn.microsoft.com/en-us/aspnet/core/blazor/security/server/</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/aspnet/core/blazor/security/server/interactive-server-side-rendering">https://learn.microsoft.com/en-us/aspnet/core/blazor/security/server/interactive-server-side-rendering</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/quick-start-blazor-server-app">https://learn.microsoft.com/en-us/power-apps/developer/data-platform/webapi/quick-start-blazor-server-app</a></p>
-
-
-
-<p><a href="https://stackoverflow.com/questions/64853618/oidc-authentication-in-server-side-blazor">https://stackoverflow.com/questions/64853618/oidc-authentication-in-server-side-blazor</a></p>
-
-
-
- 
-<blockquote><a href="https://openid.net/developers/how-connect-works/">How OpenID Connect Works</a></blockquote>
- 
-
-
-
-<p><a href="https://github.com/openiddict/openiddict-core">https://github.com/openiddict/openiddict-core</a></p>
-
-
-
-<p><a href="https://datatracker.ietf.org/doc/html/rfc9126">https://datatracker.ietf.org/doc/html/rfc9126</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/claims">https://learn.microsoft.com/en-us/aspnet/core/security/authentication/claims</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.files.wordpress.com/2024/01/brandblazor_nohalo_1000x.png?w=600'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:13 &bull;
    4 months ago
 </div>
 
