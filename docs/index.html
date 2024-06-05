@@ -716,7 +716,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:44 AM June 04, 2024 (UTC)</sup>
+<sup>Last Update 6:44 AM June 05, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -727,8 +727,1047 @@
 
 
  <h2 class='new-date'>
+  Wednesday, 05. June 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/06/05/creating-and-downloading-a-pdf-or-docx-in-asp-net-core/'>Creating and downloading a PDF or DOCX in ASP.NET Core</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  The post shows how a PDF can be created from data in an ASP.NET Core backend and downloaded using an API. The data could be loaded from different locations and exported then as a PDF or a docx or whatever you require. Code: https://github.com/damienbod/AspNetCoreCreatePdf Why GemBox? There are many different tools to generate PDF all […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The post shows how a PDF can be created from data in an ASP.NET Core backend and downloaded using an API. The data could be loaded from different locations and exported then as a PDF or a docx or whatever you require.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/AspNetCoreCreatePdf">https://github.com/damienbod/AspNetCoreCreatePdf</a></p>
+
+
+
+ Why GemBox? 
+
+
+
+<p>There are many different tools to generate PDF all with advantages and disadvantages. I required a tool to download PDFs created in an ASP.NET Core backend using data from a database. This was recommended to me and after trying this out, I think this is a good choice. <a href="https://www.gemboxsoftware.com/document">GemBox.document</a> has a good licensing model, it is simple to use and it provides PDF signing. You can create different formats direct from C# data classes. It is easy to use and does not require a windows host environment.</p>
+
+
+
+ Import the GemBox Nuget package 
+
+
+
+<p>The <a href="https://www.nuget.org/packages/GemBox.Document/">GemBox.Document</a> Nuget package is added to project and you have everything you require.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>Note:</p>
+
+
+
+<p>If deploying to Linux, add the HarfBuzzSharp.NativeAssets.Linux Nuget package as well.</p>
+
+
+
+ Create an API to download PDF/Docx 
+
+
+
+<p>The download controller is used as the public API. This class has two methods, one for downloading the data as a PDF and a second method to download the same data as a docx file.</p>
+
+
+  public class DownloadController(DocumentService _documentService) : ControllerBase
+{
+  [Route("pdf/{id}")]
+  [HttpGet]
+  public FileStreamResult DownloadPdf(string id)
+  {
+    var stream = _documentService.GeneratePdf(id);
+    return File(stream, "application/pdf");
+  }
+
+  [Route("docx/{id}")]
+  [HttpGet]
+  public FileStreamResult DownloadDocx(string id)
+  {
+    var stream = _documentService.GenerateDocx(id);
+    return File(stream, 
+     "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  }
+}
+  
+
+
+<p></p>
+
+
+
+<p>The Document service class implements the document specification. This service uses data from a C# DTO and creates a GemBox document which can be exported to many different formats.</p>
+
+
+
+<p></p>
+
+
+  using GemBox.Document;
+
+namespace ApiCreatePdf;
+
+public class DocumentService
+{
+
+public Stream GeneratePdf(string id)
+{
+    var documentData = GetDocumentData(id, SaveOptions.PdfDefault);
+    
+    var pdf = new MemoryStream();
+    var document = CreateDocument(documentData);
+
+    document.Save(pdf, SaveOptions.PdfDefault);
+
+    return pdf;
+}
+
+public Stream GenerateDocx(string id)
+{
+    var documentData = GetDocumentData(id, SaveOptions.DocxDefault);
+
+    var docx = new MemoryStream();
+    var document = CreateDocument(documentData);
+
+    document.Save(docx, SaveOptions.DocxDefault);
+
+    return docx;
+}
+
+private static DocumentModel CreateDocument(DocumentData documentData)
+{
+    // If using the Professional version, put your serial key below.
+    ComponentInfo.SetLicense("FREE-LIMITED-KEY");
+
+    var document = new DocumentModel();
+
+    var section = new Section(document);
+    document.Sections.Add(section);
+
+    // Main text 
+    var paragraph = new Paragraph(document);
+    section.Blocks.Add(paragraph);
+    var run = new Run(document, documentData.MainContentText);
+    paragraph.Inlines.Add(run);
+
+    var bookmarkName = "TopOfDocument";
+
+    document.Sections.Add(
+        new Section(document,
+            new Paragraph(document,
+                new BookmarkStart(document, bookmarkName),
+                new Run(document, "This is a 'TopOfDocument' bookmark."),
+                new BookmarkEnd(document, bookmarkName)),
+            new Paragraph(document,
+                new Run(document, "The following is a link to "),
+                new Hyperlink(document, "https://www.gemboxsoftware.com/document", "GemBox.Document Overview"),
+                new Run(document, " page.")),
+             new Paragraph(document,
+                new SpecialCharacter(document, SpecialCharacterType.PageBreak),
+                new Run(document, "This is a document's second page."),
+                new SpecialCharacter(document, SpecialCharacterType.LineBreak),
+                new Hyperlink(document, bookmarkName, "Return to 'TopOfDocument'.") { IsBookmarkLink = true })));
+
+    return document;
+}
+
+private DocumentData GetDocumentData(string id, SaveOptions docType)
+{
+    return new DocumentData
+    {
+        MainContentText = $"{docType.ContentType} created for id: {id}"
+    };
+}
+
+}
+  
+
+
+<p></p>
+
+
+
+ Downloading files  
+
+
+
+<p>When the application is started, a PDF or a docx file can be downloaded and opened. the data can come from the database or anywhere. This is just a demo and when using data from user inputs and returning it to the clients, the data needs to be validated and sanitized.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://www.gemboxsoftware.com/document">https://www.gemboxsoftware.com/document</a></p>
+
+
+
+<p><a href="https://www.nuget.org/packages/GemBox.Document/">https://www.nuget.org/packages/GemBox.Document/</a></p>
+
+
+
+<p><a href="https://github.com/GemBoxLtd/GemBox.Document.Examples">https://github.com/GemBoxLtd/GemBox.Document.Examples</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/05/aspnetcore_pdf_gembox_01.png?w=734'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:06 &bull;
+   41 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/06/05/interesting-twist-from.html'> Interesting Twist .. from today’s 🔗 HCR 
+ 
+ Then, on Saturda</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Interesting Twist .. from today’s 🔗 HCR 
+ 
+ Then, on Saturday, there was what Danny Westneat of the Seattle Times called a plot twist. It turns out the state of Washington has a law on the books that prevents felons from running for office. But because a candidate has to be certified to be on a ballot before they can be challenged, the issue can’t be resolved until Trump officially becomes the Rep
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Interesting Twist .. from today’s <a href="https://open.substack.com/pub/heathercoxrichardson/p/june-3-2024">🔗 HCR</a></p>
+<blockquote>
+<p>Then, on Saturday, there was what Danny Westneat of the Seattle Times called a plot twist. It turns out the state of Washington has a law on the books that prevents felons from running for office. But because a candidate has to be certified to be on a ballot before they can be challenged, the issue can’t be resolved until Trump officially becomes the Republican Party’s presidential nominee at the July convention. Westneat asked, “Republicans: You sure you want to go down this road?”</p>
+</blockquote>
+<p>Not entirely sure why this is different to Colorado off top of my headers.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   00:59 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Tuesday, 04. June 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Jun/4/michal-zalewski/#atom-everything'>Quoting Michal Zalewski</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    You don’t need to be the world’s leading expert to write about a particular topic. Experts are often busy and struggle to explain concepts in an accessible way. You should be honest with yourself and with your readers about what you know and don’t know — but otherwise, it’s OK to write about what excites you, and to do it as you learn.   — Michal Zalewski 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <blockquote cite="https://lcamtuf.substack.com/p/you-should-write-more"><p>You don’t need to be the world’s leading expert to write about a particular topic. Experts are often busy and struggle to explain concepts in an accessible way. You should be honest with yourself and with your readers about what you know and don’t know — but otherwise, it’s OK to write about what excites you, and to do it as you learn.</p></blockquote><p>— <a href="https://lcamtuf.substack.com/p/you-should-write-more">Michal Zalewski</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:13 &bull;
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/06/05/the-conway-family.html'> 🍿 The Conway family is its own self contained circus. No ext</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   🍿 The Conway family is its own self contained circus. No extras needed. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>🍿 The Conway family is its own self contained circus. No extras needed.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   19:53 &bull;
+   11 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Jun/4/zoom-ceo-ai-deepfakes/#atom-everything'>Zoom CEO envisions AI deepfakes attending meetings in your place</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Zoom CEO envisions AI deepfakes attending meetings in your place 
+I talked to Benj Edwards for this article about Zoom's terrible science-fiction concept to have "digital twins" attend meetings in your behalf: 
+ 
+ When we specifically asked Simon Willison about Yuan's comments about digital twins, he told Ars, "My fundamental problem with this whole idea is that it represents pure AI science ficti
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://arstechnica.com/information-technology/2024/06/zoom-ceo-envisions-ai-deepfakes-attending-meetings-in-your-place/">Zoom CEO envisions AI deepfakes attending meetings in your place</a></p>
+I talked to Benj Edwards for this article about Zoom's terrible science-fiction concept to have "digital twins" attend meetings in your behalf:<p></p>
+<blockquote>
+<p>When we specifically asked Simon Willison about Yuan's comments about digital twins, he told Ars, "My fundamental problem with this whole idea is that it represents pure AI science fiction thinking—just because an LLM can do a passable impression of someone doesn't mean it can actually perform useful 'work' on behalf of that person. LLMs are useful tools for thought. They are terrible tools for delegating decision making to. That's currently my red line for using them: any time someone outsources actual decision making authority to an opaque random number generator is a recipe for disaster."</p>
+</blockquote>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   19:28 &bull;
+   11 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://newsletter.pragmaticengineer.com/'>The Pragmatic Engineer</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://newsletter.pragmaticengineer.com/p/ai-coding-agents'>How do AI software engineering agents work?</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Coding agents are the latest promising Artificial Intelligence (AI) tool, and an impressive step up from LLMs. This article is a deep dive into them, with the creators of SWE-bench and SWE-agent.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>👋 Hi, this is Gergely with a subscriber-only issue of the Pragmatic Engineer Newsletter. In every issue, I cover challenges at Big Tech and startups through the lens of engineering managers and senior engineers. To get articles like this in your inbox, every week, subscribe:</p><p><a href="https://newsletter.pragmaticengineer.com/subscribe?">Subscribe now</a></p><p>In March, Cognition Labs <a href="https://newsletter.pragmaticengineer.com/i/142616988/is-the-ai-developera-threat-to-jobs-or-a-marketing-stunt">grabbed</a> software engineers’ attention by announcing “Devin,” what it called the “world’s first AI software engineer,” with the message that it set a new standard as a <a href="https://www.swebench.com/">SWE-bench coding benchmark</a>. As of today, Devin is closed source and in private beta, so we don’t know how it works, and most people cannot access it.</p><p>Luckily for us, the team behind the SWE-bench benchmark has open sourced an AI agent-based “coding assistant” that performs comparably on this benchmark as Devin did. Their solution is <a href="https://github.com/princeton-nlp/SWE-agent">SWE-agent</a>, which solution solves 12.5% of the tickets in this benchmark correctly, fully autonomously (this is about 4x of what the best LLM-only model performed at.) SWE-agent was built in 6 months by a team of 7 people at Princeton University, in the US. The team also publishes research papers about their learnings, alongside it being open source.</p><p>In today’s issue, we talk with <a href="https://ofir.io/about/">Ofir Press</a>, a postdoctoral research fellow at Princeton, and former visiting researcher at Meta AI and MosaicML. He’s also one of SWE-agent’s developers. In this article, we cover:</p>  <p>The Agent-Computer-Interface. The ACI (Agent-Computer Interface) concept is a key building block of SWE-Agent. AI coding agent approaches are likely to become dominant in “AI coding” solutions as they always perform better than raw LLMs.</p>  <p>How does SWE-agent work? Built with Python, it follows prompts provided and browses files, edits them, runs edits, and submits solutions.</p>  <p>Successful runs and failed ones. The fewer “turns” that an agent takes to solve an issue, the more likely it succeeds at doing so. Meanwhile, common reasons for failure include getting stuck on what to do, suggesting incorrect implementations, and not locating files containing buggy code to fix.</p>  <p>Security &amp; ethical concerns. Production changes that result in problems like data loss is a concern, as are bad actors instructing agents to generate malicious code. Knowing these issues can help all AI agents to better defend against threats.</p>  <p>Human devs vs AI agents. Some similarities, like approaches to bug fixing, and many differences, such as an agent’s inability to say “no.”</p>  <p>Next steps for SWE-agents. Fine tuning agents, debugging capabilities and auto-generating environment setup scripts?</p>  <p>Learnings from “v1” AI agents. AI agents look like the next hot area in developer tooling, but will autonomous agents ever outgrow their status as a developer’s sidekick – even with flashy demos? We’re doubtful, at least right now.</p>  <p>Before starting, a word of appreciation to the Princeton team for building <a href="https://www.swebench.com/">SWE-bench</a>, already an industry-standard AI coding assessment evaluation toolset, and for releasing their industry-leading AI coding tool, SWE-agent, as open source. Also, thanks for publishing a <a href="https://arxiv.org/abs/2405.15793">paper on SWE-agent and ACI interfaces.</a> Also, a shout out to everyone building these tools in the open; several are listed at the end of section 2, “How does SWE-agent work?”</p> 1. The Agent-Computer-Interface <p>SWE-agent is a tool that takes a GitHub issue as input, and returns a pull request as output, which is the proposed solution. SWE-agent currently uses GPT-4-Turbo under the hood, through API calls. As the solution is open source, it’s easy enough to change the large language model (LLM) used by the solution to another API, or even a local model; like how the Cody coding assistant by Sourcegraph can be configured to use different LLMs.</p><p>Agent-Computer Interface (ACI) is an interface for large language models (LLMs) like ChatGPT to work in an LLM-friendly environment.&nbsp;</p><p>The team took inspiration from human-computer interaction (HCI) studies, where humans “communicate” with computers via interfaces that make sense, like a keyboard. In turn, computers communicate “back” via interfaces which humans can understand, like a computer screen. The AI agent also uses a similar type of interface when it communicates with a computer:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F41e64538-5b8b-4866-98a5-55022dbf341d_1120x352.png">    </a>The ACI interface can be seen as an API for the agent and a computer to communicate with. Source: <a href="https://arxiv.org/pdf/2405.15793">SWE-agent paper</a> <p>Let’s go through how the ACI works from semantic and structural points of view.</p> ACI from the LLM point of view <p>A good way to conceive of an agent is as a pre-configured LLM session with specialized tooling:</p>  <p>System message: The LLM session is set up with a system message that reads: “You are an autonomous programmer, and you're working directly in the command line with a special interface.” This defines the agent's behavior and context for the conversation.</p>  <p>Environment: This is what the agent interacts with. It’s usually a command line interface that takes inputs from the agent defined as commands, and shares outputs.&nbsp;</p>  <p>History: the agent tracks the history of commands, and the amount of history which can be configured. It’s worth keeping some history in place to avoid the agent repeating itself.</p>   <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fe8a00610-3143-43c8-b2b9-7c42c7f71696_1600x999.png">    </a>The ACI from the language model (LM) point of view  <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fa0709529-4c62-4de3-a3fd-dbc66484d251_1600x714.png">    </a>ACI interface in action: SWE-agent (the “pre-configured LLM”) gives commands to the environment, it then reads output from the environment, and chooses the next step <p>The full system message is about 800 words long, and includes all system commands the LLM can execute.&nbsp;</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F91e7f83c-e1d9-4b4b-949a-f466129369e7_1272x920.png">    </a>An excerpt from the SWE-agent system message. Read <a href="https://docs.google.com/document/d/1gBlOOHQlLcPBETXHPJRyHK1YxfeC8py9s189hsmpAvI/edit">the full prompt here</a>.  ACI from a software component point of view <p>The ACI consists of these “software building blocks”:</p>  <p>A set of custom commands which the agent can run, with documentation on how to use these commands, like “edit,” “open,” etc.</p>  <p>Linter. This indents the output generated by the agent to ensure the correct formatting of commands, code, scripts, and anything else generated. The linter needs to be configured for the language(s) used.</p>  <p>Feedback about commands. The output of the commands needs to be described back to the agent. This means more than just “piping” the output of the command line. Feedback like “the command ran just fine and there was no output” must be written explicitly in order for the agent to process it. An empty string for a successful output is hard for LLMs to parse.&nbsp;</p>  <p>Specialized terminal. This terminal lets the agent see 100 lines of code within a file, at the time. The agent can instruct to move up or down the file. Why 100 lines? The agent seems to get overwhelmed and produce worse results when there’s more. Interestingly, humans also work like this, except we don’t have more than 50-100 lines of code on our screen at a given time!</p>  <p>Context: Information such as which file is open and the working directory. This information is conveyed with each command to the agent.</p>   <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fa3a30cdb-ccda-4c09-bd47-aabc3e8aa297_1600x895.png">    </a>The ACI from a software components point of view <p>Configuring the ACI is easy enough in the case of SWE-bench:</p>  <p>Prompt templates: initial instructions, the task itself, and a description of which tools and APIs the agent can access</p>  <p>Command files: the scripts and functions the agent can use.</p>  <p>Control flow: the environment that parses the agent’s responses and history.</p>  <p>Environment variables and initial values: factors that influence the terminall or commands, and need to be set up ahead of time.</p>   Guiding the ACI with instructions <p>Before executing commands, additional tips are given to the SWE-agent ACI. These are likely scenarios in which the agent struggled in the past, and the tips to compensate for this. Here are some examples of tips, from SWE-agent’s additional prompts:</p>  <p>Check your work: “Always start by trying to replicate the bug that the issues discuss [...] When you think you've fixed the bug, re-run the bug reproduction script to make sure that the bug has indeed been fixed.”</p>  <p>Try something else: “If you run a command and it doesn't work, try running a different command. A command that did not work once will not work the second time unless you modify it!”</p>  <p>Jump, don’t scroll: “If you open a file and need to get to an area around a specific line that is not in the first 100 lines, say line 583, don't just use the scroll_down command multiple times. Instead, use the goto 583 command. It's much quicker.”</p>  <p>Search: “If the bug reproduction script requires inputting/reading a specific file, such as buggy-input.png, and you'd like to understand how to input that file, conduct a search in the existing repo code, to see whether someone else has already done that.”</p>  <p>Be aware of where the working directory is: “Always make sure to look at the currently open file and the current working directory (which appears right after the currently open file). The currently open file might be in a different directory than the working directory!”</p>  <p>Pay attention! “When editing files, it is easy to accidentally specify a wrong line number, or to write code with incorrect indentation.”</p>  <p>Amusingly, these instructions could be for an inexperienced human dev learning about a new command line environment!</p> 2. How does SWE-agent work? <p>SWE-agent is an implementation of the ACI model. Here’s how it works:</p><p>1. Take a GitHub issue, like a bug report or a feature request. The more refined the description, the better.</p><p>2. Get to work. The agent kicks off, using the issue as input, generating output for the environment to run, and then repeating it.</p><p>Note that SWE-agent was built without interaction capabilities at this step, intentionally. However, you can see it would be easy enough for a human developer to pause execution and add more context or instructions.</p><p>In some way, GitHub Copilot Workspaces provides a more structured and interactive workflow. We previously covered <a href="https://newsletter.pragmaticengineer.com/p/the-pulse-92">how GH Copilot Workspace works</a>.</p><p>3. Submit the solution. The end result could be:</p>  <p>A pull request, ready for a developer to review</p>  <p>A report of the work</p>  <p>The trajectory of the run. Trajectory refers to the full history log of the run.</p>  <p>It usually takes the agent about 10 “turns” to reach the point of attempting to submit a solution.</p><p>Running SWE-agent is surprisingly easy because the team added support for a “one-click deploy,” using GitHub Codespaces. This is a nice touch, and it’s good to see the team making good use of this cloud development environment (CDE.) We previously covered <a href="https://newsletter.pragmaticengineer.com/p/cloud-development-environments-why-now">the popularity of CDEs</a>, including <a href="https://newsletter.pragmaticengineer.com/p/cloud-development-environment-vendors">GitHub Codespaces</a>.</p><p>A prerequisite for using SWE-agent is an OpenAI API key, so that the agent can make API requests to use ChatGPT-4-Turbo. Given the tool is open source, it’s easy enough to change these calls to support another API, or even talk with a local LLM.</p><p>Keep in mind that while SWE-agent is open source, it costs money to use GitHub Codespace and OpenAI APIs, as is common with LLM projects these days. The cost to run a single test is around $2 per GitHub issue.</p> Technology <p>SWE-agent is written in Python, and this first version provides support for solving issues using it. The team chose this language for practical reasons: the agent was designed to score highly on the SWE-bench benchmark. And most SWE-bench issues are in Python. At the same time, SWE-agent already performs well enough with other languages.</p><p>The SWE-agent team already proved that adding support for additional languages works well. They ran a test on the <a href="https://github.com/bigcode-project/octopack">HumanEvalFix</a> benchmark, which has a range of problems in multiple languages (Python, JS, Go, Java, C++ and Rust,) that are much more focused on debugging and coding directly, not locating and reproducing an error. Using its current configuration, the agent performed well on Javascript, Java and Python problems.</p><p>Adding support for new languages requires these steps:</p>  <p>Specifying the language-specific linter to use.</p>  <p>Updating context instructions to emphasize what to pay attention to, in that language. For example, brackets are important in some languages, but indentation isn’t.</p>  <p>Ofir – a developer of SWE-agent – summarizes:</p><blockquote><p>“It wouldn't be much work to add linters for other languages and have the bot program in other languages. None of the architecture of the agent is Python-specific.”</p></blockquote> What the agent usually does <p>In the <a href="https://arxiv.org/abs/2405.15793">SWE-agent paper</a>, the researchers visualized what this tool usually does during each turn, while trying to resolve a GitHub issue:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F4b2d2f00-840e-493d-b8a4-ff95fe4c6321_1538x970.png">    </a>Steps the agent usually took at each turn. Source: <a href="https://arxiv.org/abs/2405.15793">SWE-agent paper</a> <p>Frequently, the agent created new files, search files, and directories early in the process, and began to edit files and run solutions from the second or third turn. Over time, most runs submitted a solution at around turn 10. Agents that didn’t submit a solution by turn 10 usually kept editing and running the files, until giving up.</p><p>Looking across all the agent’s actions, it mostly edits open files:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F312ab7bf-573f-4107-ae4a-49a32e4614ff_1162x786.png">    </a>Distributions of types of actions by the agent during each turn. Source: <a href="https://arxiv.org/abs/2405.15793">SWE-agent paper</a> <p>From turn one, the dominant action is for the agent to edit a file, then run Python to check if the change works as expected.</p><p>The linter makes SWE-agent work a lot better. 51.7% of edits had at least one error, which got caught by the linter, allowing the agent to correct it. This number feels like it could be on-par with how a less experienced engineer would write code. Experienced engineers tend to have good understandings of the language, and if they make errors that result in linting errors, it’s often deliberate.</p> Team behind SWE-agent <p>With companies raising tens or hundreds of millions of dollars in funding to compete in this field, it’s interesting to look at the small team from within academia that built SWE-agent in 6 months – with only two full-time members:</p>  <p>A research assistant due to start their PhD at Stanford this fall: <a href="https://john-b-yang.github.io/">John Yang</a></p>  <p>Three PhD students (3rd, 4th, 5th years): <a href="https://www.carlosejimenez.com/">Carlos E. Jimenez</a>, <a href="https://www.cs.princeton.edu/~awettig/">Alexander Wettig</a>, and <a href="https://ysymyth.github.io/">Shunyu Yao</a>, who graduated a few weeks ago – congratulations to him</p>  <p>A Princeton faculty member: <a href="https://www.cs.princeton.edu/~karthikn/">Karthik Narasimhan</a> (assistant professor)</p>  <p>A postdoc researcher: <a href="https://ofir.io/about/">Ofir Press</a>&nbsp;</p>  <p>A research engineer: <a href="https://www.lieret.net/">Kilian Lieret</a></p>  <p>Led by John Yang and Carlos E. Jimenez, everyone on the team has been active in the machine learning research field for years. And it’s worth noting that only John and Carlos worked full-time on SWE-agent, as everyone had other academic duties. The team started work in October 2023 and published the initial version in April 2024.</p><p>Building such a useful tool with a part-time academic team is seriously impressive, so congratulations to all for this achievement.</p> A note on SWE-bench <p>The team started to build SWE-agent after the core of team members had released the SWE-bench evaluation framework in October 2023. The SWE-bench collection is now used as the state-of-the-art LLM coding evaluation framework. We asked Ofir how the idea for this evaluation package came about:</p><blockquote><p>“Carlos [E. Jimenez] and John [Yang] came up with the idea for SWE-bench. It was the result of them wanting to build a challenging benchmark for evaluating the coding ability of LMs, and them noticing that GitHub issues could be a super useful resource for this.”</p></blockquote><p>SWE-bench mostly contains GitHub issues that use Python, and it feels like there’s a bias towards issues using the Django framework. We asked Ofir how this Python and Django focus came about:</p><blockquote><p>“We choose Python just to make the whole thing easier to set up and run. Django issues being heavily represented did not happen on purpose: it just happened that many of the Django GitHub issues passed our filtering process.”</p></blockquote> Open source alternatives to SWE-agent <p>This article covers SWE-agent, but other open source approaches in the AI space are available.&nbsp;</p><p>Notable projects with academic backing:</p>  <p><a href="https://github.com/nus-apr/auto-code-rover">AutoCodeRover</a>: built by a team at the National University of Singapore, using two agents, instead of the one used by SWE-agent</p>  <p><a href="https://github.com/geekan/MetaGPT">MetaGPT</a>: a focus on multiple agents. Backed <a href="https://arxiv.org/pdf/2308.00352">by research</a> conducted by researchers at universities spread across Europe, US and Asia.</p>  <p>Notable open source projects:</p>  <p><a href="https://github.com/OpenDevin/OpenDevin">OpenDevin</a>: attempting to replicate Devin as open source</p>  <p><a href="https://github.com/gpt-engineer-org/gpt-engineer">GPT Engineer</a>: built to improve existing code, and its focus is not on bug fixing (unlike the focus of SWE-agent)</p>  <p><a href="https://github.com/smol-ai/developer">smol developer</a>: a focus on scaffolding and basic building blocks</p>  <p><a href="https://github.com/MiscellaneousStuff/anterion">Anterion</a>: based on SWE-agent</p>  <p><a href="https://opper.ai/blog/introducing-delvin">Delvin</a>: similar to SWE-agent</p>  <p><a href="https://github.com/stitionai/devika">Devika</a>: also modeled after Devin, with the goal to eventually meet Devin’s SWE-bench score</p>  <p><a href="https://github.com/unit-mesh/auto-dev">AutoDev</a>: a support for multiple languages (Java, Kotlin, JS/Typescript, Rust, Python and others)&nbsp;</p>   3. Successful runs and failed ones 
+      <p>
+          <a href="https://newsletter.pragmaticengineer.com/p/ai-coding-agents">
+              Read more
+          </a>
+      </p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F41e64538-5b8b-4866-98a5-55022dbf341d_1120x352.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:43 &bull;
+   15 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/columbia-law-review-board-nukes-website-over-palestine-article'>Columbia Law Review Board Nukes Website Over Palestine Article</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+  "Eghbariah’s paper for the Columbia Law Review, or CLR, was published on its website in the early hours of Monday morning. The journal’s board of directors responded by pulling the entire website offline. [...] According to Eghbariah, he worked with editors at the Columbia Law Review for over five months on the 100-plus-page text."   Regardless of your perspective on the ongoi
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+<blockquote><p>"Eghbariah’s paper for the Columbia Law Review, or CLR, was published on its website in the early hours of Monday morning. The journal’s board of directors responded by pulling the entire website offline. [...] According to Eghbariah, he worked with editors at the Columbia Law Review for over five months on the 100-plus-page text."</p></blockquote><p>Regardless of your perspective on the ongoing crisis in Israel and Palestine, this seems like a remarkable action: removing a heavily-reviewed, 100+ page legal analysis because it discusses the Nakba, the mass-displacement of Palestinians during the 1948 Palestine war.</p><p>The right thing to do would be to publish it - as the editors tried to do - and allow legal discussion to ensue. Instead, the board of directors chose to simply pull the plug on the website.</p><p>As one Columbia professor put it:</p><blockquote><p>“When Columbia Law Professor Herbert Weschler published his important article questioning the underlying justification for Brown v. Board of Education in 1959 it was regarded by many as blasphemous, but is now regarded as canonical. This is what legal scholarship should do at its best, challenge us to think hard about hard things, even when it is uncomfortable doing so.” </p></blockquote><p>If nothing else, this is a reflection of how sensitive these issues are in the current era, whose voices are allowed to be heard, and the conflicts between different ideologies, even on university campuses.</p>
+<p><a href="https://werd.io/tag/Media">#Media</a></p>
+            <p>[<a href="https://theintercept.com/2024/06/03/columbia-law-review-palestine-board-website/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:16 &bull;
+   16 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/how-tony-stubblebine-turned-medium-around-in-the-ai-era'>How Tony Stubblebine turned Medium around in the AI era</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+ This is a lovely piece about Tony Stubblebine, who, as it rightly says, is doing an excellent job as the new CEO of Medium.   "Under Stubblebine’s direction, Medium, a site known for its many pivots, is finally being strategic about what it wants and where it’s headed. Last year, it launched a Mastodon server for premium users, and in March it demonetized AI-generated content o
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+<p>This is a lovely piece about Tony Stubblebine, who, as it rightly says, is doing an excellent job as the new CEO of Medium.</p><blockquote><p>"Under Stubblebine’s direction, Medium, a site known for its many pivots, is finally being strategic about what it wants and where it’s headed. Last year, it launched a Mastodon server for premium users, and in March it demonetized AI-generated content on its platform. It is solidly on the side of team human and is finally starting to see that pay off."</p></blockquote><p>I worked at Medium in 2016-2017, and I've known Tony since 2007. I genuinely like Ev, too, but I think Tony was a fantastic choice of leader, and that's really bearing out in his choices over the last few years. I was particularly happy when Medium launched its own Mastodon instance to check out the network and help give it some cloud in certain circles.</p><blockquote><p>"It’s hard not to want to root for Medium. The assumption for more than a decade has been that the way the internet has to work will be determined by what makes the most money for a handful of companies. They wanted us to post content, then they wanted us to share content, then they wanted us to watch it endlessly, and now they want us to use their AI, which will create a bubble we’ll live in forever."</p></blockquote><p>I agree.</p>
+<p><a href="https://werd.io/tag/Technology">#Technology</a></p>
+            <p>[<a href="https://www.fastcompany.com/91134093/medium-growth-under-tony-stubblebine">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:40 &bull;
+   17 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Jun/4/encryption-at-rest/#atom-everything'>Encryption At Rest: Whose Threat Model Is It Anyway?</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Encryption At Rest: Whose Threat Model Is It Anyway? 
+Security engineer Scott Arciszewski talks through the challenges of building a useful encryption-at-rest system for hosted software. Encryption at rest on a hard drive protects against physical access to the powered-down disk and little else. To implement encryption at rest in a multi-tenant SaaS system - such that even individuals with insider
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://scottarc.blog/2024/06/02/encryption-at-rest-whose-threat-model-is-it-anyway/">Encryption At Rest: Whose Threat Model Is It Anyway?</a></p>
+Security engineer Scott Arciszewski talks through the challenges of building a useful encryption-at-rest system for hosted software. Encryption at rest on a hard drive protects against physical access to the powered-down disk and little else. To implement encryption at rest in a multi-tenant SaaS system - such that even individuals with insider access  (like access to the underlying database) are unable to read other user's data, is a whole lot more complicated.<p></p>
+<p>Consider an attacker, Bob, with database access:</p>
+<blockquote>
+<p>Here’s the stupid simple attack that works in far too many cases: Bob copies Alice’s encrypted data, and overwrites his records in the database, then accesses the insurance provider’s web app [using his own account].</p>
+</blockquote>
+<p>The fix for this is to "use the AAD mechanism (part of the standard AEAD interface) to bind a ciphertext to its context." Python's cryptography package <a href="https://cryptography.io/en/latest/hazmat/primitives/aead/">covers Authenticated Encryption with Associated Data</a> as part of its "hazardous materials" advanced modules.
+
+    </p><p>Via <a href="https://news.ycombinator.com/item?id=40573211">Hacker News</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:17 &bull;
+   18 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/uk-broadcasters-trade-ad-airtime-for-advertisers-shares'>UK broadcasters trade ad airtime for advertisers’ shares</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+ This is an interesting business model: UK broadcasters are trading unused ad space for equity in digital media startups, turning them into venture-scale investors.   "The move comes as broadcasters continue to face a tough economic downturn where corporate clients have slashed spending on advertising – which is traditionally seen as a bellwether of the economic climate."   The 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+<p>This is an interesting business model: UK broadcasters are trading unused ad space for equity in digital media startups, turning them into venture-scale investors.</p><blockquote><p>"The move comes as broadcasters continue to face a tough economic downturn where corporate clients have slashed spending on advertising – which is traditionally seen as a bellwether of the economic climate."</p></blockquote><p>The thing about venture investing is that it doesn't have a short time horizon: exits could easily be a decade away. So this is either a deliberately long game or a really short-sighted move on behalf of the broadcasters, who might not be prepared to hold a basket of liabilities for that long. Of course, they could presumably sell the equity, but that pressure on the secondary market would have the potential to drive the startups' share prices down. Really the broadcasters need to hold onto their portfolios.</p><p>I'm very curious to see how this plays out. It's definitely an innovative way to use an otherwise illiquid asset (unsold ad space). I want these broadcasters to survive, and I like the ecosystem-building aspect of this, so I hope it all works out for everyone involved.</p>
+<p><a href="https://werd.io/tag/Media">#Media</a></p>
+            <p>[<a href="https://www.theguardian.com/media/article/2024/jun/03/uk-broadcasters-trade-ad-airtime-for-advertisers-shares">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:05 &bull;
+   18 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/zoom-ceo-eric-yuan-wants-ai-clones-in-meetings'>Zoom CEO Eric Yuan wants AI clones in meetings</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+ Eric Yuan has a really bizarre vision of what the future should look like:   "Today for this session, ideally, I do not need to join. I can send a digital version of myself to join so I can go to the beach. Or I do not need to check my emails; the digital version of myself can read most of the emails. Maybe one or two emails will tell me, “Eric, it’s hard for the digital versio
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+<p>Eric Yuan has a really bizarre vision of what the future should look like:</p><blockquote><p>"Today for this session, ideally, I do not need to join. I can send a digital version of myself to join so I can go to the beach. Or I do not need to check my emails; the digital version of myself can read most of the emails. Maybe one or two emails will tell me, “Eric, it’s hard for the digital version to reply. Can you do that?” Again, today we all spend a lot of time either making phone calls, joining meetings, sending emails, deleting some spam emails and replying to some text messages, still very busy. How [do we] leverage AI, how do we leverage Zoom Workplace, to fully automate that kind of work? That’s something that is very important for us."</p></blockquote><p>The solution to having too many meetings that you don't really need to attend, and too many emails that are informational only, is to not have the meetings and emails. It's not to let AI do it for you, which in effect creates a world where our avatars are doing a bunch of makework drudgery for no reason.</p><p>Instead of building better business cultures and reinventing our work rhythms to adapt to information overload and an abundance of busywork, the vision here is to let the busywork happen between AI. It's an office full of ghosts, speaking to each other on our behalf, going to standup meetings with each other just because.</p><p>I mean, I get it. Meetings are Zoom's business. But count me out.</p>
+<p><a href="https://werd.io/tag/AI">#AI</a></p>
+            <p>[<a href="https://www.theverge.com/2024/6/3/24168733/zoom-ceo-ai-clones-digital-twins-videoconferencing-decoder-interview">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   12:55 &bull;
+   18 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.windley.com/'>Phil Windleys Technometria</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.technometria.com/p/decentralized-identity-comes-of-age'>Decentralized Identity Comes of Age</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  I'm at European Identity Conference (EIC) this week. I haven't been for several years. One thing that has struck me is how much of the conversation is about decentralized identity and verifiable credentials. I can remember when the whole idea of decentralized identity was anathema here. Today, the main keynote, by Martin Kuppinger himself is
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F7dd032ad-a103-46e4-bdcb-1ace360d91d3.heic">    </a> <p>I'm at European Identity Conference (EIC) this week. I haven't been for several years. One thing that has struck me is how much of the conversation is about decentralized identity and verifiable credentials. I can remember when the whole idea of decentralized identity was anathema here. Today, the main keynote, by Martin Kuppinger himself is Vision 2030: Rethinking Digital Identity in the Era of AI and Decentralization. And all he's talking about is decentralized identity and how it's at the core of solving long standing identity problems. Another data point: Steve McCown and Kim Hamilton-Duffy ran a session this morning called Decentralized Identity Technical Mastery which was a hands-on workshop. It was in a big room and it was packed.</p><p>This truly feels like a tipping point to me. At IIW, it's identity geeks talking with other identity geeks, so it's no surprise to see lots of discussion about new things. EIC is a different kind of conference. There are about 1000 people here I'd guess. Most of them aren't working on new standards or open source projects. Instead they're the folks from companies who come to conferences like EIC to learn how to solve the problems their organization is facing.</p><p>In the keynotes and in numerous sessions, the message that they're hearing is "decentralized identity will solve your problems." Martin closed his talk with the proclamation that "decentralized identity is the new paradigm for identity." </p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F7dd032ad-a103-46e4-bdcb-1ace360d91d3.heic'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   12:04 &bull;
+   19 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -793,7 +1832,7 @@ I missed this new Mastodon feature when it was released <a href="https://blog.jo
 
 <div class='item-footer'>
    06:14 &bull;
-   32 minutes ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -873,7 +1912,7 @@ Twelve years ago on Reddit user bobbylox asked Neal Stephenson (in an AMA):<p></
 
 <div class='item-footer'>
    02:07 &bull;
-   5 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -953,7 +1992,7 @@ Twelve years ago on Reddit user bobbylox asked Neal Stephenson (in an AMA):<p></
 
 <div class='item-footer'>
    02:02 &bull;
-   5 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1014,7 +2053,7 @@ Twelve years ago on Reddit user bobbylox asked Neal Stephenson (in an AMA):<p></
 
 <div class='item-footer'>
    01:52 &bull;
-   5 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1078,7 +2117,7 @@ Twelve years ago on Reddit user bobbylox asked Neal Stephenson (in an AMA):<p></
 
 <div class='item-footer'>
    01:24 &bull;
-   5 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1143,7 +2182,7 @@ Twelve years ago on Reddit user bobbylox asked Neal Stephenson (in an AMA):<p></
 
 <div class='item-footer'>
    01:09 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1224,7 +2263,7 @@ Twelve years ago on Reddit user bobbylox asked Neal Stephenson (in an AMA):<p></
 
 <div class='item-footer'>
    16:43 &bull;
-   14 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1302,7 +2341,7 @@ Jack Clark, now at Anthropic, was a researcher at OpenAI five years ago when the
 
 <div class='item-footer'>
    16:22 &bull;
-   14 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1387,7 +2426,7 @@ Jack Clark, now at Anthropic, was a researcher at OpenAI five years ago when the
 
 <div class='item-footer'>
    14:34 &bull;
-   16 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1461,7 +2500,7 @@ Six years in the making. The most significant feature in this milestone is stabi
 
 <div class='item-footer'>
    13:23 &bull;
-   17 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1523,7 +2562,7 @@ Jack Cook reverse engineered the tiny LLM used for the predictive text keyboard 
 
 <div class='item-footer'>
    12:23 &bull;
-   18 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1589,7 +2628,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    09:31 &bull;
-   21 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1674,7 +2713,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    04:42 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1803,7 +2842,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    04:26 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1869,7 +2908,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    01:34 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1935,7 +2974,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    01:05 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2017,7 +3056,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    23:30 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2107,7 +3146,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    23:06 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2171,7 +3210,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    21:09 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2238,7 +3277,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    20:47 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2302,7 +3341,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    20:34 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2378,7 +3417,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    20:25 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2443,7 +3482,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    20:04 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2518,7 +3557,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    19:33 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2588,7 +3627,7 @@ An informative write-up of this year’s PyCon US conference. It’s rare to see
 
 <div class='item-footer'>
    13:29 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2659,7 +3698,7 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
 
 <div class='item-footer'>
    13:12 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2775,7 +3814,7 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
 
 <div class='item-footer'>
    12:06 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2892,7 +3931,7 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
 
 <div class='item-footer'>
    07:52 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2931,8 +3970,8 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   Just to say after writing that last post I suddenly realized that Reminders has become my Task Manger of choice. 
- For years it’s been Things … which still lurks .. but Reminders has always been there because ‘family sharing’ .. and then a few weeks ago I asked Siri to remind me to buy something and Siri dropped it into Reminders - not Notes where the shared shopping lists live … I know I know … s
+   Just to say after writing that last post I suddenly realized that Reminders has become my Task Manager of choice. 
+ For years it’s been Things … which still lurks .. but Reminders has always been there because ‘family sharing’ .. and then a few weeks ago I asked Siri to remind me to buy something and Siri dropped it into Reminders - not Notes where the shared shopping lists live … I know I know … 
    
   
   
@@ -2947,7 +3986,7 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
  -->
 <div class='wrap'>
 
-<p>Just to say after writing that last post I suddenly realized that Reminders has become my Task Manger of choice.</p>
+<p>Just to say after writing that last post I suddenly realized that Reminders has become my Task Manager of choice.</p>
 <p>For years it’s been Things … which still lurks .. but Reminders has always been there because ‘family sharing’ .. and then a few weeks ago I asked Siri to remind me to buy something and Siri dropped it into Reminders - not Notes where the shared shopping lists live … I know I know … sorry … because ‘sharing’.</p>
 <p>Not only that .. but turns out ‘Shopping’ has a whole auto categorizing thing going on that I had somehow missed … so I moved my quick lists in there and before you know it - other stuff.</p>
 <p>It has come a long way since I last used it with vengeance .. not deleting Things yet though.</p>
@@ -2966,7 +4005,7 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
 
 <div class='item-footer'>
    05:14 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3043,7 +4082,7 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
 
 <div class='item-footer'>
    04:40 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3123,7 +4162,7 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
 
 <div class='item-footer'>
    02:58 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3147,7 +4186,7 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
 
   
     
-    <a href='https://john.philpin.com/2024/06/02/remember-a-while.html'> Remember a while back there was this series called Sugar and</a>
+    <a href='https://john.philpin.com/2024/06/02/remember-a-while.html'> 🎈154/366 Remember a while back there was this series called </a>
   
 
 </h3>
@@ -3158,10 +4197,10 @@ The PDF editor in Firefox (confession: I did not know Firefox ships with a PDF e
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   Remember a while back there was this series called Sugar and there was a bit of a debate around - ‘well I did not see that coming’ at the end of Episode 6. 
+   🎈154/366 Remember a while back there was this series called Sugar and there was a bit of a debate around - ‘well I did not see that coming’ at the end of Episode 6. 
  I have been in and out of another show that is absolutely nowhere near as good. Nowhere near. BUT … at the end of Episode 6 there is a 🤯 that I definitely did NOT see coming.
 Suddenly viewing the plot through very different eyes. 
- Is ‘Episod
+ I
    
   
   
@@ -3176,7 +4215,7 @@ Suddenly viewing the plot through very different eyes.
  -->
 <div class='wrap'>
 
-<p>Remember a while back there was this series called Sugar and there was a bit of a debate around - ‘well I did not see that coming’ at the end of Episode 6.</p>
+<p>🎈154/366 Remember a while back there was this series called Sugar and there was a bit of a debate around - ‘well I did not see that coming’ at the end of Episode 6.</p>
 <p>I have been in and out of another show that is absolutely nowhere near as good. Nowhere near. BUT … at the end of Episode 6 there is a 🤯 that I definitely did NOT see coming.
 Suddenly viewing the plot through very different eyes.</p>
 <p>Is ‘Episode 6’ the new black?</p>
@@ -3190,7 +4229,7 @@ Suddenly viewing the plot through very different eyes.</p>
 
 <div class='item-footer'>
    01:55 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3265,7 +4304,7 @@ Suddenly viewing the plot through very different eyes.</p>
 
 <div class='item-footer'>
    01:51 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3350,7 +4389,7 @@ Suddenly viewing the plot through very different eyes.</p>
 
 <div class='item-footer'>
    20:10 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3427,7 +4466,7 @@ Suddenly viewing the plot through very different eyes.</p>
 
 <div class='item-footer'>
    19:50 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3512,7 +4551,7 @@ Suddenly viewing the plot through very different eyes.</p>
 
 <div class='item-footer'>
    13:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3584,7 +4623,7 @@ Dan Luu interviewed engineers from Cloudflare, Heap, and Segment—three compani
 
 <div class='item-footer'>
    08:35 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3657,7 +4696,7 @@ Recall is a new feature in Windows 11 which takes a screenshot every few seconds
 
 <div class='item-footer'>
    07:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3750,7 +4789,7 @@ Recall is a new feature in Windows 11 which takes a screenshot every few seconds
 
 <div class='item-footer'>
    05:53 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3774,7 +4813,7 @@ Recall is a new feature in Windows 11 which takes a screenshot every few seconds
 
   
     
-    <a href='https://john.philpin.com/2024/06/01/systems-the-purpose.html'> 🔗 Systems: The Purpose of a System is What It Does - Anil Da</a>
+    <a href='https://john.philpin.com/2024/06/01/systems-the-purpose.html'> 🎈153/366 🔗 Systems: The Purpose of a System is What It Does </a>
   
 
 </h3>
@@ -3785,7 +4824,7 @@ Recall is a new feature in Windows 11 which takes a screenshot every few seconds
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   🔗 Systems: The Purpose of a System is What It Does - Anil Dash 
+   🎈153/366 🔗 Systems: The Purpose of a System is What It Does - Anil Dash 
  Yes? 
  Yes! 
    
@@ -3802,7 +4841,7 @@ Recall is a new feature in Windows 11 which takes a screenshot every few seconds
  -->
 <div class='wrap'>
 
-<p><a href="https://anildash.com/2024/05/29/systems-the-purpose-of-a-system/">🔗 Systems: The Purpose of a System is What It Does - Anil Dash</a></p>
+<p>🎈153/366 <a href="https://anildash.com/2024/05/29/systems-the-purpose-of-a-system/">🔗 Systems: The Purpose of a System is What It Does - Anil Dash</a></p>
 <p>Yes?</p>
 <p>Yes!</p>
    
@@ -3815,7 +4854,7 @@ Recall is a new feature in Windows 11 which takes a screenshot every few seconds
 
 <div class='item-footer'>
    01:07 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3896,7 +4935,7 @@ Recall is a new feature in Windows 11 which takes a screenshot every few seconds
 
 <div class='item-footer'>
    00:37 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3962,7 +5001,7 @@ Recall is a new feature in Windows 11 which takes a screenshot every few seconds
 
 <div class='item-footer'>
    19:53 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4035,7 +5074,7 @@ This one illustrates a nasty edge-case if you ship any kind of chatbot with your
 
 <div class='item-footer'>
    16:53 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4124,7 +5163,7 @@ This one illustrates a nasty edge-case if you ship any kind of chatbot with your
 
 <div class='item-footer'>
    14:51 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4224,7 +5263,7 @@ Anja Hirschel, Informatikerin und Spitzenkandidatin der Piratenpartei zur Europa
 
 <div class='item-footer'>
    08:54 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4297,7 +5336,7 @@ Jake Howard's DEP has been approved and is moving into the implementation stage.
 
 <div class='item-footer'>
    08:44 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4376,7 +5415,7 @@ Jake Howard's DEP has been approved and is moving into the implementation stage.
 
 <div class='item-footer'>
    05:43 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4398,7 +5437,7 @@ Jake Howard's DEP has been approved and is moving into the implementation stage.
  <i class='icon-caret-down item-collapse item-close item-opened'></i>
  <i class='icon-caret-right item-expand item-open item-closed'></i>
 
- <a href='https://john.philpin.com/2024/05/31/politics-again-a.html'>Politics - Again. A Reply That Got Out Of Hand</a>
+ <a href='https://john.philpin.com/2024/05/31/politics-again-a.html'>🎈152/366 Politics - Again.</a>
 
 </h3>
 
@@ -4492,7 +5531,7 @@ Who went on to win his election until Truss was appointed and then little Rishi.
 
 <div class='item-footer'>
    05:09 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4566,85 +5605,7 @@ Who went on to win his election until Truss was appointed and then little Rishi.
 
 <div class='item-footer'>
    02:14 &bull;
-   4 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/05/31/trump-also-is.html'> 
- Trump also is a first-time offender with no criminal recor</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- Trump also is a first-time offender with no criminal record. 
- 
- 💬 Wall Street Journal 
- Whilst I understand the thinking behind the first part of that sentence … 
- Surely it is only true in as much as he hasn’t previously been caught and held to account. 
- Semantics? Sure. But language is important. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<blockquote>
-<p>Trump also is a first-time offender with no criminal record.</p>
-</blockquote>
-<p>💬 Wall Street Journal</p>
-<p>Whilst I understand the thinking behind the first part of that sentence …</p>
-<p>Surely it is only true in as much as he hasn’t previously been caught and held to account.</p>
-<p>Semantics? Sure. But language is important.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:29 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4720,7 +5681,7 @@ I've seen many of these criticisms of GraphQL before - N+1 queries, the difficul
 
 <div class='item-footer'>
    10:36 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4736,75 +5697,6 @@ I've seen many of these criticisms of GraphQL before - N+1 queries, the difficul
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/05/30/today-i-got.html'> Today I got my first 🖇️ guestbook signature from a total str</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Today I got my first 🖇️ guestbook signature from a total stranger. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Today I got my first <a href="https://jphilpin.pika.page/guestbook">🖇️ guestbook signature</a> from a total stranger.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   10:34 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -4861,7 +5753,7 @@ Fascinating survey by the Reuters Institute for the Study of Journalism at Oxfor
 
 <div class='item-footer'>
    07:38 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4921,7 +5813,7 @@ Fascinating survey by the Reuters Institute for the Study of Journalism at Oxfor
 
 <div class='item-footer'>
    07:27 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4998,7 +5890,7 @@ Mistral's first code-specific model, trained to be "fluent" in 80 different prog
 
 <div class='item-footer'>
    07:19 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5138,7 +6030,7 @@ Mistral's first code-specific model, trained to be "fluent" in 80 different prog
 
 <div class='item-footer'>
    21:41 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5202,7 +6094,7 @@ Mistral's first code-specific model, trained to be "fluent" in 80 different prog
 
 <div class='item-footer'>
    11:06 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5321,7 +6213,7 @@ Mistral's first code-specific model, trained to be "fluent" in 80 different prog
 
 <div class='item-footer'>
    10:51 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5395,7 +6287,7 @@ Accumulated wisdom from six experienced LLM hackers. Lots of useful tips in here
 
 <div class='item-footer'>
    08:59 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5455,7 +6347,7 @@ Accumulated wisdom from six experienced LLM hackers. Lots of useful tips in here
 
 <div class='item-footer'>
    07:17 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5521,7 +6413,7 @@ Accumulated wisdom from six experienced LLM hackers. Lots of useful tips in here
 
 <div class='item-footer'>
    02:31 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5620,7 +6512,7 @@ Accumulated wisdom from six experienced LLM hackers. Lots of useful tips in here
 
 <div class='item-footer'>
    20:08 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5689,7 +6581,7 @@ GPT-2 124M was the smallest model in the GPT-2 series released by OpenAI back in
 
 <div class='item-footer'>
    19:47 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5757,7 +6649,7 @@ PyOdide provides Python packaged for browser WebAssembly alongside an ecosystem 
 
 <div class='item-footer'>
    19:04 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5836,7 +6728,7 @@ PyOdide provides Python packaged for browser WebAssembly alongside an ecosystem 
 
 <div class='item-footer'>
    17:17 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5911,7 +6803,7 @@ PyOdide provides Python packaged for browser WebAssembly alongside an ecosystem 
 
 <div class='item-footer'>
    15:31 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5994,7 +6886,7 @@ Prompt: “A vast field on which the ground spells the letters A and I, with peo
 
 <div class='item-footer'>
    15:01 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6066,7 +6958,7 @@ New Python library from Jeremy Howard that adds some neat utility functions and 
 
 <div class='item-footer'>
    21:14 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6145,7 +7037,7 @@ New Python library from Jeremy Howard that adds some neat utility functions and 
 
 <div class='item-footer'>
    18:20 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6702,7 +7594,7 @@ public static class ValidateIdTokenHintRequestPayload
 
 <div class='item-footer'>
    05:50 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6774,73 +7666,7 @@ Frank Force explains his brilliant 256 byte canvas ray tracing animated cityscap
 
 <div class='item-footer'>
    18:25 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/May/26/statically-typed-functional-programming-with-python-312/#atom-everything'>Statically Typed Functional Programming with Python 3.12</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Statically Typed Functional Programming with Python 3.12 
-Oskar Wickström builds a simple expression evaluator that demonstrates some new patterns enabled by Python 3.12, incorporating the match operator, generic types and type aliases.
-
-     Via Lobste.rs 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://wickstrom.tech/2024-05-23-statically-typed-functional-programming-python-312.html">Statically Typed Functional Programming with Python 3.12</a></p>
-Oskar Wickström builds a simple expression evaluator that demonstrates some new patterns enabled by Python 3.12, incorporating the match operator, generic types and type aliases.
-
-    <p>Via <a href="https://lobste.rs/s/hphovk/statically_typed_functional">Lobste.rs</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:12 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6921,7 +7747,7 @@ Oskar Wickström builds a simple expression evaluator that demonstrates some new
 
 <div class='item-footer'>
    19:03 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7000,72 +7826,6 @@ Oskar Wickström builds a simple expression evaluator that demonstrates some new
 
 <div class='item-footer'>
    18:53 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/May/25/why-googles-ai-might-recommend-you-mix-glue-into-your-pizza/#atom-everything'>Why Google’s AI might recommend you mix glue into your pizza</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Why Google’s AI might recommend you mix glue into your pizza 
-I got “distrust and verify” as advice on using LLMs into this Washington Post piece by Shira Ovide.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.washingtonpost.com/technology/2024/05/24/google-ai-overviews-wrong/">Why Google’s AI might recommend you mix glue into your pizza</a></p>
-I got “distrust and verify” as advice on using LLMs into this Washington Post piece by Shira Ovide.
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   06:29 &bull;
    10 days ago
 </div>
 
@@ -7145,7 +7905,7 @@ I got “distrust and verify” as advice on using LLMs into this Washington Pos
 
 <div class='item-footer'>
    15:07 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7207,7 +7967,7 @@ I got “distrust and verify” as advice on using LLMs into this Washington Pos
 
 <div class='item-footer'>
    14:47 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7287,84 +8047,7 @@ I got “distrust and verify” as advice on using LLMs into this Washington Pos
 
 <div class='item-footer'>
    14:13 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/May/24/golden-gate-claude/#atom-everything'>Golden Gate Claude</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Golden Gate Claude 
-This is absurdly fun and weird. Anthropic's recent LLM interpretability research gave them the ability to locate features within the opaque blob of their Sonnet model and boost the weight of those features during inference. 
- For a limited time only they're serving a "Golden Gate Claude" model which has the feature for the Golden Gate Bridge boosted. No matter what question you
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.anthropic.com/news/golden-gate-claude">Golden Gate Claude</a></p>
-This is absurdly fun and weird. Anthropic's recent <a href="https://simonwillison.net/2024/May/21/scaling-monosemanticity-extracting-interpretable-features-from-c/">LLM interpretability research</a> gave them the ability to locate features within the opaque blob of their Sonnet model and boost the weight of those features during inference.<p></p>
-<p>For a limited time only they're serving a "Golden Gate Claude" model which has the feature for the Golden Gate Bridge boosted. No matter what question you ask it the Golden Gate Bridge is likely to be involved in the answer in some way. Click the little bridge icon in the Claude UI to give it a go.</p>
-<p>I asked for names for a pet pelican and the first one it offered was this:</p>
-<blockquote>
-<p>Golden Gate - This iconic bridge name would be a fitting moniker for the pelican with its striking orange color and beautiful suspension cables.</p>
-</blockquote>
-<p>And from a <a href="https://fedi.simonwillison.net/@simon/112497735961388213">recipe for chocolate covered pretzels</a>:</p>
-<blockquote>
-<p>Gently wipe any fog away and pour the warm chocolate mixture over the bridge/brick combination. Allow to air dry, and the bridge will remain accessible for pedestrians to walk along it.</p>
-</blockquote>
-<p>UPDATE: I think the experimental model is <a href="https://twitter.com/simonw/status/1794162704711893298">no longer available</a>, approximately 24 hours after release. We'll miss you, Golden Gate Claude.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:17 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7435,7 +8118,7 @@ This is absurdly fun and weird. Anthropic's recent <a href="https://simonwilliso
 
 <div class='item-footer'>
    16:35 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7511,7 +8194,7 @@ This is absurdly fun and weird. Anthropic's recent <a href="https://simonwilliso
 
 <div class='item-footer'>
    14:02 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7589,7 +8272,7 @@ This is absurdly fun and weird. Anthropic's recent <a href="https://simonwilliso
 
 <div class='item-footer'>
    14:02 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8622,7 +9305,7 @@ Space Technology</a> 🤦🏻‍♂️.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    21:56 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8711,7 +9394,7 @@ Space Technology</a> 🤦🏻‍♂️.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    19:24 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8819,7 +9502,7 @@ ok 12 - webfinger.server.5_1_cors_header_required::cors_header_required
 
 <div class='item-footer'>
    17:29 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8889,7 +9572,7 @@ ok 12 - webfinger.server.5_1_cors_header_required::cors_header_required
 
 <div class='item-footer'>
    14:01 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8989,7 +9672,7 @@ ok 12 - webfinger.server.5_1_cors_header_required::cors_header_required
 
 <div class='item-footer'>
    12:07 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9098,7 +9781,7 @@ ok 12 - webfinger.server.5_1_cors_header_required::cors_header_required
 
 <div class='item-footer'>
    03:53 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9189,7 +9872,7 @@ ok 12 - webfinger.server.5_1_cors_header_required::cors_header_required
 
 <div class='item-footer'>
    21:34 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9268,7 +9951,7 @@ ok 12 - webfinger.server.5_1_cors_header_required::cors_header_required
 
 <div class='item-footer'>
    20:29 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9343,7 +10026,7 @@ ok 12 - webfinger.server.5_1_cors_header_required::cors_header_required
 
 <div class='item-footer'>
    16:24 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9420,7 +10103,7 @@ OpenID Federation -35 has been published at <a href="https://openid.net/specs/op
 
 <div class='item-footer'>
    07:08 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9509,7 +10192,7 @@ OpenID Federation -35 has been published at <a href="https://openid.net/specs/op
 
 <div class='item-footer'>
    15:53 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9590,7 +10273,7 @@ OpenID Federation -35 has been published at <a href="https://openid.net/specs/op
 
 <div class='item-footer'>
    15:37 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9655,7 +10338,7 @@ OpenID Federation -35 has been published at <a href="https://openid.net/specs/op
 
 <div class='item-footer'>
    12:55 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9733,7 +10416,7 @@ OpenID Federation -35 has been published at <a href="https://openid.net/specs/op
 
 <div class='item-footer'>
    01:59 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9809,7 +10492,7 @@ OpenID Federation -35 has been published at <a href="https://openid.net/specs/op
 
 <div class='item-footer'>
    16:02 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9822,224 +10505,6 @@ OpenID Federation -35 has been published at <a href="https://openid.net/specs/op
  <h2 class='new-date'>
   Friday, 17. May 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/share-openly-a-simple-icon-for-a-new-social-sharing'>Share Openly: A simple icon for a new social sharing service</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- A lovely blog post by Jon Hicks on his process for creating the ShareOpenly icon. Characteristically, lots of care and attention went into this. 
-
- I'm really glad you get to see the open hand icons, which we eventually decided against, but feel really warm and human. 
-
- Jon's amazing, lovely to work with, and has a really impressive body of work. I'm grateful he was able to c
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>A lovely blog post by Jon Hicks on his process for creating the ShareOpenly icon. Characteristically, lots of care and attention went into this.</p>
-
-<p>I'm really glad you get to see the open hand icons, which we eventually decided against, but feel really warm and human.</p>
-
-<p>Jon's amazing, lovely to work with, and has a really impressive body of work. I'm grateful he was able to contribute such an important part of this personal project.  <a href="https://werd.io/tag/Technology">#Technology</a></p>
-            <p>[<a href="https://hicks.design/journal/share-openly">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:56 &bull;
-   18 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/a-new-ani-difranco-album-is-something-to-celebrate'>A new Ani DiFranco album is something to celebrate</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- I’ve been following Ani DiFranco for decades. I’ve seen her play live around twenty times: she always brings a kind of joyful, progressive energy that leaves me motivated and buzzing.  She has a new album out, and it feels like a return to visceral, honest form. It’s not quite the acoustic punk from the late nineties / early aughts — seriously, go check out Living in Clip, Not a Pretty Girl or D
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p>I’ve been following <a href="https://anidifranco.com/">Ani DiFranco</a> for decades. I’ve seen her play live around twenty times: she always brings a kind of joyful, progressive energy that leaves me motivated and buzzing.</p><p><a href="https://anidifranco.bandcamp.com/album/unprecedented-sh-t">She has a new album out</a>, and it feels like a return to visceral, honest form. It’s not quite the acoustic punk from the late nineties / early aughts — seriously, go check out <a href="https://anidifranco.bandcamp.com/album/living-in-clip">Living in Clip</a>, <a href="https://anidifranco.bandcamp.com/album/not-a-pretty-girl">Not a Pretty Girl</a> or <a href="https://anidifranco.bandcamp.com/album/dilate">Dilate</a> — and it goes to some really experimental places, but I’m into it. This time, rather than making it on her own, she’s worked with producer <a href="https://en.wikipedia.org/wiki/BJ_Burton">BJ Burton</a>, who’s also worked with Bon Iver and Taylor Swift.</p><p>We need progressive, momentum-bringing, energetic music more than ever. Ani delivers. And even the name of the album itself — Unprecedented Sh!t — feels very apt for the era.</p><p>From the liner notes:</p><blockquote><p>The title Unprecedented Sh!t is not only representative of how much of a sonic departure the 11-track album is from Ani’s other work, but also a political and social commentary on the current state of the world. “We find ourselves in unprecedented times in many ways, faced with unprecedented challenges. So, our responses to them and our discourse around them, need to rise to that level.”</p></blockquote><p>Amen.</p> 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:20 &bull;
-   18 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/apple-spacex-microsoft-return-to-office-mandates-drove-senior-talent-away'>Apple, SpaceX, Microsoft return-to-office mandates drove senior talent away</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
-
- "Taken together, our findings imply that return to office mandates can imply significant human capital costs in terms of output, productivity, innovation, and competitiveness for the companies that implement them." 
-
- There's no doubt that there's a lot of value in being in the same physical room together; I'm writing this on the day after a work summit that brought my team to
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-
-<p>"Taken together, our findings imply that return to office mandates can imply significant human capital costs in terms of output, productivity, innovation, and competitiveness for the companies that implement them."</p>
-
-<p>There's no doubt that there's a lot of value in being in the same physical room together; I'm writing this on the day after a work summit that brought my team together from across the country, and I'm still buzzing from the energy. But I think anyone in tech that proposes a full-time return to office policy needs to rethink.</p>
-
-<p>It comes down to this: "it's easier to manage a team that's happy". People want their lives and contexts to be respected; everyone's relationship with their employers has been reset over the last few years. This goes hand in hand with the resurgence of unions, too: the contract between workers and employers is being renegotiated, and particularly for parents and carers, but really for everyone, working from home yields a kind of freedom that's hard to replace. And asking people to come back reads as a lack of trust and autonomy that erodes relationships and decimates morale.  <a href="https://werd.io/tag/Business">#Business</a></p>
-            <p>[<a href="https://arstechnica.com/information-technology/2024/05/rto-mandates-led-to-pronounced-exodus-of-senior-workers-at-top-tech-firms/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:11 &bull;
-   18 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -10111,7 +10576,7 @@ OpenID Federation -35 has been published at <a href="https://openid.net/specs/op
 
 <div class='item-footer'>
    13:19 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10199,7 +10664,7 @@ OpenID Federation -35 has been published at <a href="https://openid.net/specs/op
 
 <div class='item-footer'>
    07:59 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10273,7 +10738,7 @@ Here’s the illustration depicting Doc Searls engaging in two different activit
 
 <div class='item-footer'>
    03:53 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10344,77 +10809,7 @@ Here’s the illustration depicting Doc Searls engaging in two different activit
 
 <div class='item-footer'>
    16:29 &bull;
-   19 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/googles-broken-link-to-the-web'>Google’s broken link to the web</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
- "A quarter-century into its existence, a company that once proudly served as an entry point to a web that it nourished with traffic and advertising revenue has begun to abstract that all away into an input for its large language models."  This has the potential to be a disaster for the web and everyone who depends on it: for journalism, for bloggers, for communities, for every 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-<p>"A quarter-century into its existence, a company that once proudly served as an entry point to a web that it nourished with traffic and advertising revenue has begun to abstract that all away into an input for its large language models."</p><p>This has the potential to be a disaster for the web and everyone who depends on it: for journalism, for bloggers, for communities, for every voice that couldn't be heard without an open, egalitarian platform.</p><p>The answer for all of those stakeholders has to be depending on forging real, direct relationships with real people. It doesn't scale; it doesn't fit well with a unidirectional broadcast model for publishing; it's now how most people who make content think about what they do. But it's how all of them are going to survive and continue to find each other.</p><p>I've been urging publishers to stop using the word "audience" and to replace it with "community", and to think about what verb might replace "publish" in a multi-directional web that is more about relationships than it is reaching mass eyeballs.</p><p>Of course, it might go in a direction we haven't predicted. We'll find out very soon; the only real certainty is that things are changing, and the bedrock that many people have depended on for two decades is shifting. <a href="https://werd.io/tag/Technology">#Technology</a></p>            <p>[<a href="https://www.platformer.news/google-io-ai-search-sundar-pichai/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:34 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10494,7 +10889,7 @@ Here’s the illustration depicting Doc Searls engaging in two different activit
 
 <div class='item-footer'>
    06:17 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10564,7 +10959,7 @@ Here’s the illustration depicting Doc Searls engaging in two different activit
 
 <div class='item-footer'>
    01:12 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10718,7 +11113,7 @@ Here’s the illustration depicting Doc Searls engaging in two different activit
 
 <div class='item-footer'>
    06:57 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10795,7 +11190,7 @@ Here’s the illustration depicting Doc Searls engaging in two different activit
 
 <div class='item-footer'>
    15:39 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10949,7 +11344,7 @@ suggestions into the <a href="https://postgresteam.slack.com/archives/C056ZA93H1
 
 <div class='item-footer'>
    19:12 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11204,7 +11599,7 @@ jobs:
 
 <div class='item-footer'>
    05:57 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11303,7 +11698,7 @@ jobs:
 
 <div class='item-footer'>
    23:32 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11367,7 +11762,7 @@ jobs:
 
 <div class='item-footer'>
    19:49 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11463,7 +11858,7 @@ jobs:
 
 <div class='item-footer'>
    14:39 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12004,7 +12399,7 @@ class Doer(tyming.Tymee):
 
 <div class='item-footer'>
    00:11 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12082,7 +12477,7 @@ class Doer(tyming.Tymee):
 
 <div class='item-footer'>
    19:33 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12156,7 +12551,7 @@ class Doer(tyming.Tymee):
 
 <div class='item-footer'>
    18:35 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12285,7 +12680,7 @@ plan or join us in the <a href="https://postgresteam.slack.com/archives/C056ZA93
 
 <div class='item-footer'>
    18:13 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12468,7 +12863,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    16:25 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12950,7 +13345,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    15:50 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13024,7 +13419,7 @@ Personal AI refers to artificial intelligence designed to assist and interact wi
 
 <div class='item-footer'>
    23:46 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13462,7 +13857,7 @@ The “new” Barnes on the Ben Franklin Parkway
 
 <div class='item-footer'>
    16:26 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13530,7 +13925,7 @@ The “new” Barnes on the Ben Franklin Parkway
 
 <div class='item-footer'>
    10:31 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14617,7 +15012,7 @@ see you next time</p>
 
 <div class='item-footer'>
    22:12 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14687,7 +15082,7 @@ see you next time</p>
 
 <div class='item-footer'>
    15:01 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14771,7 +15166,7 @@ Rage, rage against the dying of the light.</p>
 
 <div class='item-footer'>
    13:37 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14845,7 +15240,7 @@ Rage, rage against the dying of the light.</p>
 
 <div class='item-footer'>
    12:14 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14923,7 +15318,7 @@ Rage, rage against the dying of the light.</p>
 
 <div class='item-footer'>
    11:31 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19011,7 +19406,7 @@ The Santa Barbara library, viewed from the county courthouse. Is this where the 
 
 <div class='item-footer'>
    01:36 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -26251,7 +26646,7 @@ America/New_York]. Thanks for coming!</p>
 
 <div class='item-footer'>
    02:12 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27171,7 +27566,7 @@ Example: <a href="https://formulae.brew.sh/docs/api/#analytics" title="Homebrew 
 
 <div class='item-footer'>
    18:50 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27242,7 +27637,7 @@ Example: <a href="https://formulae.brew.sh/docs/api/#analytics" title="Homebrew 
 
 <div class='item-footer'>
    16:51 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27667,81 +28062,6 @@ and prompt with <code>pg_pair/pair</code>.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    17:20 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://newsletter.pragmaticengineer.com/'>The Pragmatic Engineer</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://newsletter.pragmaticengineer.com/p/tech-compensation'>Senior-and-Above Compensation in Tech</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  How well does tech pay, really? A deep look into almost 1,000 data points sent in by engineering managers, senior+ engineers, VP, and C-level folks in tech, mostly working in software engineering
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>In April 2023, I invited senior-and-above readers to share their compensation numbers, to research an accurate account of pay at startups, scaleups, and publicly traded companies. The survey was a collaboration with VC firm Creandum, which created an interesting report about early-stage compensation in Europe. Creandum shared a report, based on this data last year: <a href="https://blog.creandum.com/compensation-decoded-tech-leader-salaries-at-early-stage-startups-7faf5465d5b4">Compensation Decoded: Tech leader salaries at early-stage startups.</a></p><p>I’m delighted to share what – I hope – is the most detailed-possible tech compensation report based on latest-available figures. I’ve taken time to slice and dice the data; so strap in because today we’re talking numbers – lots of them! We cover:</p>  <p>Overview of sources. 951 data points, mainly from engineering managers and senior+ engineers in the US, EU and UK.</p>  <p>Base salary, cash compensation, total compensation. A summary of how these compare at the 75th and 90th median percentiles.</p>  <p>Regional pay comparison. Unsurprisingly, the US pays best by quite a distance. However, other regions pay $200K+ in total compensation at the 75th percentile.</p>  <p>Compensation by seniority. How seniors with 5-10 years of experience, those with 10+ years, and executives, are paid across the globe: US, UK, EU, India, Asia, Australia and New Zealand, Latin America, Africa.</p>  <p>Compensation by funding stage. Pay at bootstrapped, early-stage, mid-stage, late-stage and public companies in the US, EU and UK.</p>  <p>A closer look at the 90th percentile, by funding stage. Something odd is happening to executive packages at late-stage companies: it’s extremely high!</p>  <p>Outliers. The top 3 data points from each category of founders, non-founder executives, and publicly traded companies execs. It’s interesting a principal engineer takes home more in cash compensation than most executives filling out the survey, in illiquid stock.</p>  <p>Interesting findings. Bootstrapped companies pay surprisingly well in cash terms, and neither sector nor engineering team size make a difference to how much you earn.</p>  <p>See also these articles related to this topic:</p>  <p><a href="https://newsletter.pragmaticengineer.com/p/compensation-at-tech-companies">Compensation at publicly traded tech companies</a></p>  <p><a href="https://newsletter.pragmaticengineer.com/p/remote-compensation-stratgies">A CTO’s guide to remote compensation strategies</a></p>   1. Overview of sources <p>After cleaning the data, the report has 951 data sources. Around two-thirds of respondents work in engineering management or engineering leadership, and nearly a third in software engineering:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fe417c2a3-a69e-49a7-af73-62c948ed1765_1600x829.png">    </a>Responses by field. Engineering leads product, design, data engineering, and others  <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F689b2ee8-779a-4c5a-8073-c755c64962ec_1600x849.png">    </a>Of 951 data points, 550 are engineering managers, senior+ engineers &amp; directors-and-above <p>Region-wise, most of the data is from US, EU, and UK readers, but responses came in from every continent on earth – except Antarctica!</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F9655a17f-3626-4570-aec7-4ad1d7781efd_1390x850.png">    </a>Data from around the world <p>Top 20 countries by response:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F3507203d-20bf-417b-9161-c00a068e9f94_1356x888.png">    </a>Data submitted per country  2. Base salary, cash compensation, total compensation <p>Let’s get into the numbers, first by comparing base salary data across all regions. Base salary is the part of your compensation that’s guaranteed, no matter performance or other factors. In the US, Canada, Australia and most of Latin America this is usually paid fortnightly, while in most of the EU and the UK it’s often once per month.</p><p>Here’s a cross-region comparison, with the median, 75th and 90th percentiles in US dollars:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fb4e0ffa7-ab78-4bcd-982e-245394d1e5fb_1134x1012.png">    </a>Base salaries across regions in US dollars. Browse it <a href="https://newsletter.pragmaticengineer.com/i/40654455/reports">in a Google Doc</a> <p>Total cash compensation is base salary plus cash bonus (usually at the end of the year) and any sign-on bonus. You can’t guarantee to definitely get your total cash compensation, but knowing some numbers might help in negotiations:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fee4b88e5-1492-46af-9bf8-fea037c020be_1180x1070.png">    </a>Total cash compensation across regions. All numbers are in US dollars <p>Total compensation is cash total compensation, plus equity grant. This equity can be illiquid at privately traded startups and scaleups, or liquid at public companies. In context, ‘liquidity’ refers to an asset’s ability to become cash. For liquid equity, there’s the option of selling equity on the stock market for cash after it vests – assuming there’s no “blackout” period. Illiquid equity can be sellable at a liquidation event like an acquisition, going public, or a secondary equity sale.</p><p>Breakdown by region:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F55b7f093-4630-4190-bf7f-8c09cb55e625_1262x1138.png">    </a>Total cash compensation across regions in US dollars. Note, the larger differences in the 90th percentile: that’s stock-heavy compensation  3. Regional pay comparison <p>Let’s see all these numbers in a single chart for easy comparison:</p>
-      <p>
-          <a href="https://newsletter.pragmaticengineer.com/p/tech-compensation">
-              Read more
-          </a>
-      </p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fe417c2a3-a69e-49a7-af73-62c948ed1765_1600x829.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   17:10 &bull;
    3 months ago
 </div>
 
@@ -32768,342 +33088,6 @@ public class BlobDelegatedDownloadProvider
 
 
  <h2 class='new-date'>
-  Monday, 05. February 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2024/02/05/secure-an-asp-net-core-blazor-web-app-using-microsoft-entra-id/'>Secure an ASP.NET Core Blazor Web app using Microsoft Entra ID</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article shows how to implement an ASP.NET Core Blazor Web application using Microsoft Entra ID for authentication. Microsoft.Identity.Web is used to implement the Microsoft Entra ID OpenID Connect client. Code: https://github.com/damienbod/Hostedblazor8MeID Note: I based this implementation on the example provided by Tomás López Rodríguez and adapted it. Setup The Blazor Web application is an 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article shows how to implement an ASP.NET Core Blazor Web application using Microsoft Entra ID for authentication. <a href="https://github.com/AzureAD/microsoft-identity-web">Microsoft.Identity.Web</a> is used to implement the Microsoft Entra ID OpenID Connect client.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/Hostedblazor8MeID">https://github.com/damienbod/Hostedblazor8MeID</a></p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>Note: I based this implementation on the <a href="https://github.com/CrahunGit/Auth0BlazorWebAppSample/tree/master/BlazorApp4">example</a> provided by Tomás López Rodríguez and adapted it.</p>
-
-
-
- Setup 
-
-
-
-<p>The Blazor Web application is an OpenID Connect confidential client (code flow, PKCE) which uses Microsoft Entra ID for authentication. An Azure App registration (Web configuration) is used to create the client and only delegated scopes are used. A secret is used to authenticate the application in development. Client assertions can be used in production deployments. NetEscapades.AspNetCore.SecurityHeaders is used to implement the security headers as best possible for Blazor Web. No identity management or user passwords are handled in the application.</p>
-
-
-
-<p>The client part of the Blazor Web application can use the PersistentAuthenticationStateProvider class to read the user profile data.</p>
-
-
-
-<p>This uses data from the server part implemented in the PersistingRevalidatingAuthenticationStateProvider class. See the code in the github repo.</p>
-
-
-
-<p></p>
-
-
-
- OpenID Connect confidential client 
-
-
-
-<p>The AddMicrosoftIdentityWebAppAuthentication method is used to implement the client authentication using the Microsoft.Identity.Web packages. I use a downstream API to force that the client uses code flow with PKCE instead of the implicit flow. Microsoft Graph is only requesting delegated user profile data.</p>
-
-
-  // Add authentication services
-var scopes = builder.Configuration.GetValue&lt;string&gt;("DownstreamApi:Scopes");
-string[] initialScopes = scopes!.Split(' ');
-
-builder.Services.AddMicrosoftIdentityWebAppAuthentication(builder.Configuration)
-    .EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
-    .AddMicrosoftGraph("https://graph.microsoft.com/v1.0", scopes)
-    .AddInMemoryTokenCaches();
-  
-
-
-<p></p>
-
-
-
-<p>The client automatically reads from the AzureAd configuration. This can be changed if you would like to update the product name. The client uses the standard Microsoft Entra ID setup. You need to add the permissions in the Azure App registration created for this application.</p>
-
-
-    "AzureAd": {
-    "Instance": "https://login.microsoftonline.com/",
-    "Domain": "[Enter the domain of your tenant, e.g. contoso.onmicrosoft.com]",
-    "TenantId": "[Enter 'common', or 'organizations' or the Tenant Id (Obtained from the Azure portal. Select 'Endpoints' from the 'App registrations' blade and use the GUID in any of the URLs), e.g. da41245a5-11b3-996c-00a8-4d99re19f292]",
-    "ClientId": "[Enter the Client Id (Application ID obtained from the Azure portal), e.g. ba74781c2-53c2-442a-97c2-3d60re42f403]",
-    "ClientSecret": "[Copy the client secret added to the app from the Azure portal]",
-    "ClientCertificates": [
-    ],
-    // the following is required to handle Continuous Access Evaluation challenges
-    "ClientCapabilities": [ "cp1" ],
-    "CallbackPath": "/signin-oidc"
-  },
-  "DownstreamApi": {
-    "Scopes": "User.ReadBasic.All user.read"
-  },
-  
-
-
-<p></p>
-
-
-
- Login and Logout 
-
-
-
-<p>An AuthenticationExtensions class was used to implement the login and the logout for the application. The Login method is an HTTP GET request which redirects to the OpenID Connect server. The Logout method is an authentication HTTP POST request which requires CSRF protection and accepts no parameters. The return URL to the unauthenticated signed out page is fixed and so no open redirect attacks are possible. The login cleans up the local cookies as well as a redirect to the identity provider to logout on Microsoft Entra ID.</p>
-
-
-  using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Authentication;
-namespace BlazorWebMeID;
-
-public static class AuthenticationExtensions
-{
-    public static WebApplication SetupEndpoints(this WebApplication app)
-    {
-        app.MapGet("/Account/Login", async (HttpContext httpContext, string returnUrl = "/") =&gt;
-        {
-            await httpContext.ChallengeAsync(OpenIdConnectDefaults.AuthenticationScheme,
-                new AuthenticationProperties
-                {
-                    RedirectUri = !string.IsNullOrEmpty(returnUrl) ? returnUrl : "/"
-                });
-        });
-
-        app.MapPost("/Account/Logout", async (HttpContext httpContext) =&gt;
-        {
-            var authenticationProperties = new AuthenticationProperties
-            {
-                RedirectUri = "/SignedOut"
-            };  
-
-            await httpContext.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme, 
-                authenticationProperties);
-
-            await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-
-        }).RequireAuthorization();
-
-        return app;
-    }
-}
-  
-
-
-<p></p>
-
-
-
- Security headers 
-
-
-
-<p>The security headers are used to protect the session. When using AddInteractiveWebAssemblyComponents mode, the script CSP header is really weak and adds little protection leaving the application open to numerous XSS, Javascript attacks. It is not possible to use CSP nonces with Blazor Web using the InteractiveWebAssemblyComponents mode, or I have not found a way to do this, as the Blazor Web components cannot read the HTTP headers in the response. A Blazor WASM hosted in an ASP.NET Core application can use CSP nonces and is a more secure application.</p>
-
-
-  namespace HostedBlazorMeID.Server;
-
-public static class SecurityHeadersDefinitions
-{
-    public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev, string? idpHost)
-    {
-        ArgumentNullException.ThrowIfNull(idpHost);
-
-        var policy = new HeaderPolicyCollection()
-            .AddFrameOptionsDeny()
-            .AddContentTypeOptionsNoSniff()
-            .AddReferrerPolicyStrictOriginWhenCrossOrigin()
-            .AddCrossOriginOpenerPolicy(builder =&gt; builder.SameOrigin())
-            .AddCrossOriginResourcePolicy(builder =&gt; builder.SameOrigin())
-            .AddCrossOriginEmbedderPolicy(builder =&gt; builder.RequireCorp())
-            .AddContentSecurityPolicy(builder =&gt;
-            {
-                builder.AddObjectSrc().None();
-                builder.AddBlockAllMixedContent();
-                builder.AddImgSrc().Self().From("data:");
-                builder.AddFormAction().Self().From(idpHost);
-                builder.AddFontSrc().Self();
-                builder.AddStyleSrc().Self();
-                builder.AddBaseUri().Self();
-                builder.AddFrameAncestors().None();
-
-                // due to Blazor Web, nonces cannot be used with AddInteractiveWebAssemblyComponents mode.
-                // weak script CSP....
-                builder.AddScriptSrc()
-                    .Self() // self required
-                    .UnsafeEval() // due to Blazor WASM
-                    .UnsafeInline(); // only a fallback for older browsers when the nonce is used 
-            
-            })
-            .RemoveServerHeader()
-            .AddPermissionsPolicy(builder =&gt;
-            {
-                builder.AddAccelerometer().None();
-                builder.AddAutoplay().None();
-                builder.AddCamera().None();
-                builder.AddEncryptedMedia().None();
-                builder.AddFullscreen().All();
-                builder.AddGeolocation().None();
-                builder.AddGyroscope().None();
-                builder.AddMagnetometer().None();
-                builder.AddMicrophone().None();
-                builder.AddMidi().None();
-                builder.AddPayment().None();
-                builder.AddPictureInPicture().None();
-                builder.AddSyncXHR().None();
-                builder.AddUsb().None();
-            });
-
-        if (!isDev)
-        {
-            // maxage = one year in seconds
-            policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains();
-        }
-
-        policy.ApplyDocumentHeadersToAllResponses();
-
-        return policy;
-    }
-}
-  
-
-
-<p></p>
-
-
-
- Notes 
-
-
-
-<p>I am starting to understand how Blazor Web works and have difficultly with the session state and sharing this between different components. Some basic browser security cannot be used, i.e. CSP nonces. The mixed mode has strange UI effects which I could not clean up.</p>
-
-
-
-<p>There are now four types of Blazor applications.</p>
-
-
-
- 
- Blazor WASM hosted in an ASP.NET Core application 
-
-
-
- Blazor Server 
-
-
-
- Blazor Web 
-
-
-
- Blazor WASM standalone 
- 
-
-
-
-<p>Blazor WASM hosted in an ASP.NET Core application and Blazor Server can be secured in a good way using the recommended security best practices (OpenID Connect confidential client). Blazor Web can implement a confidential client but is missing the recommend script session protection. Blazor WASM standalone cannot implement the recommended authentication as it is a public application and should no longer be used in secure environments.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://github.com/CrahunGit/Auth0BlazorWebAppSample/tree/master/BlazorApp4">https://github.com/CrahunGit/Auth0BlazorWebAppSample/tree/master/BlazorApp4</a></p>
-
-
-
-<p><a href="https://github.com/dotnet/blazor-samples/tree/main/8.0/BlazorWebAppOidc">https://github.com/dotnet/blazor-samples/tree/main/8.0/BlazorWebAppOidc</a></p>
-
-
-
-<p><a href="https://github.com/AzureAD/microsoft-identity-web">https://github.com/AzureAD/microsoft-identity-web</a></p>
-
-
-
-<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/01/brandblazor_nohalo_1000x.png?w=1000'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:10 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Friday, 02. February 2024
  </h2>
 
@@ -34835,93 +34819,6 @@ had conversations with <a href="https://supabase.com" title="Supabase | The Open
 
 <div class='item-footer'>
    17:00 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Sunday, 21. January 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://self-issued.info'>Mike Jones: self-issued</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://self-issued.info/?p=2481'>Celebrating Ten Years of OpenID Connect at the OpenID Summit Tokyo 2024</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  We held the first of three planned tenth anniversary celebrations for the completion of OpenID Connect at the OpenID Summit Tokyo 2024. The four panelists were Nov Matake, Ryo Ito, Nat Sakimura, and myself. We shared our perspectives on what led to OpenID Connect, why it succeeded, and what lessons we learned along the way. […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>We held the first of <a href="https://self-issued.info/?p=2468">three planned tenth anniversary celebrations</a> for the completion of <a href="https://openid.net/connect/">OpenID Connect</a> at the <a href="https://www.openid.or.jp/summit/2024/en/">OpenID Summit Tokyo 2024</a>.  The four panelists were <a href="https://twitter.com/nov">Nov Matake</a>, <a href="https://twitter.com/ritou">Ryo Ito</a>, <a href="https://twitter.com/_nat">Nat Sakimura</a>, and myself.  We shared our perspectives on what led to OpenID Connect, why it succeeded, and what lessons we learned along the way.</p>
-<p>The most common refrain throughout our descriptions was the design philosophy to “Keep simple things simple”.  I believe that three of the four of us cited it.</p>
-<p>I recounted that we even had a thought experiment used to make the “Keep simple things simple” principle actionable in real time: the “Nov Matake Test”.  As we considered new features, we’d ask ourselves “Would Nov want to add it to his implementation?”  And “Is it simple enough that he could build it in a few hours?”</p>
-<p>The other common thread was the criticality of interop testing and certification.  We held five rounds of interop testing before finishing the specifications, with the specs being refined after each round based on the feedback received.  The early developer feedback was priceless – much of it from Japan!</p>
-<p>Our OpenID Connect 10th anniversary presentations were:</p>
- 
- <a href="https://self-issued.info/presentations/Mike-Celebrating_Ten_Years_of%20OpenID_Connect_19-Jan-24.pdf">Remarks by Mike Jones</a> 
- <a href="https://self-issued.info/presentations/Nov-openid_summit_2024_panel.pdf">Remarks by Nov Matake</a> 
- <a href="https://self-issued.info/presentations/Ryo-openid_summit_2024_panel_ritou.pdf">Remarks by Ryo Ito</a> 
- <a href="https://self-issued.info/presentations/Nat-25_Years_of_OpenID.pdf">Remarks by Nat Sakimura</a> 
- 
-<p>Thanks to the <a href="https://www.openid.or.jp/">OpenID Foundation Japan</a> for the thought-provoking and enjoyable <a href="https://www.openid.or.jp/summit/2024/en/">OpenID Summit Tokyo 2024</a>!</p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://self-issued.info/images/openid-logo.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:59 &bull;
    4 months ago
 </div>
 
