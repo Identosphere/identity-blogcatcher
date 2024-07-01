@@ -20,7 +20,7 @@ build:
 	git push
 
 try:
-	rm try.db
+	-rm -f try.db || true 
 	pluto --verbose b try.ini -t planetid -o try
 
 web3:
