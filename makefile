@@ -24,6 +24,7 @@ try:
 	pluto --verbose b try.ini -t planetid -o try
 
 web3:
+	-rm -f web3.db || true 
 	pluto m web3.ini -t web3 -o test
 
 
