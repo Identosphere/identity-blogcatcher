@@ -1,6 +1,39 @@
 <% 
   require 'nokogiri' 
   require 'sanitize'
+  require 'rss'
+  require 'erb'
+
+  items = site.items.latest.limit(250)
+  sorted = items.sort_by { |k| k["published"] }.reverse
+
+  def generate_rss(items)
+    rss = RSS::Maker.make("2.0") do |maker|
+      maker.channel.title = "Identosphere Identity Blogcatcher: Personal"
+      maker.channel.link = "https://identosphere.com"
+      maker.channel.description = "Personal blogs of individuals working in decentralized identity."
+      maker.channel.language = "en-us"
+  
+      items.each do |item|
+        maker.items.new_item do |rss_item|
+          rss_item.title = item.title || "Untitled"
+          rss_item.link = item.url
+          rss_item.description = Sanitize.fragment(item.summary || item.content || "-/-")[0..400]
+          rss_item.pubDate = item.published ? item.published.to_time.rfc822 : Time.now.rfc822
+        end
+      end
+    end
+  
+    begin
+      File.open("docs/feed.rss", "w:UTF-8") do |file|
+        file.write(rss.to_s)
+      end
+    rescue => e
+      puts "Error writing RSS feed: #{e.message}"
+    end
+  end
+  
+  generate_rss(sorted)
 %>
 <!DOCTYPE html>
 <html>
@@ -97,8 +130,6 @@
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
 
 <%
-   items = site.items.latest.limit(250)
-   sorted = items.sort_by { |k| k["published"] }.reverse
    ItemCursor.new( sorted ).each do |item, new_date, new_feed|
 %>
 
