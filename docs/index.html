@@ -726,7 +726,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:45 AM August 11, 2024 (UTC)</sup>
+<sup>Last Update 6:46 AM August 12, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -737,8 +737,1248 @@
 
 
  <h2 class='new-date'>
+  Monday, 12. August 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/08/12/add-a-swagger-ui-using-a-net-9-json-openapi-file/'>Add a Swagger UI using a .NET 9 Json OpenAPI file</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how to implement a Swagger UI using a .NET 9 produced OpenAPI file. The Swagger UI is deployed to a secure or development environment and is not deployed to a public production target. Sometimes, it is required to deploy the Swagger UI to a development deployment target and not the test or […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how to implement a Swagger UI using a .NET 9 produced OpenAPI file. The Swagger UI is deployed to a secure or development environment and is not deployed to a public production target. Sometimes, it is required to deploy the Swagger UI to a development deployment target and not the test or the production deployments. The security headers need to be weakened to allow the Swagger UI to work.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/WebApiOpenApi">https://github.com/damienbod/WebApiOpenApi</a></p>
+
+
+
+ Setup 
+
+
+
+<p>The post uses the OpenAPI Json created by a .NET 9 ASP.NET Core application. See this blog:</p>
+
+
+
+<p><a href="https://damienbod.com/2024/08/06/implementing-an-asp-net-core-api-with-net-9-and-openapi/">Implementing an ASP.NET Core API with .NET 9 and OpenAPI</a></p>
+
+
+
+<p>Two further packages were added to this project, one for the generation of the Swagger UI and the second package to generate the required security headers for an API using JWT Bearer tokens.</p>
+
+
+
+ 
+ Swashbuckle.AspNetCore.SwaggerUI 
+
+
+
+ NetEscapades.AspNetCore.SecurityHeaders 
+ 
+
+
+
+<p>The ASP.NET Core API application has already generated the OpenAPI definitions in a Json file. The Json can be used to create the UI. If the application is deployed to production, the Json file is not created and the security headers are deployed with the most restrictions. If the application is deployed for development, the Json is deployed and the security headers are weakened to allow this to work.</p>
+
+
+  // Open up security restrictions to allow this to work
+// Not recommended in production
+//var deploySwaggerUI = app.Environment.IsDevelopment();
+var deploySwaggerUI = app.Configuration.GetValue&lt;bool&gt;("DeploySwaggerUI");
+
+app.UseSecurityHeaders(
+    SecurityHeadersDefinitions.GetHeaderPolicyCollection(deploySwaggerUI));
+
+// ... other middleware
+
+app.MapOpenApi("/openapi/v1/openapi.json");
+
+if (deploySwaggerUI)
+{
+    app.UseSwaggerUI(options =&gt;
+    {
+        options.SwaggerEndpoint("/openapi/v1/openapi.json", "v1");
+    });
+}
+  
+
+
+<p></p>
+
+
+
+<p>The DeploySwaggerUI configuration is used to specify if the deployed version supports both a UI and an API or just an API with the most restrictive security settings.</p>
+
+
+  {
+  // Open up security restrictions to allow this to work
+  // Not recommended in production
+  "DeploySwaggerUI": true,
+  
+
+
+<p></p>
+
+
+
+ Setup security headers 
+
+
+
+<p>The security headers are setup so that if the deployment is for development, scripts and styles are allowed. The configuration allowing scripts is weak and not recommended for production.</p>
+
+
+  namespace WebApiOpenApi;
+
+public static class SecurityHeadersDefinitions
+{
+    public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev)
+    {
+        var policy = new HeaderPolicyCollection()
+            .AddFrameOptionsDeny()
+            .AddContentTypeOptionsNoSniff()
+            .AddReferrerPolicyStrictOriginWhenCrossOrigin()
+            .AddCrossOriginOpenerPolicy(builder =&gt; builder.SameOrigin())
+            .AddCrossOriginEmbedderPolicy(builder =&gt; builder.RequireCorp())
+            .AddCrossOriginResourcePolicy(builder =&gt; builder.SameOrigin())
+            .RemoveServerHeader()
+            .AddPermissionsPolicy(builder =&gt;
+            {
+                builder.AddAccelerometer().None();
+                builder.AddAutoplay().None();
+                builder.AddCamera().None();
+                builder.AddEncryptedMedia().None();
+                builder.AddFullscreen().All();
+                builder.AddGeolocation().None();
+                builder.AddGyroscope().None();
+                builder.AddMagnetometer().None();
+                builder.AddMicrophone().None();
+                builder.AddMidi().None();
+                builder.AddPayment().None();
+                builder.AddPictureInPicture().None();
+                builder.AddSyncXHR().None();
+                builder.AddUsb().None();
+            });
+
+        AddCspHstsDefinitions(isDev, policy);
+
+        policy.ApplyDocumentHeadersToAllResponses();
+
+        return policy;
+    }
+
+    private static void AddCspHstsDefinitions(bool isDev, HeaderPolicyCollection policy)
+    {
+        if (!isDev)
+        {
+            policy.AddContentSecurityPolicy(builder =&gt;
+            {
+                builder.AddObjectSrc().None();
+                builder.AddBlockAllMixedContent();
+                builder.AddImgSrc().None();
+                builder.AddFormAction().None();
+                builder.AddFontSrc().None();
+                builder.AddStyleSrc().None();
+                builder.AddScriptSrc().None();
+                builder.AddBaseUri().Self();
+                builder.AddFrameAncestors().None();
+                builder.AddCustomDirective("require-trusted-types-for", "'script'");
+            });
+            // maxage = one year in seconds
+            policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
+        }
+        else
+        {
+            // allow swagger UI for dev
+            policy.AddContentSecurityPolicy(builder =&gt;
+            {
+                builder.AddObjectSrc().None();
+                builder.AddBlockAllMixedContent();
+                builder.AddImgSrc().Self().From("data:");
+                builder.AddFormAction().Self();
+                builder.AddFontSrc().Self();
+                builder.AddStyleSrc().Self().UnsafeInline();
+                builder.AddScriptSrc().Self().UnsafeInline(); //.WithNonce();
+                builder.AddBaseUri().Self();
+                builder.AddFrameAncestors().None();
+            });
+        }
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>When the UI is deployed to in development mode, the Swagger UI is displayed and the user can enter a valid access token and use the APIs.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Notes 
+
+
+
+<p>At present, the Swagger UI does not support script best practices and allowing this to work means deploying an unsecure web application with weak security. Any UI web application should use a strong CSP definition, for example like CSP nonces. An API has no UI and so should be locked down. </p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://github.com/martincostello/dotnet-minimal-api-integration-testing">https://github.com/martincostello/dotnet-minimal-api-integration-testing</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/aspnetcore-openapi">https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/aspnetcore-openapi</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/web-api/action-return-types">https://learn.microsoft.com/en-us/aspnet/core/web-api/action-return-types</a></p>
+
+
+
+<p><a href="https://github.com/RicoSuter/NSwag">https://github.com/RicoSuter/NSwag</a></p>
+
+
+
+<p><a href="https://swagger.io/">https://swagger.io/</a></p>
+
+
+
+<p><a href="https://swagger.io/specification/">https://swagger.io/specification/</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/08/api-swaggerui_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:41 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/08/12/thanks-to-bob.html'> 🎵 Thanks to Bob Lefsetz, I just found out about The Last Din</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   🎵 Thanks to Bob Lefsetz, I just found out about The Last Dinner Party and .. holy crap .. talk about arriving on the scene hot .. with a stunning debut. 
+ Rock is clearly not yet dead. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>🎵 Thanks to Bob Lefsetz, I just found out about The Last Dinner Party and .. holy crap .. talk about arriving on the scene hot .. with a stunning debut.</p>
+<p>Rock is clearly not yet dead.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:22 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Sunday, 11. August 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Aug/11/sqlite-vec/#atom-everything'>Using sqlite-vec with embeddings in sqlite-utils and Datasette</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Using sqlite-vec with embeddings in sqlite-utils and Datasette 
+My notes on trying out Alex Garcia's newly released sqlite-vec SQLite extension, including how to use it with OpenAI embeddings in both Datasette and sqlite-utils.
+
+
+     Tags: embeddings, sqlite-utils, sqlite, datasette, openai, alex-garcia 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://til.simonwillison.net/sqlite/sqlite-vec">Using sqlite-vec with embeddings in sqlite-utils and Datasette</a></p>
+My notes on trying out Alex Garcia's newly released <a href="https://github.com/asg017/sqlite-vec">sqlite-vec</a> SQLite extension, including how to use it with OpenAI embeddings in both <a href="https://datasette.io/">Datasette</a> and <a href="https://sqlite-utils.datasette.io/">sqlite-utils</a>.
+
+
+    <p>Tags: <a href="https://simonwillison.net/tags/embeddings">embeddings</a>, <a href="https://simonwillison.net/tags/sqlite-utils">sqlite-utils</a>, <a href="https://simonwillison.net/tags/sqlite">sqlite</a>, <a href="https://simonwillison.net/tags/datasette">datasette</a>, <a href="https://simonwillison.net/tags/openai">openai</a>, <a href="https://simonwillison.net/tags/alex-garcia">alex-garcia</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:37 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.sakimura.org'>@_Nat Zone</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.sakimura.org/2024/08/6183/'>HIPAA法とは何か、その日本への影響について</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  こんにちは、皆さん！今日は、アメリカの医療情報に関する重要な法律であるHIPAA法（Health Insurance Portability and Accountability Act）についてお話しします。そして、この法律が日本にどのような影響を与えているかについても考察して…
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>こんにちは、皆さん！今日は、アメリカの医療情報に関する重要な法律であるHIPAA法（Health Insurance Portability and Accountability Act）についてお話しします。そして、この法律が日本にどのような影響を与えているかについても考察していきます。</p>
+
+
+
+ 
+
+ 
+
+
+
+ HIPAA法の概要 
+
+
+
+<p>HIPAA法は、1996年にアメリカで制定された法律で、主に以下の目的があります：</p>
+
+
+
+ 
+ 医療保険の携行性：転職や失業時にも医療保険を継続できるようにする。 
+
+
+
+ 医療情報のプライバシー保護：患者の個人情報を保護し、不正アクセスや漏洩を防ぐ。 
+
+
+
+ 電子医療記録の普及：医療情報の電子化を促進し、医療システムの効率化と質の向上を図る。 
+ 
+
+
+
+<p>HIPAA法は、医療機関や保険会社、さらには医療情報を扱う全ての事業者に対して、患者の保護対象保険情報（PHI: Protected Health Information）の適切な取り扱いを義務付けています<a href="https://aws.amazon.com/jp/compliance/hipaa-compliance/"></a><a href="https://www.proofpoint.com/jp/threat-reference/hipaa-compliance"></a>。</p>
+
+
+
+ HIPAA法の具体的な規定 
+
+
+
+<p>HIPAA法にはいくつかの主要な規定があります：</p>
+
+
+
+ 
+ プライバシールール 
+
+
+
+ セキュリティールール 
+
+
+
+ 違反通知ルール 
+
+
+
+ オムニバスルール 
+
+
+
+ 違反に対する罰則 
+ 
+
+
+
+ プライバシールール 
+
+
+
+<p>プライバシールールは、患者の医療情報のプライバシーを保護し、情報の使用と開示に関する条件を定めるものです。</p>
+
+
+
+ 
+ 保護対象保健情報（PHI）の定義と保護：
+ 
+ PHIとは、過去、現在、または将来の個人の健康状態、医療の提供、または医療費に関する情報で、個人を特定できる情報を指します。これには、電子媒体、紙媒体、口頭での情報が含まれます[1][3][6]。 
+ 
+ 
+
+
+
+ 使用と開示の制限：
+ 
+ PHIの使用や開示は、患者の同意がある場合や法律で認められている特定の状況に限られます。例として、治療、支払い、医療業務のための使用が含まれます[6][7]。 
+ 
+ 
+
+
+
+ 患者の権利：
+ 
+ 患者には、自分の健康情報を閲覧し、訂正を要求する権利があります。また、情報の使用や開示に関する説明を受ける権利もあります[5][7]。 
+ 
+ 
+ 
+
+
+
+ セキュリティルール 
+
+
+
+<p>これは、電子的な医療情報の保護を確実にするための技術的および物理的なセキュリティ対策を規定するものです。</p>
+
+
+
+ 
+ 電子PHIの保護：
+ 
+ 電子的な保護対象保健情報（ePHI）の機密性、完全性、可用性を確保するために、管理的、技術的、物理的な保護措置を講じることが求められます[3][5][6]。 
+
+
+
+ これらには、以下のようなものが含まれます[4]。
+ 
+ 施設の限定的アクセスと権限のある者のみがアクセスできるような制限 
+
+
+
+ ワークステーションや電子メディアの使用とアクセスに関するポリシーの規定 
+
+
+
+ デジタル化された個人情報やメディアの移動、削除、破棄、再利用の制限 
+ 
+ 
+
+
+
+ 有資格者のみがデジタル化された個人情報（ePHI）にアクセスできるような制限を行う必要があります。 
+
+
+
+ アクセスの規制に含まれるものは：
+ 
+ 固定ユーザーIDを用いる 
+
+
+
+ 緊急時のアクセス手順 
+
+
+
+ 自動サインアウト 
+
+
+
+ 暗号化・復号化 
+
+
+
+ ソフトウェア・ハードウェア上のログ・監査記録を残す 
+ 
+ 
+ 
+ 
+
+
+
+ リスク管理と評価：
+ 
+ 医療機関や関連組織は、定期的にリスク評価を行い、セキュリティ対策を改善する必要があります[3][5]。 
+ 
+ 
+ 
+
+
+
+ 違反通知ルール 
+
+
+
+ 
+ データ侵害の通知：
+ 
+ PHIの侵害が発生した場合、影響を受けた個人や保健福祉省（HHS）に対して速やかに通知することが義務付けられています[5][6]。 
+ 
+ 
+ 
+
+
+
+ オムニバスルール 
+
+
+
+ 
+ ビジネスアソシエートの責任：
+ 
+ 医療機関と契約している第三者（ビジネスアソシエート）も、HIPAAの規定に従う必要があります。これには、ビジネスアソシエート契約を結び、PHIの保護に関する義務を果たすことが含まれます[1][6]. 
+ 
+ 
+ 
+
+
+
+<p>これらの規定により、HIPAA法は患者の個人情報を保護し、医療業界におけるデータ管理の基準を確立しています。医療機関や関連組織は、これらの規定を遵守することで、患者のプライバシーを守りつつ、質の高い医療サービスを提供することが求められています。</p>
+
+
+
+ 違反に対する罰則 
+
+
+
+<p>HIPAA法に違反した場合の罰則は、民事および刑事の両方のペナルティがあり、違反の性質や重大さによって異なります。以下に、具体的な罰則について詳しく説明します。</p>
+
+
+
+ 民事罰則 
+
+
+
+<p>民事罰則は、違反の意図や状況に応じて段階的に設定されています。以下は、民事罰則の概要です[10][11]。</p>
+
+
+
+ 
+ 知らずに行った違反： 
+
+
+
+ 1件あたりの罰金は$100から$5,000までで、年間の最大罰金は$25,000です。 
+
+
+
+ 合理的な理由がある違反： 
+
+
+
+ 1件あたりの罰金は$1,000から$50,000までで、年間の最大罰金は$100,000です。 
+
+
+
+ 故意の怠慢があるが、指定された期間内に是正された違反： 
+
+
+
+ 1件あたりの罰金は$10,000から$50,000までで、年間の最大罰金は$250,000です。 
+
+
+
+ 故意の怠慢があり、指定された期間内に是正されなかった違反： 
+
+
+
+ 1件あたりの罰金は$50,000で、年間の最大罰金は$1.5百万です。 
+ 
+
+
+
+ 刑事罰則 
+
+
+
+<p>刑事罰則は、故意に個人を特定できる健康情報を不正に取得または開示した場合に適用されます。以下は、刑事罰則の概要です[10][11]。</p>
+
+
+
+ 
+ 故意に行った違反： 
+
+
+
+ 最大$50,000の罰金と最大1年の懲役。 
+
+
+
+ 虚偽の理由で行った違反： 
+
+
+
+ 最大$100,000の罰金と最大5年の懲役。 
+
+
+
+ 商業的利益、個人的利益、または悪意のある目的で行った違反： 
+
+
+
+ 最大$250,000の罰金と最大10年の懲役。 
+ 
+
+
+
+<p>これらの罰則は、HIPAA法の遵守を促進し、患者の個人情報を保護するために重要な役割を果たしています。罰則の厳しさは、違反の意図や影響の程度に応じて決定され、違反を防ぐための強力な抑止力となっています。</p>
+
+
+
+ 日本への影響 
+
+
+
+<p>では、このHIPAA法が日本にどのような影響を与えるのでしょうか？</p>
+
+
+
+ 1. グローバルな医療データの取り扱い 
+
+
+
+<p>HIPAA法はアメリカ国内の法律ですが、グローバルな医療データの取り扱いに影響を与えています。日本の医療機関や企業がアメリカの患者データを扱う場合、HIPAAの規定に従う必要があります。これにより、日本の医療機関も高いプライバシー保護基準を満たすことが求められます<a href="https://www.fortinet.com/jp/resources/cyberglossary/hipaa"></a>。</p>
+
+
+
+ 2. 日本の法整備への影響 
+
+
+
+<p>HIPAA法の影響を受けて、日本でも個人情報保護法や医療情報ガイドラインが整備されています[8][9]。これにより、日本国内でも医療情報の取り扱いに関する規制が強化され、患者のプライバシー保護が向上しています<a href="https://www.mhlw.go.jp/shingi/2010/06/dl/s0616-4g.pdf"></a>。</p>
+
+
+
+ 3. 技術的な影響 
+
+
+
+<p>HIPAA法に準拠するために、日本の医療機関やIT企業は高度なセキュリティ技術を導入する必要があります。これにより、医療情報の電子化とセキュリティ対策が進み、医療サービスの質が向上することが期待されます<a href="https://aws.amazon.com/jp/compliance/hipaa-compliance/"></a><a href="https://www.proofpoint.com/jp/threat-reference/hipaa-compliance"></a>。</p>
+
+
+
+ まとめ 
+
+
+
+<p>HIPAA法は、アメリカ国内だけでなく、グローバルな医療情報の取り扱いにも大きな影響を与えています。日本においても、この法律の影響を受けて、医療情報のプライバシー保護が強化され、技術的な進歩が促進されています。今後もHIPAA法の動向に注目し、日本の医療情報管理の向上に役立てていきましょう。</p>
+
+
+
+ 【参考資料】 
+
+
+
+<p>[1] <a href="https://www.mhlw.go.jp/shingi/2010/06/dl/s0616-4g.pdf">https://www.mhlw.go.jp/shingi/2010/06/dl/s0616-4g.pdf</a><br>[2] <a href="https://www.fortinet.com/jp/resources/cyberglossary/hipaa">https://www.fortinet.com/jp/resources/cyberglossary/hipaa</a><br>[3] <a href="https://www.exabeam.com/ja/explainers/hipaa-compliance/what-is-the-hipaa-compliance-standard-and-how-to-adhere-to-it/">https://www.exabeam.com/ja/explainers/hipaa-compliance/what-is-the-hipaa-compliance-standard-and-how-to-adhere-to-it/</a><br>[4] <a href="https://www.proofpoint.com/jp/threat-reference/hipaa-compliance">https://www.proofpoint.com/jp/threat-reference/hipaa-compliance</a><br>[5] <a href="https://help.viedoc.net/l/b62655/ja/">https://help.viedoc.net/l/b62655/ja/</a><br>[6] <a href="https://www.checkpoint.com/jp/cyber-hub/cyber-security/what-is-hipaa-compliance/">https://www.checkpoint.com/jp/cyber-hub/cyber-security/what-is-hipaa-compliance/</a><br>[7] <a href="https://www.cloudflare.com/ja-jp/learning/privacy/what-is-hipaa-compliance/">https://www.cloudflare.com/ja-jp/learning/privacy/what-is-hipaa-compliance/</a><br>[8] <a href="https://www8.cao.go.jp/kisei-kaikaku/kisei/publication/opinion/230601_general16_02.pdf">https://www8.cao.go.jp/kisei-kaikaku/kisei/publication/opinion/230601_general16_02.pdf</a><br>[9] <a href="https://www.mhlw.go.jp/stf/shingi/2r985200000296bd-att/2r985200000296gs.pdf">https://www.mhlw.go.jp/stf/shingi/2r985200000296bd-att/2r985200000296gs.pdf</a><br>[10] <a href="https://www.ama-assn.org/practice-management/hipaa/hipaa-violations-enforcement[/note]<span%20id='easy-footnote-1-6183'%20class='easy-footnote-margin-adjust'></span><span%20class='easy-footnote'><a%20href='https://www.sakimura.org/2024/08/6183/#easy-footnote-bottom-1-6183'%20title=''><sup>1</sup></a></span>https://www.hipaajournal.com/what-are-the-penalties-for-hipaa-violations-7096/">https://www.ama-assn.org/practice-management/hipaa/hipaa-violations-enforcement</a><br>[11] <a href="https://www.ama-assn.org/practice-management/hipaa/hipaa-violations-enforcement[/note]<span%20id='easy-footnote-2-6183'%20class='easy-footnote-margin-adjust'></span><span%20class='easy-footnote'><a%20href='https://www.sakimura.org/2024/08/6183/#easy-footnote-bottom-2-6183'%20title=''><sup>2</sup></a></span>https://www.hipaajournal.com/what-are-the-penalties-for-hipaa-violations-7096/">https://www.hipaajournal.com/what-are-the-penalties-for-hipaa-violations-7096/</a></p>
+
+
+
+<p></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:15 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Aug/11/transformer-explainer/#atom-everything'>Transformer Explainer</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Transformer Explainer 
+This is a very neat interactive visualization (with accompanying essay and video - scroll down for those) that explains the Transformer architecture for LLMs, using a GPT-2 model running directly in the browser using the ONNX runtime and Andrej Karpathy's nanoGPT project. 
+ 
+
+
+      Tags: generative-ai, explorables, d3, ai, llms 
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2024/transformer-explainer.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://poloclub.github.io/transformer-explainer/">Transformer Explainer</a></p>
+This is a very neat interactive visualization (with accompanying essay and video - scroll down for those) that explains the Transformer architecture for LLMs, using a GPT-2 model running directly in the browser using the ONNX runtime and Andrej Karpathy's nanoGPT project.<p></p>
+<p>
+
+
+    </p><p>Tags: <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/explorables">explorables</a>, <a href="https://simonwillison.net/tags/d3">d3</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2024/transformer-explainer.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:56 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://idmlab.eidentity.jp/'>IdM Laboratory</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://idmlab.eidentity.jp/2024/08/iphone.html'>複数のウォレットをiPhoneにインストールすると困る話</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   こんにちは、富士榮です。     先日のMyData JapanカンファレンスではDataSignさんが提供されているOWND Walletへの入場証の発行が可能なことが現地では話題になっていました。  当日のセッションでも代表の太田さんからはオープンソースであるOWND Walletのコードを使ったVESSさんのVESS Walletも紹介され、両方のアプリをインストールした方も多いのではないでしょうか？  しかし、当日実際に両方のウォレットアプリがインストールされている状態だとうまく意図したウォレットに入場証明書が入らない、という課題が発生していました。  これはiOSを少しだけ知っている人なら推測がつくと思いますが、OWND WalletとVESS Walletが同じカスタムURLスキーム（openid-credential-offer://など）を使っていることから「後から」インス
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://blogger.googleusercontent.com/img/a/AVvXsEir_cDGdzxHQL14k7sw59Li69CkacavuwwJqJSXjlMiziGhST-fqXZ1o8KvOOC1quZSUdgzVa5bl8yQe4NdZSgPpqKPQraY0scspSh3I9jevvlt2t2aJgr_MMT_GuTuIGls4mRIaus6KSlVlVKhEtt9V358DXE8B-eensNg9fDcgw9SrTetJcvMLkfjgtFa=w640-h394'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>こんにちは、富士榮です。</p><p><br></p><p>先日のMyData JapanカンファレンスではDataSignさんが提供されているOWND Walletへの入場証の発行が可能なことが現地では話題になっていました。</p><p>当日のセッションでも代表の太田さんからはオープンソースであるOWND Walletのコードを使ったVESSさんのVESS Walletも紹介され、両方のアプリをインストールした方も多いのではないでしょうか？</p><p>しかし、当日実際に両方のウォレットアプリがインストールされている状態だとうまく意図したウォレットに入場証明書が入らない、という課題が発生していました。</p><p>これはiOSを少しだけ知っている人なら推測がつくと思いますが、OWND WalletとVESS Walletが同じカスタムURLスキーム（openid-credential-offer://など）を使っていることから「後から」インストールしたアプリが優先されてしまう、というiOSの仕様によって発生します。</p><p><br></p><p>OWND WalletかVESS Walletか、くらいの話なら気をつければ特に問題はありませんが、今後ウォレットが乱立してきて「悪意のある」ウォレットが出てきたり、「一見ウォレットに見えない」アプリが出てきた場合に思わぬ事態を招きかねない、という問題を内包しています。</p><p>この話は以前紹介したOpenID for Verifiable Credentials関連仕様のフォーマルセキュリティ分析のレポートでも指摘された課題です。</p><p><a href="https://idmlab.eidentity.jp/2024/01/openid-for-verifiable-credentials.html">https://idmlab.eidentity.jp/2024/01/openid-for-verifiable-credentials.html</a></p><p><br></p><p><br></p><p>ということで、ちょっと嫌な方法ではあるのですが、各アプリケーションがどんなカスタムURLスキームを使っているのかを調べてみます。</p><p>少し古いのとMacにアプリをインストールする必要があるので個人的にはすごく嫌だったんですが、人柱になりました。</p><p>このURLを参考にしています。</p><p><a href="https://blog.thetheorier.com/entry/extract-url-scheme">https://blog.thetheorier.com/entry/extract-url-scheme</a></p><p><a href="https://www.imobie.jp/iphone-tips/extract-ipa-files-from-iphone.htm">https://www.imobie.jp/iphone-tips/extract-ipa-files-from-iphone.htm</a></p><p><br></p><p>ざっくりいうと、</p><p></p>  ipaファイルからURLスキームを抜き出すデスクトップアプリ（実態はPythonスクリプトらしい）  AnyTrans（商用アプリ。トライアルで試しました）  <p></p><p>をMacに入れてあげる必要があります。（さらにいうと自分のAppleアカウントでAnyTransにサインインする必要もあるのでもっと嫌です・・・）</p><p><br></p><p>まずはAnyTransで対象としたいアプリをダウンロードしてMacに転送します。個人的にカスタムURLスキームが被っているのを知っているのは先に触れたOWND Wallet / VESS Wallet、あとはxIDアプリとMicrosoft Authenticatorです。</p><p></p> <a href="https://blogger.googleusercontent.com/img/a/AVvXsEir_cDGdzxHQL14k7sw59Li69CkacavuwwJqJSXjlMiziGhST-fqXZ1o8KvOOC1quZSUdgzVa5bl8yQe4NdZSgPpqKPQraY0scspSh3I9jevvlt2t2aJgr_MMT_GuTuIGls4mRIaus6KSlVlVKhEtt9V358DXE8B-eensNg9fDcgw9SrTetJcvMLkfjgtFa"></a> <p><br></p>こんな感じでipaファイルが抽出されてきますので、extract_url_schemeを実行していきます。 <a href="https://blogger.googleusercontent.com/img/a/AVvXsEh85TYk-aKZzVT9u-84AiXf_61vkZfDtvoantaMUfYE8Dub3AreaiyYMXNXjXg_TU4Rs67C6ITh9B7IJNrZHjoKpVNf0bqIPRFxZbcFlNbVG8Hr0cqKzF65XCpDB9-o9PRe89V5MSilWz5sGBDV2zEMnGyHQsJ47vQbuUYv8bLVAwIiWjClb2-vK0If18WT"></a>  <p></p><p>こんな感じで各アプリがどんなURLスキームを登録しているか見えます。<br>この例だとMicrosoft AuthenticatorとxIDアプリがopenid-vcというURLスキームを重複登録していることがわかりますね。</p><p></p> <a href="https://blogger.googleusercontent.com/img/a/AVvXsEhaaY--O5AIS5aGh4Ow3dRY3cdTI1dYk8I2n2UYTkbUIvriPnD46IwFFmtknjEQlvxfZiyGJ_wVYI9P588ZlbSNDDW2iazKzLhDNsmmy0VQRIAEyGFMc1bESKyIH556KfGXUVE30Ke_ZQ90QhYArnGgFnKiPCcxb5sYfZl8Nb8ebGcY6DY7kApPrUOMk5V1"></a> <br>これはウォレットエコシステムを作る上で大きな課題となりますので、Chrome 128ベータでも実装されてきているDigital Credential APIが本命になってくるのかと思います。 <a href="https://idmlab.eidentity.jp/2024/07/chrome-128digital-credentials-api.html">https://idmlab.eidentity.jp/2024/07/chrome-128digital-credentials-api.html</a>  <br> <br><p></p><p>引き続き要ウォッチですね！</p><p></p>   
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blogger.googleusercontent.com/img/a/AVvXsEir_cDGdzxHQL14k7sw59Li69CkacavuwwJqJSXjlMiziGhST-fqXZ1o8KvOOC1quZSUdgzVa5bl8yQe4NdZSgPpqKPQraY0scspSh3I9jevvlt2t2aJgr_MMT_GuTuIGls4mRIaus6KSlVlVKhEtt9V358DXE8B-eensNg9fDcgw9SrTetJcvMLkfjgtFa=w640-h394'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:30 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Aug/11/ladybird-set-to-adopt-swift/#atom-everything'>Ladybird set to adopt Swift</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Ladybird set to adopt Swift 
+Andreas Kling on the Ladybird browser project's search for a memory-safe language to use in conjunction with their existing C++ codebase: 
+ 
+ Over the last few months, I've asked a bunch of folks to pick some little part of our project and try rewriting it in the different languages we were evaluating. The feedback was very clear: everyone preferred Swift! 
+ 
+ Andreas 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://twitter.com/awesomekling/status/1822236888188498031">Ladybird set to adopt Swift</a></p>
+Andreas Kling on the Ladybird browser project's search for a memory-safe language to use in conjunction with their existing C++ codebase:<p></p>
+<blockquote>
+<p>Over the last few months, I've asked a bunch of folks to pick some little part of our project and try rewriting it in the different languages we were evaluating. The feedback was very clear: everyone preferred Swift!</p>
+</blockquote>
+<p>Andreas previously worked for Apple on Safari, but this was still a surprising result given the current relative lack of widely adopted open source Swift projects outside of the Apple ecosystem.</p>
+<p>This change is currently blocked on the upcoming Swift 6 release:</p>
+<blockquote>
+<p>We aren't able to start using it just yet, as the current release of Swift ships with a version of Clang that's too old to grok our existing C++ codebase. But when Swift 6 comes out of beta this fall, we will begin using it!</p>
+</blockquote>
+
+
+    <p>Tags: <a href="https://simonwillison.net/tags/ladybird">ladybird</a>, <a href="https://simonwillison.net/tags/browsers">browsers</a>, <a href="https://simonwillison.net/tags/andreas-kling">andreas-kling</a>, <a href="https://simonwillison.net/tags/c-plus-plus">c-plus-plus</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:38 &bull;
+   12 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Aug/11/pep-750/#atom-everything'>PEP 750 – Tag Strings For Writing Domain-Specific Languages</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   PEP 750 – Tag Strings For Writing Domain-Specific Languages 
+A new PEP by Jim Baker, Guido van Rossum and Paul Everitt that proposes introducing a feature to Python inspired by JavaScript's tagged template literals. 
+ F strings in Python already use a f"f prefix", this proposes allowing any Python symbol in the current scope to be used as a string prefix as well. 
+ I'm excited about this. Imagine 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://peps.python.org/pep-0750/">PEP 750 – Tag Strings For Writing Domain-Specific Languages</a></p>
+A new PEP by Jim Baker, Guido van Rossum and Paul Everitt that proposes introducing a feature to Python inspired by JavaScript's <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals#tagged_templates">tagged template literals</a>.<p></p>
+<p>F strings in Python already use a <code>f"f prefix"</code>, this proposes allowing any Python symbol in the current scope to be used as a string prefix as well.</p>
+<p>I'm excited about this. Imagine being able to compose SQL queries like this:</p>
+ query = sql"select * from articles where id = {id}" 
+
+<p>Where the <code>sql</code> tag ensures that the <code>{id}</code> value there is correctly quoted and escaped.</p>
+<p>Currently <a href="https://discuss.python.org/t/pep-750-tag-strings-for-writing-domain-specific-languages/60408">under active discussion</a> on the official Python discussion forum.
+
+
+    </p><p>Tags: <a href="https://simonwillison.net/tags/python">python</a>, <a href="https://simonwillison.net/tags/guido-van-rossum">guido-van-rossum</a>, <a href="https://simonwillison.net/tags/javascript">javascript</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:29 &bull;
+   12 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Aug/11/using-gpt-4o-mini-as-a-reranker/#atom-everything'>Using gpt-4o-mini as a reranker</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Using gpt-4o-mini as a reranker 
+Tip from David Zhang: "using gpt-4-mini as a reranker gives you better results, and now with strict mode it's just as reliable as any other reranker model". 
+ David's code here demonstrates the Vercel AI SDK for TypeScript, and its support for structured data using Zod schemas. 
+  const res = await generateObject({
+  model: gpt4MiniModel,
+  prompt: `Given the list 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://twitter.com/dzhng/status/1822380811372642378">Using gpt-4o-mini as a reranker</a></p>
+Tip from David Zhang: "using gpt-4-mini as a reranker gives you better results, and now with strict mode it's just as reliable as any other reranker model".<p></p>
+<p>David's code here demonstrates the <a href="https://sdk.vercel.ai/">Vercel AI SDK</a> for TypeScript, and its support for <a href="https://sdk.vercel.ai/docs/ai-sdk-core/generating-structured-data">structured data</a> using <a href="https://zod.dev/">Zod schemas</a>.</p>
+  const res = await generateObject({
+  model: gpt4MiniModel,
+  prompt: `Given the list of search results, produce an array of scores measuring the liklihood of the search result containing information that would be useful for a report on the following objective: ${objective}\n\nHere are the search results:\n&lt;results&gt;\n${resultsString}\n&lt;/results&gt;`,
+  system: systemMessage(),
+  schema: z.object({
+    scores: z
+      .object({
+        reason: z
+          .string()
+          .describe(
+            'Think step by step, describe your reasoning for choosing this score.',
+          ),
+        id: z.string().describe('The id of the search result.'),
+        score: z
+          .enum(['low', 'medium', 'high'])
+          .describe(
+            'Score of relevancy of the result, should be low, medium, or high.',
+          ),
+      })
+      .array()
+      .describe(
+        'An array of scores. Make sure to give a score to all ${results.length} results.',
+      ),
+  }),
+});  
+
+<p>It's using the trick where you request a <code>reason</code> key prior to the score, in order to implement chain-of-thought - see also <a href="https://simonwillison.net/2024/Aug/7/braggoscope-prompts/">Matt Webb's Braggoscope Prompts</a>.
+
+
+    </p><p>Tags: <a href="https://simonwillison.net/tags/gpt4">gpt4</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/prompt-engineering">prompt-engineering</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:06 &bull;
+   13 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -807,7 +2047,7 @@
 
 <div class='item-footer'>
    03:20 &bull;
-   4 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -883,7 +2123,7 @@
 
 <div class='item-footer'>
    22:30 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -961,7 +2201,7 @@
 
 <div class='item-footer'>
    20:55 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1027,7 +2267,7 @@
 
 <div class='item-footer'>
    17:57 &bull;
-   13 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1092,7 +2332,7 @@
 
 <div class='item-footer'>
    17:21 &bull;
-   13 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1158,7 +2398,7 @@
 
 <div class='item-footer'>
    11:57 &bull;
-   19 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1226,7 +2466,7 @@
 
 <div class='item-footer'>
    11:36 &bull;
-   19 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1291,7 +2531,7 @@
 
 <div class='item-footer'>
    04:25 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1365,7 +2605,7 @@
 
 <div class='item-footer'>
    02:29 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1459,7 +2699,7 @@ Jason Koebler continues to provide the most insightful coverage of Facebook's we
 
 <div class='item-footer'>
    00:26 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1526,7 +2766,7 @@ Jason Koebler continues to provide the most insightful coverage of Facebook's we
 
 <div class='item-footer'>
    23:28 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1598,7 +2838,7 @@ Jason Koebler continues to provide the most insightful coverage of Facebook's we
 
 <div class='item-footer'>
    15:43 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1673,7 +2913,7 @@ Another neat SQLite extension from Anton Zhiyanov. <code>sqlean-time</code> (<a 
 
 <div class='item-footer'>
    15:31 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1753,7 +2993,7 @@ Another neat SQLite extension from Anton Zhiyanov. <code>sqlean-time</code> (<a 
 
 <div class='item-footer'>
    02:52 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1869,7 +3109,7 @@ There are some fascinating new details in this lengthy report outlining the safe
 
 <div class='item-footer'>
    23:58 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1943,7 +3183,7 @@ There are some fascinating new details in this lengthy report outlining the safe
 
 <div class='item-footer'>
    22:30 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2032,7 +3272,7 @@ Google Gemini 1.5 Flash was already one of the cheapest models, at 35c/million i
 
 <div class='item-footer'>
    22:27 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2132,7 +3372,7 @@ Anthropic's <a href="https://claude.ai/">Claude</a> is missing one key feature t
 
 <div class='item-footer'>
    20:40 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2278,7 +3518,7 @@ platforms
 
 <div class='item-footer'>
    16:13 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2347,7 +3587,7 @@ platforms
 
 <div class='item-footer'>
    15:59 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2654,7 +3894,7 @@ pythonpath = ["."]
 
 <div class='item-footer'>
    15:26 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2720,7 +3960,7 @@ pythonpath = ["."]
 
 <div class='item-footer'>
    13:52 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2787,7 +4027,7 @@ pythonpath = ["."]
 
 <div class='item-footer'>
    08:13 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2858,7 +4098,7 @@ pythonpath = ["."]
 
 <div class='item-footer'>
    03:27 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2925,7 +4165,7 @@ pythonpath = ["."]
 
 <div class='item-footer'>
    01:50 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3020,7 +4260,7 @@ Matt Webb's <a href="https://www.braggoscope.com/">Braggoscope</a> (<a href="htt
 
 <div class='item-footer'>
    23:23 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3094,7 +4334,7 @@ Matt Webb's <a href="https://www.braggoscope.com/">Braggoscope</a> (<a href="htt
 
 <div class='item-footer'>
    22:19 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3191,7 +4431,7 @@ that I hope will inform binary distribution in the future. More on that soon.</p
 
 <div class='item-footer'>
    18:25 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3275,7 +4515,7 @@ llm -s "Answer in as few words as possible. Use a brief style with short replies
 
 <div class='item-footer'>
    17:32 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3346,7 +4586,7 @@ Johann Rehberger reports yet another example of the classic <a href="https://sim
 
 <div class='item-footer'>
    17:02 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3418,7 +4658,7 @@ Johann Rehberger reports yet another example of the classic <a href="https://sim
 
 <div class='item-footer'>
    13:55 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3484,7 +4724,7 @@ Johann Rehberger reports yet another example of the classic <a href="https://sim
 
 <div class='item-footer'>
    13:31 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3552,7 +4792,7 @@ Johann Rehberger reports yet another example of the classic <a href="https://sim
 
 <div class='item-footer'>
    13:16 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3637,7 +4877,7 @@ Johann Rehberger reports yet another example of the classic <a href="https://sim
 
 <div class='item-footer'>
    22:54 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3711,7 +4951,7 @@ Johann Rehberger reports yet another example of the classic <a href="https://sim
 
 <div class='item-footer'>
    22:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3795,7 +5035,7 @@ Johann Rehberger reports yet another example of the classic <a href="https://sim
 
 <div class='item-footer'>
    21:59 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3885,7 +5125,7 @@ New feature in <a href="https://github.com/observablehq/plot/blob/v0.6.16/CHANGE
 
 <div class='item-footer'>
    21:40 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3950,7 +5190,7 @@ New feature in <a href="https://github.com/observablehq/plot/blob/v0.6.16/CHANGE
 
 <div class='item-footer'>
    20:41 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4026,7 +5266,7 @@ New feature in <a href="https://github.com/observablehq/plot/blob/v0.6.16/CHANGE
 
 <div class='item-footer'>
    20:33 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4095,7 +5335,7 @@ New feature in <a href="https://github.com/observablehq/plot/blob/v0.6.16/CHANGE
 
 <div class='item-footer'>
    20:16 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4204,7 +5444,7 @@ OpenAI have offered structured outputs for a while now: you could specify <code>
 
 <div class='item-footer'>
    18:32 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4279,7 +5519,7 @@ OpenAI have offered structured outputs for a while now: you could specify <code>
 
 <div class='item-footer'>
    15:54 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4465,7 +5705,7 @@ Leon: Derived from the Latin word for "lion", this name signifies strength and p
 
 <div class='item-footer'>
    15:41 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4543,7 +5783,7 @@ Leon: Derived from the Latin word for "lion", this name signifies strength and p
 
 <div class='item-footer'>
    14:29 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4665,7 +5905,7 @@ Leon: Derived from the Latin word for "lion", this name signifies strength and p
 
 <div class='item-footer'>
    14:04 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4755,7 +5995,7 @@ Leon: Derived from the Latin word for "lion", this name signifies strength and p
 
 
 
-<p>The OpenAPI services are added to the project. The API uses JWT Bearer and OAuth and so the Open API definitions should also add this. An BearerSecuritySchemeTransformer implementation was created like in the Microsoft <a href="https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/aspnetcore-openapi">documentation</a>. </p>
+<p>The OpenAPI services are added to the project. The API uses JWT Bearer and OAuth and so the OpenAPI definitions should also add this. An BearerSecuritySchemeTransformer implementation was created like in the Microsoft <a href="https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/aspnetcore-openapi">documentation</a>.</p>
 
 
   builder.Services.AddOpenApi(options =&gt;
@@ -4765,7 +6005,7 @@ Leon: Derived from the Latin word for "lion", this name signifies strength and p
   
 
 
-<p>The BearerSecuritySchemeTransformer class implements the Open API specific definitions. If using cookies, only the document.Info is required and this can be added directly in the services without an extra class. From the Microsoft docs:</p>
+<p>The BearerSecuritySchemeTransformer class implements the OpenAPI specific definitions. If using cookies, only the document.Info is required and this can be added directly in the services without an extra class. From the Microsoft docs:</p>
 
 
   internal sealed class BearerSecuritySchemeTransformer(IAuthenticationSchemeProvider authenticationSchemeProvider) : IOpenApiDocumentTransformer
@@ -4853,7 +6093,7 @@ public IActionResult PostWeatherForecast(
 
 
 
-<p>When the application is started, the Json Open API definitions can be downloaded and used.</p>
+<p>When the application is started, the Json OpenAPI definitions can be downloaded and used.</p>
 
 
 
@@ -4869,7 +6109,7 @@ public IActionResult PostWeatherForecast(
 
 
 
-<p>I am not sure how good the Open API specifications are and need to validate how to define the different status codes in the specifications with the correct return types. </p>
+<p>I am not sure how good the OpenAPI specifications are and need to validate how to define the different status codes in the specifications with the correct return types.</p>
 
 
 
@@ -4910,7 +6150,7 @@ public IActionResult PostWeatherForecast(
 
 <div class='item-footer'>
    12:13 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4994,7 +6234,7 @@ Reddit user <a href="https://www.reddit.com/user/devanxd2000/">devanxd2000</a> f
 
 <div class='item-footer'>
    04:34 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5060,7 +6300,7 @@ Reddit user <a href="https://www.reddit.com/user/devanxd2000/">devanxd2000</a> f
 
 <div class='item-footer'>
    00:22 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5260,7 +6500,7 @@ Reddit user <a href="https://www.reddit.com/user/devanxd2000/">devanxd2000</a> f
 
 <div class='item-footer'>
    23:20 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5334,7 +6574,7 @@ Reddit user <a href="https://www.reddit.com/user/devanxd2000/">devanxd2000</a> f
 
 <div class='item-footer'>
    22:30 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5408,7 +6648,7 @@ A ChatGPT generated image<p>I decided to do some retrieval augmented generation(
 
 <div class='item-footer'>
    22:13 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5480,7 +6720,7 @@ A ChatGPT generated image<p>I decided to do some retrieval augmented generation(
 
 <div class='item-footer'>
    19:25 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5559,7 +6799,7 @@ Samantha Cole at 404 Media reports on a huge leak of internal NVIDIA communicati
 
 <div class='item-footer'>
    17:19 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5647,7 +6887,7 @@ SELECT * FROM new_tags;
 
 <div class='item-footer'>
    15:15 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5717,7 +6957,7 @@ SELECT * FROM new_tags;
 
 <div class='item-footer'>
    14:47 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5796,7 +7036,7 @@ SELECT * FROM new_tags;
 
 <div class='item-footer'>
    02:44 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5863,7 +7103,7 @@ SELECT * FROM new_tags;
 
 <div class='item-footer'>
    02:27 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5929,7 +7169,7 @@ SELECT * FROM new_tags;
 
 <div class='item-footer'>
    02:26 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6001,7 +7241,7 @@ If you are the first female vice president, aren’t you by definition the first
 
 <div class='item-footer'>
    02:19 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6077,7 +7317,7 @@ If you are the first female vice president, aren’t you by definition the first
 
 <div class='item-footer'>
    22:30 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6151,7 +7391,7 @@ If you are the first female vice president, aren’t you by definition the first
 
 <div class='item-footer'>
    20:04 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6232,7 +7472,7 @@ This attention-grabbing headline from the Wall Street Journal makes the underlyi
 
 <div class='item-footer'>
    19:11 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6303,7 +7543,7 @@ Jeremy B. Merrill and Rachel Lerman at the Washington Post analyzed <a href="htt
 
 <div class='item-footer'>
    18:59 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6375,7 +7615,7 @@ Jeremy B. Merrill and Rachel Lerman at the Washington Post analyzed <a href="htt
 
 <div class='item-footer'>
    17:36 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6457,7 +7697,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    16:55 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6523,7 +7763,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    14:08 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6585,7 +7825,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    12:26 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6653,7 +7893,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    12:24 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6727,7 +7967,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    01:53 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6811,7 +8051,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    20:32 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6881,7 +8121,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    20:09 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6945,7 +8185,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    19:06 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7023,7 +8263,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    16:10 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7091,7 +8331,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    14:32 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7178,7 +8418,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    07:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7252,7 +8492,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    06:40 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7326,7 +8566,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    05:13 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7399,83 +8639,7 @@ Nicholas is an author on <a href="https://arxiv.org/abs/2307.15043">Universal an
 
 <div class='item-footer'>
    03:13 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/3/epicenv/#atom-everything'>EpicEnv</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   EpicEnv 
-Dan Goodman's tool for managing shared secrets via a Git repository. This uses a really neat trick: you can run epicenv invite githubuser and the tool will retrieve that user's public key from github.com/{username}.keys (here's mine) and use that to encrypt the secrets such that the user can decrypt them with their private key.
-
-     Via lobste.rs 
-
-
-     Tags: encryption, git 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://github.com/danthegoodman1/EpicEnv">EpicEnv</a></p>
-Dan Goodman's tool for managing shared secrets via a Git repository. This uses a really neat trick: you can run <code>epicenv invite githubuser</code> and the tool will retrieve that user's public key from <code>github.com/{username}.keys</code> (<a href="https://github.com/simonw.keys">here's mine</a>) and use that to encrypt the secrets such that the user can decrypt them with their private key.
-
-    <p>Via <a href="https://lobste.rs/s/gruxeg/epicenv_local_environment_variable">lobste.rs</a></p>
-
-
-    <p>Tags: <a href="https://simonwillison.net/tags/encryption">encryption</a>, <a href="https://simonwillison.net/tags/git">git</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   00:31 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7488,151 +8652,6 @@ Dan Goodman's tool for managing shared secrets via a Git repository. This uses a
  <h2 class='new-date'>
   Friday, 02. August 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/2/characterai/#atom-everything'>Quoting Character.AI</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    When Noam and Daniel started Character.AI, our goal of personalized superintelligence required a full stack approach. We had to pre-train models, post-train them to power the experiences that make Character.AI special, and build a product platform with the ability to reach users globally. Over the past two years, however, the landscape has shifted – many more pre-trained models are now available.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <blockquote cite="https://blog.character.ai/our-next-phase-of-growth/"><p>When Noam and Daniel started Character.AI, our goal of personalized superintelligence required a full stack approach. We had to pre-train models, post-train them to power the experiences that make Character.AI special, and build a product platform with the ability to reach users globally. Over the past two years, however, the landscape has shifted – many more pre-trained models are now available. Given these changes, we see an advantage in making greater use of third-party LLMs alongside our own. This allows us to devote even more resources to post-training and creating new product experiences for our growing user base.</p></blockquote><p>— <a href="https://blog.character.ai/our-next-phase-of-growth/">Character.AI</a></p>
-
-    <p>Tags: <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/fine-tuning">fine-tuning</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:07 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/2/extracting-prompts-by-inverting-llm-outputs/#atom-everything'>Extracting Prompts by Inverting LLM Outputs</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Extracting Prompts by Inverting LLM Outputs 
-New paper from Meta research: 
- 
- We consider the problem of language model inversion: given outputs of a language model, we seek to extract the prompt that generated these outputs. We develop a new black-box method, output2prompt, that learns to extract prompts without access to the model's logits and without adversarial or jailbreaking queries. In con
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://arxiv.org/abs/2405.15012">Extracting Prompts by Inverting LLM Outputs</a></p>
-New paper from Meta research:<p></p>
-<blockquote>
-<p>We consider the problem of language model inversion: given outputs of a language model, we seek to extract the prompt that generated these outputs. We develop a new black-box method, output2prompt, that learns to extract prompts without access to the model's logits and without adversarial or jailbreaking queries. In contrast to previous work, output2prompt only needs outputs of normal user queries.</p>
-</blockquote>
-<p>This is a way of extracting the hidden prompt from an application build on an LLM without using prompt injection techniques.</p>
-<p>The trick is to train a dedicated model for guessing hidden prompts based on public question/answer pairs.</p>
-<p>They conclude:</p>
-<blockquote>
-<p>Our results demonstrate that many user and system prompts are intrinsically vulnerable to extraction.</p>
-</blockquote>
-<p>This reinforces my opinion that it's not worth trying to protect your system prompts. Think of them the same as your client-side HTML and JavaScript: you might be able to obfuscate them but you should expect that people can view them if they try hard enough.
-
-    </p><p>Via <a href="https://twitter.com/jxmnop/status/1819418928877383776">@jxmnop</a></p>
-
-
-    <p>Tags: <a href="https://simonwillison.net/tags/prompt-injection">prompt-injection</a>, <a href="https://simonwillison.net/tags/security">security</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/meta">meta</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:15 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -7696,7 +8715,7 @@ New paper from Meta research:<p></p>
 
 <div class='item-footer'>
    02:57 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7709,77 +8728,6 @@ New paper from Meta research:<p></p>
  <h2 class='new-date'>
   Thursday, 01. August 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/1/towards-standardizing-place/#atom-everything'>Towards Standardizing Place</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Towards Standardizing Place 
-Overture Maps announced General Availability of its global maps datasets last week, covering places, buildings, divisions, and base layers. 
- Drew Breunig demonstrates how this can be accessed using both the Overture Explorer tool and DuckDB, and talks about Overture's GERS IDs - reminiscent of Who's On First IDs - which provide stable IDs for all kinds of geographic p
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.dbreunig.com/2024/07/31/towards-standardizing-place.html">Towards Standardizing Place</a></p>
-Overture Maps <a href="https://overturemaps.org/overture-maps-foundation-releases-general-availability-of-its-open-maps-datasets/">announced General Availability of its global maps datasets</a> last week, covering places, buildings, divisions, and base layers.<p></p>
-<p>Drew Breunig demonstrates how this can be accessed using both the <a href="https://explore.overturemaps.org/#13.1/37.46975/-122.44309">Overture Explorer tool</a> and DuckDB, and talks about Overture's GERS IDs - reminiscent of <a href="https://whosonfirst.org/">Who's On First</a> IDs - which provide stable IDs for all kinds of geographic places.
-
-
-    </p><p>Tags: <a href="https://simonwillison.net/tags/whosonfirst">whosonfirst</a>, <a href="https://simonwillison.net/tags/drew-breunig">drew-breunig</a>, <a href="https://simonwillison.net/tags/geospatial">geospatial</a>, <a href="https://simonwillison.net/tags/gis">gis</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:14 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -7836,114 +8784,7 @@ Overture Maps <a href="https://overturemaps.org/overture-maps-foundation-release
 
 <div class='item-footer'>
    22:34 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/1/footnotes-that-work-in-rss-readers/#atom-everything'>Footnotes that work in RSS readers</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Footnotes that work in RSS readers 
-Chris Coyier explained the mechanism used by Feedbin to render custom footnotes back in 2019. 
- I stumbled upon this after I spotted an inline footnote rendered in NetNewsWire the other day (from this post by Drew Breunig): 
-  
- Since feed readers generally strip JavaScript and CSS and only allow a subset of HTML tags I was intrigued to figure out how that worke
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2024/netnewswire-footnote.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://css-tricks.com/footnotes-that-work-in-rss-readers/">Footnotes that work in RSS readers</a></p>
-Chris Coyier explained the mechanism used by Feedbin to render custom footnotes back in 2019.<p></p>
-<p>I stumbled upon this after I spotted an inline footnote rendered in NetNewsWire the other day (from <a href="https://www.dbreunig.com/2024/07/31/towards-standardizing-place.html">this post</a> by Drew Breunig):</p>
-<p></p>
-<p>Since feed readers generally strip JavaScript and CSS and only allow a subset of HTML tags I was intrigued to figure out how that worked.</p>
-<p>I found <a href="https://github.com/Ranchero-Software/NetNewsWire/blob/094a85bce0ca2e5a7593eed027b71714a37c147c/Shared/Article%20Rendering/main.js#L144-L150">this code</a> in the NetNewsWire source (it's MIT licensed) which runs against elements matching this CSS selector:</p>
-<p><code>sup &gt; a[href*='#fn'], sup &gt; div &gt; a[href*='#fn']</code></p>
-<p>So any link with an <code>href</code> attribute containing <code>#fn</code> that is a child of a <code>&lt;sup&gt;</code> (superscript) element.</p>
-<p>In Drew's post the HTML looks like this:</p>
- <code>&lt;!-- Footnote link: --&gt;
-&lt;sup id="fnref:precision" role="doc-noteref"&gt;
-  &lt;a href="#fn:precision" class="footnote" rel="footnote"&gt;1&lt;/a&gt;
-&lt;/sup&gt;
-&lt;!-- Then at the bottom: --&gt;
-&lt;div class="footnotes" role="doc-endnotes"&gt;
-  &lt;ol&gt;
-    &lt;li id="fn:precision" role="doc-endnote"&gt;
-      &lt;p&gt;This is the footnote.
-        &lt;a href="#fnref:precision" class="reversefootnote" role="doc-backlink"&gt;&amp;#8617;&lt;/a&gt;
-      &lt;/p&gt;
-    &lt;/li&gt;
-  &lt;/ol&gt;
-&lt;/div&gt;
-</code> 
-<p>Where did this convention come from? It doesn't seem to be part of any specific standard. Chris linked to <code>www.bigfootjs.com</code> (no longer resolving) which was the site for the <a href="https://github.com/lemonmade/bigfoot">bigfoot.js</a> jQuery plugin, so my best guess is the convention came from that.
-
-
-    </p><p>Tags: <a href="https://simonwillison.net/tags/atom">atom</a>, <a href="https://simonwillison.net/tags/jquery">jquery</a>, <a href="https://simonwillison.net/tags/rss">rss</a>, <a href="https://simonwillison.net/tags/netnewswire">netnewswire</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2024/netnewswire-footnote.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:57 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8015,7 +8856,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    15:03 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8079,7 +8920,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    22:30 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8149,7 +8990,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    21:20 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8223,7 +9064,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    12:38 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8287,7 +9128,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    22:30 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8359,7 +9200,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    21:32 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8439,7 +9280,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    21:17 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8555,7 +9396,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    20:21 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8627,7 +9468,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    15:45 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8695,7 +9536,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    15:02 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8769,7 +9610,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    15:01 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8845,7 +9686,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    22:30 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8924,7 +9765,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    20:29 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9000,7 +9841,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    20:25 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9072,7 +9913,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    19:46 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9356,7 +10197,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    18:03 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9430,7 +10271,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    17:56 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9500,7 +10341,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    15:46 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9572,7 +10413,7 @@ Chris Coyier explained the mechanism used by Feedbin to render custom footnotes 
 
 <div class='item-footer'>
    13:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9646,7 +10487,7 @@ AI generated crew image. Note that some folks are backwards.&nbsp;:-)<p>This wee
 
 <div class='item-footer'>
    12:58 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9711,7 +10552,7 @@ AI generated crew image. Note that some folks are backwards.&nbsp;:-)<p>This wee
 
 <div class='item-footer'>
    04:24 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9783,68 +10624,7 @@ AI generated crew image. Note that some folks are backwards.&nbsp;:-)<p>This wee
 
 <div class='item-footer'>
    02:43 &bull;
-   13 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/07/29/weird.html'> Weird. </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Weird. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Weird.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:31 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10078,7 +10858,7 @@ AI generated crew image. Note that some folks are backwards.&nbsp;:-)<p>This wee
 
 <div class='item-footer'>
    22:51 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10152,7 +10932,7 @@ AI generated crew image. Note that some folks are backwards.&nbsp;:-)<p>This wee
 
 <div class='item-footer'>
    22:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10237,7 +11017,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    21:31 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10311,7 +11091,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    07:19 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10385,7 +11165,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    18:56 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10459,7 +11239,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    04:49 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10531,7 +11311,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    01:32 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10607,7 +11387,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10706,7 +11486,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    20:26 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10782,7 +11562,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    23:13 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10894,7 +11674,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10970,7 +11750,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    23:39 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11079,7 +11859,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11149,7 +11929,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    15:20 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11223,7 +12003,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    03:31 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11289,7 +12069,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    23:16 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11398,7 +12178,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11474,7 +12254,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    22:00 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11595,7 +12375,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    19:54 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11716,7 +12496,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11792,7 +12572,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12018,7 +12798,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:41 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12111,7 +12891,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12187,7 +12967,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    22:53 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12317,7 +13097,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12393,7 +13173,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12462,7 +13242,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:10 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12571,7 +13351,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12647,7 +13427,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    13:32 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12859,7 +13639,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    03:01 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12872,80 +13652,6 @@ Why should we get excited about small differences?</p>
  <h2 class='new-date'>
   Wednesday, 17. July 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://idmlab.eidentity.jp/'>IdM Laboratory</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://idmlab.eidentity.jp/2024/07/openid-federation-implementers-draft-4.html'>OpenID Federation Implementer's Draft 4の投票が開始されました</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   こんにちは、富士榮です。  先月Public Reviewが行われていたOpenID FederationのImplementer's Draft 4ですが、昨日から投票期間が始まっています。  Public Reviewの際のポスト  https://idmlab.eidentity.jp/2024/06/openid-federation-implementers-draft4.html          投票の告知  https://openid.net/notice-of-vote-for-proposed-fourth-implementers-draft-of-openid-federation/  投票期間は7/17〜7/24ですので、米国OpenID Foundationの会員の方は投票しましょう。    
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://blogger.googleusercontent.com/img/a/AVvXsEi0wMVH3AvGMbVQjtGDEkbWztti0xLafQqjS229Q9HynBd2fb0e44GTmeUHuoKKOw6UsW508jP-ITe0yP8BTrU8eKSQ4hHR4tmWvUr1s1XuWebwkd9Gzmqg0VgaBsBJnOFiPGBvDjE35MYQadybulL5OOubPUngkYmT4wimllLvekPVv01mcQScUKXtRJqS=w640-h406'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>こんにちは、富士榮です。</p><p>先月Public Reviewが行われていたOpenID FederationのImplementer's Draft 4ですが、昨日から投票期間が始まっています。</p><p>Public Reviewの際のポスト</p><p><a href="https://idmlab.eidentity.jp/2024/06/openid-federation-implementers-draft4.html">https://idmlab.eidentity.jp/2024/06/openid-federation-implementers-draft4.html</a></p><p></p>  <a href="https://blogger.googleusercontent.com/img/a/AVvXsEi0wMVH3AvGMbVQjtGDEkbWztti0xLafQqjS229Q9HynBd2fb0e44GTmeUHuoKKOw6UsW508jP-ITe0yP8BTrU8eKSQ4hHR4tmWvUr1s1XuWebwkd9Gzmqg0VgaBsBJnOFiPGBvDjE35MYQadybulL5OOubPUngkYmT4wimllLvekPVv01mcQScUKXtRJqS"></a> <br><br> <p></p><p>投票の告知</p><p><a href="https://openid.net/notice-of-vote-for-proposed-fourth-implementers-draft-of-openid-federation/">https://openid.net/notice-of-vote-for-proposed-fourth-implementers-draft-of-openid-federation/</a></p><p>投票期間は7/17〜7/24ですので、米国OpenID Foundationの会員の方は投票しましょう。</p><p><br></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blogger.googleusercontent.com/img/a/AVvXsEi0wMVH3AvGMbVQjtGDEkbWztti0xLafQqjS229Q9HynBd2fb0e44GTmeUHuoKKOw6UsW508jP-ITe0yP8BTrU8eKSQ4hHR4tmWvUr1s1XuWebwkd9Gzmqg0VgaBsBJnOFiPGBvDjE35MYQadybulL5OOubPUngkYmT4wimllLvekPVv01mcQScUKXtRJqS=w640-h406'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:24 &bull;
-   24 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -13047,7 +13753,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13119,7 +13825,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    13:11 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13196,7 +13902,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:28 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13300,7 +14006,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13423,7 +14129,7 @@ right track.</p>
 
 <div class='item-footer'>
    19:15 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13542,7 +14248,7 @@ right track.</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13846,7 +14552,7 @@ right track.</p>
 
 <div class='item-footer'>
    03:00 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13924,7 +14630,7 @@ right track.</p>
 
 <div class='item-footer'>
    19:49 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14046,7 +14752,7 @@ right track.</p>
 
 <div class='item-footer'>
    16:45 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -15426,216 +16132,6 @@ notes</a>.&nbsp;<a>↩︎</a></p>
 
 
 
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.sakimura.org'>@_Nat Zone</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.sakimura.org/2024/07/6069/'>サイバー犯罪に関する白浜シンポジウム・クロージングパネル「激変する環境にどう対応するのか」メモ</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  ３日間続いたサイバー犯罪に関する白浜シンポジウム #SCCS2024 も閉会しました。クロージングは以下の４氏によるパネルディスカッションでした。コーディネーター／モデレーターは上原先生。 この分野は素人である上、以下は数行のメモと記憶から抜き出したものです。不正確なことや書き落…
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>３日間続いたサイバー犯罪に関する白浜シンポジウム #SCCS2024 も閉会しました。クロージングは以下の４氏によるパネルディスカッションでした。コーディネーター／モデレーターは上原先生。</p>
-
-
-
- 
- コーディネーター : 上原 哲太郎 氏 
-
-
-
- パネリスト :&nbsp;
- 
- <a href="https://sccs-jp.org/symposium28/speaker/#speaker12">猪俣 敦夫 氏</a> 
-
-
-
- <a href="https://sccs-jp.org/symposium28/speaker/#speaker23">松本 純 氏</a> 
-
-
-
- <a href="https://sccs-jp.org/symposium28/speaker/#speaker31">長谷川 弘幸 氏</a> 
-
-
-
- <a href="https://sccs-jp.org/symposium28/cmc19/profile/#profile04">楠 正憲 氏</a> 
- 
- 
- 
-
-
-
-<p>この分野は素人である上、以下は数行のメモと記憶から抜き出したものです。不正確なことや書き落としていることも沢山あると思うので、白浜組の方々におかれましては、適宜ご指摘をしていただければと思います。なお、私の感想的なところも多分に混じっていると思うのでその点はご容赦いただければと思います。明らかにパネルでは出なかったことに関しては、斜体字にしています。また、セッション最後にあったQ&amp;Aの内容も本体にできるだけ取り込むようにしています。</p>
-
-
-
- 要約 
-
-
-
-<p>このパネルディスカッションでは、生成AIの発展と課題、クラウドシフトの影響、最近の大規模なランサムウェア事件について議論されました。生成AIの発展により、効率化が進む一方、不適切な情報の生成や流布のリスクが高まっていること、クラウドシフトによるコスト削減の一方でベンダー管理の難しさ、ランサムウェア事件の深刻な被害とフェーズが変わったことの指摘、および対策の必要性が指摘されました。</p>
-
-
-
- 生成AIの発展と課題 
-
-
-
-<p>生成AIの発展により業務の効率化が期待される一方で、情報漏洩のリスクが当初指摘されました。しかし、その後契約などによる制御によって情報漏洩が大きな問題になることは考えにくくなってきました。しかしその一方、コンテンツに関する権利の希薄化や不適切なコンテンツやマルウェア作成のリスクが高まっています。</p>
-
-
-
-<p>例えば、先日生成AIを使ってスマホ向けのランサムウェアを作ったとされる人が逮捕される事例が出ました。スマホ上で動作するランサムウェアをAIで作って配布するのは大変難しく<a href="https://www.sakimura.org/2024/07/6069/#easy-footnote-bottom-1-6069" title="スマートフォンで動作するランサムウェアを作成するのは非常に難しいと考えられています。アプリのインストールにハードルが高く、自分のサンドボックスの中のデータか、せいぜい写真に対するアクセスしかできず、そうしたファイル暗号化程度の機能しか実現できない可能性が高いです。報道は事実と異なる可能性があります。">1</a>、実際の行使はできていないと考えられ、今回は作成罪が適用されたわけですが、安易な適用には（萎縮効果なども考えられ）懸念を持たざるを得ない。（意図を持って作成すれば作成罪が適用できるが、意図の立証は難しく、立件するのは難しい。今回は特殊なケースとも考えられる。）</p>
-
-
-
-<p>また、生成AIによって不適切なコンテンツ（例：ヌード画像、犯罪に使えるような情報）やフェイクニュースが作られるという問題も指摘されました。</p>
-
-
-
-<p>前者に関しては、生成AIにはこうした「不適切な」コンテンツを教えなければ良いではないかという指摘もありますが、</p>
-
-
-
- 
- 「不適切な」アプトプットを制御するには「不適切な」こと自体が教えられていなければならず、教えないという手段は難しいと考えられます。 
-
-
-
- 有用なことをさせるには、アウトプットはして欲しくないことも教えなければならないこともある。
- 
- 例：人体をうまく描くためには、ヌードモデルを人でも機械でも学習する必要がある。 
- 
- 
- 
-
-
-
-<p>といったこともあり、教えないのは難しいと考えられます。従って、これらの「しつけ」はプロンプトレベルで基本行われることになります。しかし、オープンなAIモデルではその強制が難しく、悪用される可能性があります。生成AIの活用と規制のバランスが課題となっています。マルウェアや不適切なコンテンツが生成AIによって大量に産み出されることは前提として受け止めざるをえず、対策もAIによって行われる必要があると考えられます。AI使用に関する規制と倫理的ガイドラインの必要性に関する議論を深めることが求められます。</p>
-
-
-
- クラウドシフトの影響 
-
-
-
-<p>クラウドシフトが進む中で、クラウドベンダー管理が難しくなっています。コスト削減のメリットや、短期的なセキュリティ強化のメリットはあるものの、ベンダーの実態把握が困難になり、リスクの見積りが難しくなることのほか、クラウドプロバイダーへの過度の依存の長期的リスクとして、内部専門知識の維持が難しくなること、クラウドサプライチェーンのリスク、価格値上げのリスクなども指摘されていました。</p>
-
-
-
-<p>一方で、クラウドベンダーは監査に基づく第三者認証の取得や情報公開を行い、安全性を担保する努力をしています。認証制度にはISMSやSOC2、官公庁向けのものとしては米政府のFedRAMPや日本政府のISMAPなどがあります。もっとも、こうした認証取得（特にSOC2やISMAP）は多大な費用がかかり、中小プロバイダには対処が難しいという問題も指摘されました。これに対して、調達側は、中小が対応できていない部分に関しては、調達側がそこを補う<a href="https://www.sakimura.org/2024/07/6069/#easy-footnote-bottom-2-6069" title="例：デジタル庁のスタートアップ加算">2</a>ことによってカバーしようともしていることも紹介されました。</p>
-
-
-
-<p>また、インシデント発生時の情報開示を求められた場合、クラウドベンダーがどの程度の情報を開示できるのかということには注意が必要であることも指摘されました。監査証跡や第三者による監査レポートなどを提示することはできますが、個別のお客様のデータを切り分けて開示することは技術的に困難である可能性があります。完全な情報開示には限界があるかもしれません。</p>
-
-
-
-<p>採用する組織は、こうしたことも考え合わせた上で、クラウドシフトのメリットとデメリットを見極める必要があります。</p>
-
-
-
- 大規模ランサムウェア事件と対策 
-
-
-
-<p>最近、大規模なランサムウェア事件が続いています。これらはランダムな攻撃から、標的を絞った高価値の操作へのシフトしてきており、洗練度の向上と影響の大規模化が指摘されます。例えば、コロニアルパイプラインの事件<a href="https://www.sakimura.org/2024/07/6069/#easy-footnote-bottom-3-6069" title="Piyolog: <a href=&quot;https://piyolog.hatenadiary.jp/entry/2021/05/12/051650&quot;>&amp;nbsp;</a><a href=&quot;https://piyolog.hatenadiary.jp/entry/2021/05/12/051650&quot;>米石油パイプライン企業へのサイバー攻撃についてまとめてみた</a>">3</a>に象徴される重要インフラへの影響などが挙げられますし、直近ではK社<a href="https://www.sakimura.org/2024/07/6069/#easy-footnote-bottom-4-6069" title="筆者注: KADOKAWA <a href=&quot;https://xtech.nikkei.com/atcl/nxt/column/18/01157/070400114/&quot;>KADOKAWAがランサム攻撃で「ニコニコ」停止</a>">4</a>とI社<a href="https://www.sakimura.org/2024/07/6069/#easy-footnote-bottom-5-6069" title="筆者注: Piyolog: &amp;nbsp;<a href=&quot;https://piyolog.hatenadiary.jp/entry/2024/06/15/011339&quot;>イセトーのランサムウエア感染についてまとめてみた</a>">5</a>の例が挙げられます。</p>
-
-
-
-<p>これらは複数の意味で被害のフェーズが変わったということも言えます。</p>
-
-
-
-<p>まず第一に被害の金額がとても大きくなっています。</p>
-
-
-
-<p>次に、その人の人生を生死も含め左右してしまう的な意味、例えば、極寒の地でエネルギー供給が止まれば即凍死の危険があるし、タレントの住所がわかってしまうことでストーカー殺人に至る可能性もある<a href="https://www.sakimura.org/2024/07/6069/#easy-footnote-bottom-6-6069" title="これは、講師控え室でのパネリストの打ち合わせを聴きながら、砂原先生と私とで話していた話題">6</a>。</p>
-
-
-
-<p>また、社会的信用メカニズムの毀損という意味で、I社の事例は影響が大きいです。I社の事例は、ISMSやPマークを持つ企業で監査もきちんと受けており、ネットワークも基本分離していたにも関わらず、情報が盗まれることになりました。これは、業務系のネットワークにしかないはずの情報が、情報系のネットワークにコピーされその辺に転がっていたり、自治体に対して削除証明を出していたデータが実際には削除されていなかったりということに起因しています。認証制度はこれを見つけることができなかったわけで、認証制度への信頼性の低下という社会的インパクトを持つ、というようなことが指摘されました。</p>
-
-
-
-<p>一方で、ISMSなどの認証制度に関しては、</p>
-
-
-
- 
- ともすればチェックリスト的になるが、それは本質ではなく、経営者のリーダーシップとリスク認識が重要;  
-
-
-
- 認証取得自体が目的化してはいけない;  
-
-
-
- 特定の業務に特化した認証制度が必要で、認証制度の役割と限界を理解し、より実効性のある対策が求められている;  
- 
-
-
-
-<p>ということなども指摘されていました。</p>
-
-
-
-<p>また、このセクションでは、インシデント発生時の情報開示の在り方や、委託先管理の重要性が指摘されました。ランサムウェア対策として、モニタリングの強化や、マネジメントシステムの見直しが必要不可欠であることも指摘されました。</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   11:50 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
  <h2 class='new-date'>
   Saturday, 06. July 2024
  </h2>
@@ -16942,7 +17438,7 @@ the <a href="https://github.com/theory/postgres/pull/6" title="theory/postgres: 
 
 <div class='item-footer'>
    18:05 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17017,7 +17513,7 @@ the <a href="https://github.com/theory/postgres/pull/6" title="theory/postgres: 
 
 <div class='item-footer'>
    16:53 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22902,7 +23398,7 @@ private DocumentData GetDocumentData(string id, SaveOptions docType)
 
 <div class='item-footer'>
    15:31 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22985,7 +23481,7 @@ Prompt: “A vast field on which the ground spells the letters A and I, with peo
 
 <div class='item-footer'>
    15:01 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -28140,7 +28636,7 @@ see you next time</p>
  <i class='icon-caret-down item-collapse item-close item-opened'></i>
  <i class='icon-caret-right item-expand item-open item-closed'></i>
 
- <a href='https://m-ruminer.medium.com/let-me-save-you-some-time-on-azure-open-ai-and-copilot-109f30f0ac03?source=rss-7e85224c0a32------2'>Let Me Save You Some Time on Azure OpenAI And Copilot</a>
+ <a href='https://m-ruminer.medium.com/let-me-save-you-some-time-on-azure-open-ai-and-copilot-109f30f0ac03?source=rss-7e85224c0a32------2'>Let Me Save You Some Time on Azure OpenAI And Copilot — In A Good Way</a>
 
 </h3>
 
@@ -28188,82 +28684,6 @@ see you next time</p>
 
 <div class='item-footer'>
    12:14 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Thursday, 02. May 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://aaronparecki.com'>Aaron Parecki</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://aaronparecki.com/2024/05/02/5/oauth-browser-based-apps-last-call'>OAuth for Browser-Based Apps Working Group Last Call!</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  The draft specification OAuth for Browser-Based Applications has just entered Working Group Last Call!
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>The draft specification <a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps">OAuth for Browser-Based Applications</a> has just entered Working Group Last Call!</p>
-
-<p><a href="https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps">https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps</a></p>
-
-<p>This begins a two-week period to collect final comments on the draft. Please review the draft and <a href="https://www.ietf.org/mailman/listinfo/oauth">reply on the OAuth mailing list</a> if you have any comments or concerns. And if you've reviewed the document and are happy with the current state, it is also extremely helpful if you can reply on the list to just say "looks good to me"!</p>
-
-<p>If joining the mailing list is too much work, you're also welcome to comment on the <a href="https://github.com/oauth-wg/oauth-browser-based-apps/issues/51">Last Call issue</a> on GitHub.</p>
-
-<p>In case you were wondering, yes your comments matter! Even just a small indication of support goes a long way in these discussions!</p>
-
-<p>I am extremely happy with how this draft has turned out, and would like to again give a huge thanks to <a href="https://pragmaticwebsecurity.com/about.html">Philippe De Ryck</a> for the massive amount of work he's put in to the latest few versions to help get this over the finish line!</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:06 &bull;
    3 months ago
 </div>
 
