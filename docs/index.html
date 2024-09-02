@@ -726,7 +726,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:47 AM September 01, 2024 (UTC)</sup>
+<sup>Last Update 6:48 AM September 02, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -737,8 +737,686 @@
 
 
  <h2 class='new-date'>
+  Monday, 02. September 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/09/02/implement-asp-net-core-openid-connect-oauth-par-client-with-keycloak-using-net-aspire/'>Implement ASP.NET Core OpenID Connect OAuth PAR client with Keycloak using .NET Aspire</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how to implement an ASP.NET Core application which uses OpenID Connect and OAuth PAR for authentication. The client application uses Keycloak as the identity provider. The Keycloak application is hosted in a docker container. The applications are run locally using .NET Aspire. This makes it really easy to develop using containers. Code: […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how to implement an ASP.NET Core application which uses OpenID Connect and OAuth PAR for authentication. The client application uses <a href="https://www.keycloak.org/">Keycloak</a> as the identity provider. The Keycloak application is hosted in a docker container. The applications are run locally using .NET Aspire. This makes it really easy to develop using containers.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/keycloak-backchannel">https://github.com/damienbod/keycloak-backchannel</a></p>
+
+
+
+ Setup 
+
+
+
+<p>The standard Aspire Microsoft template was used to setup the .NET Aspire AppHost, ServiceDefaults projects. The Keycloak container service was added to the AppHost project using the Keycloak.AuthServices.Aspire.Hosting Nuget package. An ASP.NET Core Razor Page project was added as the UI client, but any project can be used like Blazor or an MVC application.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Keycloak Setup 
+
+
+
+<p>The Keycloak Container is completely setup in the AppHost project. The Keycloak.AuthServices.Aspire.Hosting Nuget package is used to add the integration to .NET Aspire. For this to work, <a href="https://www.docker.com/products/docker-desktop/">Docker Desktop</a> needs to be installed in the development environment. I want to use the Keycloak preview features and initialized this using the WithArgs method. If using the Microsoft Keycloak package, the setup is almost identical.</p>
+
+
+  var userName = builder.AddParameter("userName");
+var password = builder.AddParameter("password", secret: true);
+
+var keycloak = builder.AddKeycloakContainer("keycloak", 
+            userName: userName, password: password, port: 8080)
+    .WithArgs("--features=preview")
+    .WithDataVolume()
+    .RunWithHttpsDevCertificate(port: 8081);
+  
+
+
+<p></p>
+
+
+
+<p>I want to develop using HTTPS and so the Keycloak container needs to run in HTTPS as well. This was not so simple to setup, but <a href="https://github.com/DamianEdwards">Damien Edwards</a> provided a <a href="https://github.com/dotnet/aspire-samples/blob/b741f5e78a86539bc9ab12cd7f4a5afea7aa54c4/samples/Keycloak/Keycloak.AppHost/HostingExtensions.cs">solution</a> which works great.</p>
+
+
+
+<p>The RunWithHttpsDevCertificate extension method was added using his code and adapted so that the port is fixed for the HTTPS Keycloak server. This implementation requires the System.IO.Hashing Nuget package.</p>
+
+
+  using System.Diagnostics;
+using System.IO.Hashing;
+using System.Text;
+
+namespace Aspire.Hosting;
+
+/// &lt;summary&gt;
+/// Original src code:
+/// https://github.com/dotnet/aspire-samples/blob/b741f5e78a86539bc9ab12cd7f4a5afea7aa54c4/samples/Keycloak/Keycloak.AppHost/HostingExtensions.cs
+/// &lt;/summary&gt;
+public static class HostingExtensions
+{
+    /// &lt;summary&gt;
+    /// Injects the ASP.NET Core HTTPS developer certificate into the resource via the specified environment variables when
+    /// &lt;paramref name="builder"/&gt;.&lt;see cref="IResourceBuilder{T}.ApplicationBuilder"&gt;ApplicationBuilder&lt;/see&gt;.
+    /// &lt;see cref="IDistributedApplicationBuilder.ExecutionContext"&gt;ExecutionContext&lt;/see&gt;.&lt;see cref="DistributedApplicationExecutionContext.IsRunMode"&gt;IsRunMode&lt;/see&gt;&lt;c&gt; == true&lt;/c&gt;.&lt;br/&gt;
+    /// If the resource is a &lt;see cref="ContainerResource"/&gt;, the certificate files will be bind mounted into the container.
+    /// &lt;/summary&gt;
+    /// &lt;remarks&gt;
+    /// This method &lt;strong&gt;does not&lt;/strong&gt; configure an HTTPS endpoint on the resource. Use &lt;see cref="ResourceBuilderExtensions.WithHttpsEndpoint{TResource}"/&gt; to configure an HTTPS endpoint.
+    /// &lt;/remarks&gt;
+    public static IResourceBuilder&lt;TResource&gt; RunWithHttpsDevCertificate&lt;TResource&gt;(this IResourceBuilder&lt;TResource&gt; builder, string certFileEnv, string certKeyFileEnv)
+        where TResource : IResourceWithEnvironment
+    {
+        const string DEV_CERT_DIR = "/dev-certs";
+
+        if (builder.ApplicationBuilder.ExecutionContext.IsRunMode)
+        {
+            // Export the ASP.NET Core HTTPS development certificate &amp; private key to PEM files, bind mount them into the container
+            // and configure it to use them via the specified environment variables.
+            var (certPath, _) = ExportDevCertificate(builder.ApplicationBuilder);
+            var bindSource = Path.GetDirectoryName(certPath) ?? throw new UnreachableException();
+
+            if (builder.Resource is ContainerResource containerResource)
+            {
+                builder.ApplicationBuilder.CreateResourceBuilder(containerResource)
+                    .WithBindMount(bindSource, DEV_CERT_DIR, isReadOnly: true);
+            }
+
+            builder
+                .WithEnvironment(certFileEnv, $"{DEV_CERT_DIR}/dev-cert.pem")
+                .WithEnvironment(certKeyFileEnv, $"{DEV_CERT_DIR}/dev-cert.key");
+        }
+
+        return builder;
+    }
+
+    /// &lt;summary&gt;
+    /// Configures the Keycloak container to use the ASP.NET Core HTTPS development certificate created by &lt;c&gt;dotnet dev-certs&lt;/c&gt; when
+    /// &lt;paramref name="builder"/&gt;&lt;c&gt;.ExecutionContext.IsRunMode == true&lt;/c&gt;.
+    /// &lt;/summary&gt;
+    /// &lt;remarks&gt;
+    /// See &lt;see href="https://learn.microsoft.com/dotnet/core/tools/dotnet-dev-certs"&gt;https://learn.microsoft.com/dotnet/core/tools/dotnet-dev-certs&lt;/see&gt;
+    /// for more information on the &lt;c&gt;dotnet dev-certs&lt;/c&gt; tool.&lt;br/&gt;
+    /// See &lt;see href="https://learn.microsoft.com/aspnet/core/security/enforcing-ssl#trust-the-aspnet-core-https-development-certificate-on-windows-and-macos"&gt;
+    /// https://learn.microsoft.com/aspnet/core/security/enforcing-ssl&lt;/see&gt;
+    /// for more information on the ASP.NET Core HTTPS development certificate.
+    /// &lt;/remarks&gt;
+    public static IResourceBuilder&lt;KeycloakResource&gt; RunWithHttpsDevCertificate(this IResourceBuilder&lt;KeycloakResource&gt; builder, int port = 8081, int targetPort = 8443)
+    {
+        if (builder.ApplicationBuilder.ExecutionContext.IsRunMode)
+        {
+            // Mount the ASP.NET Core HTTPS development certificate in the Keycloak container and configure Keycloak to it
+            // via the KC_HTTPS_CERTIFICATE_FILE and KC_HTTPS_CERTIFICATE_KEY_FILE environment variables.
+            builder
+                .RunWithHttpsDevCertificate("KC_HTTPS_CERTIFICATE_FILE", "KC_HTTPS_CERTIFICATE_KEY_FILE")
+                .WithHttpsEndpoint(port: port, targetPort: targetPort)
+                .WithEnvironment("KC_HOSTNAME", "localhost")
+                // Without disabling HTTP/2 you can hit HTTP 431 Header too large errors in Keycloak.
+                // Related issues:
+                // https://github.com/keycloak/keycloak/discussions/10236
+                // https://github.com/keycloak/keycloak/issues/13933
+                // https://github.com/quarkusio/quarkus/issues/33692
+                .WithEnvironment("QUARKUS_HTTP_HTTP2", "false");
+        }
+
+        return builder;
+    }
+
+    private static (string, string) ExportDevCertificate(IDistributedApplicationBuilder builder)
+    {
+        // Exports the ASP.NET Core HTTPS development certificate &amp; private key to PEM files using 'dotnet dev-certs https' to a temporary
+        // directory and returns the path.
+        // TODO: Check if we're running on a platform that already has the cert and key exported to a file (e.g. macOS) and just use those instead.
+        var appNameHashBytes = XxHash64.Hash(Encoding.Unicode.GetBytes(builder.Environment.ApplicationName).AsSpan());
+        var appNameHash = BitConverter.ToString(appNameHashBytes).Replace("-", "").ToLowerInvariant();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"aspire.{appNameHash}");
+        var certExportPath = Path.Combine(tempDir, "dev-cert.pem");
+        var certKeyExportPath = Path.Combine(tempDir, "dev-cert.key");
+
+        if (File.Exists(certExportPath) &amp;&amp; File.Exists(certKeyExportPath))
+        {
+            // Certificate already exported, return the path.
+            return (certExportPath, certKeyExportPath);
+        }
+        else if (Directory.Exists(tempDir))
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+
+        var exportProcess = Process.Start("dotnet", $"dev-certs https --export-path \"{certExportPath}\" --format Pem --no-password");
+
+        var exited = exportProcess.WaitForExit(TimeSpan.FromSeconds(5));
+        if (exited &amp;&amp; File.Exists(certExportPath) &amp;&amp; File.Exists(certKeyExportPath))
+        {
+            return (certExportPath, certKeyExportPath);
+        }
+        else if (exportProcess.HasExited &amp;&amp; exportProcess.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"HTTPS dev certificate export failed with exit code {exportProcess.ExitCode}");
+        }
+        else if (!exportProcess.HasExited)
+        {
+            exportProcess.Kill(true);
+            throw new InvalidOperationException("HTTPS dev certificate export timed out");
+        }
+
+        throw new InvalidOperationException("HTTPS dev certificate export failed for an unknown reason");
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>Note: The AppHost project must reference all the services used in the solution.</p>
+
+
+
+ Keycloak client configuration 
+
+
+
+<p>See the <a href="https://github.com/damienbod/keycloak-backchannel/blob/main/KeycloakClients/razorpagepar.json">razorpagepar.json</a> file in the git repository. This is a Keycloak export of the whole client. This can be imported and updated.</p>
+
+
+
+<p>The client is configured to use PAR.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ ASP.NET Core OpenID Connect client using OAuth PAR 
+
+
+
+<p>The client application uses the standard OpenID Connect client and requires OAuth PAR for authentication. This is a new feature in .NET 9. The repo has a Razor Page OpenID Connect example as well as an MVC client sample. This would be the same for a Blazor application.</p>
+
+
+  services.AddAuthentication(options =&gt;
+{
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie()
+.AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =&gt;
+{
+    options.Authority = authConfiguration["StsServerIdentityUrl"];
+    options.ClientSecret = authConfiguration["ClientSecret"];
+    options.ClientId = authConfiguration["Audience"];
+    options.ResponseType = "code";
+
+    options.Scope.Clear();
+    options.Scope.Add("openid");
+    options.Scope.Add("profile");
+    options.Scope.Add("email");
+    options.Scope.Add("offline_access");
+
+    options.ClaimActions.Remove("amr");
+    options.ClaimActions.MapJsonKey("website", "website");
+
+    options.GetClaimsFromUserInfoEndpoint = true;
+    options.SaveTokens = true;
+
+    options.PushedAuthorizationBehavior = PushedAuthorizationBehavior.Require;
+
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        NameClaimType = JwtClaimTypes.Name,
+        RoleClaimType = JwtClaimTypes.Role,
+    };
+});
+  
+
+
+<p></p>
+
+
+
+ Notes 
+
+
+
+<p>.NET Aspire looks great and is easy to use in development. I am only learning this and must learn the details now. I have some issues using the containers and HTTPS and I don’t understand how the configuration works. I also don’t understand how this would work in production. Lots to learn.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://www.keycloak.org/">https://www.keycloak.org/</a></p>
+
+
+
+<p><a href="https://www.keycloak.org/server/features">https://www.keycloak.org/server/features</a></p>
+
+
+
+<p><a href="https://github.com/NikiforovAll/keycloak-authorization-services-dotnet">https://github.com/NikiforovAll/keycloak-authorization-services-dotnet</a></p>
+
+
+
+<p><a href="https://openid.net/specs/openid-connect-backchannel-1_0.html">https://openid.net/specs/openid-connect-backchannel-1_0.html</a></p>
+
+
+
+<p><a href="https://github.com/dotnet/aspire-samples/tree/main/samples">https://github.com/dotnet/aspire-samples/tree/main/samples</a></p>
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview">https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/09/oauth-par-keycloak_01.png?w=882'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:23 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Sunday, 01. September 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://wrenchinthegears.com/2024/09/01/childhood-memories-an-unexpected-artifact-and-imaginal-openings/'>Childhood Memories, An Unexpected Artifact, And Imaginal Openings</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  I write this post on the first anniversary of the death of my dear father Jerry Lee Hawver who grew up in an unstable, alcoholic household and through hard work and great people skills became a star athlete and executive with Proctor and Gamble. He and my mother raised my brother and me in the [...]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I write this post on the first anniversary of the death of my dear father Jerry Lee Hawver who grew up in an unstable, alcoholic household and through hard work and great people skills became a star athlete and executive with Proctor and Gamble. He and my mother raised my brother and me in the corporate suburbia of the New South of the 1970s and 80s, steadily climbing the ladder of the American dream. For my formative years that was my culture. The dynamic in our home was that I was the child who sought approval. My brother pushed the boundaries. Over time he and I have come together to meet in the center. We are both Hawver stock, and we “get ‘er done.”</p>
+<p>In those early years of the feral-child 1970s, us kids had the run of the neighborhood yards and wood lots. I’ve spoken of hanging out by the creek lined with quartz-laden rip-rap looking for crawdads and swinging from giant vines and making “forts.” My best friend’s name was Andrea Hopkins. She and her brother Brandon lived in a house that was kitty-cross from our backyard. Her father had a British accent and they had a few antiques, which I thought made them rather a glamorous family. We would often spend the afternoon exploring, riding our Big Wheels around, playing freeze tag, and putting on plays in the garage. Sometimes Andi and I would get crafty and make little coil pots out of the red Kentucky clay and fill them with potions made of petals from her mom’s flower beds along her driveway. Of course, there were marigolds in the mix. In some ways my new “cottage” rancher is like a return to this liminal space of childhood imaginative possibility.&nbsp;</p>
+<p>I realize now that early success is not necessarily a blessing. I did well in school after a disastrous second-grade year with a body-building teacher, Mrs. Weigand, in an open classroom school I had to take three buses to get to (desegregation). I have a strange memory of being shown a graphic movie of the horrors of smallpox in a tiny room with carpeted levels. That made no sense to me, but I later found out that the Flexners (of the Carnegie / Rockefeller Flexner Report) were from Louisville, so maybe we were part of some public health behavioral experiment.&nbsp;</p>
+<p>I recovered the following year at the much more traditional Wilder Elementary School where we had a fabulous librarian who would take small groups of kids around the shelves and do short book pitches and place books into the hands of kids she knew would love them. It’s funny that there were quite a few paranormal kids’ books in the 70s – John Bellairs and Zilpha Keatley Snyder. The one book that really stayed with me was Margaret Anderson’s “To Nowhere And Back,” a time-travel adventure where a girl passes through an English hedge into another century to make friends with a poor servant girl on the other side.&nbsp;</p>
+<p>I was never in the popular crowd, but I always had a circle of friends. Without realizing it, my identity became wrapped up in my idea of performance, of being a “good” person based on what society said good was. My life unfolded with relative ease, meeting my husband in college, raising a small family, doing my part to make my neighborhood and city a better place, so I thought. But things started to change when my child was in middle school as I began to realize society was being broken on purpose, and the social systems I’d built my identity around began to give way one by one. Eisenhower’s chosen head for ARPA was the President of Procter and Gamble Neil McElroy? Oh, and they ran contracts building nuclear missiles in the panhandle of Texas (Pantex)? You don’t say? Well that sure put Mr. Whipple and Mrs. Olson in a new light in a new light for me. If one’s identity is wrapped up in societal expectations and those start falling away, how does the center hold?</p>
+<p>What does it mean to be a “good person” within the expectations of a profoundly flawed system? Here my parents had worked so hard to walk us up the mountain of success, who was I to pull off on a wayside and kick rocks? I was the good girl, wasn’t I? When my marriage fell apart and my child became estranged from me, the silver lining was the opportunity to begin to shed the “good girl” archetype. Not that I had become a “bad girl,” it’s just that I recognized such labels were insufficient and did not do justice to the richly evolving tapestry of my life. Our lives have dramatic arcs. I know it sounds trite, but if there are no bumps in the road, you can’t truly appreciate the parts when the ride is smooth and clear.&nbsp;</p>
+<p>Last year we were trying to sort out the memorial service for my father. At the time I had been applying to all sorts of jobs with the idea that I would stay in Philadelphia and try to hold onto our family home that was almost paid off. In my perceived role of the “good mother,” I thought at some point my young adult child might return from the west coast and need a place to land. Life laughed at me and had the literal soles fall off my shoes on the walk to one interview at Wharton.</p>
+<p>During the two-day drive from Philadelphia to North Carolina to be with my father in hospice I cried a lot. I thought about his strength, both physical and strength of character. He was a big man, and I was small, but we fit together, a chip off the old block. I was listening to a <a href="https://mythicmedicine.love/podcast/perdita-finn">podcast</a> this week on our relationship to death and ancestors and Perdita Finn said that sometimes when people go, it is because they can help the ones they love more from the other side. I truly believe my father has been with me every step of the way since that morning when I held his swollen big hands and I read to him from L’Engle’s “An Acceptable Time” and bathed his forehead in kisses, my cheeks wet, and he crossed over.&nbsp;</p>
+<p>After a hurtful email exchange with my child and husband about the memorial service, it was clear that I was being removed from their lives with strong intention and there was nothing I could do about it. I am a planner. Hawvers like to be in control. We try to fix things. All of those things were off the table. It was up to me to build a new story outside of all the stories that had defined my life since I met my husband during our study abroad program in Venice in 1989. I’d never been alone, and now I was going to figure out how to be me, for me, not the good daughter, the model student, the diligent mother and wife. I told my husband I was going to leave Philadelphia and get a cozy cottage where I could garden and a kayak. I spoke it outloud, a reasonable wish, with conviction and with a few days to spare I got it all squared away.&nbsp;</p>
+<p>It’s taken me a year to come around to this way of thinking, because there was a lot of pain to acknowledge and process. But now I realize I was being given space to unfold in a new way. I had a choice. I could hold onto the baggage I was carrying and imagine myself as a failure across many categories. The thing is, I actually like myself and I don’t feel shameful about the course I’ve taken. Regrets? Yes, of course I have some. Have I made missteps? Certainly. But not out of malice, out of lack of information, insight, and wisdom. I deeply miss the people I have lost, but I can learn to be, to become, outside of them, outside their stories and expectations, and that’s ok, too. Perhaps some day they will have grown in their own stories enough and there will be enough space to hold all of who we have become in some new kind of family. Or maybe that won’t happen in this version of the story. I have to learn to accept what comes with an open heart.</p>
+<p>Before he left this Earth, my father navigated Alzheimer’s for about six years with numerous falls, escapades, ditched cars, eating light bulbs, jumping back yard fences, and taking apart cable boxes at his nursing home. As I wade into a broader understanding of consciousness, I open up space in my heart for what was really happening with my dad and his glitching interface with what we understand as reality.&nbsp;</p>
+<p>Over the course of my research this past year I found a very interesting memoir written by Elmer Green of the former Menninger Clinic in Topeka, KS where my dad grew up. It’s called “The Ozawkie Book of the Dead: Alzhiemers Isn’t What We Think It Is” (<a href="https://wrenchinthegears.com/wp-content/uploads/2024/03/Ozawkie-Book-of-the-Dead-Elmer-Green.pdf">PDF</a>) and it is the story of how he cared for his wife Alyce, his research partner in biofeedback, during her journey through that illness. It involves the nature of the soul and interpenetrating realms and the process of learning and unlearning how to be in this space.&nbsp;</p>
+<p>I think I’m going to read it again, because as terribly traumatic as it was to see my strong, capable father engage with the world in ways that were so extreme and problematic and inscrutable, having a year’s perspective and new awareness of proto-consciousness and the unified field and emergent complexity, I can sit with the hard parts of the process and realize that maybe what my father’s struggles were doing was giving me a window to look through for the answers I seek.&nbsp;</p>
+<p>I was under the weather for about a week. It started with a vicious migraine and then some shooting nerve pain and gradually resolved into a typical cold. Let me tell you, it’s not fun to be feverish in Arkansas in August. Most of the month the daytime highs have lingered in the upper 90s. By the end of the week I was regrouping, less foggy headed, and I decided to take a hike to Balanced Rock and make a heart to honor Jerry Hawver’s life. The trail is on the other side of town. It’s only a three-mile walk, and the idea of balance seemed appropriate. A friend had sent a delightful care package with a hummingbird card and dried herbs from her garden in Arizona. I clipped the hummingbird and took out a selection of peppers to place in my wicker basket along with a heart trimmed from the collar of one of his shirts. It still smells of his aftershave.&nbsp;&nbsp;</p>
+<p>I drove past the bath houses downtown then parked my Subaru on the gravel pull out along Cedar Glades Road, quickly crossed the blind curve, and started the climb. The online reviews said that the first half mile took some effort. It was steep, sure, but the challenge was walking on loose scree. For years I never gave much thought to being particularly careful while I was out and about, because there were always at least two of us. Now, it’s just me. So I have to be watchful about taking a misstep and turning an ankle. I took things slowly and on my way up I picked up a chunk of Novaculite that seemed to have been worked into a hand sized cutting tool or scraper. Idly I ran my fingers over it as I pressed on through the dry, dusty woods.&nbsp;</p>
+<p></p>
+<p>Where it leveled out, I paused for a moment and a wild red and black bug caught my eye. When I looked it up later, it turned out to be a velvet ant, a parasitic wasp species where the females are wingless. A minute later, I saw her partner flying down the trail. Fortunately I had the good sense to keep my distance, as I later found out their sting is many times worse than a hornet’s and they are commonly called “cow killers.”&nbsp;</p>
+<p>An interesting synchronicity is that in one of my early blog posts I warned about hybrid “personalized” learning being like a cicada killer. A cicada killer is a large wasp that frequented the garden where I worked. Its reproductive cycle involved capturing their chosen prey on the wing, paralyzing it, dragging it into an underground burrow, and then laying eggs on the body where the larvae would eat their way out. It was rather grotesque imagery, but it served to make a point. Well, turnabout is fair play, and evidently these velvet ants parasitize the pupae of cicada killers. Hmm.</p>
+<p>Despite the dryness you could still find a few ferns, and where the side trail to Balanced Rock branched off there were some wild plums dropping onto the path. I gathered a few things en route to supplement what I’d been gifted and brought from home. Not long after I arrived at the outcropping – more loose scree, more careful steps. I managed to get far enough down the slope to fully appreciate the balance embodied by these two impressive boulders.&nbsp;</p>
+<p></p>
+<p>Of course right as I got there, a couple arrived panting, and so we gave each other space. I pulled over to a little overlook in the shade and pulled out my basket of offerings. The arrangement of items in this particular heart is both loose and disordered while being vibrant and tactile. There are cracked nuts full of labyrinths, fractal turkey tail fungus, the first fall leaf offerings, and peppery spice.&nbsp;</p>
+<p>I think that would suit my dad just fine. By the end everything was coming apart, which is a difficult thing for Hawvers. Have I said before that Hawvers like to be in control and have a plan? Well, we do. And the last years of Jerry’s life were anything but that. At the time there was a heaviness about it, this uncontrollable fraying and sense of loss that would not be diverted, but a year later, perhaps I can reimagine it as a cocoon tearing apart the restricting expectations my dad must have felt to be a provider and a fixer and the rock for all of those years. To transition to a new form meant things were going to fall apart. How else is renewal possible?&nbsp; In the looseness of MIA control systems there is the unrealized potential of a new blueprint and within the chaos, a kernel of what’s next.</p>
+<p></p>
+<p></p>
+<p>I sat on that bit of bluff, and thanked my dad for all the things he provided for us. I can feel him giving me a big bear hug and me offering in return a big back scratch. I told him that I missed him deeply and thought of him every day. I also said that I knew he had been walking beside me, but that I was going to be ok, that if he felt held back in any way by me, he could go. I can just picture him high-fiving people all over heaven. I prayed that the creator would help me have the clarity to see the signs and find my purpose as I unfold into this new life. Then I packed up and headed back down the trail.&nbsp;</p>
+<p>The walk back was uneventful with one exception. Near the far end I paused before an unusual artifact, a rusted out wash basin hanging from a knot in a tree at eye level, almost where a shaving mirror would be. It had been galvanized, but the rust had gotten to it and the entire bottom was eroded away. I lifted it off the knot to examine it more closely. It wasn’t large, a bit wider than a typical dinner plate and about four inches deep with a narrow rim punctured in one spot where you could hang it from a nail.&nbsp;</p>
+<p>Now it wasn’t a totally bizarre addition to the landscape. You might find something like that tossed in a ravine out behind an old farmhouse. But there was no other debris around, no trash. I found it right along a trail on land that had been a national park for almost a century. It wasn’t tucked away in the brush; it was right in front of my face. It wasn’t a plastic bottle or even a face mask carelessly tossed trail side. No, this was a message for me, this wash basin, that if it weren’t for the rusted out bottom, would be right at home as part of a Cracker Barrel wall display.</p>
+<p></p>
+<p>Ok, so I had asked for the wisdom to notice the signs, but then what was I to make of this out-of-place, out-of-time basin? One story you might tell is one of obsolescence. When my life first fell apart during the lockdowns, that was the story I initially jumped into.&nbsp;</p>
+<p>Who am I now that I am no longer my child’s mother, my husband’s wife, my mother’s accomplished daughter? I was a basin whose design was to hold things for others. Basins don’t function alone, they contain things. For decades my identity had contained many things, big and small. From carpool schedules and family vacation plans, to dinner menus and school registration procedures, civic campaigns, etc. etc. My existence was to be a helpful presence. Then somehow I picked up some rust. Perhaps at that school report card meeting in the summer of 2013. Rust wore away at the old functionality of the basin. Interestingly rust interferes with magnetism in metal. So as the basin’s rust surface area increased, it became less polarized. I imagine that might represent a shift towards non-dualism.&nbsp;</p>
+<p>Was I meant to believe I was a failed basin? No, of course not. Because I believe in a benevolent creator that is loving and wants what is best for us. So the story I am choosing to tell myself about the basin is one that Alison Hawver might have imagined in third grade in Mrs. Nevius’s cardboard geodesic dome reading nook sitting on a carpet square. I am going to imagine that like the ugly duckling becoming a graceful swan, I have been a capable and trustworthy basin for many years, but slowly grew into a magical portal of imaginative potential, which given the state of the world right now, is a pretty awesome skill to have on offer. The twenty-first century needs some wiggle room for new possibilities to emerge, some fluidity to flex the boundaries of spacetime.</p>
+<p></p>
+<p>I’ve traded in the closed, hygienic system of wash basin culture for the jagged, unexpected potential of a back-to-nature, quantum vacuum, anti-mirror portal into proto-consciousness where we can dip in for messages from worlds with a better view than ours. A portal like the cottage hedge in the book “To Nowhere and Back” or the star watching rock from L’Engle’s Time Quintet that I read from at my father’s death bed.</p>
+<p></p>
+<p>Well, I’ve written all day, and the heat has finally broken with a gentle rain and a cool breeze here on the crystalline flank of Spa City. I hope you haven’t found this too self-indulgent or maudlin. There are lots of big feelings to navigate these days for all of us, and sometimes it’s useful to remember back to the times when all we had to do was make petal potions with our backyard buddies. If you quantum foam some interesting artifacts into your life, I’d love to hear about them and the story goes with that. Thanks for hanging out with me on this Labor Day weekend 2024. A toast to Jerry Hawver. I wouldn’t be who I am without him.&nbsp;</p>
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/09/img_6969-1.jpg?resize=1020%2C765&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:57 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://idmlab.eidentity.jp/'>IdM Laboratory</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://idmlab.eidentity.jp/2024/09/id-day.html'>もうすぐID Day、法的身分証明のありがたみを感じる日</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  こんにちは、富士榮です。    あっという間に9月に入ってしまいましたが、今月9月16日はID Dayです。       そう、勘がいい人はわかると思いますが、16.9です。SDGsです。     外務省のページで解説されているSDGsの16は「平和と公正をすべての人に」です。     そして16.9は「2030年までに、全ての人々に出生登録を含む法的な身分証明を提供する」となっています。         出典）https://www.mofa.go.jp/mofaj/gaiko/oda/sdgs/statistics/goal16.html           ID Dayに話を戻すと、ID4Africaを中心に、OpenID Foundationを含め多くの団体（営利・非営利を問わず）やNGOなどがこのアクティビティをサポートしています。（支援団体のカテゴリはDevelopment, G
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://blogger.googleusercontent.com/img/a/AVvXsEhfVleldSlJFfjL1EoPgRsuUYP67RFx13NFMt-XMIP0u0j0bomM0iGjLvYtxfTule77qH0CP-l6dhwC7LpHAof3uNUc6ztzjt80qdLaUUnByNzMRNvdla9TAQhYsep9w7GIhxlcy6kcE4Zgi_NpLcq-827hZ8eDLYtAPWyffoKNyeYNtcbm4SlBo0-dTs2X=w640-h324'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+こんにちは、富士榮です。 <br>  あっという間に9月に入ってしまいましたが、今月9月16日はID Dayです。   <a href="https://blogger.googleusercontent.com/img/a/AVvXsEhfVleldSlJFfjL1EoPgRsuUYP67RFx13NFMt-XMIP0u0j0bomM0iGjLvYtxfTule77qH0CP-l6dhwC7LpHAof3uNUc6ztzjt80qdLaUUnByNzMRNvdla9TAQhYsep9w7GIhxlcy6kcE4Zgi_NpLcq-827hZ8eDLYtAPWyffoKNyeYNtcbm4SlBo0-dTs2X"></a>  <br> そう、勘がいい人はわかると思いますが、16.9です。SDGsです。  <br>  外務省のページで解説されているSDGsの16は「平和と公正をすべての人に」です。   <a href="https://blogger.googleusercontent.com/img/a/AVvXsEjk35zUyI0bSbiWz1Rto7H0n6_dCYteIkfwc-T2tmRplXjtNjHyNyLjSkjRUnux41JkY8q5YPecvXyJuqponZQK2ElYPzzNR8YZA78iGdi-oBsSsl81OLHucz2zeA7LIpQepIh574ycmsAG4uVMAngQMXdbW68DULKi0yQaVG97hZf3cyaJuEmA7l8-Sgfp"></a> <br>そして16.9は「2030年までに、全ての人々に出生登録を含む法的な身分証明を提供する」となっています。  <br>   <a href="https://blogger.googleusercontent.com/img/a/AVvXsEhbfbjBA9M6kBxEzXogAvtx_YB2Z5N7bmkJGopFnGSAvESWTS2XClO3KTMvgBR-rgBbthsitpWtmV8Ct7irxoj1PdyAfRxioj1dtBf-RbIvr3NPmE6dPaJN0rzt9HitQlSUEvjQXnOWA-7YGcX711NUOIikStDXetXtxtc349ryWVc6llEk5wXxHJ8qs2mX"></a> <br><br>出典）<a href="https://www.mofa.go.jp/mofaj/gaiko/oda/sdgs/statistics/goal16.html">https://www.mofa.go.jp/mofaj/gaiko/oda/sdgs/statistics/goal16.html</a>  <br>  <br>  <br>  ID Dayに話を戻すと、ID4Africaを中心に、OpenID Foundationを含め多くの団体（営利・非営利を問わず）やNGOなどがこのアクティビティをサポートしています。（支援団体のカテゴリはDevelopment, Government, NGO &amp; Civil Society, Commercialの4つに分かれています）  <br>  こちらにパートナーとなっている団体の一覧があります。  <a href="https://www.id-day.org/partners">https://www.id-day.org/partners</a>  <br>  活動の目的は以下の通りです。 <blockquote>  ID Day aims to raise awareness about the sobering reality that an estimated 850 million people worldwide, particularly in Africa, still lack any form of official identification – underscoring the ongoing imperative to achieve total inclusion. The campaign reminds those fortunate enough to possess identification, of the critical need to actively secure their identities against theft and safeguard their privacy. Furthermore, ID Day presents an opportunity for the identified to reflect on how their legal identity empowers and facilitates innumerable aspects of their lives.  In general, ID Day aims to spur dialogue, drive action, and uphold every human's fundamental right to legal identity. It is a rallying call for the world to ensure no individual remains invisible or vulnerable due to lack of identification, or that the identified do not fall victim to irresponsible management of their identity.  </blockquote><blockquote>  IDデーの目的は、世界中で、特にアフリカで、推定8億5千万人の人々がいまだに公的な身分証明書を所持していないという深刻な現実に対する認識を高めることである。このキャンペーンは、幸運にも身分証明書を所持している人々に、盗難から積極的に身元を守り、プライバシーを保護することの重要性を喚起する。さらに、IDデーは被認証者に対し、合法的な身分証明書がいかに彼らの生活の無数の側面を強化し、促進するかを考える機会を提供する。  一般的に、IDデーは対話を促し、行動を促進し、法的なIDに対するすべての人間の基本的権利を支持することを目的としている。IDデーは、IDがないために個人が見えないまま、あるいは脆弱なままであることがないように、また、IDを持つ人々が無責任なID管理の犠牲にならないように、世界に呼びかけるものである。  </blockquote> 私たちはKYCや本人確認など、当然のように話をしているわけですが、法的な身分証明書を持っていない人が多く存在する、ということをこの機会にリマインドするとともに、自らのアイデンティティを保護することの大切さについて認識を新たにするきっかけとなることがこの活動の意義となると思います。  <br>  実は日本においても無国籍者は存在しています。  難民支援で有名なUNHCRの発表だと日本にも2020年6月の段階で645人の無国籍者が登録されている、とされています。 <blockquote>  Q．日本にも無国籍者はいるのでしょうか？  2020年6月の時点で出入国在留管理庁には645人が無国籍者として登録されていますが、在留資格のある人のみを対象としていますし、また、厳密な国籍の認定に基づくものではないとされています。国籍がある人が含まれている可能性、自分が無国籍であることを知らない人や在留資格が無い人が入っていない可能性等があります。  </blockquote><blockquote> 出典）<a href="https://www.unhcr.org/jp/43377-ws-211223.html">https://www.unhcr.org/jp/43377-ws-211223.html</a> </blockquote> ただ、この数字は不思議なことに「登録されている」数なので、当然のことながら氷山の一角です。UNHCRがメインで扱っている移民や難民に加えて、日本国内でもいろいろな事情があり戸籍が取得できない人もいるわけです。  東京都人権啓発センターの資料には <blockquote> 　「実数の把握はできないものの、『どこの国籍も与えられていない無国籍児は日本に2万人くらいいてもおかしくはない』と危惧する研究者もいます」 </blockquote><blockquote> 出典）<a href="https://www.tokyo-jinken.or.jp/site/tokyojinken/tj-61-feature.html">https://www.tokyo-jinken.or.jp/site/tokyojinken/tj-61-feature.html</a> </blockquote> なんてことも書かれていますし、さらに日本国籍に関しては井戸まさえ先生が書かれた「日本の無戸籍者」には戸籍が取得できない人たちの様々な事情について詳細に解説されています。（ちょっと情報が古いのと法改正で少し改善されたところもありますが、まだまだ課題は残っています）  <a href="https://www.iwanami.co.jp/book/b313870.html">https://www.iwanami.co.jp/book/b313870.html</a>  <br>  意外と人ごとじゃないんですよね。  マイナンバー制度で管理されることに脊髄反射的にアレルギーを示す前に世界と日本の現状と引き起こされてきた悲しい事件なども理解しておくことも大切だと思います。 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blogger.googleusercontent.com/img/a/AVvXsEhfVleldSlJFfjL1EoPgRsuUYP67RFx13NFMt-XMIP0u0j0bomM0iGjLvYtxfTule77qH0CP-l6dhwC7LpHAof3uNUc6ztzjt80qdLaUUnByNzMRNvdla9TAQhYsep9w7GIhxlcy6kcE4Zgi_NpLcq-827hZ8eDLYtAPWyffoKNyeYNtcbm4SlBo0-dTs2X=w640-h324'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:30 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/founder-mode'>Founder Mode</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+ [Paul Graham]   "In effect there are two different ways to run a company: founder mode and manager mode. Till now most people even in Silicon Valley have implicitly assumed that scaling a startup meant switching to manager mode. But we can infer the existence of another mode from the dismay of founders who've tried it, and the success of their attempts to escape from it."   Ple
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+<p>[<a href="https://paulgraham.com/foundermode.html">Paul Graham</a>]</p><blockquote><p>"In effect there are two different ways to run a company: founder mode and manager mode. Till now most people even in Silicon Valley have implicitly assumed that scaling a startup meant switching to manager mode. But we can infer the existence of another mode from the dismay of founders who've tried it, and the success of their attempts to escape from it."</p></blockquote><p>Please forgive the Paul Graham link: this is a genuinely good point about running companies. And I don't think it's limited to startups: the dichotomy isn't between "founder mode" and "manager mode", but between purposeful companies built to be communities aiming at a focused goal and institutions that can move slower and less efficiently.</p><p>Skip-level meetings should be normal. Flat hierarchies are good. Everyone in a company should have the ability to have the ear of the CEO if they need it - and, likewise, the CEO should be able to freely talk to anyone in a company. A good idea can come from anyone; people with exceptional talent can show up anywhere on the org chart. Less regimentation and less bureaucracy allow those people to flourish - and, in turn, allow the organization to make better choices.</p><p>It's also a representation of what matters to an organization. Hierarchies emerge from people who care about hierarchy and chains of command; flatness emerges from people who just care about getting stuff done. The latter, in my view, always makes for a better place to work.</p>
+<p><a href="https://werd.io/tag/Startups">#Startups</a></p>
+            <p>[<a href="https://paulgraham.com/foundermode.html">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:55 &bull;
+   16 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/i-like-the-way-you-like-it-like-that'>I like the way you like it like that</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+ [Ghost]   "It's a simple thing, but it's kind of a big deal. With this milestone, Ghost is for the first time exceeding the functionality of a basic RSS reader. This is 2-way interaction. You publish, and your readers can respond."   This is a big step: a Ghost publication puts something out on the web, and then anyone on any ActivityPub-compatible network (Flipboard, Mastodon,
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+<p>[<a href="https://activitypub.ghost.org/i-like-the-way-you-like-it-like-that/">Ghost</a>]</p><blockquote><p>"It's a simple thing, but it's kind of a big deal. With this milestone, Ghost is for the first time exceeding the functionality of a basic RSS reader. This is 2-way interaction. You publish, and your readers can respond."</p></blockquote><p>This is a big step: a Ghost publication puts something out on the web, and then anyone on any ActivityPub-compatible network (Flipboard, Mastodon, micro.blog, soon Threads) can respond and the publisher can see it straight from their dashboard.</p><p>This is not just limited to Ghost: any platform can implement this using ActivityPub without asking anyone for permission. And they will. Expect to see this functionality across both publishing and social networks within the next few years. Anyone who doesn't have this functionality will be left out - it'll more be about the level of sophistication with which they implement it, and the nuances of how they make it right for their respective userbases.</p><p>The web, finally, is becoming social. Let's go.</p>
+<p><a href="https://werd.io/tag/Fediverse">#Fediverse</a></p>
+            <p>[<a href="https://activitypub.ghost.org/i-like-the-way-you-like-it-like-that/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:37 &bull;
+   16 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -829,7 +1507,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    05:03 &bull;
-   2 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -889,16 +1567,16 @@ Env("rich", python="3.12").run(uses_rich)
 <p>Marigold Circle is a loop at the end of Hobson Road that is tucked into the base of one of the ridges underlaid by that famous quartz crystal that comprise Hot Springs National Park, the oldest federally protected land in the country (1830s compliments of Andrew Jackson). This development of about thirty homes, locally known as “Little Chicago” is situated where West Mountain begins to transition into Music Mountain. For years Hot Springs was known as a mobsters’ hang out, some with Chicago ties. Oh, and the circle is a square (not a cul-de-sac), and I’m in the middle of the doughnut (aka the quantum vacuum, wink, wink).</p>
 <p>I’m loving the breathing room provided by the small open lawn around my house that gives me space to take in the blue Arkansas skies, often punctuated by dramatic towering clouds. There is considerably less geoengineering here than in Philadelphia. It does happen, but much less. The forest that embraces our little development is a mix of pine and hardwoods, so I should have nice vistas at all times of the year. It’s not an off-the-grid, bug-out place; but it is quiet, there are good people here, and lots of places to hike and get out on the water. I bought an inflatable stand up paddle board that can convert into a basic kayak, which will be easier for me to transport. Now that I’ve got my life vest, I’m going to head out AFTER the Labor Day boating hoopla and soak up a bit of the calm of the shoreline of Lake Ouachita and the 1.8 million acres of national forest surrounding it. Water is the theme of the year.</p>
 <p></p>
-<p>My yard doesn’t have trees, but my neighbors do – a sweetgum and sycamore of the south, a maple to the north. It’s been a very hot month with daytime temps rarely getting out of the upper nineties and almost no rain. The poor gum tree, in particular, seems quite stressed. Having lived in a row house for the past thirty years, I didn’t own a rake, just a broom for the front walk, so I grabbed a solid wooden-handled Craftsman at Lowe’s this week. Even though I got a blower with my lawn mower purchase, I do hate the sound of them. For me Hot Springs is a great chance to slow down and get back to the basics. I slowly filled half a contractor bag with leaves yesterday and look forward to getting a better composting situation set up soon.</p>
+<p>My yard doesn’t have trees, but my neighbors do – a sweetgum and sycamore on the south, a maple to the north. It’s been a very hot month with daytime temps rarely getting out of the upper nineties and almost no rain. The poor gum tree, in particular, seems quite stressed. Having lived in a row house for the past thirty years, I didn’t own a rake, just a broom for the front walk, so I grabbed a solid wooden-handled Craftsman at Lowe’s this week. Even though I got a blower with my lawn mower purchase, I do hate the sound of them. For me Hot Springs is a great chance to slow down and get back to the basics. I slowly filled half a contractor bag with leaves yesterday and look forward to getting a better composting situation set up soon.</p>
 <p>There’s a towering “axis mundi” oak across the street. It has been trimmed back by the power company, so it appears almost split in half, its&nbsp; impressive fractal branching pattern is on full display, which is right in line with my recent musings on complexity and fractals. This particular specimen is over sixty-feet high. Given the severe weather you can get here, I recently took out a measuring tape to see how much distance there was between its base and my eaves. Hopefully, if it ever falls, only the top ten feet will hit my house, enough to mess things up, but not totally destroy the house.&nbsp;</p>
 <p></p>
 <p>The one poor choice I’ve made so far (that I know of) is that I initially bought a terribly cheap, uncomfortable twin mattress. I don’t have sleep issues or chronic pain and don’t consider myself a mattress snob. Our old queen mattress that we had for over twenty years&nbsp; held up like a champ. It was just a basic Serta or something, but of course they don’t make them like they used to. I ended up buying a replacement with natural materials that should be arriving next week. I’ll put the old one in a mattress bag in the basement for tornado season. It’s the perfect use for a sad excuse of a sleeping surface, perhaps one day padded protection from falling timbers. If that badly-pruned oak ends up taking a nosedive through my living room, it could end up being the hero of my story.</p>
 <p>My house is on a slightly fall-away lot, which is why I have a basement. Happily, it is still level enough to garden once I get a&nbsp; fence and raised beds set up to deter the many deer and bunnies. All the houses are modest one-stories, and so my little back sun porch has the feeling of a tree house. The neighbors feed the birds (and the deer). Most days I feel I’m simply a visitor in their avian kingdom. Marigold Circle is an ideal woodland edge habitat. There is a raucous group of jays, daredevil mocking birds and thrashers, lots of flickers, turtle doves, cardinals, house finches, and Carolina wrens. Some evenings or early mornings I get lucky to catch a glimpse of a hummingbird probing the magenta trumpets of the Four O’Clocks in my front dooryard. There are lots of dragonflies and butterflies and wasps, too. The wasps pollinate the big turkey fig out back that has been offering me a handful of sweet fruits every morning since I moved in.&nbsp;</p>
 <p></p>
 <p>I mentioned in my video that I’m weighing the extent to which it makes sense for me to continue to share my research moving forward. I’ve pretty much unplugged. I’m not on social media outside of the interactions I have on my channel and blog. I don’t have a television or radio. I have a portable “suitcase” record player and am gradually collecting bluegrass and folk on vinyl. I don’t check the news online. What information filters in comes to me through my small circle of friends. I’m less interested in blogging as a contact / “gotcha” sport, as tempting as that is with all the things we’ve been talking about now rolling out including Crypto Bobby, Trump’s new sidekick.&nbsp;</p>
-<p>You might think that is irresponsible of me to check out, but I have come to the realization that I am not going to change the world through social activism or civic engagement. Trying to convince people to pay attention to the story I have attempted to surface doesn’t work. The learning curve is too steep and the feed does not operate in my favor. That said, maybe there is another way to tweak the seemingly chaotic but perhaps not entirely complex labyrinth of what we understand to be reality. Maybe it is my task for now to try and put my intuition and intellect into puzzling out some cheat codes and rather than throwing a wrench in the gears to stop the progress of so many problematic programs, learn to play living systems instrumentallt by heart by adjusting initial conditions and tuning constraints. It may be a fool’s errand, but for now I turn inward – not giving up, but handing over control to the field of imaginative possibility as I try and train my eyes to see the clues and piece them together. Being quiet and reading and sewing for the time being is enough. I have put in my time trying to be loud. In the end it was unsatisfying, and even destructive to my wellbeing.</p>
+<p>You might think that is irresponsible of me to check out, but I have come to the realization that I am not going to change the world through social activism or civic engagement. Trying to convince people to pay attention to the story I have attempted to surface doesn’t work. The learning curve is too steep and the feed does not operate in my favor. That said, maybe there is another way to tweak the seemingly chaotic but perhaps not entirely complex labyrinth of what we understand to be reality. Maybe it is my task for now to try and put my intuition and intellect into puzzling out some cheat codes and rather than throwing a wrench in the gears to stop the progress of so many problematic programs, learn to play living systems instrumentally with heart by adjusting initial conditions and tuning constraints. It may be a fool’s errand, but for now I turn inward – not giving up, but handing over control to the field of imaginative possibility as I try and train my eyes to see the clues and piece them together. Being quiet and reading and sewing for the time being is enough. I have put in my time trying to be loud. In the end it was unsatisfying, and even destructive to my wellbeing.</p>
 <p>The idea of responding to breaking developments isn’t satisfying. Neither is critiquing personalities or asserting the superiority of my lens. Mostly, I want to continue to follow the intellectual meanderings that feed my soul. Neal Stephenson’s novel, “Anathem” revolves around a society of monastic thinkers who remove themselves from the world, so they can focus on weightier contemplations. I can see the logic in that. Stepping outside the noise has brought me a measure of peace and calm. Walking around barefoot, something I couldn’t do in Philadelphia, has felt great and is very grounding, too!&nbsp;</p>
-<p>The physics of digital information is different. I think it comes so fast and furious and disconnected from our actual lived experience that it overwhelms our sense-making instincts both individually and collectively and ends up leaving us anxious and adrift. I feel like I know enough for the moment about the basics of web3, the mechanics of social impact policy and digital governance, and the Internet of Bio-Nanothings. Now I want to better understand the realm that we are in. Not in an esoteric, occult way that appeals to many; more like a Claude Shannon, information theory way. I think energy flow and information is the key to traversing the choice architecture of inner space. The more I discover, the less certain I am about anything. I do think there is merit in putting my thoughts down in writing with a date and time attached, even though I’m less and less invested in the concept of linear time. That said, the postings here will probably continue to be a bit sparser.&nbsp;</p>
+<p>The physics of digital information is different. I think it comes so fast and furious and disconnected from our actual lived experience that it overwhelms our sense-making instincts both individually and collectively and ends up leaving us anxious and adrift. I feel like I know enough for the moment about the basics of web3, the mechanics of social impact policy and digital governance, and the Internet of Bio-Nanothings. Now I want to better understand the realm that we are in. Not in an esoteric, occult way that appeals to many; more like a Claude Shannon, information theory way. I think energy flow and information is the key to traversing the choice architecture of inner space. The more I discover, the less certain I am about anything. I do think there is merit in putting my thoughts down in writing with a date and time attached, even though I’m less and less invested in the concept of linear time. That said, the postings here will probably continue to be sparse.&nbsp;</p>
 <p>The topics I currently find to be most compelling are quantum biology, proto-consciousness, complex non-linear dynamical systems, morphic fields, parallel processing, distributed collective intelligence, the observer effect, narrative structures, spatial computing, responsive environments, digital artifacts and deep learning. I am dipping into a lot of information flows along with friends and I’m not exactly sure what to say about my thought process yet. In addition to Karl Friston’s Free Energy Principle and Chris Fields’ Active Inference work, I am also very interested in the ideas of the late Jungian psychiatrist, dream analyst, and quantum consciousness theorist Gordon Globus. I am wrapping up his 2009 work “The Postmodern Mind” now.</p>
 <p></p>
 <p>I have a lot of ideas about non-traditional “computing” interfaces and humans-in-the-loop that have less to do with nanotechnology than with Qi, psi and plasma and etheric realms. As the head of standards for IEEE once said – it’s really all metaphysics!&nbsp;</p>
@@ -931,7 +1609,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    03:14 &bull;
-   4 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -996,7 +1674,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    03:02 &bull;
-   4 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1092,7 +1770,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    01:36 &bull;
-   5 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1157,7 +1835,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    01:16 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1227,7 +1905,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    01:01 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1303,7 +1981,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    23:00 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1370,7 +2048,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    22:09 &bull;
-   9 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1452,7 +2130,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    20:58 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1522,7 +2200,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    14:20 &bull;
-   16 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1592,7 +2270,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    12:52 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1672,7 +2350,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    04:25 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1748,7 +2426,7 @@ el.insertAdjacentHTML("beforeend", html)
 
 <div class='item-footer'>
    04:01 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1822,7 +2500,7 @@ el.insertAdjacentHTML("beforeend", html)
 
 <div class='item-footer'>
    01:12 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1912,7 +2590,7 @@ New minor release of my <a href="https://llm.datasette.io/">LLM</a> plugin that 
 
 <div class='item-footer'>
    23:28 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1990,7 +2668,7 @@ Amazon S3 added <a href="https://aws.amazon.com/about-aws/whats-new/2024/08/amaz
 
 <div class='item-footer'>
    23:13 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2062,7 +2740,7 @@ Amazon S3 added <a href="https://aws.amazon.com/about-aws/whats-new/2024/08/amaz
 
 <div class='item-footer'>
    13:03 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2130,7 +2808,7 @@ Amazon S3 added <a href="https://aws.amazon.com/about-aws/whats-new/2024/08/amaz
 
 <div class='item-footer'>
    11:17 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2195,7 +2873,7 @@ Amazon S3 added <a href="https://aws.amazon.com/about-aws/whats-new/2024/08/amaz
 
 <div class='item-footer'>
    05:57 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2260,7 +2938,7 @@ Amazon S3 added <a href="https://aws.amazon.com/about-aws/whats-new/2024/08/amaz
 
 <div class='item-footer'>
    04:27 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2357,7 +3035,7 @@ I've mostly been ignoring OpenAI's <a href="https://platform.openai.com/docs/ass
 
 <div class='item-footer'>
    04:03 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2423,7 +3101,7 @@ I've mostly been ignoring OpenAI's <a href="https://platform.openai.com/docs/ass
 
 <div class='item-footer'>
    03:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2497,7 +3175,7 @@ I've mostly been ignoring OpenAI's <a href="https://platform.openai.com/docs/ass
 
 <div class='item-footer'>
    03:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2619,7 +3297,7 @@ uvx --from jupyter-core jupyter notebook courses
 
 <div class='item-footer'>
    02:52 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2691,7 +3369,7 @@ uvx --from jupyter-core jupyter notebook courses
 
 <div class='item-footer'>
    02:29 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2773,7 +3451,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    20:50 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2877,7 +3555,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    19:59 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2947,7 +3625,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    16:37 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3021,7 +3699,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    05:39 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3429,7 +4107,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    01:45 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3509,7 +4187,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    23:40 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3586,7 +4264,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    23:28 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3658,7 +4336,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    22:58 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3726,7 +4404,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    22:30 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3805,7 +4483,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    19:44 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3874,7 +4552,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    19:23 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3946,7 +4624,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    17:55 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4027,7 +4705,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    14:43 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4097,7 +4775,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    13:06 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4172,7 +4850,7 @@ New hosted API for Llama running at absurdly high speeds: "1,800 tokens per seco
 
 <div class='item-footer'>
    04:14 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4238,7 +4916,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    04:09 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4341,7 +5019,7 @@ const completion = await openai.chat.completions.create({
 
 <div class='item-footer'>
    03:33 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4438,7 +5116,7 @@ Benj Edwards reports on the <a href="https://opensource.org/deepdive/drafts/open
 
 <div class='item-footer'>
    23:26 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4512,7 +5190,7 @@ Benj Edwards reports on the <a href="https://opensource.org/deepdive/drafts/open
 
 <div class='item-footer'>
    23:16 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4609,7 +5287,7 @@ Google <a href="https://x.com/OfficialLoganK/status/1828480081574142227">release
 
 <div class='item-footer'>
    22:48 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4683,7 +5361,7 @@ Google <a href="https://x.com/OfficialLoganK/status/1828480081574142227">release
 
 <div class='item-footer'>
    22:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4767,7 +5445,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    20:10 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4842,7 +5520,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    16:26 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4910,7 +5588,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    15:57 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5000,7 +5678,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    15:47 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5072,7 +5750,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    13:59 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5140,7 +5818,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    13:41 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5226,7 +5904,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    04:11 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5301,7 +5979,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    01:58 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5377,7 +6055,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    01:56 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5453,7 +6131,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    22:30 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5518,7 +6196,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    21:22 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5586,7 +6264,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    20:44 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5652,7 +6330,7 @@ Armin Ronacher's <a href="https://github.com/mitsuhiko/minijinja/">MiniJinja</a>
 
 <div class='item-footer'>
    20:26 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5741,7 +6419,7 @@ Anthropic now publish the system prompts for their user-facing chat-based LLM sy
 
 <div class='item-footer'>
    20:05 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5817,7 +6495,7 @@ Interesting tips here from Anthropic's documentation about how to best prompt Cl
 
 <div class='item-footer'>
    18:39 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5887,7 +6565,7 @@ Interesting tips here from Anthropic's documentation about how to best prompt Cl
 
 <div class='item-footer'>
    13:41 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5955,7 +6633,7 @@ Interesting tips here from Anthropic's documentation about how to best prompt Cl
 
 <div class='item-footer'>
    13:02 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6126,7 +6804,7 @@ debugInfo += `IFD start: ${ifdStart}\n`;
 
 <div class='item-footer'>
    04:55 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6204,7 +6882,7 @@ Please generate a concise, one-line commit message for these changes."
 
 <div class='item-footer'>
    01:06 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6390,7 +7068,7 @@ Please generate a concise, one-line commit message for these changes."
 
 <div class='item-footer'>
    23:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6464,7 +7142,7 @@ Please generate a concise, one-line commit message for these changes."
 
 <div class='item-footer'>
    22:30 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6536,7 +7214,7 @@ Please generate a concise, one-line commit message for these changes."
 
 <div class='item-footer'>
    18:58 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6648,7 +7326,7 @@ Please generate a concise, one-line commit message for these changes."
 
 <div class='item-footer'>
    17:28 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6762,7 +7440,7 @@ print(completion.choices[0].message.content)
 
 <div class='item-footer'>
    16:09 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6834,7 +7512,7 @@ print(completion.choices[0].message.content)
 
 <div class='item-footer'>
    15:42 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6976,7 +7654,7 @@ print(completion.choices[0].message.content)
 
 <div class='item-footer'>
    04:44 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7056,7 +7734,7 @@ print(completion.choices[0].message.content)
 
 <div class='item-footer'>
    04:38 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7127,7 +7805,7 @@ print(completion.choices[0].message.content)
 
 <div class='item-footer'>
    04:34 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7193,7 +7871,7 @@ print(completion.choices[0].message.content)
 
 <div class='item-footer'>
    04:32 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7267,7 +7945,7 @@ print(completion.choices[0].message.content)
 
 <div class='item-footer'>
    00:01 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7378,7 +8056,7 @@ ORDER BY component_id DESC;
 
 <div class='item-footer'>
    23:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7443,7 +8121,7 @@ ORDER BY component_id DESC;
 
 <div class='item-footer'>
    22:26 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7521,7 +8199,7 @@ ORDER BY component_id DESC;
 
 <div class='item-footer'>
    17:09 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7583,7 +8261,7 @@ ORDER BY component_id DESC;
 
 <div class='item-footer'>
    15:25 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7649,7 +8327,7 @@ ORDER BY component_id DESC;
 
 <div class='item-footer'>
    15:06 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7717,7 +8395,7 @@ ORDER BY component_id DESC;
 
 <div class='item-footer'>
    14:52 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7789,7 +8467,7 @@ ORDER BY component_id DESC;
 
 <div class='item-footer'>
    04:25 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7865,7 +8543,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    00:29 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7941,7 +8619,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    22:30 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8025,7 +8703,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    14:29 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8156,6 +8834,10 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 
  8/22 「犯罪による収益の移転防止に関する法律施行規則及び犯罪による収益の移転防止に関する法律施行規則及び疑わしい取引の届出における情報通信の技術の利用に関する規則の一部を改正する命令の一部を改正する命令案」に対する意見の募集 [<a href="https://x.com/surblue/status/1826567578078101701">X</a>] 
+
+
+
+ 8/31 マスターカード、オンライン決済をより安全にするパスキーを使った新サービス発表 [<a href="https://x.com/_nat/status/1830251921497854408">X</a>] 
  
 
 
@@ -8171,7 +8853,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    06:10 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8238,7 +8920,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    06:09 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8314,7 +8996,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    22:30 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8383,7 +9065,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    16:16 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8455,7 +9137,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    14:22 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8561,7 +9243,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    07:38 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8640,7 +9322,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    01:15 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8707,7 +9389,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    23:26 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8769,7 +9451,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    22:30 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8849,7 +9531,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    22:08 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8924,7 +9606,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    19:33 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9092,7 +9774,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    15:48 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9164,7 +9846,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    13:41 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9238,7 +9920,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    13:30 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9321,7 +10003,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    05:35 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9393,7 +10075,7 @@ Lots of people are asking why Anthropic and OpenAI don't support OAuth, so you c
 
 <div class='item-footer'>
    01:51 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9463,7 +10145,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    01:46 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9539,7 +10221,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    21:39 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9619,7 +10301,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    21:18 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9684,79 +10366,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    18:31 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/elon-musks-twitter-takeover-is-now-the-worst-buyout-for'>Elon Musk’s Twitter Takeover Is Now the Worst Buyout for Banks Since the Financial Crisis</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
- [Alexander Saeedy and Dana Mattioli at The Wall Street Journal]   "The $13 billion that Elon Musk borrowed to buy Twitter has turned into the worst merger-finance deal for banks since the 2008-09 financial crisis."  "[...] The banks haven’t been able to offload the debt without incurring major losses—largely because of X’s weak financial performance—leaving the loans stuck on t
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-<p>[<a href="https://www.wsj.com/tech/elon-musks-twitter-takeover-is-now-the-worst-buyout-for-banks-since-the-financial-crisis-3f4272cb">Alexander Saeedy and Dana Mattioli at The Wall Street Journal</a>]</p><blockquote><p>"The $13 billion that Elon Musk borrowed to buy Twitter has turned into the worst merger-finance deal for banks since the 2008-09 financial crisis."</p><p>"[...] The banks haven’t been able to offload the debt without incurring major losses—largely because of X’s weak financial performance—leaving the loans stuck on their balance sheets, or “hung” in industry jargon. The resulting write-downs have hobbled the banks’ loan books and, in one case, was a factor that crimped compensation for a bank’s merger department, according to people involved with the deal."</p></blockquote><p>Let that sink in.</p><p>It's not like this was unpredictable: it was obvious that Elon Musk was not going to turn Twitter into a roaring success. While Twitter was, at its heart, a media company, Musk's direction has been a muddle of three sometimes-competing priorities: his long-held desire to create X, an "everything" app; his desire to build his own brand in an effort to boost his own equity and therefore wealth, sometimes in ways that <a href="https://www.sec.gov/newsroom/press-releases/2018-219">got him in trouble with the SEC</a>; and his desire to influence global politics.</p><p>There's no three-dimensional chess being played here; this likely isn't an intentional plan by Musk to write off the debt. It's simply narcissistic mismanagement, and one has to wonder how this will affect his businesses at Tesla and SpaceX in the longer term. There will come a time when shareholders declare that enough is enough - although given that <a href="https://www.cbsnews.com/news/elon-musk-pay-package-vote-cbs-news-explains/">they approved his ludicrous pay deal</a>, perhaps that time isn't coming soon.</p>
-<p><a href="https://werd.io/tag/Technology">#Technology</a></p>
-            <p>[<a href="https://www.wsj.com/tech/elon-musks-twitter-takeover-is-now-the-worst-buyout-for-banks-since-the-financial-crisis-3f4272cb">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:55 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9831,79 +10441,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    15:13 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/procreates-anti-ai-pledge-attracts-praise-from-digital-creatives'>Procreate’s anti-AI pledge attracts praise from digital creatives</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
- [Jess Weatherbed at The Verge]   "“Generative AI is ripping the humanity out of things. Built on a foundation of theft, the technology is steering us toward a barren future,” Procreate said on the new AI section of its website. “We think machine learning is a compelling technology with a lot of merit, but the path generative AI is on is wrong for us.”"   This is a company that 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-<p>[<a href="https://www.theverge.com/2024/8/19/24223473/procreate-anti-generative-ai-pledge-digital-illustration-creatives">Jess Weatherbed at The Verge</a>]</p><blockquote><p>"“Generative AI is ripping the humanity out of things. Built on a foundation of theft, the technology is steering us toward a barren future,” Procreate said on the new AI section of its website. “We think machine learning is a compelling technology with a lot of merit, but the path generative AI is on is wrong for us.”"</p></blockquote><p>This is a company that knows its audience: the lack of concern for artist welfare demonstrated by AI vendors has understandably not made the technology popular with that community. Adobe got into trouble with its userbase for adding those generative AI features.</p><p>It's a great way for Procreate to deepen its relationship with artists and take advantage of Adobe's fall from grace. There's also something a bit deeper here: if work created with generative AI does run into copyright trouble at the hands of current and future lawsuits, work created with Procreate will be clean of those issues.</p>
-<p><a href="https://werd.io/tag/AI">#AI</a></p>
-            <p>[<a href="https://www.theverge.com/2024/8/19/24223473/procreate-anti-generative-ai-pledge-digital-illustration-creatives">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:05 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9979,7 +10517,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    22:02 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10055,7 +10593,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    22:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10120,7 +10658,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    21:24 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10205,7 +10743,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    23:11 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10267,7 +10805,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    23:00 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10641,7 +11179,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    09:50 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10717,7 +11255,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    23:00 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10775,7 +11313,7 @@ reluctant or unable to articulate exactly how AI might transform the information
 
 <div class='item-footer'>
    08:14 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10986,7 +11524,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    04:29 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11444,7 +11982,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    23:39 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11513,7 +12051,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    16:17 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11605,7 +12143,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    09:08 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11841,7 +12379,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    06:55 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11905,7 +12443,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    03:14 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11981,7 +12519,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12089,7 +12627,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12165,7 +12703,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12240,7 +12778,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    14:58 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12322,7 +12860,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12398,7 +12936,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    12:49 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12684,7 +13222,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    05:41 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12760,7 +13298,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    22:30 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12836,7 +13374,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    22:30 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12901,7 +13439,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    17:21 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12975,7 +13513,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    02:29 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13198,7 +13736,7 @@ get it back?</p>
 
 <div class='item-footer'>
    00:00 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13274,7 +13812,7 @@ get it back?</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13420,7 +13958,7 @@ platforms
 
 <div class='item-footer'>
    16:13 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13489,7 +14027,7 @@ platforms
 
 <div class='item-footer'>
    15:59 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13502,80 +14040,6 @@ platforms
  <h2 class='new-date'>
   Wednesday, 07. August 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://idmlab.eidentity.jp/'>IdM Laboratory</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://idmlab.eidentity.jp/2024/08/blog-post_8.html'>「信頼」とは？英語の訳語とニュアンスの違い（２）</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  こんにちは、富士榮です。    引き続き「信頼」という言葉についてみていきましょう。     今回は「Confidence（名詞）」をみてみたいと思います。  引き続きOxford English DictionaryとDeepLを使っていきます。             Confidence（名詞）   1. The mental attitude of trusting in or relying on a person or thing; firm trust, reliance, faith. Const. in (†to, on, upon).    人や物事を信頼したり頼りにしたりする心理的な態度。確固とした信頼、依存、信仰。Const. in(~に、~で、~に)。    2.a.&nbsp;The feeling sure or certain&nbsp;of&nbsp;a f
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://blogger.googleusercontent.com/img/a/AVvXsEiT-XqIMixTJaZmLlXJab89CdRBX8qfh8fEbdVgl2hDoDHU9Qw7gEneBrUhHL28euBoiTe06QvX5MhiDcpDhB3YTYS8kbOXUgxeYJ8BkSCWlN-mmcMSaVorGlesavLQ7LeOOravdoAx6b65Wxv5Pgsw2bjZ07dv-JezCFbYFZ7ljgEOTkGv95XNt_Xbo9nC=w640-h376'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-こんにちは、富士榮です。 <br>  引き続き「信頼」という言葉についてみていきましょう。  <br>  今回は「Confidence（名詞）」をみてみたいと思います。  引き続きOxford English DictionaryとDeepLを使っていきます。  <br>    <a href="https://blogger.googleusercontent.com/img/a/AVvXsEiT-XqIMixTJaZmLlXJab89CdRBX8qfh8fEbdVgl2hDoDHU9Qw7gEneBrUhHL28euBoiTe06QvX5MhiDcpDhB3YTYS8kbOXUgxeYJ8BkSCWlN-mmcMSaVorGlesavLQ7LeOOravdoAx6b65Wxv5Pgsw2bjZ07dv-JezCFbYFZ7ljgEOTkGv95XNt_Xbo9nC"></a>  <br><br>  Confidence（名詞） <blockquote> 1. The mental attitude of trusting in or relying on a person or thing; firm trust, reliance, faith. Const. in (†to, on, upon). </blockquote><blockquote><p>人や物事を信頼したり頼りにしたりする心理的な態度。確固とした信頼、依存、信仰。Const. in(~に、~で、~に)。</p></blockquote><blockquote><p>2.a.&nbsp;The feeling sure or certain&nbsp;of&nbsp;a fact or issue; assurance, certitude; assured expectation.</p></blockquote><blockquote><p>事実または問題について確信している、または確信しているという感覚。保証、確信、確かな期待。&nbsp;</p></blockquote><blockquote><p>2.b.&nbsp;Const.&nbsp;to do.&nbsp;Obsolete.</p></blockquote><blockquote><p>定数。やるべきこと。廃止済み。</p></blockquote><blockquote><p>2.c. in, on, upon confidence (of, that, to do).&nbsp;</p></blockquote><blockquote><p>~する、~に自信がある(~の、~の、~を)。</p></blockquote><blockquote>3.a. Assurance, boldness, fearlessness, arising from reliance (on oneself, on circumstances, on divine support, etc.).</blockquote><blockquote><p>自信、大胆さ、恐れを知らぬこと、それらは(自分自身、状況、神の加護などへの)信頼から生じる。</p></blockquote><blockquote>3.b. Const.&nbsp;to have confidence to do&nbsp;(anything).</blockquote><blockquote><p>自信を持って(何でも)行うことができる。&nbsp;</p></blockquote><blockquote>4.a. In a bad sense: Assurance based on insufficient or improper grounds; excess of assurance, overboldness, hardihood, presumption, impudence.</blockquote><blockquote><p>悪い意味で:不十分または不適切な根拠に基づく保証、過剰な保証、大胆不敵、向こう見ず、思い上がり、厚かましさ。</p></blockquote><blockquote>4.b. As an appellation: = Confident one.</blockquote><blockquote><p>名称として:=自信のある人。</p></blockquote><blockquote>5. An object or ground of trust; ‘that which gives confidence, boldness, or security’ (Johnson).</blockquote><blockquote><p>信頼の対象または根拠。「自信、大胆さ、または安心感を与えるもの」(ジョンソン)。</p></blockquote><blockquote><p>6.&nbsp;The confiding of private or secret matters to another; the relation of intimacy or trust between persons so confiding; confidential intimacy.</p></blockquote><blockquote><p>個人的なことや秘密の事項を他人に打ち明けること。また、そうして打ち明ける者同士の親密さや信頼関係。秘密の親密さ。</p></blockquote><blockquote>7. A confidential communication.</blockquote><blockquote><p>機密通信。</p></blockquote><blockquote><p>8.&nbsp;Trustworthiness, as a personal quality.&nbsp;a person of confidence: one entrusted with matters of importance or secrecy, a confidential agent.&nbsp;</p></blockquote><blockquote><p>信頼性、個人的な資質として。信頼のおける人物:重要なことや秘密を任された人物、信頼できる代理人。</p></blockquote><blockquote><p>9.a. Law. = <a href="https://www.oed.com/dictionary/trust_n?tab=meaning_and_use#17392148">trust n.</a> Obsolete</p></blockquote><blockquote><p>法律。=信頼 n. 廃語</p></blockquote><blockquote>9.b. Christian Church.</blockquote><blockquote><p>キリスト教会。</p></blockquote><blockquote>10. confidence trick (game, etc.): a method of professional swindling, in which the victim is induced to hand over money or other valuables as a token of ‘confidence’ in the sharper.&nbsp;confidence man: one who practises this trick; a professional swindler of respectable appearance and address. Originally&nbsp;U.S.</blockquote><blockquote><p>confidence trick (game, etc.): 被害者が詐欺師に対して「信頼」の証として金銭やその他の貴重品を渡すよう仕向ける、プロの詐欺の手口。confidence man: この手口を実践する人物。外見や立ち居振る舞いが立派なプロの詐欺師。元々は米国</p></blockquote><blockquote><p>11. Used&nbsp;attributively, esp. in&nbsp;Statistics, as&nbsp;confidence coefficient&nbsp;noun&nbsp;(or&nbsp;confidence level) the particular probability used in defining a confidence interval, representing the likelihood that the interval will contain the parameter.&nbsp;confidence interval&nbsp;noun&nbsp;a range of values so defined that there is a specified probability that the value of a parameter of a population lies within it.&nbsp;confidence limit&nbsp;noun&nbsp;either of the two extreme values of a confidence interval.</p></blockquote><blockquote><p>特に統計学において、信頼区間を定義する際に使用される特定の確率を指す場合、信頼係数(または信頼度)という名詞(または信頼度)として形容詞的に使用される。信頼区間 名詞 母集団のパラメータの値がその範囲内に存在する確率が指定されている、このように定義された値の範囲。信頼限界 名詞 信頼区間の2つの極値のいずれか。</p></blockquote> <br>  <br>  こうやってみるとTrustとの違いは明確ですね。  まずは、「根拠に基づいていること」ですね。どちらかと言うと信頼というよりも「確信」に近いニュアンスのようです。  また、これは日本語にもなっていますがコンフィデンシャルのConfidenceですね。「機密」というニュアンス。こちらの文脈では「秘密を漏らさないことを信頼する」ということですね。後半に出てくる「教会」はその意味に近いんでしょうね。要するに懺悔部屋ってところでしょうか。  <br>  なかなか面白いですね。  <br> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blogger.googleusercontent.com/img/a/AVvXsEiT-XqIMixTJaZmLlXJab89CdRBX8qfh8fEbdVgl2hDoDHU9Qw7gEneBrUhHL28euBoiTe06QvX5MhiDcpDhB3YTYS8kbOXUgxeYJ8BkSCWlN-mmcMSaVorGlesavLQ7LeOOravdoAx6b65Wxv5Pgsw2bjZ07dv-JezCFbYFZ7ljgEOTkGv95XNt_Xbo9nC=w640-h376'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:19 &bull;
-   24 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -13662,7 +14126,7 @@ that I hope will inform binary distribution in the future. More on that soon.</p
 
 <div class='item-footer'>
    18:25 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13739,7 +14203,7 @@ that I hope will inform binary distribution in the future. More on that soon.</p
 
 <div class='item-footer'>
    15:54 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13861,7 +14325,7 @@ that I hope will inform binary distribution in the future. More on that soon.</p
 
 <div class='item-footer'>
    14:04 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14106,7 +14570,7 @@ public IActionResult PostWeatherForecast(
 
 <div class='item-footer'>
    12:13 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14182,7 +14646,7 @@ A ChatGPT generated image<p>I decided to do some retrieval augmented generation(
 
 <div class='item-footer'>
    22:13 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14271,7 +14735,7 @@ A ChatGPT generated image<p>I decided to do some retrieval augmented generation(
 
 <div class='item-footer'>
    07:00 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14345,7 +14809,7 @@ A ChatGPT generated image<p>I decided to do some retrieval augmented generation(
 
 <div class='item-footer'>
    05:13 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -15959,7 +16423,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:10 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16068,7 +16532,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -16144,7 +16608,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    13:32 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -17016,8 +17480,7 @@ right track.</p>
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   Die Chatkontrolle ist wieder auf der Tagesordnung der Regierungen der EU. Sie wollen ihren bisherigen „Fortschritt“ am 10./11. Oktober besprechen und die Chatkontrolle am 12./13. Dezember beschließen. 
- Im Juni … 
+   Die Chatkontrolle ist wieder auf der Tagesordnung der Regierungen der EU. Am 4. September sollen der Ratspräsidentschaft “Leitlinien für die weitere Arbeit” gegeben werden. Sie wollen ihren bisherigen „Fortschritt“ am … 
    
   
   
@@ -17034,7 +17497,7 @@ right track.</p>
  -->
 <div class='wrap'>
 
-<p>Die Chatkontrolle ist wieder auf der Tagesordnung der Regierungen der EU. Sie wollen ihren bisherigen „Fortschritt“ am <a href="https://data.consilium.europa.eu/doc/document/ST-11222-2024-INIT/en/pdf#page=27">10./11. Oktober</a> besprechen und die Chatkontrolle am <a href="https://data.consilium.europa.eu/doc/document/ST-11222-2024-INIT/en/pdf#page=30">12./13. Dezember</a> beschließen.</p>
+<p>Die Chatkontrolle ist wieder auf der Tagesordnung der Regierungen der EU. Am <a href="https://www.parlament.gv.at/dokument/XXVII/EU/194992/imfname_11404502.pdf">4. September</a> sollen der Ratspräsidentschaft “Leitlinien für die weitere Arbeit” gegeben werden. Sie wollen ihren bisherigen „Fortschritt“ am <a href="https://data.consilium.europa.eu/doc/document/ST-11222-2024-INIT/en/pdf#page=27">10./11. Oktober</a> besprechen und die Chatkontrolle am <a href="https://data.consilium.europa.eu/doc/document/ST-11222-2024-INIT/en/pdf#page=30">12./13. Dezember</a> beschließen.</p>
 
 
 
@@ -21730,7 +22193,7 @@ the right thing on macOS:</p>
 
 <div class='item-footer'>
    18:45 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21971,7 +22434,7 @@ Join the <a href="https://postgresteam.slack.com/archives/C056ZA93H1A" title="Po
 
 <div class='item-footer'>
    17:08 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22046,7 +22509,7 @@ Join the <a href="https://postgresteam.slack.com/archives/C056ZA93H1A" title="Po
 
 <div class='item-footer'>
    17:07 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -22326,7 +22789,7 @@ Join the <a href="https://postgresteam.slack.com/archives/C056ZA93H1A" title="Po
 
 <div class='item-footer'>
    12:26 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -23816,7 +24279,7 @@ This specification adds the equivalent of the JSON Object Signing and Encryption
 
 
  
-  
+    
  
 
 
@@ -26300,95 +26763,6 @@ Space Technology</a> 🤦🏻‍♂️.&nbsp;<a>↩︎</a></p>
 
 
 <h4 class='feed-title'>
-  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://wrenchinthegears.com/2024/05/22/blockchain-brain-boxing-why-people-continue-to-disregard-electronic-health-records-and-pay-for-success-wellness-data/'>Blockchain Brain Boxing – Why People Continue To Disregard Electronic Health Records And Pay for Success Wellness Data</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This video elaborates on a comment exchange that was posted this morning to a video I made last night&nbsp;unpacking Bobby’s Lunarpunk “Ape” signal. Links to maps referenced in the video for those interested in further inquiry. &nbsp; This is the video I did with Shai on the RAND Noopolitik report.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This video elaborates on a comment exchange that was posted this morning to <a href="https://www.youtube.com/watch?v=OARpbiBoVgU">a video I made last night&nbsp;</a>unpacking Bobby’s Lunarpunk “Ape” signal.</p>
-<p></p>
-<p></p>
-<p>Links to maps referenced in the video for those interested in further inquiry.</p>
-<a href="https://embed.kumu.io/f6b7ddc6451089c299ff8f3c09ac7613#untitled-map?s=bm9kZS1DOXhZUnRJbw%3D%3D">https://embed.kumu.io/f6b7ddc6451089c299ff8f3c09ac7613#untitled-map?s=bm9kZS1DOXhZUnRJbw%3D%3D</a>
-<a href="https://www.rand.org/content/dam/rand/pubs/perspectives/PEA200/PEA237-1/RAND_PEA237-1.pdf">https://www.rand.org/content/dam/rand/pubs/perspectives/PEA200/PEA237-1/RAND_PEA237-1.pdf</a>
-<a href="https://www.rand.org/content/dam/rand/pubs/perspectives/PEA200/PEA237-1/RAND_PEA237-1.pdf">https://www.rand.org/content/dam/rand/pubs/perspectives/PEA200/PEA237-1/RAND_PEA237-1.pdf</a>
-<a href="https://web.archive.org/web/20210122170720/https://littlesis.org/oligrapher/6310-industrial-agriculture"></a><a href="https://web.archive.org/web/20210122170720/https://littlesis.org/oligrapher/6310-industrial-agriculture">https://web.archive.org/web/20210122170720/https://littlesis.org/oligrapher/6310-industrial-agriculture</a>
-<a href="https://web.archive.org/web/20201207235929/https://littlesis.org/oligrapher/5719-produce-rx-food-pay-for-success-medicaid"></a><a href="https://web.archive.org/web/20201207235929/https://littlesis.org/oligrapher/5719-produce-rx-food-pay-for-success-medicaid">https://web.archive.org/web/20201207235929/https://littlesis.org/oligrapher/5719-produce-rx-food-pay-for-success-medicaid</a>
-<a href="https://web.archive.org/web/20200925091209/https://littlesis.org/oligrapher/4954-blockchain-healthcare-challenge-2016"></a><a href="https://web.archive.org/web/20200925091209/https://littlesis.org/oligrapher/4954-blockchain-healthcare-challenge-2016">https://web.archive.org/web/20200925091209/https://littlesis.org/oligrapher/4954-blockchain-healthcare-challenge-2016</a>
-<a href="https://web.archive.org/web/20201208182811/https://littlesis.org/oligrapher/4968-bloomberg-mypass-austin-blockchain-id"></a><a href="https://web.archive.org/web/20201208182811/https://littlesis.org/oligrapher/4968-bloomberg-mypass-austin-blockchain-id">https://web.archive.org/web/20201208182811/https://littlesis.org/oligrapher/4968-bloomberg-mypass-austin-blockchain-id</a>
-<a href="https://web.archive.org/web/20210110131607/https://littlesis.org/oligrapher/5814-e-government-impact-investing-digital-israel"></a><a href="https://web.archive.org/web/20210110131607/https://littlesis.org/oligrapher/5814-e-government-impact-investing-digital-israel">https://web.archive.org/web/20210110131607/https://littlesis.org/oligrapher/5814-e-government-impact-investing-digital-israel</a>
-<a href="https://web.archive.org/web/20201204194140/https://littlesis.org/oligrapher/5757-dassault-digital-twin-simulations-blockchain-id"></a><a href="https://web.archive.org/web/20201204194140/https://littlesis.org/oligrapher/5757-dassault-digital-twin-simulations-blockchain-id">https://web.archive.org/web/20201204194140/https://littlesis.org/oligrapher/5757-dassault-digital-twin-simulations-blockchain-id</a>
-<a href="https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing"></a><a href="https://web.archive.org/web/20201207235929/https://littlesis.org/oligrapher/5719-produce-rx-food-pay-for-success-medicaid">https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing</a>
-<a href="https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing"></a><a href="https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing">https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing</a>
-<a href="https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing"></a><a href="https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing">https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing</a>
-<a href="https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing"></a><a href="https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing">https://docs.google.com/presentation/d/1beurviKJ8YkZBla-HLtXy8OxsyIWkJAnGBXwf28Tbw8/edit?usp=sharing</a>
-<p>&nbsp;</p>
-<p>This is the video I did with Shai on the RAND Noopolitik report.</p>
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/05/brain-box-.png?resize=1020%2C1232&ssl=1'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   19:24 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
   <a href='https://herestomwiththeweather.com'>Heres Tom with the Weather</a>
 </h4>
 
@@ -27014,261 +27388,6 @@ suggestions into the <a href="https://postgresteam.slack.com/archives/C056ZA93H1
 
 <div class='item-footer'>
    19:12 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2024/05/13/using-sonarcloud-with-asp-net-core-angular-and-github-actions/'>Using SonarCloud with ASP.NET Core, Angular and github actions</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article demonstrates how to implement code analysis and Static Application Security Testing (SAST) using SonarCloud and GitHub Actions. The solution involves building a secure web application with ASP.NET Core for the backend and an Angular UI for the frontend, following a backend-for-frontend security architecture. Both the ASP.NET Core (C#) codebase and the Angular (TypeScript […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article demonstrates how to implement code analysis and Static Application Security Testing (SAST) using SonarCloud and GitHub Actions. The solution involves building a secure web application with ASP.NET Core for the backend and an Angular UI for the frontend, following a backend-for-frontend security architecture. Both the ASP.NET Core (C#) codebase and the Angular (TypeScript and JavaScript) files undergo analysis during the quality build process with SonarCloud.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/EndToEndSecurity">https://github.com/damienbod/EndToEndSecurity</a></p>
-
-
-
-<p></p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Solution Setup 
-
-
-
-<p>The application uses an Angular UI implemented with NX tools and services. During deployment builds, the UI is integrated into the ASP.NET Core backend, while in development, it operates as a standalone component. Microsoft YARP facilitates the connection between Angular development and local ASP.NET Core APIs. The Angular application is an integral part of the backend system when deployed. Both technical stacks require code analysis and Static Application Security Testing (SAST). Additionally, the solution is secured as a single OpenID Connect confidential client, utilizing the code flow with Proof Key for Code Exchange (PKCE).</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- SonarCloud setup 
-
-
-
-<p>I set up SonarCloud testing and integrated it with GitHub Actions using the repository from <a href="https://www.linkedin.com/in/marcrufer/">Marc Rufer</a>.</p>
-
-
-
-<p><a href="https://github.com/rufer7/github-sonarcloud-integration">https://github.com/rufer7/github-sonarcloud-integration</a></p>
-
-
-
-<p>This references the docs from SonarCloud and all the steps required for setting up a build and analysis of the different technical stacks are documented.</p>
-
-
-
- ASP.NET Core project setup 
-
-
-
-<p>To enable SonarCloud to analyze both the ASP.NET Core project and the Angular projects, you’ll need to make adjustments in the .NET Core csproj file settings. Specifically, the Angular components should be added as hidden elements so that SonarCloud can properly detect and analyze them.</p>
-
-
-  &lt;ItemGroup&gt;
-&lt;!-- This is required to include ts and js files in SonarCloud analysis --&gt;
-&lt;!-- Add to the sonar cloud build: EndToEndSecurity == github repo --&gt;
-&lt;!-- /d:sonar.projectBaseDir="D:\a\EndToEndSecurity\EndToEndSecurity" /d:sonar.exclusions=**/node_modules/** --&gt;
-&lt;!-- See https://docs.sonarsource.com/sonarqube/9.8/analyzing-source-code/scanners/sonarscanner-for-dotnet/#advanced-topics --&gt;
-   &lt;Content Include="..\ui\**\*.ts" Visible="false"&gt;
-      &lt;CopyToOutputDirectory&gt;Never&lt;/CopyToOutputDirectory&gt;
-   &lt;/Content&gt;
-   &lt;Content Include="..\ui\**\*.js" Visible="false"&gt;
-      &lt;CopyToOutputDirectory&gt;Never&lt;/CopyToOutputDirectory&gt;
-   &lt;/Content&gt;
-&lt;/ItemGroup&gt;
-  
-
-
- Quality build 
-
-
-
-<p>The SonarCloud github action YAML file implements the quality build. Normally this would be integrated with the default build, PRs and feature branches would run this. The dotnet testing tools are added but not active. The build uses a windows-latest image and java. When testing the code of the two technical stacks, you should ignore folders like node_modules and so on. This can be excluded in the YAML file. For this to work, the SonarCloud project must match the YAML file definitions. This is well documented in the Sonar documentation.</p>
-
-
-  name: SonarCloud
-on:
-  push:
-    branches:
-      - develop
-      - main
-  pull_request:
-    types: [opened, synchronize, reopened]
-jobs:
-  build:
-    name: Analyze dotnet and Augular projects
-    runs-on: windows-latest
-    steps:
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: 17
-          distribution: 'zulu' # Alternative distribution options are available.
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
-      - name: Cache SonarCloud packages
-        uses: actions/cache@v4
-        with:
-          path: ~\sonar\cache
-          key: ${{ runner.os }}-sonar
-          restore-keys: ${{ runner.os }}-sonar
-      - name: Cache SonarCloud scanner
-        id: cache-sonar-scanner
-        uses: actions/cache@v4
-        with:
-          path: .\.sonar\scanner
-          key: ${{ runner.os }}-sonar-scanner
-          restore-keys: ${{ runner.os }}-sonar-scanner
-      - name: Install SonarCloud scanner
-        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
-        shell: powershell
-        run: |
-          New-Item -Path .\.sonar\scanner -ItemType Directory
-          dotnet tool update dotnet-sonarscanner --tool-path .\.sonar\scanner
-      - name: Install dotnet-coverage # not used as not tests exist in backend
-        shell: powershell
-        run: |
-          dotnet tool install --global dotnet-coverage
-      - name: Build and analyze
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        shell: powershell
-        run: |
-          .\.sonar\scanner\dotnet-sonarscanner begin /k:"damienbod_EndToEndSecurity" /o:"damienbod" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io" /d:sonar.projectBaseDir="D:\a\EndToEndSecurity\EndToEndSecurity" /d:sonar.exclusions=**/node_modules/**
-          dotnet build .\Bff.sln --configuration Release
-          # dotnet-coverage collect 'dotnet test .\src\--testproj--.Tests\--testproj--.Tests.csproj' -f xml  -o 'coverage.xml'
-          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
-
-  
-
-
- Badges 
-
-
-
-<p>Badges from SonarCloud can be added directly in the readme file of the github repository. The badges are created in SonarCloud and I switched them to the overall results and not just the last delta. By clicking the badges in the readme, you are redirected to the SonarCloud test results.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
-<p>SonarCloud is a great service for code quality analysis and has a good SAST implementation with very good access into the github UI and tools. Security alerts can be directly viewed in github.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://docs.sonarsource.com/sonarcloud/getting-started/github">https://docs.sonarsource.com/sonarcloud/getting-started/github</a></p>
-
-
-
-<p><a href="https://github.com/rufer7/github-sonarcloud-integration">https://github.com/rufer7/github-sonarcloud-integration</a></p>
-
-
-
- 
-<blockquote><a href="https://blog.rufer.be/2023/10/06/howto-integrate-sonarcloud-analysis-in-an-azure-devops-yaml-pipeline/">[HOWTO] Integrate SonarCloud analysis in an Azure DevOps YAML&nbsp;pipeline</a></blockquote>
- 
-
-
-
-<p><a href="https://community.sonarsource.com/t/code-coverage-report-for-net-not-working-on-linux-agent/62087">https://community.sonarsource.com/t/code-coverage-report-for-net-not-working-on-linux-agent/62087</a></p>
-
-
-
-<p><a href="https://docs.sonarsource.com/sonarcloud/advanced-setup/ci-based-analysis/sonarscanner-for-net/#analyzing-languages-other-than-c-and-vb">https://docs.sonarsource.com/sonarcloud/advanced-setup/ci-based-analysis/sonarscanner-for-net/#analyzing-languages-other-than-c-and-vb</a></p>
-
-
-
-<p><a href="https://andreiepure.ro/2023/08/20/analyze-web-files-with-s4net.html">https://andreiepure.ro/2023/08/20/analyze-web-files-with-s4net.html</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/04/sonarcloud_github_01.png?w=1024'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:57 &bull;
    4 months ago
 </div>
 
