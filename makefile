@@ -1,4 +1,4 @@
-.PHONY: merge build orgsfeed test testorg try web3
+.PHONY: merge build orgsfeed test testorg try web3 deepseek
 
 merge:
 	pluto m planetid.ini -t planetid -o docs
