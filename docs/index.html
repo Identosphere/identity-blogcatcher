@@ -726,7 +726,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:46 AM September 08, 2024 (UTC)</sup>
+<sup>Last Update 6:50 AM September 09, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -737,8 +737,878 @@
 
 
  <h2 class='new-date'>
+  Monday, 09. September 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/09/09/implement-openid-connect-back-channel-logout-using-asp-net-core-keycloak-and-net-aspire/'>Implement OpenID Connect Back-Channel Logout using ASP.NET Core, Keycloak and .NET Aspire</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how to implement an OpenID Connect back-channel logout using Keycloak, ASP.NET Core and .NET Aspire. The Keycloak and the Redis cache are run as containers using .NET Aspire. Two ASP.NET Core UI applications are used to demonstrate the server logout. Code: https://github.com/damienbod/keycloak-backchannel Setup The applications are run and tested using .NET Aspire. […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how to implement an OpenID Connect back-channel logout using Keycloak, ASP.NET Core and .NET Aspire. The Keycloak and the Redis cache are run as containers using .NET Aspire. Two ASP.NET Core UI applications are used to demonstrate the server logout.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/keycloak-backchannel">https://github.com/damienbod/keycloak-backchannel</a></p>
+
+
+
+ Setup 
+
+
+
+<p>The applications are run and tested using .NET Aspire. The UI applications are setup using the OpenID Connect code flow with PKCE and OAuth PAR. Two docker containers are used, one for the Redis cache and one for the Keycloak server. </p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ .NET Aspire Setup 
+
+
+
+<p>The AppHost project in .NET Aspire is used to configure the different services. The Keycloak container is run using HTTPS with develop certificates. The ASP.NET Core applications are run using development certificates as well. For the Keycloak server to access the docker host, it must register the same developer certificates from the host, or disable the certificate trust manger inside the container. This works good, but should only be setup like this in development. The different project must reference each other as required. To use Redis and Keycloak, the Aspire Nuget packages for these containers need to be installed.</p>
+
+
+  var keycloak = builder.AddKeycloakContainer("keycloak",
+            userName: userName, password: password, port: 8080)
+    .WithArgs("--features=preview")
+    // for more details regarding disable-trust-manager see https://www.keycloak.org/server/outgoinghttp#_client_configuration_command
+    // IMPORTANT: use this command ONLY in local development environment!
+    .WithArgs("--spi-connections-http-client-default-disable-trust-manager=true")
+    .WithDataVolume()
+    .RunWithHttpsDevCertificate(port: 8081);
+
+var cache = builder.AddRedis("cache", 6379)
+    .WithDataVolume();
+
+var mvcpar = builder.AddProject&lt;Projects.MvcPar&gt;("mvcpar")
+    .WithExternalHttpEndpoints()
+    .WithReference(keycloak)
+    .WithReference(cache);
+
+var mvcbackchanneltwo = builder.AddProject&lt;Projects.MvcBackChannelTwo&gt;("mvcbackchanneltwo")
+    .WithExternalHttpEndpoints()
+    .WithReference(keycloak)
+    .WithReference(cache);
+  
+
+
+<p></p>
+
+
+
+ Keycloak OpenID Connect client configuration 
+
+
+
+<p>The Keycloak client should have the backchannel logout activated. The container uses the localhost applications from the docker host and so the host.docker.internal domain is used. The logout endpoint is implemented in the ASP.NET Core application.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ ASP.NET Core Logout 
+
+
+
+<p>Each ASP.NET Core application that supports the back-channel logout must have a server implementation and provide a web hook for the identity provider (Keycloak) logout event. If multiple instances are running, one can send a logout event to Keycloak. This ends the session on the identity provider and sends a logout post request to all server backends hosting the UI application. The logout event is handled and persisted to a distributed cache. For all other instances which request data from the server for the same user and session, the session is ended and the user must authentication again.</p>
+
+
+
+ 
+ Logout request 
+
+
+
+ Webhook for logout event from Keycloak server for all instances 
+
+
+
+ Persist event to cache if missing and logout 
+
+
+
+ Logout UI on next HTTP request for user sessions 
+ 
+
+
+
+<p></p>
+
+
+  services.AddTransient&lt;CookieEventHandler&gt;();
+services.AddSingleton&lt;LogoutSessionManager&gt;();
+services.AddHttpClient();
+
+services.Configure&lt;AuthConfiguration&gt;(configuration.GetSection("AuthConfiguration"));
+
+var authConfiguration = configuration.GetSection("AuthConfiguration");
+
+builder.AddRedisDistributedCache("cache");
+
+services.AddAuthentication(options =&gt;
+{
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie(options =&gt;
+{
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(60);
+    options.Cookie.Name = "MvcPar";
+
+    options.EventsType = typeof(CookieEventHandler);
+})
+.AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =&gt;
+{
+    options.Authority = authConfiguration["StsServerIdentityUrl"];
+    options.ClientSecret = authConfiguration["ClientSecret"];
+    options.ClientId = authConfiguration["Audience"];
+    options.ResponseType = OpenIdConnectResponseType.Code;
+
+    options.Scope.Clear();
+    options.Scope.Add("openid");
+    options.Scope.Add("profile");
+    options.Scope.Add("email");
+    options.Scope.Add("offline_access");
+
+    options.ClaimActions.Remove("amr");
+    options.ClaimActions.MapJsonKey("website", "website");
+
+    options.GetClaimsFromUserInfoEndpoint = true;
+    options.SaveTokens = true;
+
+    options.PushedAuthorizationBehavior = PushedAuthorizationBehavior.Require;
+
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        NameClaimType = JwtClaimTypes.Name,
+        RoleClaimType = JwtClaimTypes.Role,
+    };
+});
+  
+
+
+<p>Note: The sample code in the repository was created using the IdentityServer4 Samples.</p>
+
+
+
+ Redis cache 
+
+
+
+<p>Redis Insight can be used to view the Redis cache data. Each time the application handles a new user and session logout event, it persists the event to the cache. If any further application instances are authenticated using this session and user, the application will sign-out as well on the next server event. The expiry time of the cache should be long enough so that an offline session cannot be opened after it expires.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Limitations 
+
+
+
+<p>The back-channel logout only works on a per browser session because Keycloak creates new sessions for each browser. When the logout is received it is filtered and handled using the Keycloak session. If Keycloak can use a single session for all browsers of each user, then the logout can work for all active UI apps of the same user.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://www.keycloak.org/">https://www.keycloak.org/</a></p>
+
+
+
+<p><a href="https://openid.net/specs/openid-connect-backchannel-1_0.html">https://openid.net/specs/openid-connect-backchannel-1_0.html</a></p>
+
+
+
+<p><a href="https://ldapwiki.com/wiki/OpenID%20Connect%20Back-Channel%20Logout">https://ldapwiki.com/wiki/OpenID%20Connect%20Back-Channel%20Logout</a></p>
+
+
+
+<p><a href="https://datatracker.ietf.org/meeting/97/materials/slides-97-secevent-oidc-logout-01">https://datatracker.ietf.org/meeting/97/materials/slides-97-secevent-oidc-logout-01</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/fundamentals/app-state">https://docs.microsoft.com/en-us/aspnet/core/fundamentals/app-state</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/azure-cache-for-redis/cache-dotnet-core-quickstart">https://docs.microsoft.com/en-us/azure/azure-cache-for-redis/cache-dotnet-core-quickstart</a></p>
+
+
+
+<p><a href="https://github.com/RedisInsight/RedisInsight">https://github.com/RedisInsight/RedisInsight</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/09/back-channel-keycloak_01.png?w=892'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:09 &bull;
+   43 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/09/09/from-sean-illings.html'> From 🔗🎙️ Sean Illing’s Podcast Overview 
+ Absolutely FASCINA</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   From 🔗🎙️ Sean Illing’s Podcast Overview 
+ Absolutely FASCINATING 
+ How is the origin of our universe like an improvised saxophone solo? This week, Sean Illing talks to Stephon Alexander, a theoretical physicist and world-class jazz musician.
+Alexander is the author of The Jazz of Physics and his most recent book, Fear of a Black Universe_. This episode features music by Stephon Alexander throughou
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>From <a href="https://overcast.fm/+AAQLhWaxXjE">🔗🎙️ Sean Illing’s Podcast</a> Overview</p>
+<p>Absolutely FASCINATING</p>
+<p>How is the origin of our universe like an improvised saxophone solo? This week, Sean Illing talks to Stephon Alexander, a theoretical physicist and world-class jazz musician.
+Alexander is the author of <a href="https://www.hachettebookgroup.com/titles/stephon-alexander/the-jazz-of-physics/9780465093571/?lens=basic-books">The Jazz of Physics</a> and his most recent book, <a href="https://www.hachettebookgroup.com/titles/stephon-alexander/fear-of-a-black-universe/9781541699618/?lens=basic-books">Fear of a Black Universe</a>_. This episode features music by Stephon Alexander throughout, from his latest 2024 album <a href="https://open.spotify.com/album/3YobRFCwVrgOJOVDXrhhlj">Spontaneous Fruit</a> _and his 2017 EP <a href="https://open.spotify.com/album/6uo4Q89j9r7RYsMPsmyo1l">True to Self</a>.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:06 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Sep/9/files-to-prompt-03/#atom-everything'>files-to-prompt 0.3</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   files-to-prompt 0.3 
+New version of my files-to-prompt CLI tool for turning a bunch of files into a prompt suitable for piping to an LLM, described here previously. 
+ It now has a -c/--cxml flag for outputting the files in Claude XML-ish notation (XML-ish because it's not actually valid XML) using the format Anthropic describe as recommended for long context: 
+ files-to-prompt llm-*/README.md --cx
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://github.com/simonw/files-to-prompt/releases/tag/0.3">files-to-prompt 0.3</a></p>
+New version of my <code>files-to-prompt</code> CLI tool for turning a bunch of files into a prompt suitable for piping to an LLM, <a href="https://simonwillison.net/2024/Apr/8/files-to-prompt/">described here previously</a>.<p></p>
+<p>It now has a <code>-c/--cxml</code> flag for outputting the files in Claude XML-ish notation (XML-ish because it's not actually valid XML) using the format Anthropic describe as <a href="https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/long-context-tips#essential-tips-for-long-context-prompts">recommended for long context</a>:</p>
+ <code>files-to-prompt llm-*/README.md --cxml | llm -m claude-3.5-sonnet \
+  --system 'return an HTML page about these plugins with usage examples' \
+  &gt; /tmp/fancy.html
+</code> 
+<p><a href="https://static.simonwillison.net/static/2024/llm-cxml-demo.html">Here's what that gave me</a>.</p>
+<p>The format itself looks something like this:</p>
+  &lt;documents&gt;
+&lt;document index="1"&gt;
+&lt;source&gt;llm-anyscale-endpoints/README.md&lt;/source&gt;
+&lt;document_content&gt;
+# llm-anyscale-endpoints
+...
+&lt;/document_content&gt;
+&lt;/document&gt;
+&lt;/documents&gt;  
+
+
+    <p>Tags: <a href="https://simonwillison.net/tags/anthropic">anthropic</a>, <a href="https://simonwillison.net/tags/claude">claude</a>, <a href="https://simonwillison.net/tags/tools">tools</a>, <a href="https://simonwillison.net/tags/projects">projects</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/prompt-engineering">prompt-engineering</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:57 &bull;
+   an hour ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/09/09/auckland-way-in.html'> Sunset From A Friend’s House 
+
+ Rays on Rangitoto - 1 
+
+ Auc</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Sunset From A Friend’s House 
+
+ Rays on Rangitoto - 1 
+
+ Auckland, bottom left, way in the distance, hazy evening, iPhone 11 (Detail from above) 
+
+ Rays on Rangitoto - 2 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/fd154d6a53984c96aab7faa576ecedbf.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Sunset From A Friend’s House</p>
+
+<p>Rays on Rangitoto - 1</p>
+
+<p>Auckland, bottom left, way in the distance, hazy evening, iPhone 11 (Detail from above)</p>
+
+<p>Rays on Rangitoto - 2</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/fd154d6a53984c96aab7faa576ecedbf.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:23 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Sunday, 08. September 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://idmlab.eidentity.jp/'>IdM Laboratory</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://idmlab.eidentity.jp/2024/09/sidi-hub_01439605542.html'>SIDI Hub - ケープタウンレポートを読む（６）</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   こんにちは、富士榮です。  明日からSIDI HubワシントンD.C.会合だというのにケープタウンのレポートまでしか紹介できませんでした。ベルリン会合のレポートも順次読んでいこうと思いますが、今回でケープタウンのレポートも終わりですので、まずはここまで。     同じタイミングでAlan Turing Instituteがケープタウンで開催した「International Conference on Trustworthy Digital Infrastructure 2024」とのジョイントセッションがSIDI Hubケープタウン会合の最後のプログラムです。  International Conference on Trustworthy Digital Infrastructure 2024   https://www.turing.ac.uk/events/international
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://blogger.googleusercontent.com/img/a/AVvXsEjcWH5IbJjW9SKkVm2lNWBvRig35CjdRBnSFNyJgact0GbxjEBsMFFxJbcunmTsNGzu17gw32PAKcYOuBq1gq6Hd2aulSx6lkevhtPccu66xGYdxtG1QivBM-ifCuC_qEcPU8p_zJ_e3Pd19kXj4LezZXvjEXYI77RgTKN3PoKyK_bxzMCqySiJQCeLBBSY=w640-h640'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>こんにちは、富士榮です。</p><p>明日からSIDI HubワシントンD.C.会合だというのにケープタウンのレポートまでしか紹介できませんでした。ベルリン会合のレポートも順次読んでいこうと思いますが、今回でケープタウンのレポートも終わりですので、まずはここまで。</p><p></p> <a href="https://blogger.googleusercontent.com/img/a/AVvXsEjcWH5IbJjW9SKkVm2lNWBvRig35CjdRBnSFNyJgact0GbxjEBsMFFxJbcunmTsNGzu17gw32PAKcYOuBq1gq6Hd2aulSx6lkevhtPccu66xGYdxtG1QivBM-ifCuC_qEcPU8p_zJ_e3Pd19kXj4LezZXvjEXYI77RgTKN3PoKyK_bxzMCqySiJQCeLBBSY"></a> <br>同じタイミングでAlan Turing Instituteがケープタウンで開催した「International Conference on Trustworthy Digital Infrastructure 2024」とのジョイントセッションがSIDI Hubケープタウン会合の最後のプログラムです。<p></p><p></p><a href="https://blogger.googleusercontent.com/img/a/AVvXsEj9locKsPWSgBSvf5yZGc8_Lnr8WpVm6_slkW0pAJuFVLUL2a_p0jq3xx28N-9qabM7JJSRi3BZwcBZIc2VtTyfwwKv7TenHqy7_j9WQRmlxDv4o35J0R1tjI9RQkiFoUz-yzvBbKepWxb-gRH2S40ogLLSXsyUujUUK2deKcqcMoEaQ_GYqrnfRelakpQh"></a>International Conference on Trustworthy Digital Infrastructure 2024 <br> <a href="https://www.turing.ac.uk/events/international-conference-trustworthy-digital-infrastructure-2024">https://www.turing.ac.uk/events/international-conference-trustworthy-digital-infrastructure-2024</a> <br>  Alan Turingといえばエニグマ暗号の解読に成功したイギリスの数学者ですね。第二次世界大戦中にドイツのUボートの暗号通信の解読を行うことで連合国が枢軸国に対する勝利を収めるのを早めた、と言われている人です。いわゆるチューリングマシンとかチューリングテストの人ですね。  <br>   Alan Turing Instituteのイベントでは、以下のようなトピックが取り上げられたようです。    より安全なデジタル公共インフラ  デジタルウォレット-EUの制度と比較、子供の登録  ケニアにおけるヌビア人の権利  ドイツ開発庁：アフリカにおけるハイテク技術のためのデジタルインフラアーキテクチャーの再考  デジタルIDのDNA：フレームワークを超えて  中国の医療システムにおける信頼の役割  デジタル基盤IDのためのLLM  分散型エコシステムのためのトラスト実装モデル  労働者のデジタルインフラLLM  英国AI安全研究所はLLMの信頼スコアカードを作成  出所を決定するデジタルID標準の役割に関する議論   <br><p></p>  SIDI HubはAlan Turing Instituteとの協業関係を築くための方法について議論・検討が行われたとのことです。このようにアカデミアとのつながりを築くのはとても大切なことですね。  他にもSIDI Hubとアカデミアとのつながりとしてはこのようなものが挙げられます。  <br>  プライバシー領域    ノルウェー科学技術大学  ジョージタウン大学  カーネギーメロン大学   セキュリティ領域     シュトゥットガルト大学  チューリング  NIST  英国の大学   その他     ISOC/U  WITWATERSRAND大学  など   まだまだアカデミアと協業が深められる領域は色々とありそう、ということで議論が重ねられています。    <a href="https://blogger.googleusercontent.com/img/a/AVvXsEiBUZ2YqucJDTyJVh5OcHwRtFYPmiSaQgYjVvAztQMPMSpE39IqCfVJEElEsrxHcdYL4Pzf13uw31nLMGWSgxDe6vnYSFGd3S3hlFhl1pkTYGUh28lJVc8inOhi6lC4tYrQwWUqlAmPq0yJhngpuDcplJPm3rTJUs1W1et4qQ7lWCh70WNFDO61kPog0WKz"></a> <br>暗号分野などアカデミアが果たす役割は大きい一方で、まだまだ産業界とのギャップは大きいってことですね。  <br>   <a href="https://blogger.googleusercontent.com/img/a/AVvXsEiy5oume-uLyfXzB-XTg59m3LxkEwnsUOMV67EnsSm8yWc_r1Hc11TLOfLouOhK01lCr2Ncg5eEKP8hSMmZLziLZVmAPAJOlkClPDG0h0iB4mjk33ofqQHYLeaSFRw8JXUzEsskTOhzAseK4egMqK_L1Hon43PizxuWs23ctG3KMtePcDSPXlQSNPTTyUZm"></a> <br><br>  ギャップを埋めるために色々とコラボレーションを進めていくことになると思います。  実際SIDI Hubのイベントは毎回アカデミアからも参加者を招待しています。<br><br>  <br>  と、いうところでケープタウンのレポートも終わりです。  明日はワシントンD.C.での会合です。時差があるのでレポートできるのは日本時間では明後日になるのかな。  <br>  <br> 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blogger.googleusercontent.com/img/a/AVvXsEjcWH5IbJjW9SKkVm2lNWBvRig35CjdRBnSFNyJgact0GbxjEBsMFFxJbcunmTsNGzu17gw32PAKcYOuBq1gq6Hd2aulSx6lkevhtPccu66xGYdxtG1QivBM-ifCuC_qEcPU8p_zJ_e3Pd19kXj4LezZXvjEXYI77RgTKN3PoKyK_bxzMCqySiJQCeLBBSY=w640-h640'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:30 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Sep/8/uv-under-discussion-on-mastodon/#atom-everything'>uv under discussion on Mastodon</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   uv under discussion on Mastodon 
+Jacob Kaplan-Moss kicked off this fascinating conversation about uv on Mastodon recently. It's worth reading the whole thing, which includes input from a whole range of influential Python community members such as Jeff Triplett, Glyph Lefkowitz, Russell Keith-Magee, Seth Michael Larson, Hynek Schlawack, James Bennett and others. (Mastodon is a pretty great place fo
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://social.jacobian.org/@jacob/113091418140504394">uv under discussion on Mastodon</a></p>
+Jacob Kaplan-Moss kicked off this fascinating conversation about <a href="https://docs.astral.sh/uv/">uv</a> on Mastodon recently. It's worth reading the whole thing, which includes input from a whole range of influential Python community members such as Jeff Triplett, Glyph Lefkowitz, Russell Keith-Magee, Seth Michael Larson, Hynek Schlawack, James Bennett and others. (Mastodon is a pretty great place for keeping up with the Python community these days.)<p></p>
+<p>The key theme of the conversation is that, while <code>uv</code> represents a huge set of potential improvements to the Python ecosystem, it comes with additional risks due its attachment to a VC-backed company - and its reliance on Rust rather than Python.</p>
+<p>Here are a few comments that stood out to me.</p>
+<p><a href="https://cloudisland.nz/@freakboy3742/113093889194737339">Russell</a>:</p>
+<blockquote>
+<p>As enthusiastic as I am about the direction uv is going, I haven't adopted them anywhere - because I want very much to understand Astral’s intended business model before I hook my wagon to their tools. It's definitely not clear to me how they're going to stay liquid once the VC money runs out. They could get me onboard in a hot second if they published a "This is what we're planning to charge for" blog post.</p>
+</blockquote>
+<p><a href="https://mastodon.social/@hynek/113094437303343866">Hynek</a>:</p>
+<blockquote>
+<p>As much as I hate VC, [...] FOSS projects flame out all the time too. If Frost loses interest, there’s no PDM anymore. Same for Ofek and Hatch(ling).</p>
+<p>I fully expect Astral to flame out and us having to fork/take over—it’s the circle of FOSS. To me uv looks like a genius sting to trick VCs into paying to fix packaging. We’ll be better off either way.</p>
+</blockquote>
+<p><a href="https://mastodon.social/@glyph/113094489295782200">Glyph</a>:</p>
+<blockquote>
+<p>Even in the best case, Rust is more expensive and difficult to maintain, not to mention "non-native" to the average customer here. [...] And the difficulty with VC money here is that it can burn out all the other projects in the ecosystem simultaneously, creating a risk of monoculture, where previously, I think we can say that "monoculture" was the least of Python's packaging concerns.</p>
+</blockquote>
+<p><a href="https://mastodon.social/@hynek/113094547139925962">Hynek on Rust</a>:</p>
+<blockquote>
+<p>I don’t think y’all quite grok what uv makes so special due to your seniority. The speed is really cool, but the reason Rust is elemental is that it’s one compiled blob that can be used to bootstrap and maintain a Python development. A blob that will never break because someone upgraded Homebrew, ran pip install or any other creative way people found to fuck up their installations. Python has shown to be a terrible tech to maintain Python.</p>
+</blockquote>
+<p><a href="https://social.coop/@chrisjrn/113094511860843571">Christopher Neugebauer</a>:</p>
+<blockquote>
+<p>Just dropping in here to say that corporate capture of the Python ecosystem is the #1 keeps-me-up-at-night subject in my community work, so I watch Astral with interest, even if I'm not yet too worried.</p>
+</blockquote>
+<p>I'm reminded of <a href="https://lucumr.pocoo.org/2024/8/21/harvest-season/">this note from Armin Ronacher</a>, who created Rye and later donated it to uv maintainers Astral:</p>
+<blockquote>
+<p>However having seen the code and what uv is doing, even in the worst possible future this is a very forkable and maintainable thing. I believe that even in case Astral shuts down or were to do something incredibly dodgy licensing wise, the community would be better off than before uv existed.</p>
+</blockquote>
+<p>I'm currently inclined to agree with Armin and Hynek: while the risk of corporate capture for a crucial aspect of the Python packaging and onboarding ecosystem is a legitimate concern, the amount of progress that has been made here in a relatively short time combined with the open license and quality of the underlying code keeps me optimistic that <code>uv</code> will be a net positive for Python overall.</p>
+<p>Update: <code>uv</code> creator Charlie Marsh <a href="https://hachyderm.io/@charliermarsh/113103564055291456">joined the conversation</a>:</p>
+<blockquote>
+<p>I don't want to charge people money to use our tools, and I don't want to create an incentive structure whereby our open source offerings are competing with any commercial offerings (which is what you see with a lost of hosted-open-source-SaaS business models).</p>
+<p>What I want to do is build software that vertically integrates with our open source tools, and sell that software to companies that are already using Ruff, uv, etc. Alternatives to things that companies already pay for today.</p>
+<p>An example of what this might look like (we may not do this, but it's helpful to have a concrete example of the strategy) would be something like an enterprise-focused private package registry. A lot of big companies use uv. We spend time talking to them. They all spend money on private package registries, and have issues with them. We could build a private registry that integrates well with uv, and sell it to those companies. [...]</p>
+<p>But the core of what I want to do is this: build great tools, hopefully people like them, hopefully they grow, hopefully companies adopt them; then sell software to those companies that represents the natural next thing they need when building with Python. Hopefully we can build something better than the alternatives by playing well with our OSS, and hopefully we are the natural choice if they're already using our OSS.</p>
+</blockquote>
+
+
+    <p>Tags: <a href="https://simonwillison.net/tags/uv">uv</a>, <a href="https://simonwillison.net/tags/glyph">glyph</a>, <a href="https://simonwillison.net/tags/russell-keith-magee">russell-keith-magee</a>, <a href="https://simonwillison.net/tags/jacob-kaplan-moss">jacob-kaplan-moss</a>, <a href="https://simonwillison.net/tags/packaging">packaging</a>, <a href="https://simonwillison.net/tags/python">python</a>, <a href="https://simonwillison.net/tags/hynek-schlawack">hynek-schlawack</a>, <a href="https://simonwillison.net/tags/armin-ronacher">armin-ronacher</a>, <a href="https://simonwillison.net/tags/mastodon">mastodon</a>, <a href="https://simonwillison.net/tags/open-source">open-source</a>, <a href="https://simonwillison.net/tags/astral">astral</a>, <a href="https://simonwillison.net/tags/rust">rust</a>, <a href="https://simonwillison.net/tags/charlie-marsh">charlie-marsh</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:23 &bull;
+   14 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://medium.com/@benwerd'>Werdmüller on Medium</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://benwerd.medium.com/a-conversation-with-myself-about-immigration-468270934d9b?source=rss-3b16402f5b9d------2'>A conversation with myself about immigration</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+      What is your ideal place? What are its values?  Continue reading on Medium »  
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/0*hrcPMutzPyADnjag.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   <p><a href="https://benwerd.medium.com/a-conversation-with-myself-about-immigration-468270934d9b?source=rss-3b16402f5b9d------2"></a></p><p>What is your ideal place? What are its values?</p><p><a href="https://benwerd.medium.com/a-conversation-with-myself-about-immigration-468270934d9b?source=rss-3b16402f5b9d------2">Continue reading on Medium »</a></p> 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*hrcPMutzPyADnjag.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:45 &bull;
+   15 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/a-conversation-with-myself-about-immigration'>A conversation with myself about immigration</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+   What is your ideal place to live?  I grew up in Oxford, England, which has radically colored my view of what a home can look like. It’s hardly a city at all — one girlfriend derisively called it “a village” — but sits close enough to London that you can get there in under an hour. It’s surrounded by green space.  The city itself is home one of the oldest universities in the world, around which
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://werd.io/file/66ddc6aa1fd8928c980a2b82/thumb.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+<p></p> What is your ideal place to live? <p>I grew up in Oxford, England, which has radically colored my view of what a home can look like. It’s hardly a city at all — one girlfriend derisively called it “a village” — but sits close enough to London that you can get there in under an hour. It’s surrounded by green space.</p><p>The city itself is home one of the oldest universities in the world, around which other prominent universities, learning institutions, NGOs, and businesses have sprung up. The result is that the place is filled with bookstores, music, theater, art and culture, but even more importantly, there is a constant influx of people from all over the world: not as tourists, but as temporary residents. This diverse population has brought new ideas, cultures, cuisines, and ways of living. Being from somewhere else is completely normal.</p><p>You don’t need a car to get around. There’s adequate public transit (even if it’s getting more expensive), but it’s also incredibly walkable. Bicycle paths are everywhere, and arguably bicycles are the easiest, fastest way to get around.</p><p>Being a university town, ideas are important. Assuming they are delivered in good faith and are well-considered, diverse ideas are considered seriously. There is little dogma beyond the idea of the university itself. There are certainly no established lines that you need to arrange yourself behind.</p><p>Most of these things are true in London, too, of course, and I’ve more recently found it in cities like New York and San Francisco. New York in particular has become one of my favorite places in the world: a space where all kinds of people literally live on top of each other. It’s a vibrant space where everything feels possible, while also being one of the safest, most walkable cities in the world (with a surprising amount of green space). I don’t think I’d risk cycling around it, but people certainly do.</p><p>There are a few things that make these spaces great: green spaces, walkability, public transit. But I think the most important is their diversity, and therefore their openness to immigration and different ways of being.</p><p>The inverse describes places I don’t want to live in: car-driven spaces where people generally have the same shared heritage and the same ideas, with little public transit and low connections to the outside world.</p> So you’re pro-immigration? <p>I am, but I think of immigration as a means to an end. I’m not as much pro-immigration as I am anti-monoculture. The goal isn’t to have lots of immigrants in itself; the goal is to have a broad, inclusive society, which implies a vibrancy, and in turn requires different cultures, ideas, and ways of living to present themselves.</p><p>There’s plenty of research that shows how beneficial this can be: it pushes up wages and economic activity, and particularly for populations that are becoming older on average (that’s us), provides younger workers.</p><p>Selfishly, it’s also more comfortable for me. I don’t like monocultures in part because I am never part of one: as a third culture kid with parents who have different nationalities and grew up in a third place, I can’t be by definition. As well as white American and Northern European, my heritage is Jewish and Indonesian. Monocultures necessarily exclude me, and I don’t feel safe in them; they make me feel like an Other.</p><p>While middle class residents see a net gain, there is a growing body of evidence which may show that immigration can harm working class populations in a host location by displacing them from work and affecting their wages. That can’t be overlooked, and questions need to be asked about how they can see a net gain too. I think the solution relates to funneling more of the net gains from increased economic activity into better social programs, free education, and better social infrastructure overall.</p><p>I don’t think the goal can be to preserve monocultures. Communities do gain overall if there is immigration. Those communities are qualitatively better places to live as well as statistically more prosperous. And it’s simply not where the world is headed: global transit and communications are cheaper and more available than ever. Even if we all decided we hated immigration and wanted to be inward-facing societies forever, the cat is out of the bag. Instead, then, we need to make sure everyone sees the benefit from it.</p> So you’re a socialist? <p>It depends on your definition! I think there’s a lot to be gained from social infrastructure: public healthcare, education, and transit, social programs like welfare, and ways to life people up who fall through the cracks.</p><p>Knowing that low-income people may not always see the benefit from immigration, I think we need to provide stronger structures to lift everyone up, which include universal healthcare, accessible, high-quality education, and reliable, frequent public transit. We can fund those through stronger taxes for the wealthiest in our society (many of whom are also in favor of this), by collecting taxes from people and businesses who already owe but don’t pay, as well as efficiency gains in how we provide existing services. There’s been plenty of work to show that the numbers do add up and these are perfectly possible things to provide.</p><p>But if you’re asking me if I believe in fully centrally-planned economies? No. Everyone should be able to start a business or work for themselves, and I don’t think government is best placed to innovate.</p> What about crime? <p>Most violent crime is caused by poverty, <a href="https://www.themarshallproject.org/2024/02/17/new-york-texas-immigrants-crime-fears">and migrants are statistically much less likely to commit it</a>. The stereotype of immigrant populations coming in and ruining the place is a racist myth, and increasing the base quality of life for everyone through better social infrastructure will reduce crime. Take San Francisco: although crime in the city is generally overstated by the right-wing press, a radically widened divide between rich and poor has resulted in more car break-ins, shoplifting, and similar offenses. Those are not things that would happen in a city where everyone was able to live comfortably.</p><p>The most egregious crimes are white collar, where financial losses are significant. Preventing these and effectively collecting taxes from people who should be contributing will help provide for the people who are truly feeling the squeeze.</p><p>Clearly, in any given society, there need to be sensible laws and enforcement of them. The biggest gains, though, are not created through draconian policing. They come from stronger social infrastructure that genuinely protects people. If people cannot afford to live, they will do what they need to in order to survive. Where this has to do with immigration — potentially at low income levels — more help must be provided.</p> What about refugees? <p>Europe in particular has received an influx of refugees because of ongoing wars. That can’t be an externality: if you fund a war, taking on refugees from that war is a reasonable thing to expect. That’s not a comment on whether those wars are right or wrong; it’s simply an inevitability.</p><p>Meanwhile, countries like Britain that spent centuries invading the rest of the world, often oppressing them violently, are now complaining about immigration and refugees. All I’ll say about that is that the world is interconnected: actions have consequences.</p><p>And that interconnectedness goes further. Our actions and inaction with respect to global trade and the effects of the climate crisis are also creating refugees. We’re all implicated, and of course we should have a duty to deal with the human consequences. Not only that, but I would argue we have a fundamental duty to help other human beings — while accepting that not everyone agrees. Like so much else in this conversation, it comes down to our values and priorities.</p> What if I like living in a monoculture? <p>You do you! Monocultures will always available. I’m just not interested in living in one, and the evidence shows that they will always be poorer than open, inclusive societies. I think people who vote for them thinking that it will lead to a better life for them are unfortunately mistaken.</p><p>The country where I grew up voted to legally prevent me from living there again in a referendum in 2016. It has proven to be an economic and cultural shot in the foot: Brexit was a disaster, and <a href="https://www.statista.com/statistics/987347/brexit-opinion-poll/">only 31% of Britons now say they were right to leave the EU</a>.</p><p>Also, seeing seas of Trump supporters at conventions holding up signs saying “mass deportations now” is pretty chilling. Qualitatively, that mindset — only people like us are allowed! — is something I truly fear, not least because that always means that people like me are never allowed. That’s taken us to some dark places in the past, but it’s also simply not a recipe for a nice place to live.</p> So you’re playing the Nazi card? <p>A lot of people call people Nazis these days. In itself it’s become a cliché that can be a barrier to further discussion. I do tend to agree with Mike Godwin, the author of Godwin’s Law, who <a href="https://www.washingtonpost.com/opinions/2023/12/20/godwins-law-trump-hitler-comparisons/">said that it does not apply to describing Trump</a>. But I get that people are easily triggered by it.</p><p>I think there’s always, by definition, a kind of fascism inherent in wanting to live in a monoculture. Fascism deals with in-groups and out-groups; similarly, monocultures, by definition, need to maintain conformity. It’s not that people in those places are goose-stepping in militaristic parades (generally speaking), but that’s also not what Nazism is actually about. The death camps came later; it started with narrowly defining who belongs and who doesn’t belong. To put it another way, Nazism started by enforcing a monoculture: while not every monoculture leads to fascism, fascism always begins with enforcing conformity.</p><p>I’ve written a lot in the past about how I’m uncomfortable with the ideas of patriotism and nationalism. Both seem arbitrary: the idea of being proud of the place you happened to be born in is random. I think it’s better to be proud of ideas and of values. But ultimately patriotism is fairly benign: if you want to be proud of your town, state, or country somewhere that you happened to be born in or have adopted as home, whatever. It’s not my thing, but please enjoy.</p><p>Nationalism, on the other hand, describes identification with your country of origin to the exclusion or detriment of that of people from other nations. It inherently implies harm. The question of who does and doesn’t belong is actually quite complicated (I have a British accent; I have British cultural touchpoints; my hometown is Oxford; I do not hold citizenship; am I British?). In itself the question leads to a toxicity that can poison a community: in considering who belongs and who doesn’t, we needfully set ourselves up for having conversations about how to exclude people.</p><p>Similarly, the question about who is and isn’t a Nazi isn’t actually very useful, and hangs the discourse on a very superficial question. It’s also more complicated than it appears: Hitler’s policies regarding Jewish people was in part based on American Jim Crow laws. The Nazis weren’t some aberration in history: they were a part of a continuum, very much in line with what was happening elsewhere, and we’ve learned that similar ideas can crop up anywhere if the conditions are right.</p><p>So I’d rather just ask: what is the society we want to create? What are the values that are important to us? I can tell you that mine are about inclusion, a broad definition of belonging, and vibrant diversity, where social structures are intentionally created that allow everyone to live a good life, where ideas and expression are open, where there is no state violence, and where anyone can innovate or create a business if they have a good enough idea.</p><p>I don’t want to live in a monoculture, and will vote and make decisions on that basis. If you do, you should vote and make decisions on that basis. If the overwhelming will of the people is that monocultures are good, I will march, rally, protest, and vote in opposition to that idea. And should the monoculture decide that it needs to label the businesses created by people like me — or people like anyone — or to label the people themselves as Other, if it decides to forcibly deport them, if mobs or police go looking for them like they did for my ancestors, if it decides that it must put people into camps like the one my father spent the first few years of his life in, if it decides to burn down communities as was done to my great grandfather’s village, then I will fight, and fight hard, and I promise you there are many, many others who feel the same way. None of this is new.</p><p>In the end this comes down to who gets to be a part of the future, and fundamentally, I believe the future should be for everyone.</p><p>And, to bring this conversation back to its initial question, that’s my ideal place to live: somewhere that’s for everyone, culturally and ideologically.</p> 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://werd.io/file/66ddc6aa1fd8928c980a2b82/thumb.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:44 &bull;
+   15 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -823,7 +1693,7 @@
 
 <div class='item-footer'>
    01:04 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -899,7 +1769,7 @@
 
 <div class='item-footer'>
    22:22 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -991,7 +1861,7 @@
 
 <div class='item-footer'>
    20:30 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1066,7 +1936,7 @@
 
 <div class='item-footer'>
    20:18 &bull;
-   11 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1185,7 +2055,7 @@ cog.out("```\n")
 
 <div class='item-footer'>
    05:43 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1259,7 +2129,7 @@ cog.out("```\n")
 
 <div class='item-footer'>
    02:04 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1340,7 +2210,7 @@ Michael Kennedy <a href="https://talkpython.fm/episodes/show/476/unified-python-
 
 <div class='item-footer'>
    23:54 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1430,7 +2300,7 @@ Michael Kennedy <a href="https://talkpython.fm/episodes/show/476/unified-python-
 
 <div class='item-footer'>
    23:36 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1520,7 +2390,7 @@ We strive for having as many of those details as possible, making the experience
 
 <div class='item-footer'>
    22:58 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1599,7 +2469,7 @@ We strive for having as many of those details as possible, making the experience
 
 <div class='item-footer'>
    22:20 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1676,7 +2546,7 @@ We strive for having as many of those details as possible, making the experience
 
 <div class='item-footer'>
    22:10 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1752,7 +2622,7 @@ We strive for having as many of those details as possible, making the experience
 
 <div class='item-footer'>
    21:14 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1809,7 +2679,7 @@ We strive for having as many of those details as possible, making the experience
  -->
 <div class='wrap'>
 
-<p>I recently <a href="https://medium.com/@m-ruminer/my-failed-so-far-ai-rag-code-experimentation-9bc78ca36a7b">posted</a> on my experience with using a few Python examples of retrieval augmented generation (RAG) with an LLM (OpenAI API). They were underwhelming, though they did provide a lot of insight for me. This post is about my next experiment: let’s get AI tools to generate examples for me. The results were mixed but not for reasons you might think. Here’s what I found using ChatGPT, Microsoft Copilot and&nbsp;Cursor.</p><p>Note: you can find the generated code in my <a href="https://github.com/manicprogrammer/LLM_Generated_RAG">LLM_Generated_RAG</a> Github repo. I will likely add to this repo as I try new prompts, LLMs, and approaches.</p> ChatGPT 4o <p>Let’s start with the most well-known, ChatGPT. I used a simple prompt to see what it would do. I didn’t provide prompts for different parts of the code. It should not be very extensive code so I didn’t feel the need to divide it into separate prompts. If you want to see my very elementary prompt pull up the <a href="https://github.com/manicprogrammer/LLM_Generated_RAG/blob/main/chatgpt_read_from_pdf.py">ChatGPT related file</a> in the&nbsp;repo.</p><p>The first thing I noticed is that it was using PyPDF2 which was deprecated in Decemeber of 2022. Not surprising as, almost certainly, a lot of what the model was trained on used PyPDF2. It actually created well-structured code with functions for the different discrete operations. What I realized later, due to the output of the Cursor tool, is that it created a more granular set of code than it had to. This is exactly what I was looking for but didn’t specify in the prompt. What do I mean? It did the following:</p>  read the PDF and extracted the&nbsp;text  split the document into&nbsp;chunks  created embeddings for the chunks using the OpenAI text-embedding-ada-002  created an embedding for the&nbsp;query  searched the chunks using&nbsp;faiss  generated a response using the query and the chunk(s) as&nbsp;context  <p>This is what I wanted. Turns out there was a very different way to interpret the&nbsp;prompt.</p><p>The downside. The code didn’t run out the box. Also, I believe it only used one chunk for the context to send along with the query. I have to investigate the code more closely to be sure on that single chunk thing. The embedding search chunk function I need to investigate more to understand it. I didn’t try to make the code run for now as that was not part of the experiment. I expect I will try to modify it soon to function. I’ll report back the&nbsp;results.</p><p>This granular set of actions was very different than what I got from&nbsp;Cursor.</p> Cursor <p>The Cursor prompt was not exactly the same as what I used for ChatGPT, which was bad of me to do. I got a little lazier, but the crux was the same. You can see that prompt&nbsp;<a href="https://github.com/manicprogrammer/LLM_Generated_RAG/blob/main/cursor_read_from_pdf.py">here</a>.</p><p>The results were very different. It did not provide the granular steps that ChatGPT did. It met the requirement more succinctly.</p>  extract the text from the PDF, also using&nbsp;PyPDF2  pass the entire text to ChatGPT as context along with the&nbsp;prompt  <p>It ran out of the gate. Hypothetically, it would return the expected results as well. It would work similarly to how one does it in the ChatGPT interface. Not what I wanted, but I hadn’t specified to break it down so that I was creating embeddings etc. Fair&nbsp;game.</p><p>The downside, the context was too large (43,000+ tokens) for the tokens per minute limit of my OpenAPI account level. So I didn’t get to see the output, but have no doubt it would have produced similar results as if I had done it through the ChatGPT user interface.</p> Microsoft Copilot <p>What can I say? I don’t know what I would have gotten here because Copilot blocked the output. This is apparently because “GitHub Copilot checks code completion suggestions with their surrounding code of about 150 characters against public code on GitHub. If there is a match, or a near match, the suggestion is not shown to&nbsp;you.”</p><p>There is a flag you can set in your Github settings to turn this on or off. I checked and my flag and it is set to “Allowed” but you see the&nbsp;results.</p><p>I’ll continue to try to troubleshoot this issue and see if I can get something out of Copilot and update this post if I&nbsp;do.</p> In recap <p>In recap. One provided the detail I wanted even though I hadn’t specified it, a happy coincidence, but it did not run out of the gate. The second took a very different approach and would have provided the desired results in LLM response if my OpenAPI account level had supported a large enough tokens per minute for 43,000+ tokens in the context. But it wasn’t the code I was hoping for. Copliot just didn’t work for me for reasons I don’t yet understand. More experimentation to&nbsp;come.</p>
+<p>I recently <a href="https://medium.com/@m-ruminer/my-failed-so-far-ai-rag-code-experimentation-9bc78ca36a7b">posted</a> on my experience with using a few Python examples of retrieval augmented generation (RAG) with an LLM (OpenAI API). They were underwhelming, though they did provide a lot of insight for me. This post is about my next experiment: let’s get AI tools to generate examples for me. The results were mixed but not for reasons you might think. Here’s what I found using ChatGPT, Microsoft Copilot and&nbsp;Cursor.</p><p>Note: you can find the generated code in my <a href="https://github.com/manicprogrammer/LLM_Generated_RAG">LLM_Generated_RAG</a> Github repo. I will likely add to this repo as I try new prompts, LLMs, and approaches.</p> ChatGPT 4o <p>Let’s start with the most well-known, ChatGPT. I used a simple prompt to see what it would do. I didn’t provide prompts for different parts of the code. It should not be very extensive code so I didn’t feel the need to divide it into separate prompts. If you want to see my very elementary prompt pull up the <a href="https://github.com/manicprogrammer/LLM_Generated_RAG/blob/main/chatgpt_read_from_pdf.py">ChatGPT related file</a> in the&nbsp;repo.</p><p>The first thing I noticed is that it was using PyPDF2 which was deprecated in Decemeber of 2022. Not surprising as, almost certainly, a lot of what the model was trained on used PyPDF2. It actually created well-structured code with functions for the different discrete operations. What I realized later, due to the output of the Cursor tool, is that it created a more granular set of code than it had to. This is exactly what I was looking for but didn’t specify in the prompt. What do I mean? It did the following:</p>  read the PDF and extracted the&nbsp;text  split the document into&nbsp;chunks  created embeddings for the chunks using the OpenAI text-embedding-ada-002  created an embedding for the&nbsp;query  searched the chunks using&nbsp;faiss  generated a response using the query and the chunk(s) as&nbsp;context  <p>This is what I wanted. Turns out there was a very different way to interpret the&nbsp;prompt.</p><p>The downside. The code didn’t run out the box. Also, I believe it only used one chunk for the context to send along with the query. I have to investigate the code more closely to be sure on that single chunk thing. The embedding search chunk function I need to investigate more to understand it. I didn’t try to make the code run for now as that was not part of the experiment. I expect I will try to modify it soon to function. I’ll report back the&nbsp;results.</p><p>This granular set of actions was very different than what I got from&nbsp;Cursor.</p> Cursor <p>The Cursor prompt was not exactly the same as what I used for ChatGPT, which was bad of me to do. I got a little lazier, but the crux was the same. You can see that prompt&nbsp;<a href="https://github.com/manicprogrammer/LLM_Generated_RAG/blob/main/cursor_read_from_pdf.py">here</a>.</p><p>The results were very different. It did not provide the granular steps that ChatGPT did. It met the requirement more succinctly.</p>  extract the text from the PDF, also using&nbsp;PyPDF2  pass the entire text to ChatGPT as context along with the&nbsp;prompt  <p>When I first posted this I said it rain out of the gate, but that was wrong. It suffered from the same issue all three code generations did. It tried to use an old call of openai chat completion. With that fixed I believe it would, hypothetically, return the expected results. It would work similarly to how one does it in the ChatGPT interface. Not what I wanted, but I hadn’t specified to break it down so that I was creating embeddings etc. Fair&nbsp;game.</p><p>The downside, the context was too large (43,000+ tokens) for the tokens per minute limit of my OpenAPI account level and gpt-4o model (see attached note for an explanation). So I didn’t get to see the output, but have no doubt it would have produced similar results as if I had done it through the ChatGPT user interface.</p> Microsoft Copilot <p>What can I say? I don’t know what I would have gotten here because Copilot blocked the output. This is apparently because “GitHub Copilot checks code completion suggestions with their surrounding code of about 150 characters against public code on GitHub. If there is a match, or a near match, the suggestion is not shown to&nbsp;you.”</p><p>There is a flag you can set in your Github settings to turn this on or off. I checked and my flag and it is set to “Allowed” but you see the&nbsp;results.</p><p>I’ll continue to try to troubleshoot this issue and see if I can get something out of Copilot and update this post if I&nbsp;do.</p> In recap <p>In recap. One provided the detail I wanted even though I hadn’t specified it, a happy coincidence, but it did not run out of the gate. The second took a very different approach and would have provided the desired results in LLM response if my OpenAPI account level had supported a large enough tokens per minute for 43,000+ tokens in the context. But it wasn’t the code I was hoping for. Copliot just didn’t work for me for reasons I don’t yet understand. More experimentation to&nbsp;come.</p>
    
   
   
@@ -1826,7 +2696,7 @@ We strive for having as many of those details as possible, making the experience
 
 <div class='item-footer'>
    20:07 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1900,7 +2770,7 @@ We strive for having as many of those details as possible, making the experience
 
 <div class='item-footer'>
    16:29 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1974,7 +2844,7 @@ This latest release focuses mainly on performance, as discussed here in <a href=
 
 <div class='item-footer'>
    05:55 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2068,7 +2938,7 @@ My <a href="https://github.com/simonw/scrape-hacker-news-by-domain">simonw/scrap
 
 <div class='item-footer'>
    05:40 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2378,7 +3248,7 @@ My <a href="https://github.com/simonw/scrape-hacker-news-by-domain">simonw/scrap
 
 <div class='item-footer'>
    02:28 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2456,7 +3326,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    22:43 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2530,7 +3400,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    22:30 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2595,7 +3465,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    22:20 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2664,7 +3534,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    16:23 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2729,7 +3599,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    15:08 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2801,7 +3671,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    15:06 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2875,7 +3745,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    13:44 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2950,7 +3820,7 @@ That’s a huge amount of money for a three-month-old company with 10 staffers, 
 
 <div class='item-footer'>
    00:09 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3029,7 +3899,7 @@ That’s a huge amount of money for a three-month-old company with 10 staffers, 
 
 <div class='item-footer'>
    23:26 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3121,7 +3991,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    23:16 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3208,7 +4078,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    22:57 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3292,7 +4162,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    22:50 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3356,7 +4226,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    22:48 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3428,7 +4298,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    22:32 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3502,7 +4372,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    22:30 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3573,7 +4443,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    22:19 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3637,7 +4507,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    20:59 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3713,7 +4583,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    23:24 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3783,7 +4653,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    22:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3863,7 +4733,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    20:04 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3939,7 +4809,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    20:03 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4015,7 +4885,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    20:03 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4089,7 +4959,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    19:17 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4164,7 +5034,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    18:56 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4232,7 +5102,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    15:01 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4314,7 +5184,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    12:55 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4400,7 +5270,7 @@ The seventh annual Python survey is out. Here are the things that caught my eye 
 
 <div class='item-footer'>
    02:47 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4474,7 +5344,7 @@ The seventh annual Python survey is out. Here are the things that caught my eye 
 
 <div class='item-footer'>
    02:19 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4543,7 +5413,7 @@ The seventh annual Python survey is out. Here are the things that caught my eye 
 
 <div class='item-footer'>
    23:58 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4624,7 +5494,7 @@ Hynek Schlawack argues for using virtual environments even when running Python a
 
 <div class='item-footer'>
    23:57 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4706,7 +5576,7 @@ Hynek Schlawack argues for using virtual environments even when running Python a
 
 <div class='item-footer'>
    23:24 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4769,7 +5639,7 @@ Hynek Schlawack argues for using virtual environments even when running Python a
 
 <div class='item-footer'>
    23:09 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4845,7 +5715,7 @@ Hynek Schlawack argues for using virtual environments even when running Python a
 
 <div class='item-footer'>
    19:49 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4962,7 +5832,7 @@ def send_prompt(self, prompt: str, response: Response) -&gt; None:
 
 <div class='item-footer'>
    16:39 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5072,7 +5942,7 @@ def send_prompt(self, prompt: str, response: Response) -&gt; None:
 
 <div class='item-footer'>
    08:35 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5429,7 +6299,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    04:23 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5536,7 +6406,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    22:57 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5610,7 +6480,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    22:30 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5682,7 +6552,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    14:55 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5750,7 +6620,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    14:37 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5851,7 +6721,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    05:03 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5953,7 +6823,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    03:14 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6018,7 +6888,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    03:02 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6114,142 +6984,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    01:36 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/09/01/i-dont-hate.html'> I don’t hate them .. they’re just talentless nobodies from 3</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   I don’t hate them .. they’re just talentless nobodies from 30 years ago with very loud mouths that I assume have run out of money and neither of them can make more on their own … that I couldn’t give a fuck about. 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>I don’t hate them .. they’re just talentless nobodies from 30 years ago with very loud mouths that I assume have run out of money and neither of them can make more on their own … that I couldn’t give a fuck about.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:16 &bull;
-   7 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2024/09/01/sas-red-notice.html'>SAS: Red Notice, 2021 - ★★★ (contains spoilers)</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-      This review may contain spoilers.   It is what it is. Of a kind. Set up for a sequel that prolly won’t be made. Netflix calls it something different. Don’t know why. 
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://a.ltrbxd.com/resized/film-poster/5/2/3/2/8/8/523288-sas-red-notice-0-600-0-900-crop.jpg?v=1c80d957b1'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p></p> <p>This review may contain spoilers.</p> <p>It is what it is. Of a kind. Set up for a sequel that prolly won’t be made. Netflix calls it something different. Don’t know why.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://a.ltrbxd.com/resized/film-poster/5/2/3/2/8/8/523288-sas-red-notice-0-600-0-900-crop.jpg?v=1c80d957b1'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:01 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6325,7 +7060,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    23:00 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6392,7 +7127,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    22:09 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6475,7 +7210,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    20:58 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6545,7 +7280,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    14:20 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6615,7 +7350,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    12:52 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6687,7 +7422,7 @@ el.insertAdjacentHTML("beforeend", html)
 
 <div class='item-footer'>
    04:01 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6761,7 +7496,7 @@ el.insertAdjacentHTML("beforeend", html)
 
 <div class='item-footer'>
    01:12 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6851,7 +7586,7 @@ New minor release of my <a href="https://llm.datasette.io/">LLM</a> plugin that 
 
 <div class='item-footer'>
    23:28 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6929,7 +7664,7 @@ Amazon S3 added <a href="https://aws.amazon.com/about-aws/whats-new/2024/08/amaz
 
 <div class='item-footer'>
    23:13 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7001,7 +7736,7 @@ Amazon S3 added <a href="https://aws.amazon.com/about-aws/whats-new/2024/08/amaz
 
 <div class='item-footer'>
    13:03 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7069,7 +7804,7 @@ Amazon S3 added <a href="https://aws.amazon.com/about-aws/whats-new/2024/08/amaz
 
 <div class='item-footer'>
    11:17 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7166,7 +7901,7 @@ I've mostly been ignoring OpenAI's <a href="https://platform.openai.com/docs/ass
 
 <div class='item-footer'>
    04:03 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7232,7 +7967,7 @@ I've mostly been ignoring OpenAI's <a href="https://platform.openai.com/docs/ass
 
 <div class='item-footer'>
    03:39 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7306,7 +8041,7 @@ I've mostly been ignoring OpenAI's <a href="https://platform.openai.com/docs/ass
 
 <div class='item-footer'>
    03:39 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7428,7 +8163,7 @@ uvx --from jupyter-core jupyter notebook courses
 
 <div class='item-footer'>
    02:52 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7500,7 +8235,7 @@ uvx --from jupyter-core jupyter notebook courses
 
 <div class='item-footer'>
    02:29 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7582,7 +8317,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    20:50 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7686,7 +8421,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    19:59 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7756,7 +8491,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    16:37 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7830,7 +8565,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    05:39 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8238,7 +8973,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    01:45 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8318,7 +9053,7 @@ Three and a half years ago, Elastic <a href="https://www.elastic.co/blog/licensi
 
 <div class='item-footer'>
    23:40 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8395,7 +9130,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    23:28 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8467,7 +9202,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    22:58 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8535,7 +9270,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    22:30 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8607,7 +9342,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    17:55 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8688,7 +9423,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    14:43 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8758,7 +9493,7 @@ Gergely Orosz interviews five members of Anthropic about how they built Artifact
 
 <div class='item-footer'>
    13:06 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8833,7 +9568,7 @@ New hosted API for Llama running at absurdly high speeds: "1,800 tokens per seco
 
 <div class='item-footer'>
    04:14 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8899,7 +9634,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    04:09 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9002,7 +9737,7 @@ const completion = await openai.chat.completions.create({
 
 <div class='item-footer'>
    03:33 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9099,7 +9834,7 @@ Benj Edwards reports on the <a href="https://opensource.org/deepdive/drafts/open
 
 <div class='item-footer'>
    23:26 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9173,104 +9908,7 @@ Benj Edwards reports on the <a href="https://opensource.org/deepdive/drafts/open
 
 <div class='item-footer'>
    23:16 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/27/gemini-chat-app/#atom-everything'>Gemini Chat App</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Gemini Chat App 
-Google released three new Gemini models today: improved versions of Gemini 1.5 Pro and Gemini 1.5 Flash plus a new model, Gemini 1.5 Flash-8B, which is significantly faster (and will presumably be cheaper) than the regular Flash model. 
- The Flash-8B model is described in the Gemini 1.5 family of models paper in section 8: 
- 
- By inheriting the same core architecture, optimization
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2024/gemini-chat-skunk.gif'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://tools.simonwillison.net/gemini-chat">Gemini Chat App</a></p>
-Google <a href="https://x.com/OfficialLoganK/status/1828480081574142227">released</a> three new Gemini models today: improved versions of Gemini 1.5 Pro and Gemini 1.5 Flash plus a new model, Gemini 1.5 Flash-8B, which is significantly faster (and will presumably be cheaper) than the regular Flash model.<p></p>
-<p>The Flash-8B model is <a href="https://arxiv.org/abs/2403.05530">described in the Gemini 1.5 family of models</a> paper in section 8:</p>
-<blockquote>
-<p>By inheriting the same core architecture, optimizations, and data mixture refinements as its larger counterpart, Flash-8B demonstrates multimodal capabilities with support for context window exceeding 1 million tokens. This unique combination of speed, quality, and capabilities represents a step function leap in the domain of single-digit billion parameter models.</p>
-<p>While Flash-8B’s smaller form factor necessarily leads to a reduction in quality compared to Flash and 1.5 Pro, it unlocks substantial benefits, particularly in terms of high throughput and extremely low latency. This translates to affordable and timely large-scale multimodal deployments, facilitating novel use cases previously deemed infeasible due to resource constraints. </p>
-</blockquote>
-<p>The new models are available in <a href="https://aistudio.google.com/">AI Studio</a>, but since I built my own <a href="https://simonwillison.net/2024/Aug/26/gemini-bounding-box-visualization/">custom prompting tool</a> against the Gemini CORS-enabled API the other day I figured I'd build a quick UI for these new models as well.</p>
-<p></p>
-<p>Building this with Claude 3.5 Sonnet took literally ten minutes from start to finish - you can see that <a href="https://gist.github.com/simonw/498a66c1c4b5053a6dfa2015c3675e24">from the timestamps in the conversation</a>. Here's the <a href="https://tools.simonwillison.net/gemini-chat">deployed app</a> and the <a href="https://github.com/simonw/tools/blob/2f2bfd10d2ef829273d43a95e8a86b1ae0140668/gemini-chat.html">finished code</a>.</p>
-<p>The feature I really wanted to build was streaming support. I started with <a href="https://github.com/google-gemini/generative-ai-js/blob/1ad800656dc870c1c5a60c1201baa56ad48b88ee/samples/chat.js">this example code</a> showing how to run streaming prompts in a Node.js application, then told Claude to figure out what the client-side code for that should look like based on a snippet from my bounding box interface hack. My starting prompt:</p>
-<blockquote>
-<p><code>Build me a JavaScript app (no react) that I can use to chat with the Gemini model, using the above strategy for API key usage</code></p>
-</blockquote>
-<p>I still keep hearing from people who are skeptical that <a href="https://simonwillison.net/tags/ai-assisted-programming/">AI-assisted programming</a> like this has any value. It's honestly getting a little frustrating at this point - the gains for things like rapid prototyping are so self-evident now.
-
-
-    </p><p>Tags: <a href="https://simonwillison.net/tags/claude-3-5-sonnet">claude-3-5-sonnet</a>, <a href="https://simonwillison.net/tags/gemini">gemini</a>, <a href="https://simonwillison.net/tags/ai-assisted-programming">ai-assisted-programming</a>, <a href="https://simonwillison.net/tags/javascript">javascript</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/projects">projects</a>, <a href="https://simonwillison.net/tags/anthropic">anthropic</a>, <a href="https://simonwillison.net/tags/claude">claude</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2024/gemini-chat-skunk.gif'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:48 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9344,91 +9982,7 @@ Google <a href="https://x.com/OfficialLoganK/status/1828480081574142227">release
 
 <div class='item-footer'>
    22:30 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/27/distro/#atom-everything'>NousResearch/DisTrO</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   NousResearch/DisTrO 
-DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low latency distributed optimizers that reduce inter-GPU communication requirements by three to four orders of magnitude". 
- This tweet from @NousResearch helps explain why this could be a big deal: 
- 
- DisTrO can increase the resilience and robustness of training LLMs by minimizing dependency on a si
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://github.com/NousResearch/DisTrO">NousResearch/DisTrO</a></p>
-DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low latency distributed optimizers that reduce inter-GPU communication requirements by three to four orders of magnitude".<p></p>
-<p>This <a href="https://twitter.com/NousResearch/status/1828121648383566270">tweet from @NousResearch</a> helps explain why this could be a big deal:</p>
-<blockquote>
-<p>DisTrO can increase the resilience and robustness of training LLMs by minimizing dependency on a single entity for computation. DisTrO is one step towards a more secure and equitable environment for all participants involved in building LLMs.</p>
-<p>Without relying on a single company to manage and control the training process, researchers and institutions can have more freedom to collaborate and experiment with new techniques, algorithms, and models.</p>
-</blockquote>
-<p>Training large models is notoriously expensive in terms of GPUs, and most training techniques require those GPUs to be collocated due to the huge amount of information that needs to be exchanged between them during the training runs.</p>
-<p>If DisTrO works as advertised it could enable SETI@home style collaborative training projects, where thousands of home users contribute their GPUs to a larger project.</p>
-<p>There are more technical details in <a href="https://github.com/NousResearch/DisTrO/blob/main/A_Preliminary_Report_on_DisTrO.pdf">the PDF preliminary report</a> shared by Nous Research on GitHub.</p>
-<p>I continue to hate reading PDFs on a mobile phone, so I converted that report into GitHub Flavored Markdown (to ensure support for tables) and <a href="https://gist.github.com/simonw/46a33d66e069efe5c10b63625fdabb4e">shared that as a Gist</a>. I used Gemini 1.5 Pro (<code>gemini-1.5-pro-exp-0801</code>) in <a href="https://aistudio.google.com/">Google AI Studio</a> with the following prompt:</p>
-<blockquote>
-<p><code>Convert this PDF to github-flavored markdown, including using markdown for the tables. Leave a bold note for any figures saying they should be inserted separately.</code></p>
-</blockquote>
-
-
-    <p>Tags: <a href="https://simonwillison.net/tags/gemini">gemini</a>, <a href="https://simonwillison.net/tags/pdf">pdf</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:10 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9503,7 +10057,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    16:26 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9575,7 +10129,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    13:59 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9643,7 +10197,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    13:41 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9719,7 +10273,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    22:30 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9789,7 +10343,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    13:41 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9857,7 +10411,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    13:02 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10043,7 +10597,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    23:00 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10117,7 +10671,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    22:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10189,7 +10743,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    18:58 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10301,7 +10855,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    17:28 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10373,7 +10927,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    15:42 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10515,7 +11069,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    04:44 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10589,7 +11143,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    00:01 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10669,7 +11223,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    17:09 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10731,7 +11285,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    15:25 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10797,7 +11351,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    15:06 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10865,7 +11419,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    14:52 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10941,7 +11495,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    22:30 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11025,7 +11579,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    14:29 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11179,7 +11733,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    06:10 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11255,7 +11809,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    22:30 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11324,7 +11878,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    16:16 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11396,7 +11950,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    14:22 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11502,7 +12056,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    07:38 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11566,7 +12120,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    22:30 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11734,7 +12288,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    15:48 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11806,81 +12360,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    13:41 &bull;
-   18 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/using-ai-to-feed-my-toddler-on-a-road-trip'>Using AI to feed my toddler on a road trip</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-   This past week I embarked upon two long car drives — from Philadelphia to Cape Cod and back again — with an almost-two year-old. He’s a remarkably good traveler who takes everything in his stride (as long as he has his puffy stickers and you agree to put Elmo on the radio from time to time).  The biggest challenge was finding places for him to eat well: restaurants that wouldn’t bat an eyelid 
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://werd.io/file/66c5ebf0694c76b14d007b42/thumb.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p></p><p>This past week I embarked upon two long car drives — from Philadelphia to Cape Cod and back again — with an almost-two year-old. He’s a remarkably good traveler who takes everything in his stride (as long as he has his puffy stickers and you agree to put Elmo on the radio from time to time).</p><p>The biggest challenge was finding places for him to eat well: restaurants that wouldn’t bat an eyelid at a toddler doing toddler things at the table, that also would have the kinds of food that he likes. (Yes, I packed snacks. But sometimes it’s time to sit down for a real meal.)</p><p>We made it work, but it was always a bit of a guessing game. Would X chain or Y mom-and-pop accommodate his needs? I found myself wishing that there was some kind of app that would just recommend somewhere to go — particularly as he could get hungry at a moment’s notice, and faffing around with restaurant reviews while I was driving was an impossibility.</p><p>So out of interest, once I returned, I asked ChatGPT for recommendations:</p><blockquote><p>Find a restaurant suitable for attending with a toddler in Elkins Park, PA. Please just return the restaurant name and address; don't share any other information.</p></blockquote><p>It returns:</p><blockquote><p>The Creekside Co-op<br>7909 High School Rd, Elkins Park, PA 19027</p></blockquote><p>That’s pretty good! Creekside is a local marketplace and brewery near where I live that absolutely is suitable for hanging out with a toddler.</p><p>I tried it in a few locations. In the part of Cape Cod where we were staying, it suggested the <a href="https://moonakiscafe.com/">Moonakis Cafe</a>, which is a superb choice. In the part of Oxford, England, where I grew up, it suggested <a href="https://butcombe.com/the-victoria-arms-oxfordshire/">The Victoria Arms</a> — again, no complaints whatsoever. I’d eat there with my little one in a heartbeat.</p><p>So what if I want to make this a simple app, starting on the web?</p><p>It turns out that you can replace the name of the location in the query with its GPS coordinates, which simplifies matters a great deal. You can get <a href="https://w3c.github.io/geolocation/">the user’s current location via the web geolocation API</a>: you can then plug that straight into the query, make an API call, and forward the user directly to a Google Maps view for the restaurant. Reverse geocoding APIs, which take latitude and longitude and return a human-readable name, <a href="https://www.geoapify.com/reverse-geocoding-api/">are also available</a>, and might be useful — but they tend to cost money, and the API call to ChatGPT is already an expense.</p><p>More refinements are possible, of course. Most crucially, it would be helpful to know if a given restaurant is actually open; on a road trip, it would also be very useful to find restaurants that are close to the freeway. I wouldn’t mind seeing a top 3 or top 5 list with the relative merits of each one. And being able to plan a trip around toddler-friendly eating spots in advance would be gold.</p><p>What’s sort of neat about the technology is that this is all actually very feasible — in an hour or two. Using AI as an engine in this way cuts out a lot of development time, not to mention the need to gather your own database. There are obviously ethical issues related to how these models were trained, which are sure to be litigated for years to come. But here we’re not creating any new content or replacing an artist: we’re making it easier to find our way to a local business.</p><p>The next time I’m on a road trip with my little one and I see that he’s starting to get hungry, I’ll be able to hit a button on my phone and get directions to a nearby place that will probably be appropriate for him to sit down and eat at. I think that’s cool.</p> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://werd.io/file/66c5ebf0694c76b14d007b42/thumb.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:30 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11956,7 +12436,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    21:39 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12021,7 +12501,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    18:31 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12096,7 +12576,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    15:13 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12172,7 +12652,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    22:02 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12248,7 +12728,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    22:30 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12312,7 +12792,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    23:00 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12686,7 +13166,7 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    09:50 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12762,64 +13242,6 @@ DisTrO stands for Distributed Training Over-The-Internet - it's "a family of low
 
 <div class='item-footer'>
    23:00 &bull;
-   22 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://idmlab.eidentity.jp/2024/08/review_16.html'>選択的開示に関するReview論文を読む（７）</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   こんにちは、富士榮です。     引き続き選択的開示に関する調査論文を読んでいきます。  Selective disclosure in digital credentials: A review  https://www.sciencedirect.com/science/article/pii/S2405959524000614     今回は研究と実装の間に、、、という話です。     論文中には研究の対象となっている選択的開示技術と社会実装における各種規制などとのギャップについて記載があります。  例えばGDPRとCRPA（記載時点ではCCPA）などを鑑みると選択的情報開示の実装には以下の要件が求められると書かれています。    Disclosing attributes from at least two separate credentials issued by the sa
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>こんにちは、富士榮です。</p><p><br></p><p>引き続き選択的開示に関する調査論文を読んでいきます。</p><p>Selective disclosure in digital credentials: A review</p><p><a href="https://www.sciencedirect.com/science/article/pii/S2405959524000614">https://www.sciencedirect.com/science/article/pii/S2405959524000614</a></p><p><br></p><p>今回は研究と実装の間に、、、という話です。</p><p><br></p><p>論文中には研究の対象となっている選択的開示技術と社会実装における各種規制などとのギャップについて記載があります。</p><p>例えばGDPRとCRPA（記載時点ではCCPA）などを鑑みると選択的情報開示の実装には以下の要件が求められると書かれています。</p><p></p>  Disclosing attributes from at least two separate credentials issued by the same or different issuers;  Proving disclosed attributes belong to the subject presenting them;  Ensuring disclosed attributes are unlinkable from multiple presentation sessions;  Proving that disclosed attributes belong to the appropriate credential.  同一または異なる発行者によって発行された少なくとも2つの別個のクレデンシャルから属性を開示すること。  開示された属性が提示した対象に属することを証明すること。  開示された属性が複数の提示セッションからリンクできないことを保証すること。  開示された属性が適切なクレデンシャルに属することを証明すること。   本論文で分析した対象の中には要件を達成しているものもあるが全く考慮されていないものも存在している、ということです。  要するに要件が整理されてくるより前に要素技術の研究が始まって自由に仕様を作っていっていた、ということなんでしょう。。  <br>  同じく実装を見ると以下のようなギャップに関しても指摘されています。     Balancing privacy with transparency — one of the biggest challenges is balancing the need for privacy with the requirements for transparency;  Regulatory compliance — as laws evolve, ensuring that technology complies with international, federal, and national regulations is becoming increasingly complex;  Security risks — implementing selective disclosure increases the complexity of the encryption system, potentially introducing new vulnerabilities;  Scalability and efficiency — certain solutions may need to be more scalable and efficient for widespread use. There is a need for a more robust system that can handle large volumes of data.  プライバシーと透明性のバランス — 最大の課題のひとつは、プライバシーの必要性と透明性の要件のバランスを取ることです。  規制への準拠 — 法規制の進化に伴い、テクノロジーが国際的、連邦、および国家レベルの規制に準拠することはますます複雑化しています。  セキュリティリスク — 選択的開示を実施すると、暗号化システムの複雑性が増し、新たな脆弱性が潜在的に生じる可能性があります。  拡張性と効率性 — 特定のソリューションは、より広範な用途に利用できるよう、より拡張性と効率性を高める必要があるかもしれません。 大量のデータを処理できる、より強固なシステムが必要です。     <br>  確かに3つ目の実装の複雑性がますことでセキュリティ・リスクが高まる、という視点はあるなぁ、、と思ってみていました。  SAMLの脆弱性の話など、どうしても頑張って実装する必要がある仕様って、仕様は正しいんだけど実装で間違える、ってことが起きがちですね。  <br>  また、PQCの話も重要な点として指摘されています。  署名ベースの場合は、アルゴリズムの強度を考えないとポスト量子セキュアとは言えませんね。  <br>  <br>  いよいよ次は結論というかまとめの部分です。  <br>  <br>  <br> 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:14 &bull;
    23 days ago
 </div>
 
@@ -13031,7 +13453,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    04:29 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13489,7 +13911,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    23:39 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13558,7 +13980,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    16:17 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13650,7 +14072,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    09:08 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13886,7 +14308,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    06:55 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13950,7 +14372,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    03:14 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14027,7 +14449,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    14:58 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14103,7 +14525,7 @@ But not as a small one.</p>
 
 <div class='item-footer'>
    12:49 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14389,7 +14811,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    05:41 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14456,7 +14878,7 @@ public static class SecurityHeadersDefinitions
 
 <div class='item-footer'>
    17:21 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16280,7 +16702,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    20:26 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20826,7 +21248,7 @@ Most of these reports involve overturned trees into homes, some with significant
 
 <div class='item-footer'>
    03:17 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21015,7 +21437,7 @@ bittersweet for me, but I’m happy to continue to participate in PGCONf.dev.</p
 
 <div class='item-footer'>
    21:41 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21090,7 +21512,7 @@ bittersweet for me, but I’m happy to continue to participate in PGCONf.dev.</p
 
 <div class='item-footer'>
    16:26 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -21166,7 +21588,7 @@ bittersweet for me, but I’m happy to continue to participate in PGCONf.dev.</p
 
 <div class='item-footer'>
    13:42 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -26202,7 +26624,7 @@ public static class ValidateIdTokenHintRequestPayload
 
 <div class='item-footer'>
    05:50 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -27313,184 +27735,6 @@ Space Technology</a> 🤦🏻‍♂️.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    21:56 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://herestomwiththeweather.com'>Heres Tom with the Weather</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://herestomwiththeweather.com/2024/05/22/feditesting/'>Feditesting!</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   It’s cool to see the progress of the FediTest project.  On March 7, there was a show-and-tell online meeting and at the end of April, a FediTest implementation update included a Quickstart to try out some examples. 
-
- I was pleasantly surprised by the experience (including the specification annotations referencing each test) and the organization of the testing framework even at an early stage.  I 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>It’s cool to see the progress of the <a href="https://feditest.org/">FediTest</a> project.  On March 7, there was a <a href="https://fedidevs.org/notes/2024-03-07/">show-and-tell online meeting</a> and at the end of April, a <a href="https://feditest.org/blog/2024-04-30-update/">FediTest implementation update</a> included a <a href="https://feditest.org/docs/quickstart/">Quickstart</a> to try out some examples.</p>
-
-<p>I was pleasantly surprised by the experience (including the specification annotations referencing each test) and the organization of the testing framework even at an early stage.  I was able to get all the tests for the <a href="https://github.com/fediverse-devnet/feditest-tests-fediverse/blob/develop/example-testplans/saas-imp-webfinger-server.json">sass-imp-webfinger-server testplan</a> passing last night for <a href="https://github.com/herestomwiththeweather/irwin">Irwin</a>.  For each failing test, I created an issue and referenced the test (e.g. <a href="https://github.com/herestomwiththeweather/irwin/issues/15"> Well-known webfinger should respond with access-control-allow-origin header #15 </a> ).</p>
-
-<p>Here’s the output of this example testplan:</p>
-
-  <code>TAP version 14
-# test plan: Unnamed
-# started: 2024-05-22 06:33:53.423983+00:00
-# ended: 2024-05-22 06:34:42.924770+00:00
-# platform: Linux-6.5.0-28-generic-x86_64-with-glibc2.35
-# username: tbbrown
-# hostname: agency
-# session: Unnamed
-# constellation: Unnamed
-#   roles:
-#     - name: client
-#       driver: imp.ImpInProcessNodeDriver
-#     - name: server
-#       driver: saas.SaasFediverseNodeDriver
-ok 1 - webfinger.server.4_1__2_parameter_ordering_not_significant::parameter_ordering
-ok 2 - webfinger.server.4_2__14_must_only_redirect_to_https::must_only_redirect_to_https
-ok 3 - webfinger.server.4_2__3_requires_resource_uri::requires_resource_uri
-ok 4 - webfinger.server.4_2__4_do_not_accept_malformed_resource_parameters::double_equals
-ok 5 - webfinger.server.4_2__4_do_not_accept_malformed_resource_parameters::not_percent_encoded
-ok 6 - webfinger.server.4_2__5_status_404_for_nonexisting_resources::status_404_for_nonexisting_resources
-ok 7 - webfinger.server.4_5__1_any_uri_scheme_for_resource_identifiers::any_uri_scheme_for_resource_identifiers
-ok 8 - webfinger.server.4__1_accepts_all_link_rels_in_query::accepts_combined_link_rels_in_query
-ok 9 - webfinger.server.4__1_accepts_all_link_rels_in_query::accepts_known_link_rels_in_query
-ok 10 - webfinger.server.4__1_accepts_all_link_rels_in_query::accepts_unknown_link_rels_in_query
-ok 11 - webfinger.server.4__3_only_returns_jrd_in_response_to_https_requests::only_returns_jrd_in_response_to_https
-ok 12 - webfinger.server.5_1_cors_header_required::cors_header_required
-1..12
-# test run summary:
-#   total: 12
-#   passed: 12
-#   failed: 0
-#   skipped: 0
-#   errors: 0
-</code> 
- 
-
-<p>Getting these tests passing certainly improved the code and my understanding of the webfinger spec. Thanks to Johannes Ernst and the <a href="https://fedidevs.org">Fediverse Developer Network</a> community for this.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   17:29 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.windley.com/'>Phil Windleys Technometria</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.technometria.com/p/can-llms-provide-references-for-their'>Can LLMs Provide References for Their Work? An Experiment</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Recently my friend Scott Mace asked this on X in response to a post about the evolution of software and how LLMs will likely follow that same trajectory:
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fae49950f-95f1-402b-bce7-eca2c2164cc9.heic">    </a> <p>Recently my friend <a href="https://maceonhealthcare.blogspot.com/">Scott Mace</a> <a href="https://x.com/scottmace/status/1792624531368185920">asked this on X</a> in response to a post about the evolution of software and how LLMs will likely follow that same trajectory:</p><blockquote><p>Yes, but how trustworthy will it be? Can I at least see the links it used to create its response?</p><p>From <a href="https://x.com/windley/status/1792883491757076592">X</a><br>Referenced 2024-05-21T18:09:06-0400</p></blockquote><p>The short answer is "no", but the real answer is a bit more nuanced because of how LLMs like ChatGPT work. First the short answer: LLMs don't understand what they're saying so they can't reference the material that it used to create a response. They don't work like that. They don't go out, do a bunch of research and then create a response. Instead lots (and I mean LOTS) of material is fed into the program that creates the model, a multi-dimensional matrix of word orders. Then when you ask a question ("give it prompt" in LLM-speak), it processes the question and generates text based on the probabilities of words in its model1. There no way if can satisfy Scott directly cause the model doesn't—can't, as far as I know—include the references that it used to create the text cause it's generating it on the fly from material that has been thoroughly blended together.</p><p>But, in fairness, that's not what people do most of the time either. If you asked me over lunch or at the end of a tech presentation to describe zero trust and its pros and cons, I'd start talking. I wouldn't start looking up things on the web and somehow weave them into text complete with references. I'd go look for references if you asked me to back up something I said. So, let's try that with ChatGPT 4o. I gave it the following prompt:</p><blockquote><p>You are a writer for a website focusing on technology. Your specialty is security. Write a 150 word explanation of zero trust with three pros and three cons.</p></blockquote><p>ChaptGPT answered with this text:</p><blockquote><p>Zero Trust is a security model based on the principle of "never trust, always verify." Unlike traditional security models that assume everything inside the network is safe, Zero Trust assumes that threats can exist both inside and outside the network. It requires strict identity verification for every user and device attempting to access resources, regardless of their location.</p><p>Pros:</p>  <p>Enhanced Security: By continuously verifying users and devices, Zero Trust reduces the risk of breaches and unauthorized access.</p>  <p>Minimized Attack Surface: It limits access to only what is necessary, reducing potential entry points for attackers.</p>  <p>Improved Compliance: Helps meet regulatory requirements by ensuring strict access controls and logging all access attempts.</p>  <p>Cons:</p>  <p>Complex Implementation: Deploying Zero Trust can be complex and time-consuming, requiring a significant overhaul of existing systems and processes.</p>  <p>Increased Costs: The initial investment in technology and training can be high.</p>  <p>User Experience Impact: Continuous verification can lead to friction and inconvenience for users if not implemented smoothly.</p>  <p>Zero Trust is essential for modern cybersecurity, but it requires careful planning and resources to implement effectively.</p></blockquote><p>That's pretty good. But what if we need some references to other material to back up the pros and cons? I asked ChatGPT to supply them:</p><blockquote><p>Now repeat that task, but this time include references as hyperlinks to back up each pro and con.</p></blockquote><p>ChaptGPT answered with this text:</p><blockquote><p>Zero Trust is a security model based on the principle of "never trust, always verify." Unlike traditional security models that assume everything inside the network is safe, Zero Trust assumes that threats can exist both inside and outside the network. It requires strict identity verification for every user and device attempting to access resources, regardless of their location.</p><p>Pros:</p>  <p>Enhanced Security: By continuously verifying users and devices, Zero Trust reduces the risk of breaches and unauthorized access (<a href="https://www.csoonline.com/article/3572352/what-is-zero-trust.html">CSO Online</a>).</p>  <p>Minimized Attack Surface: It limits access to only what is necessary, reducing potential entry points for attackers (<a href="https://www.nist.gov/publications/zero-trust-architecture">NIST</a>).</p>  <p>Improved Compliance: Helps meet regulatory requirements by ensuring strict access controls and logging all access attempts (<a href="https://www.gartner.com/en/newsroom/press-releases/2021-04-06-gartner-says-zero-trust-is-the-future-of-security">Gartner</a>).</p>  <p>Cons:</p>  <p>Complex Implementation: Deploying Zero Trust can be complex and time-consuming, requiring a significant overhaul of existing systems and processes (<a href="https://go.forrester.com/blogs/what-are-the-most-common-zero-trust-pitfalls/">Forrester</a>).</p>  <p>Increased Costs: The initial investment in technology and training can be high (<a href="https://www.zdnet.com/article/what-is-zero-trust/">ZDNet</a>).</p>  <p>User Experience Impact: Continuous verification can lead to friction and inconvenience for users if not implemented smoothly (<a href="https://www.techrepublic.com/article/zero-trust-security-model/">TechRepublic</a>).</p>  <p>Zero Trust is essential for modern cybersecurity, but it requires careful planning and resources to implement effectively.</p></blockquote><p>That looks great! Nice references for each bullet. There's just one problem. All the links, except the NIST reference, are dead. I don't know if they're wrong, made up, or stale. I tried finding content on a few of the sites by searching and came up dry. As I heard Johannes Ernst say once, ChatGPT is a "large language model" not a "large fact model" and this bears that out.</p><p>Still, asking for references or evidence for statements is something people are going to want. So, I tried a different tack. This time I asked this:</p><blockquote><p>Why do you say complex implementation is a problem for zero trust? Can you give me a few references on that I can read myself?</p></blockquote><p>ChatGPT responded with this:</p><blockquote><p>Implementing a Zero Trust security model can be challenging for several reasons:</p>  <p>Overall Complexity: Zero Trust requires a comprehensive understanding of your network's intricacies, including users, devices, applications, and data. This can involve significant changes to existing infrastructure, which can be disruptive and costly. Organizations need to be prepared for the extensive planning and resources required for successful implementation​ (<a href="https://www.helpnetsecurity.com/2024/02/01/zero-trust-challenges/">Help Net Security</a>)​​ (<a href="https://www.enterprisenetworkingplanet.com/security/pros-and-cons-of-zero-trust-security/">Enterprise Networking Planet</a>​).</p>  <p>Legacy Systems: Many organizations have legacy systems that are not designed to operate within a Zero Trust framework. These systems might require different security measures or even complete replacement, adding to the complexity and cost (<a href="https://www.helpnetsecurity.com/2024/02/01/zero-trust-challenges/">Help Net Security</a>)​​ (<a href="https://www.enterprisenetworkingplanet.com/security/pros-and-cons-of-zero-trust-security/">Enterprise Networking Planet</a>​)</p>  <p>Cultural Shift: Zero Trust is not just a technological shift but also a cultural one. It requires continuous verification and strict access controls, which can lead to user frustration and resistance if not managed properly. Ensuring user buy-in and minimizing disruption to workflows through training and communication is essential (<a href="https://www2.deloitte.com/us/en/blog/human-capital-blog/2022/zero-trust-adoption-for-human-centered-cyber-security.html">Deloitte United States</a>)​​ (<a href="https://guidehouse.com/case-studies/defense-and-security/2023/implementing-zero-trust-across-a-complex-multi-agency-client">Guidehouse</a>).</p>  <p>Resource Intensive: Implementing and maintaining Zero Trust can put a strain on IT resources due to the need for continuous monitoring and management. The need for advanced security tools and ongoing updates further adds to the resource demands (<a href="https://www.helpnetsecurity.com/2024/02/01/zero-trust-challenges/">Help Net Security</a>)​​ (<a href="https://www.enterprisenetworkingplanet.com/security/pros-and-cons-of-zero-trust-security/">Enterprise Networking Planet</a>​).</p>  <p>Stakeholder Alignment: Achieving buy-in from all stakeholders and aligning them with the Zero Trust principles is critical. This requires a coordinated effort to educate stakeholders, prioritize gaps, and ensure consistent understanding and application of Zero Trust principles across the organization (<a href="https://www2.deloitte.com/us/en/blog/human-capital-blog/2022/zero-trust-adoption-for-human-centered-cyber-security.html">Deloitte United States</a>)​​ (<a href="https://guidehouse.com/case-studies/defense-and-security/2023/implementing-zero-trust-across-a-complex-multi-agency-client">Guidehouse</a>).</p>  <p>These challenges highlight the importance of a phased and well-planned approach to Zero Trust implementation, considering both technological and human factors. For more detailed insights, you can refer to articles from <a href="https://www.helpnetsecurity.com/2024/02/01/zero-trust-implementation-plan/">Help Net Security</a> and <a href="https://guidehouse.com/insights/cybersecurity/2023/implementing-zero-trust-across-complex-multi-agency-client">Guidehouse</a>.</p></blockquote><p>Much better. The links in the bullets all work, but the ones at the end don't. The articles it references aren’t very detailed, so I wouldn’t say they’re stellar references, but at least there’s a pointer to outside material that discusses similar challenges. So, partial success. </p><p>I've found that when you're using ChatGPT to do research, treating it like a librarian and asking questions that follow up are the best way to gain confidence that the material is correct and find the supporting material, just like I did above. I'm sure you could wrap additional helper functions around an LLM to make getting references easier. But for now interrogation through chat is the best way to get comfortable with the results.</p> Notes   <p>Yeah, this is really simplified and thus wrong, but it's directionally correct. For a better explanation, see <a href="https://writings.stephenwolfram.com/2023/02/what-is-chatgpt-doing-and-why-does-it-work/">What Is ChatGPT Doing … and Why Does It Work?</a>.</p>  <p>Photo Credit: Older Man Talking to Robot Librarian from DALL-E (public domain) Prompt: draw me a rectanglular picture of an older man talking with a robot librarian. Use earth tones.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fae49950f-95f1-402b-bce7-eca2c2164cc9.heic'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   14:01 &bull;
    4 months ago
 </div>
 
