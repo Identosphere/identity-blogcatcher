@@ -726,12 +726,630 @@
 
 </div>
 </div>
-<sup>Last Update 6:47 AM September 15, 2024 (UTC)</sup>
+<sup>Last Update 6:49 AM September 16, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
 
 <p>Brought to you by <a href="https://identitywoman.net">Identity Woman</a> and <a href="https://github.com/infominer33">Infominer</a>.<br><a href="https://www.patreon.com/user?u=35769676">Support this collaboration on Patreon</a>!!!</p>
+
+
+
+
+ <h2 class='new-date'>
+  Monday, 16. September 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/09/16/using-elasticsearch-with-net-aspire/'>Using Elasticsearch with .NET Aspire</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This post shows how to use Elasticsearch in .NET Aspire. Elasticsearch is setup to use HTTPS with the dotnet developer certificates and and simple client can be implemented to query the data. Code: https://github.com/damienbod/keycloak-backchannel Setup Two services are setup to run in .NET Aspire. The first service is the official Elasticsearch docker container and deployed […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This post shows how to use Elasticsearch in .NET Aspire. Elasticsearch is setup to use HTTPS with the dotnet developer certificates and and simple client can be implemented to query the data.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/keycloak-backchannel">https://github.com/damienbod/keycloak-backchannel</a></p>
+
+
+
+ Setup 
+
+
+
+<p>Two services are setup to run in .NET Aspire. The first service is the official Elasticsearch docker container and deployed using dotnet developer certificates. The second service is an ASP.NET Core application using the Elastic.Clients.Elasticsearch Nuget package. The App.Host project is used to set this up and to link the services together.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Elasticsearch development server 
+
+
+
+<p>The Elasticsearch container is configured in the program class of the App.Host project. The container is run using HTTPS and takes the Aspire parameters for configuration of the default account.</p>
+
+
+  var elasticsearch = builder.AddElasticsearch("elasticsearch", 
+                password: passwordElastic)
+    .WithDataVolume()
+    .RunElasticWithHttpsDevCertificate(port: 9200);
+  
+
+
+<p></p>
+
+
+
+<p>The developer certificates needs to be created and copied to the specific folder inside the Elasticsearch docker container. This is implemented using a shared folder and the Elasticsearch xpack.security.http.ssl properties are set to match. This following three properties are used:</p>
+
+
+
+ 
+ xpack.security.http.ssl.enabled 
+
+
+
+ xpack.security.http.ssl.certificate 
+
+
+
+ xpack.security.http.ssl.key 
+ 
+
+
+  using System.Diagnostics;
+using System.IO.Hashing;
+using System.Text;
+
+namespace Aspire.Hosting;
+
+public static class HostingElasticExtensions
+{
+    public static IResourceBuilder&lt;ElasticsearchResource&gt; RunElasticWithHttpsDevCertificate(this IResourceBuilder&lt;ElasticsearchResource&gt; builder, int port = 9200, int targetPort = 9200)
+    {
+        if (builder.ApplicationBuilder.ExecutionContext.IsRunMode)
+        {
+            builder
+                .RunElasticWithHttpsDevCertificate()
+                .WithHttpsEndpoint(port: port, targetPort: targetPort)
+                .WithEnvironment("QUARKUS_HTTP_HTTP2", "false");
+        }
+
+        return builder;
+    }
+
+    public static IResourceBuilder&lt;TResource&gt; RunElasticWithHttpsDevCertificate&lt;TResource&gt;(this IResourceBuilder&lt;TResource&gt; builder)
+        where TResource : IResourceWithEnvironment
+    {
+        const string DEV_CERT_DIR = "/usr/share/elasticsearch/config/certificates";
+
+        if (builder.ApplicationBuilder.ExecutionContext.IsRunMode)
+        {
+            // Export the ASP.NET Core HTTPS development certificate &amp; private key to PEM files, bind mount them into the container
+            // and configure it to use them via the specified environment variables.
+            var (certPath, _) = ExportElasticDevCertificate(builder.ApplicationBuilder);
+            var bindSource = Path.GetDirectoryName(certPath) ?? throw new UnreachableException();
+
+            if (builder.Resource is ContainerResource containerResource)
+            {
+                builder.ApplicationBuilder.CreateResourceBuilder(containerResource)
+                    .WithBindMount(bindSource, DEV_CERT_DIR, isReadOnly: false);
+            }
+
+            builder
+                .WithEnvironment("xpack.security.http.ssl.enabled", "true")
+                .WithEnvironment("xpack.security.http.ssl.certificate", $"{DEV_CERT_DIR}/dev-cert.pem")
+                .WithEnvironment("xpack.security.http.ssl.key", $"{DEV_CERT_DIR}/dev-cert.key");
+        }
+
+        return builder;
+    }
+
+    private static (string, string) ExportElasticDevCertificate(IDistributedApplicationBuilder builder)
+    {
+        var appNameHashBytes = XxHash64.Hash(Encoding.Unicode.GetBytes(builder.Environment.ApplicationName).AsSpan());
+        var appNameHash = BitConverter.ToString(appNameHashBytes).Replace("-", "").ToLowerInvariant();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"aspire.{appNameHash}");
+        var certExportPath = Path.Combine(tempDir, "dev-cert.pem");
+        var certKeyExportPath = Path.Combine(tempDir, "dev-cert.key");
+
+        if (File.Exists(certExportPath) &amp;&amp; File.Exists(certKeyExportPath))
+        {
+            // Certificate already exported, return the path.
+            return (certExportPath, certKeyExportPath);
+        }
+        else if (Directory.Exists(tempDir))
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+        
+        Directory.CreateDirectory(tempDir);
+
+        var exportProcess = Process.Start("dotnet", $"dev-certs https --export-path \"{certExportPath}\" --format Pem --no-password");
+
+        var exited = exportProcess.WaitForExit(TimeSpan.FromSeconds(5));
+        if (exited &amp;&amp; File.Exists(certExportPath) &amp;&amp; File.Exists(certKeyExportPath))
+        {
+            return (certExportPath, certKeyExportPath);
+        }
+        else if (exportProcess.HasExited &amp;&amp; exportProcess.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"HTTPS dev certificate export failed with exit code {exportProcess.ExitCode}");
+        }
+        else if (!exportProcess.HasExited)
+        {
+            exportProcess.Kill(true);
+            throw new InvalidOperationException("HTTPS dev certificate export timed out");
+        }
+
+        throw new InvalidOperationException("HTTPS dev certificate export failed for an unknown reason");
+    }
+}
+  
+
+
+<p>When the App.Host project is started, the Elasticsearch containers boot up and the server can be tested using the “_cat” HTTP Get requests or the default base URL will give a server information about Elasticsearch.</p>
+
+
+
+<p><a href="https://localhost:9200/_cat">https://localhost:9200/_cat</a></p>
+
+
+
+<p></p>
+
+
+
+ Elasticsearch client 
+
+
+
+<p>The Elasticsearch client was implemented using the Elastic.Clients.Elasticsearch Nuget package. The client project in .NET Aspire needs to reference the Elasticsearch server using the WithReference method.</p>
+
+
+  builder.AddProject&lt;Projects.ElasticsearchAuditTrail&gt;(
+             "elasticsearchaudittrail")
+    .WithExternalHttpEndpoints()
+    .WithReference(elasticsearch);
+  
+
+
+<p></p>
+
+
+
+<p>Elasticsearch can be queried used a simple query search.</p>
+
+
+  public async Task&lt;IEnumerable&lt;T&gt;&gt; QueryAuditLogs(string filter = "*", 
+        AuditTrailPaging auditTrailPaging = null)
+{
+    var from = 0;
+    var size = 10;
+    EnsureElasticClient(_indexName, _options.Value);
+    await EnsureAlias();
+
+    if (auditTrailPaging != null)
+    {
+        from = auditTrailPaging.Skip;
+        size = auditTrailPaging.Size;
+        if (size &gt; 1000)
+        {
+            // max limit 1000 items
+            size = 1000;
+        }
+    }
+    var searchRequest = new SearchRequest&lt;T&gt;(Indices.Parse(_alias))
+    {
+        Size = size,
+        From = from,
+        Query = new SimpleQueryStringQuery
+        {
+            Query = filter
+        },
+        Sort = BuildSort()
+    };
+
+    var searchResponse = await _elasticsearchClient
+                  .SearchAsync&lt;T&gt;(searchRequest);
+
+    return searchResponse.Documents;
+}
+  
+
+
+<p></p>
+
+
+
+<p>See the source code: <a href="https://github.com/damienbod/keycloak-backchannel/blob/main/AuditTrail/AuditTrailProvider.cs">https://github.com/damienbod/keycloak-backchannel/blob/main/AuditTrail/AuditTrailProvider.cs</a></p>
+
+
+
+ Notes 
+
+
+
+<p>With this setup, it is easy to develop using Elasticsearch as a container and no service needs to be implemented on the developer host PC. Setting up HTTPS is a little bit complicated and it would be nice to see this supported better. The development environment should be as close as possible to the deployed versions. HTTPS should be used in development.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/dotnet/aspire/search/elasticsearch-integration">https://learn.microsoft.com/en-us/dotnet/aspire/search/elasticsearch-integration</a></p>
+
+
+
+<p><a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html">https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html</a></p>
+
+
+
+<p><a href="https://www.elastic.co/products/elasticsearch">https://www.elastic.co/products/elasticsearch</a></p>
+
+
+
+<p><a href="https://github.com/elastic/elasticsearch-net">https://github.com/elastic/elasticsearch-net</a></p>
+
+
+
+<p><a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-simple-query-string-query.html">https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-simple-query-string-query.html</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/09/aspire-elastic-2.png?w=581'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:24 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/09/16/i-love-this.html'> I love this guy - hangs out on insta - and that is an extrao</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I love this guy - hangs out on insta - and that is an extraordinary list … 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/e281ed85bf.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I love this guy - hangs out on insta - and that is an extraordinary list …</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/e281ed85bf.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   02:38 &bull;
+   4 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/09/16/i-havent-been.html'> I haven’t been using Craft Objects beta .. at all .. but loo</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I haven’t been using Craft Objects beta .. at all .. but looking forward to it .. particularly after watching a short video from ‘Viktor’ that he pushed out in August. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I haven’t been using Craft Objects beta .. at all .. but looking forward to it .. particularly after watching a short video from ‘Viktor’ that he pushed out in August.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:23 &bull;
+   5 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/how-to-succeed-in-mrbeast-production-leaked-pdf'>HOW TO SUCCEED IN MRBEAST PRODUCTION (leaked PDF)</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+                 
+ [Simon Willison]   "Whether or not you enjoy MrBeast’s format of YouTube videos, this leaked onboarding document for new members of his production company is a compelling read."   It really is fascinating. It's also really badly written, which says a lot about the priorities MrBeast instills in his team. Simon points out that video is ingrained in the culture:   "Which is more 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+                 
+<p>[<a href="https://simonwillison.net/2024/Sep/15/how-to-succeed-in-mrbeast-production/">Simon Willison</a>]</p><blockquote><p>"Whether or not you enjoy MrBeast’s format of YouTube videos, this leaked onboarding document for new members of his production company is a compelling read."</p></blockquote><p>It really is fascinating. It's also really badly written, which says a lot about the priorities MrBeast instills in his team. Simon points out that video is ingrained in the culture:</p><blockquote><p>"Which is more important, that one person has a good mental grip of something or that their entire team of 10 people have a good mental grip on something? Obviously the team. And the easiest way to bring your team up to the same page is to freaken video everything and store it where they can constantly reference it. A lot of problems can be solved if we just video sets and ask for videos when ordering things. [...] Since we are on the topic of communication, written communication also does not constitute communication unless they confirm they read it."</p></blockquote><p>MrBeast will be studied for decades to come: a piece of the culture that, like him or not, is genuinely new. This document is a key to understanding what he does.</p>
+<p><a href="https://werd.io/tag/Media">#Media</a></p>
+            <p>[<a href="https://simonwillison.net/2024/Sep/15/how-to-succeed-in-mrbeast-production/">Link</a>]</p>
+         
+     
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   00:42 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://idmlab.eidentity.jp/'>IdM Laboratory</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://idmlab.eidentity.jp/2024/09/google-wallet.html'>Google Walletへ搭載できる証明書</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  こんにちは、富士榮です。    Gogole Walletへの米国パスポートの搭載が先日発表されましたね。  崎村さんがGoogleのアナウンスについてポストされているのでこちらを見ると良いと思います。  https://www.sakimura.org/2024/09/6359/     簡単にいうと、米国のパスポートをGoogle Walletへ格納することができるいう話で、現在はまだ紙のパスポートと併用、かつTSAチェックでしか使えないが、将来的にはもっと使える場所の拡大をしていこう、としているという話です。     日本でも早く使えるようになるといいですねぇ。  まだ、日本では決済以外だとイベントのチケットや航空券やポイントカードなどが搭載できるくらいですし。     日本で追加できるのは    支払いカード  ポイントカード  ギフトカード  写真   の４カテゴリ。       
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://blogger.googleusercontent.com/img/a/AVvXsEjYb-sXb7JUiYjugz5QGWNyf0UAVbYl1GWHR1pPA9ViEjQs8Ghc58KF3bNysmffUziTsdk6KxP3ZHqG9Hc-FMy60SPzSsNlkvzSa-4VDVUdRS78YLydrMvAQjgfoUsJiv7FIt0uQi6nphlzM2rlWYq2EjCg6gFLPcMOEECnCExEI2TaAgXKm5ZkKu0QArLB=w288-h640'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+こんにちは、富士榮です。 <br>  Gogole Walletへの米国パスポートの搭載が先日発表されましたね。  崎村さんがGoogleのアナウンスについてポストされているのでこちらを見ると良いと思います。  <a href="https://www.sakimura.org/2024/09/6359/">https://www.sakimura.org/2024/09/6359/</a>  <br>  簡単にいうと、米国のパスポートをGoogle Walletへ格納することができるいう話で、現在はまだ紙のパスポートと併用、かつTSAチェックでしか使えないが、将来的にはもっと使える場所の拡大をしていこう、としているという話です。  <br>  日本でも早く使えるようになるといいですねぇ。  まだ、日本では決済以外だとイベントのチケットや航空券やポイントカードなどが搭載できるくらいですし。  <br>  日本で追加できるのは    支払いカード  ポイントカード  ギフトカード  写真   の４カテゴリ。   <br> <a href="https://blogger.googleusercontent.com/img/a/AVvXsEjYb-sXb7JUiYjugz5QGWNyf0UAVbYl1GWHR1pPA9ViEjQs8Ghc58KF3bNysmffUziTsdk6KxP3ZHqG9Hc-FMy60SPzSsNlkvzSa-4VDVUdRS78YLydrMvAQjgfoUsJiv7FIt0uQi6nphlzM2rlWYq2EjCg6gFLPcMOEECnCExEI2TaAgXKm5ZkKu0QArLB"></a> <br>ポイントカードは色々と使えるものが増えていますね。<br> <a href="https://blogger.googleusercontent.com/img/a/AVvXsEgKKYyaUIRhlc5wd9Zu6-elmQY1C24l5mI46kPTP8mWsny0wQeQ1u5MZUUqjgT_Y5Z40bbu0rTFT41S8etU_t4kpDKlkb8m-117FZPpbNYm0e118wXzaJcYMVHNJhEOlwjIVLhzD-TB9wd-aeznSxJaUdXQPhhY8G_MTtwLdc966pE5JaWfa9XgucMq4Wpd"></a>   <br>  <br>  ところで、米国を含む海外ではGoogle Walletは何に使えるのかみていきましょう。  <br>  Google Walletのヘルプページを見ると色々なものが搭載できるようになっているようです。  https://support.google.com/wallet/answer/12059409?hl=ja&amp;ref_topic=11925097&amp;sjid=8720886013754835920-AP  <br>  日本語ページなのでちょっと直訳感がありますが、右側のナビゲーションを見ると、関連トピックスとしてこちらが記載されています。    お支払い方法  搭乗券やイベント チケットを保存して使用する  ポイントカードとギフトカード  Google ウォレットを公共交通機関で使用する  Google ウォレットにヘルスパスを追加する  自動車用デジタルキー  Google ウォレットに学生 ID を保存する  米国の運転免許証または州発行の身分証明書を追加する  Google ウォレットに社員バッジを保存する  Use transit loyalty cards in Google Wallet (UK only)  スマートウォッチの Google ウォレットでパスを使用する  Google ウォレットのパスの分類  Google ウォレットのリンクされたパスについて  Google ウォレットのウェブサイトの利用を開始する  ホテルキー   <br>   ヘルスパスはワクチン接種証明で日本もやっていましたね。  <a href="https://idmlab.eidentity.jp/2021/12/verifiable-credentials.html">https://idmlab.eidentity.jp/2021/12/verifiable-credentials.html</a>  <br>  その他ポイントカードなど日本も使えるもの以外を見ていくと、    自動車用デジタルキー  学生ID  米国の運転免許証または週発行の身分証明書（今回のパスポートの件はこちらですね）  社員バッジ  Transit loyalty card  ホテルキー   などが面白そうです。   自動車の鍵だと古くから<a href="https://carconnectivity.org/">CCC（Car Connectivity Consortium）</a>が取り組んできた活動はありますが、電子運転免許証（mDL）と連携していく動きは活発化していきそうですね。  <br>  学生IDも面白いトピックです。  マサチューセッツ工科大学（MIT）が2021年に<a href="https://news.mit.edu/2021/mit-id-cards-go-digital-1201">アナウンス</a>したデジタル学生証や、卒業証明書のデジタル化の動きはエポックメイクングでしたが、Googleのヘルプを見ると「米国、カナダ、オーストラリアの加盟大学」がこの機能を使えるようになっているようです。  <br>  社員バッジも学生IDと同様に普及していくと面白いですね。  <br>  <br>  Credential APIも本格化してきましたし、引き続きこの分野は要ウォッチです。  <br>  <br>  <br>  <br>  <br>  <br> 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blogger.googleusercontent.com/img/a/AVvXsEjYb-sXb7JUiYjugz5QGWNyf0UAVbYl1GWHR1pPA9ViEjQs8Ghc58KF3bNysmffUziTsdk6KxP3ZHqG9Hc-FMy60SPzSsNlkvzSa-4VDVUdRS78YLydrMvAQjgfoUsJiv7FIt0uQi6nphlzM2rlWYq2EjCg6gFLPcMOEECnCExEI2TaAgXKm5ZkKu0QArLB=w288-h640'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   00:23 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
 
 
 
@@ -746,8 +1364,460 @@
 
 
 <h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/09/16/bluesky-flagging-cnn.html'> BlueSky flagging CNN links with a warning … 
+ // @dave 
+</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   BlueSky flagging CNN links with a warning … 
+ // @dave 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/00e14e7e7e.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>BlueSky flagging CNN links with a warning …</p>
+<p>// <a href="https://micro.blog/dave">@dave</a></p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/00e14e7e7e.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   20:04 &bull;
+   11 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/09/16/064528.html'> 😂💬 
+</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   😂💬 
+
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/b42f853906.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>😂💬</p>
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/b42f853906.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   18:45 &bull;
+   12 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='http://simonwillison.net'>Simon Willison</a>
 </h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Sep/15/uv-i-am-somewhat-sold/#atom-everything'>UV — I am (somewhat) sold</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   UV — I am (somewhat) sold 
+Oliver Andrich's detailed notes on adopting uv. Oliver has some pretty specific requirements: 
+ 
+ I need to have various Python versions installed locally to test my work and my personal projects. Ranging from Python 3.8 to 3.13. [...] I also require decent dependency management in my projects that goes beyond manually editing a pyproject.toml file. Likewise, I am way to
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://andrich.me/2024/09/uv-i-am-somewhat-sold/">UV — I am (somewhat) sold</a></p>
+Oliver Andrich's detailed notes on adopting <code>uv</code>. Oliver has some pretty specific requirements:<p></p>
+<blockquote>
+<p>I need to have various Python versions installed locally to test my work and my personal projects. Ranging from Python 3.8 to 3.13. [...] I also require decent dependency management in my projects that goes beyond manually editing a <code>pyproject.toml</code> file. Likewise, I am way too accustomed to <code>poetry add ...</code>. And I run a number of Python-based tools --- <a href="https://pypi.org/project/djhtml/">djhtml</a>, <a href="https://pypi.org/project/poetry/">poetry</a>, <a href="https://pypi.org/project/ipython/">ipython</a>, <a href="https://pypi.org/project/llm/">llm</a>, <a href="https://pypi.org/project/mkdocs/">mkdocs</a>, <a href="https://pypi.org/project/pre-commit/">pre-commit</a>, <a href="https://pypi.org/project/tox/">tox</a>, ...</p>
+</blockquote>
+<p>He's braver than I am!</p>
+<blockquote>
+<p>I started by removing all Python installations, pyenv, pipx and Homebrew from my machine. Rendering me unable to do my work. </p>
+</blockquote>
+<p>Here's a neat trick: first install a specific Python version with <code>uv</code> like this:</p>
+ <code>uv python install 3.11
+</code> 
+<p>Then create an alias to run it like this:</p>
+ <code>alias python3.11 'uv run --python=3.11 python3'
+</code> 
+<p>And install standalone tools with optional extra dependencies like this (a replacement for <code>pipx</code> and <code>pipx inject</code>):</p>
+ <code>uv tool install --python=3.12 --with mkdocs-material mkdocs
+</code> 
+<p>Oliver also links to Anže Pečar's handy guide on using <a href="https://blog.pecar.me/uv-with-django">UV with Django</a>.
+
+    </p><p>Via <a href="https://mastodon.social/@webology/113142102296895914">Jeff Triplett</a></p>
+
+
+    <p>Tags: <a href="https://simonwillison.net/tags/uv">uv</a>, <a href="https://simonwillison.net/tags/astral">astral</a>, <a href="https://simonwillison.net/tags/packaging">packaging</a>, <a href="https://simonwillison.net/tags/python">python</a>, <a href="https://simonwillison.net/tags/django">django</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:54 &bull;
+   16 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Sep/15/how-to-succeed-in-mrbeast-production/#atom-everything'>How to succeed in MrBeast production (leaked PDF)</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   How to succeed in MrBeast production (leaked PDF) 
+Whether or not you enjoy MrBeast’s format of YouTube videos (here’s a 2022 Rolling Stone profile if you’re unfamiliar), this leaked onboarding document for new members of his production company is a compelling read. 
+ It’s a snapshot of what it takes to run a massive scale viral YouTube operation in the 2020s, as well as a detailed description of 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://twitter.com/thepatwalls/status/1835041188099113179">How to succeed in MrBeast production (leaked PDF)</a></p>
+Whether or not you enjoy MrBeast’s format of YouTube videos (here’s <a href="https://www.rollingstone.com/culture/culture-features/mrbeast-youtube-cover-story-interview-1334604/">a 2022 Rolling Stone profile</a> if you’re unfamiliar), this leaked onboarding document for new members of his production company is a compelling read.<p></p>
+<p>It’s a snapshot of what it takes to run a massive scale viral YouTube operation in the 2020s, as well as a detailed description of a very specific company culture evolved to fulfill that mission.</p>
+<p>It starts in the most on-brand MrBeast way possible:</p>
+<blockquote>
+<p>I genuinely believe if you attently read and understand the knowledge here you will be much better set up for success. So, if you read this book and pass a quiz I’ll give you $1,000.</p>
+</blockquote>
+<p>Everything is focused very specifically on YouTube as a format:</p>
+<blockquote>
+<p>Your goal here is to make the best YOUTUBE videos possible. That’s the number one goal of this production company. It’s not to make the best produced videos. Not to make the funniest videos. Not to make the best looking videos. Not the highest quality videos.. It’s to make the best YOUTUBE videos possible.</p>
+</blockquote>
+<p>The MrBeast definition of A, B and C-team players is one I haven’t heard before:</p>
+<blockquote>
+<p>A-Players are obsessive, learn from mistakes, coachable, intelligent, don’t make excuses, believe in Youtube, see the value of this company, and are the best in the goddamn world at their job. B-Players are new people that need to be trained into A-Players, and C-Players are just average employees. […] They arn’t obsessive and learning. C-Players are poisonous and should be transitioned to a different company IMMEDIATELY. (It’s okay we give everyone severance, they’ll be fine).</p>
+</blockquote>
+<p>The key characteristic outlined here, if you read between the hustle-culture lines, is learning. Employees who constantly learn are valued. Employees who don’t are not.</p>
+<p>There’s a lot of stuff in there about YouTube virality, starting with the Click Thru Rate (CTR) for the all-important video thumbnails:</p>
+<blockquote>
+<p>This is what dictates what we do for videos. “I Spent 50 Hours In My Front Yard” is lame and you wouldn’t click it. But you would hypothetically click “I Spent 50 Hours In Ketchup”. Both are relatively similar in time/effort but the ketchup one is easily 100x more viral. An image of someone sitting in ketchup in a bathtub is exponentially more interesting than someone sitting in their front yard.</p>
+</blockquote>
+<p>The creative process for every video they produce starts with the title and thumbnail. These set the expectations for the viewer, and everything that follows needs to be defined with those in mind. If a viewer feels their expectations are not being matched, they’ll click away - driving down the crucial Average View Duration that informs how much the video is promoted by YouTube’s all-important mystical algorithms.</p>
+<p>MrBeast videos have a strictly defined formula, outlined in detail on pages 6-10.</p>
+<p>The first minute captures the viewer’s attention and demonstrates that their expectations from the thumbnail will be met. Losing 21 million viewers in the first minute after 60 million initial clicks is considered a reasonably good result! Minutes 1-3, 3-6 and 6-end all have their own clearly defined responsibilities as well.</p>
+<p>Ideally, a video will feature something they call the “wow factor”:</p>
+<blockquote>
+<p>An example of the “wow factor” would be our 100 days in the circle video. We offered someone $500,000 if they could live in a circle in a field for 100 days (<a href="https://www.youtube.com/watch?v=gHzuabZUd6c">video</a>) and instead of starting with his house in the circle that he would live in, we bring it in on a crane 30 seconds into the video. Why? Because who the fuck else on Youtube can do that lol.</p>
+</blockquote>
+<p>Chapter 2 (pages 10-24) is about creating content. This is crammed with insights into what it takes to produce surprising, spectacular and very expensive content for YouTube.</p>
+<p>A lot of this is about coordination and intense management of your dependencies:</p>
+<blockquote>
+<p>I want you to look them in the eyes and tell them they are the bottleneck and take it a step further and explain why they are the bottleneck so you both are on the same page. “Tyler, you are my bottleneck. I have 45 days to make this video happen and I can not begin to work on it until I know what the contents of the video is. I need you to confirm you understand this is important and we need to set a date on when the creative will be done.” […] Every single day you must check in on Tyler and make sure he is still on track to hit the target date.</p>
+</blockquote>
+<p>It also introduces the concept of “critical components”:</p>
+<blockquote>
+<p>Critical components are the things that are essential to your video. If I want to put 100 people on an island and give it away to one of them, then securing an island is a critical component. It doesn’t matter how well planned the challenges on the island are, how good the weather is, etc. Without that island there is no video.</p>
+<p>[…]</p>
+<p>Critical Components can come from literally anywhere and once something you’re working on is labeled as such, you treat it like your baby. WITHOUT WHAT YOU’RE WORKING ON WE DO NOT HAVE A VIDEO! Protect it at all costs, check in on it 10x a day, obsess over it, make a backup, if it requires shipping pay someone to pick it up and drive it, don’t trust standard shipping, and speak up the second anything goes wrong. The literal second. Never coin flip a Critical Component (that means you’re coinfliping the video aka a million plus dollars)</p>
+</blockquote>
+<p>There’s a bunch of stuff about communication, with a strong bias towards “higher forms of communication”: in-person beats a phone call beats a text message beats an email.</p>
+<p>Unsurprisingly for this organization, video is a highly valued tool for documenting work:</p>
+<blockquote>
+<p>Which is more important, that one person has a good mental grip of something or that their entire team of 10 people have a good mental grip on something? Obviously the team. And the easiest way to bring your team up to the same page is to freaken video everything and store it where they can constantly reference it. A lot of problems can be solved if we just video sets and ask for videos when ordering things.</p>
+</blockquote>
+<p>I enjoyed this note:</p>
+<blockquote>
+<p>Since we are on the topic of communication, written communication also does not constitute communication unless they confirm they read it.</p>
+</blockquote>
+<p>And this bit about the value of consultants:</p>
+<blockquote>
+<p>Consultants are literally cheat codes. Need to make the world's largest slice of cake? Start off by calling the person who made the previous world’s largest slice of cake lol. He’s already done countless tests and can save you weeks worth of work. […] In every single freakin task assigned to you, always always always ask yourself first if you can find a consultant to help you.</p>
+</blockquote>
+<p>Here’s a darker note from the section “Random things you should know”:</p>
+<blockquote>
+<p>Do not leave consteatants waiting in the sun (ideally waiting in general) for more than 3 hours. Squid game it cost us $500,000 and boys vs girls it got a lot of people out. Ask James to know more</p>
+</blockquote>
+<p>And to finish, this note on budgeting:</p>
+<blockquote>
+<p>I want money spent to be shown on camera ideally. If you’re spending over $10,000 on something and it won’t be shown on camera, seriously think about it.</p>
+</blockquote>
+<p>I’m always interested in finding management advice from unexpected sources. For example, I love <a href="https://simonwillison.net/2019/Feb/19/eleven-laws-showrunning/">The Eleven Laws of Showrunning</a> as a case study in managing and successfully delegating for a large, creative project.</p>
+<p>I don’t think this MrBeast document has as many lessons directly relevant to my own work, but as an honest peek under the hood of a weirdly shaped and absurdly ambitious enterprise it’s legitimately fascinating.
+
+
+    </p><p>Tags: <a href="https://simonwillison.net/tags/youtube">youtube</a>, <a href="https://simonwillison.net/tags/management">management</a>, <a href="https://simonwillison.net/tags/leadership">leadership</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:37 &bull;
+   16 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Sep/15/speed-matters/#atom-everything'>Speed matters</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Speed matters 
+Jamie Brandon in 2021, talking about the importance of optimizing for the speed at which you can work as a developer: 
+ 
+ Being 10x faster also changes the kinds of projects that are worth doing. 
+ Last year I spent something like 100 hours writing a text editor. […] If I was 10x slower it would have been 20-50 weeks. Suddenly that doesn't seem like such a good deal any more - what 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://www.scattered-thoughts.net/writing/speed-matters/">Speed matters</a></p>
+Jamie Brandon in 2021, talking about the importance of optimizing for the speed at which you can work as a developer:<p></p>
+<blockquote>
+<p>Being 10x faster also changes the kinds of projects that are worth doing.</p>
+<p>Last year I spent something like 100 hours writing a text editor. […] If I was 10x slower it would have been 20-50 weeks. Suddenly that doesn't seem like such a good deal any more - what a waste of a year!</p>
+</blockquote>
+<p>It’s not just about speed of writing code:</p>
+<blockquote>
+<p>When I think about speed I think about the whole process - researching, planning, designing, arguing, coding, testing, debugging, documenting etc.</p>
+<p>Often when I try to convince someone to get faster at one of those steps, they'll argue that the others are more important so it's not worthwhile trying to be faster. Eg choosing the right idea is more important than coding the wrong idea really quickly. </p>
+<p>But that's totally conditional on the speed of everything else! If you could code 10x as fast then you could try out 10 different ideas in the time it would previously have taken to try out 1 idea. Or you could just try out 1 idea, but have 90% of your previous coding time available as extra idea time.</p>
+</blockquote>
+<p>Jamie’s model here helps explain the effect I described in <a href="https://simonwillison.net/2023/Mar/27/ai-enhanced-development/">AI-enhanced development makes me more ambitious with my projects</a>. Prompting an LLM to write portions of my code for me gives me that 5-10x boost in the time I spend typing code into a computer, which has a big effect on my ambitions despite being only about 10% of the activities I perform relevant to building software.</p>
+<p>I also increasingly lean on LLMs as assistants in the research phase - exploring library options, building experimental prototypes - and for activities like writing tests and even a little bit <a href="https://simonwillison.net/2024/Sep/7/json-flatten/">of documentation</a>.
+
+    </p><p>Via <a href="https://mastodon.social/@reillywood/113137197387515837">Reilly Wood</a></p>
+
+
+    <p>Tags: <a href="https://simonwillison.net/tags/ai-assisted-programming">ai-assisted-programming</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   08:58 &bull;
+   22 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
 
 
 <h3 class='item-title'>
@@ -794,7 +1864,7 @@
 
 <div class='item-footer'>
    00:04 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -876,7 +1946,7 @@
 
 <div class='item-footer'>
    22:56 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -950,7 +2020,7 @@
 
 <div class='item-footer'>
    22:30 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1015,7 +2085,7 @@
 
 <div class='item-footer'>
    21:52 &bull;
-   9 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1079,7 +2149,7 @@ Been carefullly avoiding 🍎📺 for the past three weeks and accidentally clic
 
 <div class='item-footer'>
    20:54 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1147,7 +2217,7 @@ Been carefullly avoiding 🍎📺 for the past three weeks and accidentally clic
 
 <div class='item-footer'>
    19:50 &bull;
-   11 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1226,7 +2296,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    17:10 &bull;
-   14 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1298,7 +2368,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    15:01 &bull;
-   16 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1363,7 +2433,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    12:02 &bull;
-   19 hours ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1449,7 +2519,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    01:16 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1525,7 +2595,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    22:30 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1593,7 +2663,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    11:35 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1657,7 +2727,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    07:49 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1808,7 +2878,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    05:01 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1880,7 +2950,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    23:47 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1950,7 +3020,7 @@ input := inputElement.Get("value")
 
 <div class='item-footer'>
    23:45 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2016,7 +3086,7 @@ The post <a href="https://realestatecafe.com/leveraging-25k-downpayment-assistan
 
 <div class='item-footer'>
    23:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2081,7 +3151,7 @@ The post <a href="https://realestatecafe.com/leveraging-25k-downpayment-assistan
 
 <div class='item-footer'>
    23:21 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2153,7 +3223,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    23:20 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2296,7 +3366,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    22:36 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2370,7 +3440,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    22:30 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2450,7 +3520,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    20:16 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2526,7 +3596,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    20:05 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2598,7 +3668,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    18:12 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2667,7 +3737,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    16:00 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2837,7 +3907,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    03:06 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2902,7 +3972,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    02:59 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2968,7 +4038,7 @@ New release of LLM adding support for the <code>o1-preview</code> and <code>o1-m
 
 <div class='item-footer'>
    02:42 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3044,7 +4114,7 @@ Mistral finally have a multi-modal (image + text) vision LLM!<p></p>
 
 <div class='item-footer'>
    22:18 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3126,7 +4196,7 @@ Mistral finally have a multi-modal (image + text) vision LLM!<p></p>
 
 <div class='item-footer'>
    21:50 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3196,7 +4266,7 @@ Mistral finally have a multi-modal (image + text) vision LLM!<p></p>
 
 <div class='item-footer'>
    21:22 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3313,7 +4383,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    18:34 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3391,7 +4461,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    12:35 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3459,7 +4529,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    11:49 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3533,7 +4603,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    10:45 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3709,7 +4779,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    22:48 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3774,7 +4844,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    21:58 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3835,7 +4905,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    21:52 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3905,7 +4975,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    19:32 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3973,7 +5043,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    17:42 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4048,7 +5118,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    17:36 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4116,7 +5186,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    15:12 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4188,7 +5258,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    15:11 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4412,7 +5482,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    13:14 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4486,7 +5556,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    11:00 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4551,7 +5621,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    04:09 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4624,7 +5694,7 @@ I sound my barbaric yawp over the roofs of the world.</p>
 
 <div class='item-footer'>
    20:14 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4699,7 +5769,7 @@ Anyway all this to say that the tune of this particular ‘piper’ resonates. D
 
 <div class='item-footer'>
    20:12 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4764,7 +5834,7 @@ Anyway all this to say that the tune of this particular ‘piper’ resonates. D
 
 <div class='item-footer'>
    19:34 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4825,7 +5895,7 @@ Anyway all this to say that the tune of this particular ‘piper’ resonates. D
 
 <div class='item-footer'>
    19:31 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4902,7 +5972,7 @@ GitHub co-founder Scott Chacon shares some thoughts on how GitHub won the open s
 
 <div class='item-footer'>
    17:16 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4974,7 +6044,7 @@ GitHub co-founder Scott Chacon shares some thoughts on how GitHub won the open s
 
 <div class='item-footer'>
    16:40 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5048,7 +6118,7 @@ GitHub co-founder Scott Chacon shares some thoughts on how GitHub won the open s
 
 <div class='item-footer'>
    12:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5330,7 +6400,7 @@ services.AddAuthentication(options =&gt;
 
 <div class='item-footer'>
    06:09 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5402,7 +6472,7 @@ Alexander is the author of <a href="https://www.hachettebookgroup.com/titles/ste
 
 <div class='item-footer'>
    06:06 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5489,7 +6559,7 @@ New version of my <code>files-to-prompt</code> CLI tool for turning a bunch of f
 
 <div class='item-footer'>
    05:57 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5584,7 +6654,7 @@ New version of my <code>files-to-prompt</code> CLI tool for turning a bunch of f
 
 <div class='item-footer'>
    02:23 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5660,7 +6730,7 @@ New version of my <code>files-to-prompt</code> CLI tool for turning a bunch of f
 
 <div class='item-footer'>
    22:30 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5764,7 +6834,7 @@ Jacob Kaplan-Moss kicked off this fascinating conversation about <a href="https:
 
 <div class='item-footer'>
    16:23 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5840,7 +6910,7 @@ Jacob Kaplan-Moss kicked off this fascinating conversation about <a href="https:
 
 <div class='item-footer'>
    15:45 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5918,7 +6988,7 @@ Jacob Kaplan-Moss kicked off this fascinating conversation about <a href="https:
 
 <div class='item-footer'>
    15:44 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6013,7 +7083,7 @@ Jacob Kaplan-Moss kicked off this fascinating conversation about <a href="https:
 
 <div class='item-footer'>
    01:04 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6089,7 +7159,7 @@ Jacob Kaplan-Moss kicked off this fascinating conversation about <a href="https:
 
 <div class='item-footer'>
    22:22 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6181,7 +7251,7 @@ Jacob Kaplan-Moss kicked off this fascinating conversation about <a href="https:
 
 <div class='item-footer'>
    20:30 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6256,7 +7326,7 @@ Jacob Kaplan-Moss kicked off this fascinating conversation about <a href="https:
 
 <div class='item-footer'>
    20:18 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6375,7 +7445,7 @@ cog.out("```\n")
 
 <div class='item-footer'>
    05:43 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6449,7 +7519,7 @@ cog.out("```\n")
 
 <div class='item-footer'>
    02:04 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6530,343 +7600,7 @@ Michael Kennedy <a href="https://talkpython.fm/episodes/show/476/unified-python-
 
 <div class='item-footer'>
    23:54 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/09/07/more-serendipity-no.html'> More serendipity 
- No surprise that a Fowles quote surfaced </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   More serendipity 
- No surprise that a Fowles quote surfaced this morning, he is after all one of my favorites. 
- The surprise lay in the relevance to a conversation with friends last night. 
- Topic 
- How society and norms morph over time, by dint of individual actions. 
- First learning, then adapting followed by experimentation and pushing boundaries to ultimately creating. 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/2135767e71.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>More serendipity</p>
-<p>No surprise that a Fowles quote surfaced this morning, he is after all one of my favorites.</p>
-<p>The surprise lay in the relevance to a conversation with friends last night.</p>
-<p>Topic</p>
-<p>How society and norms morph over time, by dint of individual actions.</p>
-<p>First learning, then adapting followed by experimentation and pushing boundaries to ultimately creating.</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/2135767e71.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:36 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2024/09/07/the-crafting-of.html'>The Crafting of Craft.</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  
- 🖇️ Talking about knowing what you’re talking about - nobody who knows what they are talking about would confuse me with a real programmer. 
- That said, I just read 🔗 Going the Extra Mile — Beyond CSS, most of which is well above my technical pay grade - but still I was fascinated by the attention to detail around ‘crafting Craft’. 
- Consider - a whole post (well 75%) devoted to the process behind
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/16d2f7efb7.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-
-<p><a href="https://john.philpin.com/2024/09/07/read-and-agree.html">🖇️ Talking about knowing what you’re talking about</a> - nobody who knows what they are talking about would confuse me with a real programmer.</p>
-<p>That said, I just read <a href="https://www.craft.do/blog/going-the-extra-mile-bartek">🔗 Going the Extra Mile — Beyond CSS</a>, most of which is well above my technical pay grade - but still I was fascinated by the attention to detail around ‘crafting Craft’.</p>
-<p>Consider - a whole post (well 75%) devoted to the process behind getting a check box ‘just right’ and the remaining 25% explaining ‘push away’, which I knew had to be coded in some way - but who knew there is a phrase for it?</p>
-<p>Great read - even if you aren’t technical you get the idea of their focus on good design - Steve would have been proud of them</p>
-<blockquote>
-<p>“When you’re a carpenter making a beautiful chest of drawers, you’re not going to use a piece of plywood on the back, even though it faces the wall and nobody will ever see it. You’ll know it’s there, so you’re going to use a beautiful piece of wood on the back. For you to sleep well at night, the aesthetic, the quality, has to be carried all the way through.”</p>
-</blockquote>
-<p>💬 Steve Jobs</p>
-<p>… which probably explains why they won app of the year and were name called (not once - but twice) in this year’s WWDC.</p>
-<p>The article ends with …</p>
-<blockquote>
-<p>All of this for what?
-Will all users see the difference? — Probably not. Was it worth it? — Absolutely. These are the minor details that often go unnoticed when present, but become conspicuous when missing.
-We strive for having as many of those details as possible, making the experience great but at the same time — seamless.</p>
-</blockquote>
-<p>Kudos to Craft - a Great App and a serious tool for writing documents in the 21st Century.</p>
-<p>( <a href="https://john.philpin.com/2024/09/07/pageless-writing-apps.html">🖇️ Related (Page-less Writing Apps)</a> )</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/16d2f7efb7.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:58 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/09/07/read-and-agree.html'> Read and agree with a lot of the @gruber post  🔗 The iOS Con</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Read and agree with a lot of the @gruber post  🔗 The iOS Continental Drift Widens 
- After I read it - I jumped to my Readwise queue - and up pops this. 
- My reading habits are clearly being tracked. 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/a58032fc25.png'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Read and agree with a lot of the <a href="https://micro.blog/gruber">@gruber</a> post  <a href="https://daringfireball.net/2024/09/the_ios_continental_drift_widens">🔗 The iOS Continental Drift Widens</a></p>
-<p>After I read it - I jumped to my Readwise queue - and up pops this.</p>
-<p>My reading habits are clearly being tracked.</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/a58032fc25.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:20 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://john.philpin.com/2024/09/07/pageless-writing-apps.html'>Pageless Writing Apps</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   🔗 Lex raises $2.75M for its AI writing tool that helps writers get past blocks. 
- 
- The AI stuff is cool, but there was one thing about this app that made me want to keep using it: It has no historical baggage. I find it odd that many modern word processors like Google Docs and Word retain a bias toward pagination — the UX is intended for printing documents onto letter-sized paper. Lex, in contras
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://techcrunch.com/2023/08/23/lex-ai-writing-tool-seed-round/">🔗 Lex raises $2.75M for its AI writing tool that helps writers get past blocks.</a></p>
-<blockquote>
-<p>The AI stuff is cool, but there was one thing about this app that made me want to keep using it: It has no historical baggage. I find it odd that many modern word processors like Google Docs and Word retain a bias toward pagination — the UX is intended for printing documents onto letter-sized paper. Lex, in contrast, does away with all that.</p>
-</blockquote>
-<p>💬 TechCrunch</p>
-<p>Been exploring <a href="https://lex.page">🔗 Lex.page</a> for a couple ‘ months. I even pay - but not yet used it enough to know whether I am going to continue to pay.</p>
-<p>That said, the above quote is interesting and I agree with the ‘historical baggage thought - but they are hardly at the vanguard of that kind of thinking!</p>
-<p>It as if the writer has never heard of;</p>
- 
- Craft 
- Ulysses 
- IAWriter 
- Drafts, et al 
- 
-<p>Let alone, Obsidian, Roam and Notion</p>
-<p>Side note - Craft. Most definitely a personal favorite. And I am  increasingly using it to share thoughts, ideas, minutes, reports to specific audiences - most often under ‘loose’ password control.</p>
-<p>Cant wait to get my hands on the new stuff they have in Beta - though even that still wont solve what I really really want!</p>
-<p>Adding to which their own foray into AI support, I just want to tie apps like that into a single world - and not have different versions of different LLMs spread around various apps. ANNOYING.</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:10 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6940,7 +7674,7 @@ We strive for having as many of those details as possible, making the experience
 
 <div class='item-footer'>
    20:07 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7014,7 +7748,7 @@ We strive for having as many of those details as possible, making the experience
 
 <div class='item-footer'>
    16:29 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7088,7 +7822,7 @@ This latest release focuses mainly on performance, as discussed here in <a href=
 
 <div class='item-footer'>
    05:55 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7182,7 +7916,7 @@ My <a href="https://github.com/simonw/scrape-hacker-news-by-domain">simonw/scrap
 
 <div class='item-footer'>
    05:40 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7492,7 +8226,7 @@ My <a href="https://github.com/simonw/scrape-hacker-news-by-domain">simonw/scrap
 
 <div class='item-footer'>
    02:28 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7570,7 +8304,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    22:43 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7644,7 +8378,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    22:30 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7713,7 +8447,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    16:23 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7778,7 +8512,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    15:08 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7850,7 +8584,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    15:06 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7924,7 +8658,7 @@ Rare example of an OAuth explainer that breaks down why each of the steps are de
 
 <div class='item-footer'>
    13:44 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8018,7 +8752,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    23:16 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8092,7 +8826,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    22:30 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8156,7 +8890,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    20:59 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8232,7 +8966,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    23:24 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8302,7 +9036,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    22:30 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8376,7 +9110,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    19:17 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8451,7 +9185,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    18:56 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8519,7 +9253,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    15:01 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8601,7 +9335,7 @@ Qwen is Alibaba Cloud's organization training LLMs. Their latest model is Qwen2-
 
 <div class='item-footer'>
    12:55 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8687,7 +9421,7 @@ The seventh annual Python survey is out. Here are the things that caught my eye 
 
 <div class='item-footer'>
    02:47 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8761,7 +9495,7 @@ The seventh annual Python survey is out. Here are the things that caught my eye 
 
 <div class='item-footer'>
    02:19 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8844,7 +9578,7 @@ Hynek Schlawack argues for using virtual environments even when running Python a
 
 <div class='item-footer'>
    23:57 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8957,7 +9691,7 @@ def send_prompt(self, prompt: str, response: Response) -&gt; None:
 
 <div class='item-footer'>
    16:39 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9067,7 +9801,7 @@ def send_prompt(self, prompt: str, response: Response) -&gt; None:
 
 <div class='item-footer'>
    08:35 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9426,7 +10160,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    04:23 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9533,7 +10267,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    22:57 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9607,7 +10341,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    22:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9679,7 +10413,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    14:55 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9747,7 +10481,7 @@ public static class HostingExtensions
 
 <div class='item-footer'>
    14:37 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9848,7 +10582,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    05:03 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9950,7 +10684,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    03:14 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10046,7 +10780,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    01:36 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10122,157 +10856,7 @@ Env("rich", python="3.12").run(uses_rich)
 
 <div class='item-footer'>
    23:00 &bull;
-   14 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/31/ted-chiang/#atom-everything'>Quoting Ted Chiang</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    Art is notoriously hard to define, and so are the differences between good art and bad art. But let me offer a generalization: art is something that results from making a lot of choices. […] to oversimplify, we can imagine that a ten-thousand-word short story requires something on the order of ten thousand choices. When you give a generative-A.I. program a prompt, you are making very few choices;
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <blockquote cite="https://www.newyorker.com/culture/the-weekend-essay/why-ai-isnt-going-to-make-art"><p>Art is notoriously hard to define, and so are the differences between good art and bad art. But let me offer a generalization: art is something that results from making a lot of choices. […] to oversimplify, we can imagine that a ten-thousand-word short story requires something on the order of ten thousand choices. When you give a generative-A.I. program a prompt, you are making very few choices; if you supply a hundred-word prompt, you have made on the order of a hundred choices.</p>
-<p>If an A.I. generates a ten-thousand-word story based on your prompt, it has to fill in for all of the choices that you are not making.</p></blockquote><p>— <a href="https://www.newyorker.com/culture/the-weekend-essay/why-ai-isnt-going-to-make-art">Ted Chiang</a></p>
-
-    <p>Tags: <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/new-yorker">new-yorker</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/art">art</a>, <a href="https://simonwillison.net/tags/ted-chiang">ted-chiang</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:09 &bull;
-   14 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/31/openai-says-chatgpt-usage-has-doubled-since-last-year/#atom-everything'>OpenAI says ChatGPT usage has doubled since last year</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   OpenAI says ChatGPT usage has doubled since last year 
-Official ChatGPT usage numbers don't come along very often: 
- 
- OpenAI said on Thursday that ChatGPT now has more than 200 million weekly active users — twice as many as it had last November. 
- 
- Axios reported this first, then Emma Roth at The Verge confirmed that number  with OpenAI spokesperson Taya Christianson, adding: 
- 
- Additionally, C
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://www.axios.com/2024/08/29/openai-chatgpt-200-million-weekly-active-users">OpenAI says ChatGPT usage has doubled since last year</a></p>
-Official ChatGPT usage numbers don't come along very often:<p></p>
-<blockquote>
-<p>OpenAI said on Thursday that ChatGPT now has more than 200 million weekly active users — twice as many as it had last November.</p>
-</blockquote>
-<p>Axios reported this first, then Emma Roth at The Verge <a href="https://www.theverge.com/2024/8/29/24231685/openai-chatgpt-200-million-weekly-users">confirmed that number </a> with OpenAI spokesperson Taya Christianson, adding:</p>
-<blockquote>
-<p>Additionally, Christianson says that 92 percent of Fortune 500 companies are using OpenAI's products, while API usage has doubled following the release of the company's <a href="https://www.theverge.com/2024/7/18/24200714/openai-new-cheaper-smarter-model-gpt-4o-mini">cheaper and smarter model GPT-4o Mini</a>.</p>
-</blockquote>
-<p>Does that mean API usage doubled in just the past five weeks? According to OpenAI's <a href="https://www.linkedin.com/in/oliviergodement/">Head of Product, API</a> Olivier Godement <a href="https://twitter.com/oliviergodement/status/1830000424889565324">it does</a> :</p>
-<blockquote>
-<p>The article is accurate. :-)</p>
-</blockquote>
-<p>The metric that doubled was <a href="https://twitter.com/oliviergodement/status/1830656242114838613">tokens processed by the API</a>.
-
-
-    </p><p>Tags: <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/openai">openai</a>, <a href="https://simonwillison.net/tags/chatgpt">chatgpt</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:58 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10342,77 +10926,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    14:20 &bull;
-   15 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Aug/31/forrest-brazeal/#atom-everything'>Quoting Forrest Brazeal</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    I think that AI has killed, or is about to kill, pretty much every single modifier we want to put in front of the word “developer.” 
- “.NET developer”? Meaningless. Copilot, Cursor, etc can get anyone conversant enough with .NET to be productive in an afternoon … as long as you’ve done enough other programming that you know what to prompt.   — Forrest Brazeal 
-
-     Tags: ai-assisted-programming,
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <blockquote cite="https://newsletter.goodtechthings.com/p/the-death-of-the-modified-developer"><p>I think that AI has killed, or is about to kill, pretty much every single modifier we want to put in front of the word “developer.”</p>
-<p>“.NET developer”? Meaningless. Copilot, Cursor, etc can get anyone conversant enough with .NET to be productive in an afternoon … as long as you’ve done enough other programming that you know what to prompt.</p></blockquote><p>— <a href="https://newsletter.goodtechthings.com/p/the-death-of-the-modified-developer">Forrest Brazeal</a></p>
-
-    <p>Tags: <a href="https://simonwillison.net/tags/ai-assisted-programming">ai-assisted-programming</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   12:52 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10486,7 +11000,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    01:12 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10560,7 +11074,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    13:03 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10628,7 +11142,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    11:17 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10702,7 +11216,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    03:39 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10774,7 +11288,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    02:29 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10880,7 +11394,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    19:59 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10950,7 +11464,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    16:37 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11024,7 +11538,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    05:39 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11432,7 +11946,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    01:45 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11512,7 +12026,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    23:40 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11584,7 +12098,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    22:58 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11652,7 +12166,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    17:55 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11733,7 +12247,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    14:43 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11803,7 +12317,7 @@ Official ChatGPT usage numbers don't come along very often:<p></p>
 
 <div class='item-footer'>
    13:06 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11869,7 +12383,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    04:09 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11945,7 +12459,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    23:16 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12019,7 +12533,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    22:30 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12094,7 +12608,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    16:26 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12166,7 +12680,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    13:59 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12234,7 +12748,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    13:41 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12310,7 +12824,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    22:30 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12380,75 +12894,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    13:41 &bull;
-   20 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/telegram-messaging-app-ceo-durov-arrested-in-france'>Telegram messaging app CEO Durov arrested in France</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
-                 
- [Ingrid Melander and Guy Faulconbridge at Reuters]   "[Telegram founder] Durov, who has dual French and United Arab Emirates citizenship, was arrested as part of a preliminary police investigation into allegedly allowing a wide range of crimes due to a lack of moderators on Telegram and a lack of cooperation with police."   At face value, this seems like an enormous deal: the i
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-                 
-<p>[<a href="https://www.reuters.com/world/europe/telegram-messaging-app-ceo-pavel-durov-arrested-france-tf1-tv-says-2024-08-24/">Ingrid Melander and Guy Faulconbridge at Reuters</a>]</p><blockquote><p>"[Telegram founder] Durov, who has dual French and United Arab Emirates citizenship, was arrested as part of a preliminary police investigation into allegedly allowing a wide range of crimes due to a lack of moderators on Telegram and a lack of cooperation with police."</p></blockquote><p>At face value, this seems like an enormous deal: the idea that a social network operator should be arrested for not moderating and not cooperating with the police seems like a precedent with implications for a great many platforms.</p><p>Telegram has been blocked in Russia since 2018. While it's unlikely to be blocked as such in the EU, it's plausible to see a world where it's removed from app stores and made harder to access.</p><p>Decentralized platform builders in particular will be watching this carefully: what does this mean for people who are building censorship-resistant and governance-free platforms overall?</p><p>Of course, at the same time, we may not have all the information yet. We'll have to watch and see.</p>
-<p><a href="https://werd.io/tag/Technology">#Technology</a></p>
-            <p>[<a href="https://www.reuters.com/world/europe/telegram-messaging-app-ceo-pavel-durov-arrested-france-tf1-tv-says-2024-08-24/">Link</a>]</p>
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:02 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12634,7 +13080,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    23:00 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12708,7 +13154,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    22:30 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12820,7 +13266,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    17:28 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12962,7 +13408,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    04:44 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13036,7 +13482,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    00:01 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13112,7 +13558,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    22:30 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13278,7 +13724,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    06:10 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13354,7 +13800,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    22:30 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13423,7 +13869,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    16:16 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13529,7 +13975,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    07:38 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13542,68 +13988,6 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
  <h2 class='new-date'>
   Wednesday, 21. August 2024
  </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://idmlab.eidentity.jp/'>IdM Laboratory</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://idmlab.eidentity.jp/2024/08/axies.html'>そう言えばAXIESでアイデンティティに関する勉強会をします</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   こんにちは、富士榮です。  先日、大学ICT推進協議会（AXIES）の年次大会の話をしましたが、そちらに先行して（？）アイデンティティの勉強会が開催されます。     大学の認証基盤といえばSAML、Shibbolethなのですが、そろそろOpenID Connectに対応すると言われて久しいShibbolethが本当に対応するのかどうかは置いておいて、アカデミアでも使うサービスがOpenID ConnectのRelying Partyとなっているケースも増えてきており、そろそろ学術系でもOpenID Connectの勉強会をしないとね、ということでお話しさせていただこうと思います。  ※そう言えばHPCIもOAuth対応しましたしね（OAuth認証になっているのはうーん、ですが）     ということでお知らせです。（申し込みサイトからの転載）  現地でお会いしましょう。  AXIES認証
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>こんにちは、富士榮です。</p><p>先日、<a href="https://idmlab.eidentity.jp/2024/08/ictaxies.html">大学ICT推進協議会（AXIES）の年次大会の話</a>をしましたが、そちらに先行して（？）アイデンティティの勉強会が開催されます。</p><p><br></p><p>大学の認証基盤といえばSAML、Shibbolethなのですが、そろそろOpenID Connectに対応すると言われて久しいShibbolethが本当に対応するのかどうかは置いておいて、アカデミアでも使うサービスがOpenID ConnectのRelying Partyとなっているケースも増えてきており、そろそろ学術系でもOpenID Connectの勉強会をしないとね、ということでお話しさせていただこうと思います。</p><p>※そう言えば<a href="https://www.hpci-office.jp/">HPCI</a>もOAuth対応しましたしね（OAuth認証になっているのはうーん、ですが）</p><p><br></p><p>ということでお知らせです。（申し込み<a href="https://auth.axies.jp/event/82/">サイト</a>からの転載）</p><p>現地でお会いしましょう。</p> AXIES認証基盤部会 勉強会「フェデレーション、エコシステムとID管理」 <blockquote><p>AXIES認証基盤部会では、以下の要領で2024年度 勉強会を開催いたします。会場は、学術総合センター（国立情報学研究所）とオンラインのハイブリッドで開催します。</p><p><br></p><p>テーマは、「フェデレーション、エコシステムとID管理」です。</p><p><br></p><p>NII学術情報基盤オープンフォーラムでのディスカッションを受け、学認コミュニティ拡大に向けたフェデーレション技術、エコシステムに関する勉強会を開催します。また後半では、昨年の年次大会を受け、ID管理についてディスカッションを行います。</p><p><br></p><p>日時：2024年9月17日（火）13:30～17:00</p><p>場所：国立情報学研究所 （オンラインのハイブリッド開催）</p><p>　　　東京都千代田区一ツ橋２丁目１−２　学術総合センター 3階</p><p>参加費：無料</p><p>定員：現地80名、オンライン200名</p><p>参加申込： <a href="https://axies.webex.com/weblink/register/r9dd937481072a86cc01a1cc370f582f9">参加申込URL</a></p><p><br></p><p>プログラム：（敬称略）</p><p>13:30-13:35 はじめに</p><p>13:35-14:15 OpenID Connect（調整中）</p><p>富士榮 尚寛（伊藤忠テクノソリューションズ株式会社）</p><p>14:15-14:55 Gakunin Federation（調整中）</p><p>西村 健（国立情報学研究所）</p><p>14:55-15:05 休憩</p><p>15:05-15:45 アプリカタログ（調整中）</p><p>江川 淳一（エクスジェン・ネットワークス株式会社）</p><p>15:45-16:25 ID管理（調整中）</p><p>中村 誠（東京大学）</p><p>16:25-17:00 ディスカッション</p></blockquote><p><br></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:30 &bull;
-   24 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
 
 
 
@@ -13761,7 +14145,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    15:48 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13828,7 +14212,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    18:31 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13903,7 +14287,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    15:13 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14041,7 +14425,7 @@ But not as a small one.</p>
 <p>Journalists need to fill pages and airtime.</p>
 <p>Donald Trump needs to win an election. He needs voters and their votes. He’ll get those with stories—about himself, and about who he’d like you to hate along with him—just like he always has.</p>
 <p>As characters go, Kamala Harris is a much tougher opponent than Joe Biden, because she’s harder for Trump to characterize, and she has plenty of character on her own.</p>
-<p>And now both make good stories because they’re in a fight against each other.</p>
+<p>And both make good stories simply because they both have character, problem, and movement. That’s why political journalism can’t help covering this presidential election as if it’s between equals, even though it’s not. (Trump has become ridiculous while Harris remains serious.) So Trump vs. Harris is a story. It has all the elements.</p>
 <p>Things are different in places like Bloomington, where people live and work in the real world.</p>
 <p>In the real world, there are potholes, homeless encampments, storms, and other problems only people can solve—or prevent—preferably by working together. In places like that, what should journalists do, preferably together?</p>
 <p>To clarify the options, look at journalism’s choice of sources and options for expression. For both, you’ve got facts and opinions. A typical story has a collection of facts, and some authoritative source (a professor, an author, or whatever) providing a useful opinion about those facts. Sometimes both come from the same place, such as the National Weather Service. So let’s look at different approaches to news against this background:</p>
@@ -14100,7 +14484,6 @@ But not as a small one.</p>
 <p>If you’re interested in weighing in or helping with this, leave a comment below or talk to me. I’m first name (well, nickname) at last name dot com.</p>
  
 <p>*Based on estimates. Nobody knows for sure. <a href="https://en.wikipedia.org/wiki/Cambodian_genocide">Here’s Wikipedia</a>.</p>
-<p>†</p>
    
   
   
@@ -20410,7 +20793,7 @@ Video: <a href="https://www.youtube.com/watch?v=EmGyGEyDOPc">https://www.youtube
 
 <div class='item-footer'>
    15:37 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -25859,125 +26242,6 @@ private DocumentData GetDocumentData(string id, SaveOptions docType)
 
 <div class='item-footer'>
    12:04 &bull;
-   3 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Sunday, 02. June 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://wrenchinthegears.com/2024/06/02/water-memory-wildflowers-regret-and-a-path-forward-with-bonus-material-food-for-thought-on-water-bears-and-consciousness/'>Water Memory, Wildflowers, Regret, And A Path Forward (With Bonus Material – Food For Thought On Water Bears And Consciousness)</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Good morning from Little Rock! It’s been a week of emotional ups and downs. Even as I’ve been pounding the pavement to find a new home, I’ve embarked on some exhilarating explorations with Stephers and Washington Sean around wearables, managed “wellness,” blockchain digital twins, tech billionaire-founded “smart” Montessori schools, forest intelligence, micro-myco biomes, photons, quantum [...]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Good morning from Little Rock! It’s been a week of emotional ups and downs. Even as I’ve been pounding the pavement to find a new home, I’ve embarked on some exhilarating explorations with Stephers and Washington Sean around wearables, managed “wellness,” blockchain digital twins, tech billionaire-founded “smart” Montessori schools, forest intelligence, micro-myco biomes, photons, quantum entanglement, metabolism, tardigrades (moss bears), substrate-independent fractal group minds, radiation, desiccation, resonant information fields, and water memory in the context of the “Three Body Problem,” Liu Cixin’s novel recently remade as a Netflix series. </p>
-<p>I keep trying to focus and put my thoughts together, but have thus far only succeeded in compiling an hour or so of clips (Oops, look at that, now it’s three hours – shocker!) that outline the contours of our thinking, still in progress. Consider them video “notes.” I suspect without commentary it may be difficult for others to follow, but I’ll share the video below for curious ones who may want to wade into the flow of emergent, coalescing conjectures and have a look around. Hopefully in the next week I’ll be able to sort through our voluminous text thread and map out the concepts well enough to do a structured overview of our expanded thinking on the situation in which we find ourselves.</p>
-<p></p>
-<p>I texted Stephers, after a particularly fruitful exchange, that people are going to have a hard time keeping up. It was a comment with a bittersweet edge. I don’t mean to imply people are slow or ignorant. It’s just that our merry band has ventured far off into uncharted territory, and few are prepared to extend themselves past comfortable / comforting narratives. Beyond there be dragons and all that…</p>
-<p>I experienced this with my own family, an ongoing heart break. You changed, you do research, you left us…was the refrain. Even though I was always right there in the living room. Yes, I was in the living room, but the information that surrounded me was…different. I wasn’t the NPR-listening mom I used to be. I followed the money. I saw patterns. I built my own understanding of what I sensed was unfolding. I wanted to know more, and in that quest I realized, too late, I had isolated myself from my former life with terrible finality.&nbsp;</p>
-<p>The work I’ve done in partnership with fellow travelers; pulling threads, making maps, uncovering connections, and weaving a tapestry that continues to challenge everything I thought I knew about the world, gradually pushed me to the margins. Over time, it led to my painful cancellation as a daughter, wife, mother, and friend even as it has opened doors to productive new collaborations and adventures in new lands. I continue to grapple with that reality alone here in this efficiency apartment, awaiting my next chapter. Despite persistent, ineffectual, attempts to build bridges back to my loved ones, the vast chasms, for the moment at least, seem like they will not be overcome.&nbsp;</p>
-<p>There is an ongoing refrain running in the back of my mind…Meg facing off against IT… “you are not my Charles Wallace.” </p>
-<p>But also, “love wins.”</p>
-<p>While touring homes this week, my realtor commiserated with me. </p>
-<p>Yes, Covid, whatever it was, changed everything.&nbsp;</p>
-<p>We are all brain-boxed to varying degrees. It’s challenging to integrate information we’re not socialized to see, have no context to see, into an updated world view. As a researcher, I freely offer questioners maps of my thinking with copious source material. I cannot, however, compel anyone to dive in and explore. Even with a framework that contextualizes my thought process laid out for consideration, learning a new landscape takes time; and that is bandwidth people may not have.&nbsp;</p>
-<p>They may not want to make an investment in a journey that could result in them being jettisoned from their life, as I have been from mine. There are no shortcuts to getting familiar enough with a new lens that you can try it on and look at things from different angles to see if it works for you. And at the end of the day, few people want to put hours, days, weeks, or even years of effort into deconstructing the stories inside which they live. Because you risk being left standing out on your own, ideologically, emotionally, spiritually naked. Only those who are prepared to embark on an uncertain journey take that first step. No judgment. It’s just the way it is. We’re not all the same, and that’s ok. Not everyone is here to walk the same road. Blockchained or not, we are endowed with agency and the capacity to make choices. </p>
-<p>Choose, pause, reflect, and choose again.</p>
-<p>My intelligence forays keep looping me back to education, my starting point, particularly early childhood “education,” the centerpiece of the emerging social impact finance landscape. Each time I “level up” into an expanded understanding of this complex “game” I find myself revisiting work I’ve done before in a new light. I’ve been thinking about Montessori education melded with the forest school model in the context of invisible spatial computing, digital ID, terraformed synthetic telepathy, carbon credits, an emergent GAIA noosphere, and NVIDIA’s plans to give every child an AI companion that will help manifest bring their imaginary worlds into this realm.&nbsp;</p>
-<p>Where does Sep Kamvar fit in with Wildflower Montessori (think – Evan Baehr’s “flourishing” Learn Capital investments, Regen Network’s Web3 soil sequestration shenanigans, systems theorist Dana Klisanin and her indigenous “rewilding” of the mind, not to mention cryptographer Ian Grigg’s tokenized laminated flowers).&nbsp;</p>
-<p>Wildflower is gaining ground in charter micro-school franchises nationwide. Could MIT’s social computing project ultimately be paired with Celo’s “beautiful” digital community currency to manage the homeostasis of an emergent global superorganism? Are they after a network of youthful imaginary explorers, each classroom a fractal holon coordinated with token engineering and game mechanics? Will Oliver Reiser’s “won’t you be my sensor?” World Sensorium be run by the under-eight crowd, children just beginning to lose their baby teeth, their minds gradually domesticated by the printed word? Just what is this “science of reading” really about? It’s starting to feel like memetics and mind viruses melded with “personalized” AI literacy playlists of OER, EEGs, and IoT eye-tracking.</p>
-<p>Kamvar speaks often about the intelligence of the forest, fungal networks, and decentralized collective intelligence. Think of communication reframed as a free market economy of underground signals – phosphorus routing through mycorrhiza and roots and soil and food and bones and around again it goes – dust to (nano?) dust…interdimensional communication…gut programming…unexpected data storage and retrieval mechanisms…hypercubes…crystal lattices navigated by entrained heart field energy…</p>
-<p>Could the future of Moore’s law computing look like moss and lichen on a boulder? With the move to quantum photonics, there is a logic in putting photosynthesis front and center. I sense the system knows a sacred intelligence already exists and there is some pressure to harness, divert, and scale up nature’s secrets.&nbsp;</p>
-<p></p>
-<p>Again…for what purpose? I do not know. So please don’t ask me to stop looking and start judging, demanding I put a thumb down on the good/bad scale. That’s not who I am anymore. I don’t know enough yet to say, and ultimately I feel it is vital for each person to come to their own inner knowing of where things are headed with this Noosphere, gamified GAIA superorganism. I am more than happy to share my notes, and see yours if we are operating in the same problem space. I can’t tell you how to think about it all. It’s not my place.&nbsp;</p>
-<p>Over the past few years I’ve swapped my previously assumed roles of judge, warrior, and activist for curious scout and pattern finder. My brain and my heart are full. There exists a shrinking circle of people who share enough common ground that we can compare notes and piece together more of this puzzle. For my fellow collaborators I continue to be profoundly grateful. For whatever reason I sense it is my fate to keep walking towards the horizon, my current base of operation being Hot Springs, Arkansas (the natural state) where I’ll poke around in the corners of philosophy of mind, quantum consciousness, information theory, extremophiles, biogeochemistry, and the origins of life against a backdrop of ancient, weathered mountains, clear water, and majestic trees.&nbsp;</p>
-<p>An added bonus are the welcoming people here, some of whom have opened their hearts to me and seem more than happy to take a wayward Yankee under their wing and share their local wisdom of fishing, hiking, swimming holes, and t-ball.&nbsp;</p>
-<p>I’ll end with some photos I took on walks this past week, seeking solace in the dappled shade of my new home place. One of the reasons I chose Hot Springs was the fact that despite being just an hour’s drive from Little Rock, it is surrounded by the wild nature of the Ouachita National Forest along with generous doses of pastoral beauty. These worn-down mountains are perfect for women of a certain age, like me. I adore the mix of hardwoods and towering southern pines interspersed with glints of distant sunlight sparkling on the lake.&nbsp;</p>
-<p>Pics include a forest renewing itself from a devastating tornado 15 years ago, fungal decomposition, geological layers that reset one’s perception of time, cheerful rudbeckia, milky quartz, a tiny coral fungus of the most captivating purple, kids enjoying the first days of summer vacation at the lake, and a tiny heart of white pebbles!&nbsp;</p>
-<p>Onward! This piece, “Portage” I saw in the riverfront sculpture garden today after grabbing some okra and squash at the farmer’s market seems to sum up the state of my life at the moment. Hopefully, I’ll be able to put my boat back in the water soon.&nbsp;</p>
-<p>&nbsp;</p>
-<p></p>
-<p></p>
-<p></p>
-<p>&nbsp;</p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p>&nbsp;</p>
-<p></p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/05/img_5777-1.jpg?resize=1020%2C765&ssl=1'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:52 &bull;
    3 months ago
 </div>
 
