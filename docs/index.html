@@ -227,6 +227,11 @@
       </li>
      
       <li>
+        <a href='https://decentralgabe.xyz/rss/'><img src='i/feed-icon-10x10.png'></a>
+        <a href='https://decentralgabe.xyz/'>Decentral Gabe</a>
+      </li>
+     
+      <li>
         <a href='https://ggreve.medium.com/feed'><img src='i/feed-icon-10x10.png'></a>
         <a href='https://ggreve.medium.com/'>Georg C. F. Greve</a>
       </li>
@@ -344,6 +349,11 @@
       <li>
         <a href='https://medium.com/feed/@isurakarunaratne'><img src='i/feed-icon-10x10.png'></a>
         <a href='https://medium.com/@isurakarunaratne'>Isura Karunaratne</a>
+      </li>
+     
+      <li>
+        <a href='https://medium.com/feed/@theblockstalk'><img src='i/feed-icon-10x10.png'></a>
+        <a href='https://theblockstalk.medium.com/'>Jack the Blockstalk</a>
       </li>
      
       <li>
@@ -731,7 +741,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:51 AM October 21, 2024 (UTC)</sup>
+<sup>Last Update 7:43 AM October 21, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -744,6 +754,315 @@
  <h2 class='new-date'>
   Monday, 21. October 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/10/21/implement-security-headers-for-an-api-supporting-openapi-swagger-ui/'>Implement security headers for an ASP.NET Core API supporting OpenAPI Swagger UI</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article shows how to implement security headers for an application supporting an API and a swagger UI created from a open API in .NET 9. The security headers are implemented using the NetEscapades.AspNetCore.SecurityHeaders Nuget packages from Andrew Lock. Code: https://github.com/damienbod/WebApiOpenApi Deploying a web application which supports both an API and a UI have different […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article shows how to implement security headers for an application supporting an API and a swagger UI created from a open API in .NET 9. The security headers are implemented using the <a href="https://www.nuget.org/packages/NetEscapades.AspNetCore.SecurityHeaders">NetEscapades.AspNetCore.SecurityHeaders</a> Nuget packages from <a href="https://www.linkedin.com/in/andrewdlock/">Andrew Lock</a>.</p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/WebApiOpenApi">https://github.com/damienbod/WebApiOpenApi</a></p>
+
+
+
+<p>Deploying a web application which supports both an API and a UI have different levels of security requirements. The Swagger UI is created from an Open API specification and uses inline Javascript with no hashes or nonces which requires weak security definitions. The API has no UI and can use the maximum security header definitions. It can be locked down as much as possible against the typical web UI attacks.</p>
+
+
+
+<p></p>
+
+
+
+<p>The API endpoints can be secured using a definition with strict security headers and a lot of browser features locked down.</p>
+
+
+  public static class SecurityHeadersDefinitionsAPI
+{
+    private static HeaderPolicyCollection? policy;
+
+    public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev)
+    {
+        // Avoid building a new HeaderPolicyCollection on every request for performance reasons.
+        // Where possible, cache and reuse HeaderPolicyCollection instances.
+        if (policy != null) return policy;
+
+        policy = new HeaderPolicyCollection()
+            .AddFrameOptionsDeny()
+            .AddContentTypeOptionsNoSniff()
+            .AddReferrerPolicyStrictOriginWhenCrossOrigin()
+            .AddCrossOriginOpenerPolicy(builder =&gt; builder.SameOrigin())
+            .AddCrossOriginEmbedderPolicy(builder =&gt; builder.RequireCorp())
+            .AddCrossOriginResourcePolicy(builder =&gt; builder.SameOrigin())
+            .RemoveServerHeader()
+            .AddPermissionsPolicyWithDefaultSecureDirectives();
+
+        policy.AddContentSecurityPolicy(builder =&gt;
+        {
+            builder.AddObjectSrc().None();
+            builder.AddBlockAllMixedContent();
+            builder.AddImgSrc().None();
+            builder.AddFormAction().None();
+            builder.AddFontSrc().None();
+            builder.AddStyleSrc().None();
+            builder.AddScriptSrc().None();
+            builder.AddBaseUri().Self();
+            builder.AddFrameAncestors().None();
+            builder.AddCustomDirective("require-trusted-types-for", "'script'");
+        });
+
+        if (!isDev)
+        {
+            // maxage = one year in seconds
+            policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
+        }
+
+        return policy;
+    }
+}
+  
+
+
+<p>The API calls would return the following headers in the HTTP response. The CSP blocks Javascript.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The Swagger definition allows unsafe Javascript. This allows for XSS attacks and is a weak level of security. This is required due to the way the Swagger UI is created.</p>
+
+
+  public static class SecurityHeadersDefinitionsSwagger
+{
+    private static HeaderPolicyCollection? policy;
+
+    public static HeaderPolicyCollection GetHeaderPolicyCollection(bool isDev)
+    {
+        // Avoid building a new HeaderPolicyCollection on every request for performance reasons.
+        // Where possible, cache and reuse HeaderPolicyCollection instances.
+        if (policy != null) return policy;
+
+        policy = new HeaderPolicyCollection()
+            .AddFrameOptionsDeny()
+            .AddContentTypeOptionsNoSniff()
+            .AddReferrerPolicyStrictOriginWhenCrossOrigin()
+            .AddCrossOriginOpenerPolicy(builder =&gt; builder.SameOrigin())
+            .AddCrossOriginEmbedderPolicy(builder =&gt; builder.RequireCorp())
+            .AddCrossOriginResourcePolicy(builder =&gt; builder.SameOrigin())
+            .RemoveServerHeader()
+            .AddPermissionsPolicyWithDefaultSecureDirectives();
+
+        policy.AddContentSecurityPolicy(builder =&gt;
+        {
+            builder.AddObjectSrc().None();
+            builder.AddBlockAllMixedContent();
+            builder.AddImgSrc().Self().From("data:");
+            builder.AddFormAction().Self();
+            builder.AddFontSrc().Self();
+            builder.AddStyleSrc().Self().UnsafeInline();
+            builder.AddScriptSrc().Self().UnsafeInline(); //.WithNonce();
+            builder.AddBaseUri().Self();
+            builder.AddFrameAncestors().None();
+        });
+
+        if (!isDev)
+        {
+            // maxage = one year in seconds
+            policy.AddStrictTransportSecurityMaxAgeIncludeSubDomains(maxAgeInSeconds: 60 * 60 * 24 * 365);
+        }
+
+        return policy;
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>The HTTP response would look something like this:</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The security headers are setup to always use the API swagger definitions except for the swagger routes. This is used in development. I still don’t deploy this to production, unless the Swagger UI is absolutely required. In production, all responses use the stricter security header definitions.</p>
+
+
+  // Open up security restrictions to allow this to work
+// Not recommended in production
+var deploySwaggerUI = builder.Configuration.GetValue&lt;bool&gt;("DeploySwaggerUI");
+var isDev = builder.Environment.IsDevelopment();
+
+builder.Services.AddSecurityHeaderPolicies()
+    .SetPolicySelector((PolicySelectorContext ctx) =&gt;
+    {
+        // sum is weak security headers due to Swagger UI deployment
+        // should only use in development
+        if (deploySwaggerUI) 
+        {
+            // Weakened security headers for Swagger UI
+            if (ctx.HttpContext.Request.Path.StartsWithSegments("/swagger"))
+            {               
+                return SecurityHeadersDefinitionsSwagger.GetHeaderPolicyCollection(isDev);
+            }
+
+            // Strict security headers
+            return SecurityHeadersDefinitionsAPI.GetHeaderPolicyCollection(isDev);
+        }
+        // Strict security headers for production
+        else
+        {
+            return SecurityHeadersDefinitionsAPI.GetHeaderPolicyCollection(isDev);
+        }
+    });
+  
+
+
+<p></p>
+
+
+
+<p>The security headers are added as middleware using the UseSecurityHeaders methods.</p>
+
+
+  app.UseSecurityHeaders();
+  
+
+
+<p></p>
+
+
+
+ Notes 
+
+
+
+<p>This setup works good and the correct headers for the API are used in both development with the Swagger UI or without the Swagger UI. No weaken headers are deployed to production. </p>
+
+
+
+ Links 
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2021/08/30/improving-application-security-in-an-asp-net-core-api-using-http-headers-part-3/">Improving application security in an ASP.NET Core API using HTTP headers – Part&nbsp;3</a></blockquote>
+ 
+
+
+
+<p></p>
+
+
+
+<p><a href="https://securityheaders.com/">https://securityheaders.com/</a></p>
+
+
+
+<p><a href="https://csp-evaluator.withgoogle.com/">https://csp-evaluator.withgoogle.com/</a></p>
+
+
+
+<p><a href="https://www.youtube.com/watch?v=J6BZ9IQELNA">Security by Default Chrome developers</a></p>
+
+
+
+<p><a href="https://www.snigel.com/blog/a-simple-guide-to-coop-coep-corp-and-cors/">A Simple Guide to COOP, COEP, CORP, and CORS</a></p>
+
+
+
+<p><a href="https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders">https://github.com/andrewlock/NetEscapades.AspNetCore.SecurityHeaders</a></p>
+
+
+
+<p><a href="https://scotthelme.co.uk/coop-and-coep/">https://scotthelme.co.uk/coop-and-coep/</a></p>
+
+
+
+<p><a href="https://github.com/OWASP/ASVS">https://github.com/OWASP/ASVS</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/10/security_headers_01.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:26 &bull;
+   20 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -806,7 +1125,7 @@
 
 <div class='item-footer'>
    06:36 &bull;
-   18 minutes ago
+   an hour ago
 </div>
 
 </div><!-- item-body -->
@@ -888,7 +1207,7 @@
 
 <div class='item-footer'>
    05:58 &bull;
-   an hour ago
+   2 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -975,7 +1294,7 @@ from content
 
 <div class='item-footer'>
    03:33 &bull;
-   3 hours ago
+   4 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1050,7 +1369,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    03:02 &bull;
-   4 hours ago
+   5 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1135,7 +1454,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    23:40 &bull;
-   7 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1221,7 +1540,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    23:26 &bull;
-   7 hours ago
+   8 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1300,7 +1619,7 @@ Forrest Brazeal:<p></p>
 
 <div class='item-footer'>
    23:16 &bull;
-   8 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1370,7 +1689,7 @@ Forrest Brazeal:<p></p>
 
 <div class='item-footer'>
    23:10 &bull;
-   8 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1457,7 +1776,7 @@ Forrest Brazeal:<p></p>
 
 <div class='item-footer'>
    23:01 &bull;
-   8 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1522,7 +1841,7 @@ Forrest Brazeal:<p></p>
 
 <div class='item-footer'>
    22:54 &bull;
-   8 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1583,7 +1902,7 @@ Forrest Brazeal:<p></p>
 
 <div class='item-footer'>
    22:48 &bull;
-   8 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1658,7 +1977,7 @@ Forrest Brazeal:<p></p>
 
 <div class='item-footer'>
    22:42 &bull;
-   8 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1732,7 +2051,7 @@ Forrest Brazeal:<p></p>
 
 <div class='item-footer'>
    22:30 &bull;
-   8 hours ago
+   9 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1876,7 +2195,7 @@ Drew Breunig introduces an interesting new framework for categorizing use cases 
 
 <div class='item-footer'>
    22:12 &bull;
-   9 hours ago
+   10 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -1942,7 +2261,7 @@ Drew Breunig introduces an interesting new framework for categorizing use cases 
 
 <div class='item-footer'>
    21:02 &bull;
-   10 hours ago
+   11 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2028,7 +2347,7 @@ Drew Breunig introduces an interesting new framework for categorizing use cases 
 
 <div class='item-footer'>
    18:46 &bull;
-   12 hours ago
+   13 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -2095,7 +2414,7 @@ Drew Breunig introduces an interesting new framework for categorizing use cases 
 
 <div class='item-footer'>
    16:34 &bull;
-   14 hours ago
+   15 hours ago
 </div>
 
 </div><!-- item-body -->
@@ -3011,7 +3330,7 @@ for item in res:
 
 <div class='item-footer'>
    13:41 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3079,7 +3398,7 @@ for item in res:
 
 <div class='item-footer'>
    13:12 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4782,7 +5101,7 @@ Alex Chan:<p></p>
 
 <div class='item-footer'>
    19:05 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5745,6 +6064,86 @@ llm -m ministral-8b "a poem about a pelican in french"
 <article class='item'>
 
 
+<h4 class='feed-title'>
+  <a href='https://decentralgabe.xyz/'>Decentral Gabe</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://decentralgabe.xyz/the-greatly-exaggerated-demise-of-ssi-a-rebuttal-to-premature-eulogies/'>The Greatly Exaggerated Demise of SSI: A Rebuttal to Premature Eulogies</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+     💡  This is written in response to a post titled "Why Verifiable Credentials Aren't Widely Adopted &amp; Why Trinsic Pivoted"   A forewarning—there will be no tears here and, please, no hugging. credit, XKCD https://xkcd.com/386/ The post I'm responding to 
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://decentralgabe.xyz/content/images/2024/10/duty_calls_2x-1-1-1.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p></p>  💡  This is written in response to a post titled "<a href="https://rileyparkerhughes.medium.com/why-verifiable-credentials-arent-widely-adopted-why-trinsic-pivoted-aee946379e3b?ref=decentralgabe.xyz">Why Verifiable Credentials Aren't Widely Adopted &amp; Why Trinsic Pivoted</a>"  <p>A forewarning—there will be no tears here and, please, no hugging.</p>credit, XKCD <a href="https://xkcd.com/386/?ref=decentralgabe.xyz">https://xkcd.com/386/</a><p>The post I'm responding to makes a point about people resisting its conclusions because their livelihoods depend on it. But let’s be real—Trinsic depends on this too, just as much as mine does. We’re both here, with skin in the game, and that's a good thing. I continue to work on figuring out how to make self-sovereign identity work at scale because I believe it's worth it. If I was not convinced of its value, I wouldn't be here debating it; I'd have moved on to easier, more profitable paths. That’s the commitment this industry requires—guts, patience, and a long-term perspective.</p><p>So let's set the stage clearly. This isn't just about egos or jobs; it's about a vision for the future of digital identity. And while you’ve pivoted, it's worth looking at the broader picture and challenging the notion that SSI is somehow "dead" just because it's hard. We’re not the first to face a daunting path—nor will we be the last.</p> The Market Isn't the Oracle You Think It Is <p>Your unwavering faith in the market's infallibility is touching. You proclaim, "The market is the objective reality," as if channeling the spirit of a laissez-faire economist at a startup retreat. But let's examine recent history.</p><p>Betamax was superior to VHS, but marketing muscle won the day. The QWERTY keyboard isn't ergonomic, yet it's entrenched due to historical happenstance. The invisible hand often leads us down paths of inefficiency and fragmentation, leaving a trail of superior but abandoned technologies in its wake.</p><p>Fragmentation and incompatible standards aren't signs of the market "choosing" the best option; they're about who can shout "MINE!" the loudest while elbowing competitors off the playground. Sometimes, it takes a guiding hand—a nudge from governments or standard bodies—to steer the market toward what's efficient and beneficial for all.</p> Pivoting Isn't Prophecy you can do better, hon<p>The leap from "We couldn't make it work" to "It can't work" is a logical chasm too wide to cross. Your pivot from SSI evangelist to skeptic, while understandable, isn't a revelation of universal truth.</p><p>This is akin to Friendster declaring social media a dead end, or Blockbuster declaring video streaming a passing fad. The inability to monetize a nascent technology doesn't negate its potential; it merely highlights the gap between visionary ideals and the brutal realities of running a startup. For example, certain decentralized identity projects have successfully implemented verifiable credentials in applications like educational certificates, employment verification, and gaining access to the financial system, demonstrating real-world utility and growing momentum. These efforts show that verifiable credentials are gaining traction in specific, focused use cases.</p><p>Let me be unequivocal: I commend you for having the guts to start a company, work hard for years, and continue to try to make it viable. That is nothing short of admirable. Your pivot might make sense for Trinsic, but it's hardly the canary in the coal mine for SSI.</p><p>SSI, like many transformative technologies before it, may simply be awaiting its "streaming moment" — that convergence of technological readiness, market understanding, and user demand that catapults it from interesting concept to indispensable tool.</p> The Power of Collective Standards <p>Dismissing government involvement as a mere "silver lining" is like calling the sun a "helpful light bulb." Let's not overlook crucial historical precedents.</p><p>The internet (ARPANET), GPS, and even time zone standardization were government initiatives. The metric system, USB, and Wi-Fi all benefited from coordinated efforts beyond market forces. These standards didn't become universal because the market willed them so, but because of coordination to prevent fragmentation.</p><p>It is important not to ignore this. Preventing the chaos of incompatible systems often requires patience and collaboration—yes, even more patience than the industry has shown to this point.</p> Scattered Seeds Grow Diverse Forests <p>Your lament that SSI's "heat map is too scattered" misses the point. This diversity isn't a bug—it's a feature. The applications sprouting in education, finance, healthcare, and agriculture worldwide are the seeds of a diverse forest, not a failed monoculture.</p><p>Yes, SSI's initial user experience may be challenging, but that's par for the course with transformative technologies. Remember when 2G networks made downloading a single image feel interminable? Or when dial-up internet's screeching was our daily soundtrack?</p><p>Every groundbreaking technology endures growing pains. Users adapt, technologists adapt, and the market adapts with them—especially when the endgame offers control, privacy, and empowerment.</p> Business Goals Aren't Universal Truths <p>There's a profound difference between "We couldn't make it work for our business" and "The technology is inherently flawed."</p><p>Your focus on immediate market adoption overlooks the long-term value of doing the right thing—the hard thing—the thing that maybe, honestly, is not suited for startups that need to show growth and profit now. Perhaps a successful SSI startup is better suited as a <a href="https://en.wikipedia.org/wiki/B_Corporation_(certification)?ref=decentralgabe.xyz">B-Corp</a>. </p><p>While market challenges are real, the problems that led us to SSI have only grown more severe. Data breaches are no longer news; they're an expectation. Surveillance Capitalism has entrenched itself deeper into the fabric of our digital lives, commodifying our every interaction. Government-issued digital identities, on the hardware of monopolistic tech giants, laced with privacy-eroding mandates, threatening to erode what little privacy we have left.</p><p>SSI isn't just a novel technology; it is our defense against these escalating digital threats.</p> Focused Implementation <p>While the post laments the scattered nature of SSI adoption, I see this differently. There is a clear answer to the diversity challenge: focus on specific, high-impact use cases. Our net is intentionally not cast wide.</p><p>We don't require credentials to be used across different domains from which they were issued. That's a potential bonus, not a requirement. It does not undermine the original goal of the technology; optionality is a strength. It leaves the door open for future cross-domain adoption without dependence on it for current success.</p><p>This focused strategy allows us to deliver value in targeted areas while building the infrastructure for broader adoption. It’s a pragmatic approach that addresses immediate needs while paving the way for SSI’s long-term vision. An iterative approach helps build confidence in the SSI ecosystem, one application at a time.</p><p>The success of SSI won't come from boiling the ocean. We’re laying the groundwork for future interoperability while delivering value today.</p> A Vision Beyond The Fiscal Calendar <p>While some may chase immediate market opportunities, many of us remain committed to SSI's promise. Transformational change isn't measured in fiscal quarters but in steady progress over years, many years. It demands fortitude, collaboration, and a willingness to look beyond short-term gains.</p><p>To the SSI community: Let this be our rallying cry. We're not just building a product; we're creating the foundation for human-centric digital identity. Let's continue to collaborate on improving user experience, pushing interoperability, and engaging governments and standards organizations. Every effort, no matter how small, contributes to a future where secure, privacy-respecting, self-sovereign digital identity is the norm.</p><p>The most compelling technological advances come from those who persevere when the path gets steep. The future of digital identity—one that isn't controlled solely by governments or tech monopolies—is counting on us.</p>credit: Dune<p>Should you find yourself at the next IIW, or the one after that, perhaps hosting a session titled "I Was Wrong About Being Wrong About SSI," feel free to invite us—we'll be there. We won't cry, clap, or hug you. We'll simply nod, in recognition that the most profound insights often come from pushing through challenges, not pivoting away from them.</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://images.unsplash.com/photo-1702906680501-f74c836d0120?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3wxMTc3M3wwfDF8c2VhcmNofDMxfHxncmF2ZXlhcmR8ZW58MHx8fHwxNzI5MDUzNDc0fDA&ixlib=rb-4.0.3&q=80&w=2000'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:32 &bull;
+   5 days ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
 
 <h3 class='item-title'>
  <i class='icon-caret-down item-collapse item-close item-opened'></i>
@@ -6172,7 +6571,7 @@ Shot with a camcoder on a beach in the Caribbean during a 2001 Linux Journal Gee
 
 <div class='item-footer'>
    18:54 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7805,7 +8204,7 @@ Super neat demo by David Winterbottom, who wrapped my <a href="https://llm.datas
 
 <div class='item-footer'>
    19:37 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7888,7 +8287,7 @@ Hubert Lubaczewski dives into the new JSON features added in PostgreSQL 17, rele
 
 <div class='item-footer'>
    19:01 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12142,7 +12541,7 @@ So, 2/3 of a nuke plant. 4/5 of a coal-fired power plant. These kinds of compari
 
 <div class='item-footer'>
    19:27 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15809,7 +16208,7 @@ expect(doesVerify).toEqual(true)
 
 <div class='item-footer'>
    19:27 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -25651,253 +26050,6 @@ public static bool VerifyCode(string code, string userId, string storedCode)
 
 <div class='item-footer'>
    13:53 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Thursday, 27. June 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://justatheory.com'>Just a Theory</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://justatheory.com/2024/06/abi-api-guidance/'>Patch: Postgres ABI and API Guidance</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Dear Postgres extension developers: Please review and give feedback on the
-proposed patch adding ABI and API Guidance to the C language documentation.
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- 
-         
-<p>TL;DR: If you’re a Postgres extension developer interested in understanding
-what to expect from core API and ABI stability, please review and give
-feedback on <a href="https://commitfest.postgresql.org/48/5080/" title="Commitfest — Docs: API &amp; ABI Guidance">this patch</a> (or <a href="https://github.com/theory/postgres/pull/6" title="theory/postgres: Add API an ABI guidance to the C language docs">pull request</a>) adding ABI and API
-Guidance to the documentation.</p>
- 
-<p>In my <a href="https://justatheory.com/2024/06/pgconf-future-ecosystem/" title="PGConf.dev 2024">PGConf.dev report</a> a couple days ago, I mentioned that a few actionable
-items came out of the <a href="https://wiki.postgresql.org/wiki/PGConf.dev_2024_Developer_Unconference#Improving_extensions_in_core">Improving extensions in core</a> unconference session. One
-was the need to document the heretofore unofficial policy for <a href="https://en.wikipedia.org/wiki/API" title="Wikipedia: API">API</a> and <a href="https://en.wikipedia.org/wiki/Application_binary_interface" title="Wikipedia: Application binary interface">ABI</a>
-stability between major and, especially, minor versions of Postgres.</p>
-<p>A frequent topic at the <a href="https://justatheory.com/2024/02/extension-ecosystem-summit/" title="Extension Ecosystem Summit 2024">Extension Summit and Mini-Summits</a> and a number of
-PCConf sessions has been concern regarding compatibility changes between minor
-releases of Postgres. At <a href="https://justatheory.com/2024/05/mini-summit-five/">Mini Summit Five</a>, for example, Yurri Rashkovskii
-presented a few examples of such changes, leading him to conclude, along with
-several others in the community, that C API-using extensions can only be used
-when built against the minor release with which they’re used.</p>
-<p>In the Unconference session, core committers reported that such changes are
-carefully made, and rarely, if ever, affect extensions compiled for different
-minor releases of the same major version. Furthermore, they carefully make
-such changes to avoid compatibility issues. In <a href="https://x.com/petervgeoghegan/status/1785720228237717627" title="Peter Geoghegan on Twitter: You must be referring to my commit 714780dc…">the case Yurii
-found</a>, for example, a field was added to a struct’s padding,
-without affecting the ordering of other fields, thus minimizing the risk of
-runtime failures.</p>
-<p>It became clear that, although the committers follow a policy — and read new
-committers into it via patch review — it’s not documented anywhere. The
-result has been a bunch of sturm und drang amongst extension developer unsure
-what level of compatibility to depend on and what changes to expect.</p>
-<p>The week after the conference, I started a <a href="https://www.postgresql.org/message-id/flat/5DA9F9D2-B8B2-43DE-BD4D-53A4160F6E8D@justatheory.com" title="pgsql-hackers: Proposal: Document ABI Compatibility">pgsql-hackers thread</a> proposing to
-document the committer policy. Following some discussion and review of
-potential ABI breaks in minor releases, the consensus seemed to be that the
-committers strive to avoid such breaks, that they’re quite uncommon in minor
-releases, and that most of the reported issues were due to using more obscure
-APIs.</p>
-<p>As a result, we started drafting a policy, and after a few iterations, <a href="https://peter.eisentraut.org">Peter
-Eisentraut</a> pulled things together from the perspective of a core team member,
-reframed as “Server API and ABI Guidance”. I converted it into a <a href="https://commitfest.postgresql.org/48/5080/" title="Commitfest — Docs: API &amp; ABI Guidance">patch</a> (and
-<a href="https://github.com/theory/postgres/pull/6" title="theory/postgres: Add API an ABI guidance to the C language docs">pull request</a>) to add it to the <a href="https://www.postgresql.org/docs/current/xfunc-c.html" title="PostgreSQL Docs: C-Language Functions">C Language docs</a>. A key statement on minor
-releases:</p>
-<blockquote>
-<p>In general, extension code that compiles and works with a minor release
-should also compile and work with any other minor release of the same major
-version, past or future.</p>
-</blockquote>
-<p>I hope this document clarifies things. Even if it’s not as strict as some
-might hope, it at least documents the project approach to compatibility, so we
-have a better idea what to expect when using the C APIs. If you see gaps, or
-you have additional questions, please respond to <a href="https://www.postgresql.org/message-id/flat/5DA9F9D2-B8B2-43DE-BD4D-53A4160F6E8D@justatheory.com" title="pgsql-hackers: Proposal: Document ABI Compatibility">pgsql-hackers thread</a> — or
-the <a href="https://github.com/theory/postgres/pull/6" title="theory/postgres: Add API an ABI guidance to the C language docs">pull request</a> (I’ll propagate comments to hackers).</p>
-
-         
-
-         
-             More about… 
-             
-                 <a href="https://justatheory.com/tags/postgres/">Postgres</a> 
-                 <a href="https://justatheory.com/tags/extensions/">Extensions</a> 
-                 <a href="https://justatheory.com/tags/patch/">Patch</a> 
-                 <a href="https://justatheory.com/tags/abi/">ABI</a> 
-                 <a href="https://justatheory.com/tags/api/">API</a> 
-             
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:05 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Wednesday, 26. June 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.jonudell.net'>Jon Udell</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.jonudell.net/2024/06/26/human-insight-llm-grunt-work-creative-publishing-solution/'>Human Insight + LLM Grunt Work = Creative Publishing Solution</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Here’s the latest installment in the series on working with LLMS: https://thenewstack.io/human-insight-llm-grunt-work-creative-publishing-solution/ Although streamlined publishing of screenshots is nice, the biggest win comes from reviewing and revising in Google Docs; which, for better and worse, has become the defacto collaboration standard for many of us. I am ridiculously pleased with this solu
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Here’s the latest installment in the series on working with LLMS: <a href="https://thenewstack.io/human-insight-llm-grunt-work-creative-publishing-solution/">https://thenewstack.io/human-insight-llm-grunt-work-creative-publishing-solution/</a></p>
-<blockquote><p>Although streamlined publishing of screenshots is nice, the biggest win comes from reviewing and revising in Google Docs; which, for better and worse, has become the defacto collaboration standard for many of us.
-</p></blockquote>
-<p>I am ridiculously pleased with this solution.</p>
-<p>The rest of the series:</p>
-<p>
-1 <a href="https://blog.jonudell.net/2023/05/24/when-the-rubber-duck-talks-back/">When the rubber duck talks back</a> </p>
-<p>
-2 <a href="https://blog.jonudell.net/2023/06/14/radical-just-in-time-learning/">Radical just-in-time learning</a> </p>
-<p>
-3 <a href="https://blog.jonudell.net/2023/06/18/why-llm-assisted-table-transformation-is-a-big-deal/">Why LLM-assisted table transformation is a big deal</a> </p>
-<p>
-4 <a href="https://thenewstack.io/using-llm-assisted-coding-to-write-a-custom-template-function/">Using LLM-Assisted Coding to Write a Custom Template Function</a></p>
-<p>
-5 <a href="https://thenewstack.io/elevating-the-conversation-with-llm-assistants/">Elevating the Conversation with LLM Assistants</a></p>
-<p>
-6 <a href="https://thenewstack.io/how-large-language-models-assisted-a-website-makeover/">How Large Language Models Assisted a Website Makeover</a></p>
-<p>
-7 <a href="https://thenewstack.io/should-llms-write-marketing-copy/">Should LLMs Write Marketing Copy?</a></p>
-<p>
-8 <a href="https://thenewstack.io/test-driven-development-with-llms-never-trust-always-verify/">Test-Driven Development with LLMs: Never Trust, Always Verify</a> </p>
-<p>
-9 <a href="https://thenewstack.io/learning-while-coding-how-llms-teach-you-implicitly/">Learning While Coding: How LLMs Teach You Implicitly</a></p>
-<p>
-10 <a href="https://thenewstack.io/how-llms-helped-me-build-an-odbc-plugin-for-steampipe/">How LLMs Helped Me Build an ODBC Plugin for Steampipe</a></p>
-<p>
-11 <a href="https://thenewstack.io/how-to-use-llms-for-dynamic-documentation/">How to Use LLMs for Dynamic Documentation</a></p>
-<p>
-12 <a href="https://blog.jonudell.net/2023/11/06/lets-talk-conversational-software-development/">Let’s talk: conversational software development</a></p>
-<p>
-13 <a href="https://thenewstack.io/techniques-for-using-llms-to-improve-sql-queries/">Using LLMs to Improve SQL Queries</a></p>
-<p>
-14 <a href="https://thenewstack.io/puzzling-over-the-postgres-query-planner-with-llms/">Puzzling over the Postgres Query Planner with LLMs</a></p>
-<p>
-15 <a href="https://thenewstack.io/7-guiding-principles-for-working-with-llms/">7 Guiding Principles for Working with LLMs</a></p>
-<p>
-16 <a href="https://thenewstack.io/learn-by-doing-how-llms-should-reshape-education/">Learn by Doing: How LLMs Should Reshape Education</a></p>
-<p>
-17 <a href="https://thenewstack.io/how-to-learn-unfamiliar-software-tools-with-chatgpt/">How to Learn Unfamiliar Software Tools with ChatGPT</a></p>
-<p>
-18 <a href="https://thenewstack.io/creating-a-gpt-assistant-that-writes-pipeline-tests/">Creating a GPT Assistant That Writes Pipeline Tests</a></p>
-<p>
-19 <a href="https://thenewstack.io/using-ai-to-improve-bad-business-writing/">Using AI to Improve Bad Business Writing</a></p>
-<p>
-20 <a href="https://thenewstack.io/code-in-context-how-ai-can-help-improve-our-documentation/">Code in Context: How AI Can Help Improve Our Documentation</a></p>
-<p>
-21 <a href="https://thenewstack.io/the-future-of-sql-conversational-hands-on-problem-solving/">The Future of SQL: Conversational Hands-on Problem Solving</a></p>
-<p>
-22 <a href="https://thenewstack.io/pairing-with-ai-a-senior-developers-journey-building-a-plugin/">Pairing With AI: A Senior Developer’s Journey Building a Plugin</a></p>
-<p>
-23 <a href="https://thenewstack.io/how-llms-can-unite-analog-event-promotion-and-digital-calendars/">How LLMs Can Unite Analog Event Promotion and Digital Calendars</a></p>
-<p>
-24 <a href="https://thenewstack.io/techniques-for-using-llms-to-help-write-a-postgres-function/">Using LLMs to Help Write a Postgres Function</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:45 &bull;
    4 months ago
 </div>
 
