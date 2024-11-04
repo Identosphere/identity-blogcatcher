@@ -741,7 +741,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:49 AM November 03, 2024 (UTC)</sup>
+<sup>Last Update 6:50 AM November 04, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -752,8 +752,868 @@
 
 
  <h2 class='new-date'>
+  Monday, 04. November 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/11/04/asp-net-core-and-angular-bff-using-a-yarp-downstream-api-protected-using-certificate-authentication/'>ASP.NET Core and Angular BFF using a YARP downstream API protected using certificate authentication</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article demonstrates how to implement a downstream API protected by certificate authentication using Microsoft YARP reverse proxy in an ASP.NET Core web application. The application uses Angular for its UI and secures both the UI and the ASP.NET Core backend through a backend-for-frontend security architecture. The downstream API is secured with certificate authentication and […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article demonstrates how to implement a downstream API protected by certificate authentication using Microsoft YARP reverse proxy in an ASP.NET Core web application. The application uses Angular for its UI and secures both the UI and the ASP.NET Core backend through a backend-for-frontend security architecture. The downstream API is secured with certificate authentication and deployed to an Azure App Service. The API requires a known client certificate for access.</p>
+
+
+
+<p>Code <a href="https://github.com/damienbod/bff-aspnetcore-angular-downstream-cert-api">https://github.com/damienbod/bff-aspnetcore-angular-downstream-cert-api</a></p>
+
+
+
+ Setup 
+
+
+
+<p>The application was built using the  following github repository: </p>
+
+
+
+<p><a href="https://github.com/damienbod/bff-aspnetcore-angular">https://github.com/damienbod/bff-aspnetcore-angular</a></p>
+
+
+
+<p>The web application is secured with an OpenID Connect confidential client using PKCE. The UI is built with Angular , while the backend is implemented using ASP.NET Core. The API is protected with certificate authentication. This application is deployed to an Azure App Service and requires the correct certificate for access. The server ensures that the correct certificate is used to access the API.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The YARP reverse proxy is setup in the start up of the ASP.NET Core application and the appsettings.json file. The client certificate required for the downstream API, is loaded into the project using the X509Certificate2 class. This could be loaded from the operating system, or Azure key vault or some other secure way. The demo loads this directly in an unsecure way.</p>
+
+
+
+<p>The AddReverseProxy method adds the YARP definitions and the ConfigureHttpClient method is used to add the SslOptions containing the client certificate which is used for the Azure API calls. The MapReverseProxy is used to add the endpoints and reads the configuration from the app settings. The proxy is also used in development to load the Angular project. Depending on the UI packages, different setups are required.</p>
+
+
+  var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.ConfigureKestrel(serverOptions =&gt;
+{
+    serverOptions.AddServerHeader = false;
+});
+
+var services = builder.Services;
+var configuration = builder.Configuration;
+
+var stsServer = configuration["OpenIDConnectSettings:Authority"];
+
+services.AddSecurityHeaderPolicies()
+  .SetPolicySelector((PolicySelectorContext ctx) =&gt;
+  {
+      return SecurityHeadersDefinitions.GetHeaderPolicyCollection(
+          builder.Environment.IsDevelopment(), stsServer);
+  });
+
+services.AddAntiforgery(options =&gt;
+{
+    options.HeaderName = "X-XSRF-TOKEN";
+    options.Cookie.Name = "__Host-X-XSRF-TOKEN";
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+});
+
+services.AddHttpClient();
+services.AddOptions();
+
+services.AddAuthentication(options =&gt;
+{
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie()
+.AddOpenIdConnect(options =&gt;
+{
+    configuration.GetSection("OpenIDConnectSettings").Bind(options);
+    //options.Authority = configuration["OpenIDConnectSettings:Authority"];
+    //options.ClientId = configuration["OpenIDConnectSettings:ClientId"];
+    //options.ClientSecret = configuration["OpenIDConnectSettings:ClientSecret"];
+
+    options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.ResponseType = OpenIdConnectResponseType.Code;
+
+    options.SaveTokens = true;
+    options.GetClaimsFromUserInfoEndpoint = true;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        NameClaimType = "name"
+    };
+});
+
+services.AddControllersWithViews(options =&gt;
+    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
+
+services.AddRazorPages().AddMvcOptions(options =&gt;
+{
+    //var policy = new AuthorizationPolicyBuilder()
+    //    .RequireAuthenticatedUser()
+    //    .Build();
+    //options.Filters.Add(new AuthorizeFilter(policy));
+});
+
+builder.Services.AddSingleton&lt;ApiTokenCacheClient&gt;();
+
+// Create an authorization policy used by YARP when forwarding requests
+builder.Services.AddAuthorization(options =&gt; options.AddPolicy("CookieAuthenticationPolicy", builder =&gt;
+{
+    builder.AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme);
+    builder.RequireAuthenticatedUser();
+}));
+
+var cert = new X509Certificate2("client.pfx", "pfx-certificate-secret");
+
+services.AddReverseProxy()
+    .ConfigureHttpClient((context, handler) =&gt;
+    {
+        handler.SslOptions = new SslClientAuthenticationOptions
+        {
+            ClientCertificates = [cert]
+        };
+    })
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+  
+
+
+<p></p>
+
+
+
+<p>The ReverseProxy settings adds the configuration which is almost standard like the documentation. The CookieAuthenticationPolicy is used to accept only authenticated requests. The YARP is setup differently for development and production.</p>
+
+
+  "ReverseProxy": {
+	"Routes": {
+	  "route1": {
+		"ClusterId": "cluster1",
+		"AuthorizationPolicy": "CookieAuthenticationPolicy",
+		"Match": {
+		  "Path": "{**catch-all}"
+		}
+	  }
+	},
+	"Clusters": {
+	  "cluster1": {
+		"HttpClient": {
+		  "SslProtocols": [
+			"Tls12"
+		  ]
+		},
+		"Destinations": {
+		  "cluster1/destination1": {
+			"Address": "https://azurecertauth20201108214641.azurewebsites.net/"
+		  }
+		}
+	  }
+	}
+}
+  
+
+
+<p></p>
+
+
+
+ Downstream API protected using certificate authentication 
+
+
+
+<p>The downstream API uses certification authentication to protect the API. The API requires a certificate forwarding middleware in local development as well as allowing any certificate type including self signed certificates. When the application is deployed to an Azure App Service, the certificate forwarding middleware is not required. The API validates the thumbprint of the certificate and returns a 403 if the certificate authentication in ASP.NET Core fails. This is because the certificate is already validated before it reaches the application. It is really authorization.</p>
+
+
+  using Microsoft.AspNetCore.Authentication.Certificate;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Logging;
+using Serilog;
+using System.Security.Claims;
+using System.Security.Cryptography.X509Certificates;
+
+namespace DownstreamApiCertAuth;
+
+internal static class StartupExtensions
+{
+    public static WebApplication ConfigureServices(this WebApplicationBuilder builder)
+    {
+        var services = builder.Services;
+        var configuration = builder.Configuration;
+
+        if(builder.Environment.IsDevelopment())
+        {
+            builder.WebHost.ConfigureKestrel((context, serverOptions) =&gt;
+            {
+                serverOptions.ConfigureHttpsDefaults(listenOptions =&gt;
+                {
+                    listenOptions.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
+                    listenOptions.AllowAnyClientCertificate();
+                });
+            });
+        }
+
+        services.AddSingleton&lt;MyCertificateValidationService&gt;();
+
+        services.AddCertificateForwarding(options =&gt;
+        {
+            options.CertificateHeader = "X-ARR-ClientCert";
+            options.HeaderConverter = (headerValue) =&gt;
+            {
+                Console.WriteLine("headerValue: " + headerValue);
+
+                X509Certificate2? clientCertificate = null;
+                if (!string.IsNullOrWhiteSpace(headerValue))
+                {
+                    byte[] bytes = Convert.FromBase64String(headerValue);
+                    clientCertificate = new X509Certificate2(bytes);
+                }
+
+                return clientCertificate!;
+            };
+        });
+
+        services.AddAuthentication(CertificateAuthenticationDefaults.AuthenticationScheme)
+            .AddCertificate(options =&gt; // code from ASP.NET Core sample
+            {
+                // https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth
+                options.AllowedCertificateTypes = CertificateTypes.All;
+
+                // Default values
+                //options.AllowedCertificateTypes = CertificateTypes.Chained;
+                //options.RevocationFlag = X509RevocationFlag.ExcludeRoot;
+                options.RevocationMode = X509RevocationMode.NoCheck;
+                options.ValidateCertificateUse = false;
+                options.ValidateValidityPeriod = false;
+
+                options.Events = new CertificateAuthenticationEvents
+                {
+                    OnCertificateValidated = context =&gt;
+                    {
+                        var validationService =
+                            context.HttpContext.RequestServices.GetService&lt;MyCertificateValidationService&gt;();
+
+                        if (validationService!.ValidateCertificate(context.ClientCertificate))
+                        {
+                            var claims = new[]
+                            {
+                                new Claim(ClaimTypes.NameIdentifier, context.ClientCertificate.Subject, ClaimValueTypes.String, context.Options.ClaimsIssuer),
+                                new Claim(ClaimTypes.Name, context.ClientCertificate.Subject, ClaimValueTypes.String, context.Options.ClaimsIssuer)
+                            };
+
+                            context.Principal = new ClaimsPrincipal(new ClaimsIdentity(claims, context.Scheme.Name));
+                            context.Success();
+                        }
+                        else
+                        {
+                            context.Fail("invalid cert");
+                        }
+
+                        return Task.CompletedTask;
+                    },
+                    OnAuthenticationFailed = new Func&lt;CertificateAuthenticationFailedContext, Task&gt;(context =&gt;
+                    {
+                        Console.WriteLine("OnAuthenticationFailed: " + context.Exception.Message);
+                        return Task.CompletedTask;
+                    })
+                };
+            });
+
+        services.AddAuthorization();
+        services.AddControllers();
+
+        return builder.Build();
+    }
+
+    public static WebApplication ConfigurePipeline(this WebApplication app)
+    {
+        IdentityModelEventSource.ShowPII = true;
+        JsonWebTokenHandler.DefaultInboundClaimTypeMap.Clear();
+        app.UseSerilogRequestLogging();
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseDeveloperExceptionPage();
+        }
+
+        app.UseHttpsRedirection();
+        app.UseRouting();
+
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseCertificateForwarding();
+        }
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapControllers();
+
+        return app;
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>When the application is started, the web application can use the downstream API protected using certificates.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Notes 
+
+
+
+<p>This works good and the downstream APIs can be protected in a secure way using certificates. Using this approach, it is very easy to increase security or implement the app-to-app security in a good way. Of course security is only as good as the weakest link. The Angular UI view calling to the API protected with cookies is now the weakest link, depending of course on how you secure the downstream APIs, but this should not be a problem to do correctly. </p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://github.com/microsoft/reverse-proxy">https://github.com/microsoft/reverse-proxy</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template">https://github.com/damienbod/Blazor.BFF.OpenIDConnect.Template</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth">https://docs.microsoft.com/en-us/aspnet/core/security/authentication/certauth</a></p>
+
+
+
+<p><a href="https://github.com/openiddict/openiddict-samples">https://github.com/openiddict/openiddict-samples</a></p>
+
+
+
+<p><a href="https://github.com/damienbod/AspNetCoreCertificates">https://github.com/damienbod/AspNetCoreCertificates</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/11/context.drawio.png?w=531'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:43 &bull;
+   10 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Sunday, 03. November 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/11/04/zuckerberg-the-ai.html'> 🔗 Zuckerberg: The AI Slop Will Continue Until Morale Improve</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   🔗 Zuckerberg: The AI Slop Will Continue Until Morale Improves 
+ (404 Media) 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://www.404media.co/zuckerberg-the-ai-slop-will-continue-until-morale-improves/">🔗 Zuckerberg: The AI Slop Will Continue Until Morale Improves</a></p>
+<p>(404 Media)</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:12 &bull;
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/11/04/the-first-rule.html'> 
+ “The first rule is: attack, attack, attack.”   
+“Rule two,</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ “The first rule is: attack, attack, attack.”   
+“Rule two, Admit nothing, deny everything.”  
+“Rule three?  “No matter what happens, you claim victory and never admit defeat.” 
+ 
+ 💬 Roy Cohn. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<blockquote>
+<p>“The first rule is: attack, attack, attack.”  <br>
+“Rule two, Admit nothing, deny everything.” <br>
+“Rule three?  “No matter what happens, you claim victory and never admit defeat.”</p>
+</blockquote>
+<p>💬 Roy Cohn.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:12 &bull;
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/11/04/on-impulse-he.html'> 
+ On impulse he might die for her, but living for her would </a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ On impulse he might die for her, but living for her would be quite different. 
+ 
+ 💬 Margaret Atwood 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<blockquote>
+<p>On impulse he might die for her, but living for her would be quite different.</p>
+</blockquote>
+<p>💬 Margaret Atwood</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:07 &bull;
+   10 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Nov/3/tom-macwright/#atom-everything'>Quoting Tom MacWright</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    Building technology in startups is all about having the right level of tech debt. If you have none, you’re probably going too slow and not prioritizing product-market fit and the important business stuff. If you get too much, everything grinds to a halt. Plus, tech debt is a “know it when you see it” kind of thing, and I know that my definition of “a bunch of tech debt” is, to other people, “very
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <blockquote cite="https://macwright.com/2024/10/25/good-software-knip"><p>Building technology in startups is all about having the right level of tech debt. If you have none, you’re probably going too slow and not prioritizing product-market fit and the important business stuff. If you get too much, everything grinds to a halt. Plus, tech debt is a “know it when you see it” kind of thing, and I know that my definition of “a bunch of tech debt” is, to other people, “very little tech debt.”</p></blockquote>
+<p>— <a href="https://macwright.com/2024/10/25/good-software-knip">Tom MacWright</a></p>
+
+    <p>Tags: <a href="https://simonwillison.net/tags/technical-debt">technical-debt</a>, <a href="https://simonwillison.net/tags/tom-macwright">tom-macwright</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   16:36 &bull;
+   14 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://wrenchinthegears.com/2024/11/03/cheri-honkala-philadelphia-housing-rights-activist-aligns-with-blockchain-game-to-train-benevolent-ai-and-catalyze-a-digital-world-constitution/'>Cheri Honkala, Philadelphia Housing Rights Activist, Aligns With Blockchain Game To Train Benevolent AI And Catalyze A Digital World Constitution</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  Below is a summary of my most recent post from Hot Springs, Arkansas. It just goes to show how fragile our perceived “reality” is in a world increasingly governed by the physics of information. It truly is a fascinating time to be alive. With digital media working overtime to keep everyone in their assigned “reality [...]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Below is a summary of my most recent post from Hot Springs, Arkansas. It just goes to show how fragile our perceived “reality” is in a world increasingly governed by the physics of information. It truly is a fascinating time to be alive.</p>
+<p></p>
+<p>With digital media working overtime to keep everyone in their assigned “reality tunnels” it may be hard to contemplate new wrinkles to the story that are so bizarre as to appear over-the-top spectacle. And yet, Elowyn, a blockchain Decentralized Autonomous Organization, with bottom-up game mechanics and in-game token economy linked to “peace,” “healing,” and “sustainability” has been designed with financial support from Ben Goertzel (the creator of Sophia the robot’s brain) and Michaela Ulieru (Singularity.net’s Chief Alchemist) to generate psychological data that will supposedly train “benevolent AI.”</p>
+<a href="https://docsend.com/view/zfiqunqgxm98tbt4"></a>Download White Paper Here: <a href="https://docsend.com/view/zfiqunqgxm98tbt4">https://docsend.com/view/zfiqunqgxm98tbt4</a>
+ 
+ 
+<a href="https://www.youtube.com/watch?v=BUy1YcYAzcA"></a>Source:<a href="https://www.youtube.com/watch?v=BUy1YcYAzcA"> https://www.youtube.com/watch?v=BUy1YcYAzcA</a>
+ 
+ 
+ The leader of the Elowyn initiative, Anneloes Smitsman, based on the tiny volcanic island of Mauritius in the Indian Ocean, has also been involved with educational programs in partnership with systems theorist Alexander Laszlo and Russian transhumanist Pavel Luksha. Both are affiliated with Global Education Futures that has footprints, through Tom Vander Ark’s former ed-tech investment fund Learn Capital, on Powder Mountain, Utah and in Arena Hall in Austin, Texas. 
+ 
+<a href="https://wrenchinthegears.com/wp-content/uploads/2024/11/EvolutionaryLearningEcosystemsforThrivableFuturesCraftingandCuratingtheConditionsforFutureFitEducation.pdf"></a>Source: <a href="https://wrenchinthegears.com/wp-content/uploads/2024/11/EvolutionaryLearningEcosystemsforThrivableFuturesCraftingandCuratingtheConditionsforFutureFitEducation.pdf">https://wrenchinthegears.com/wp-content/uploads/2024/11/EvolutionaryLearningEcosystemsforThrivableFuturesCraftingandCuratingtheConditionsforFutureFitEducation.pdf</a>
+ 
+ 
+ 
+<a href="https://x.com/SingularityNET/status/1763227101426061353"></a>Source: <a href="https://x.com/SingularityNET/status/1763227101426061353">https://x.com/SingularityNET/status/1763227101426061353</a>
+ 
+ 
+ The backer of Smitsman’s education initiative, piloted in several Catholic schools on the island, was backed by Investec, an Australian bank that is deeply involved in human capital bets on children. Smitsman has conducted research in South Africa and Australia, and both countries are hotbeds of blockchain impact finance. One of the advisors to Smitsman’s “Earthwise” organization and promoter of the archetypal card game to “fight Moloch” is Laura George, ordained priest of the interfaith order of Melchizedeck, human potential movement advocate, and leader of the “Peace Pentagon” situated along the ancient New River in the mountains of Virginia. Laura George and Glen Martin, philosophy professor at Radford College, are working to develop a worldwide constitution in coordination with Smitsman’s benevolent AGI program through the Peace Pentagon’s umbrella organization “The Oracle Institute.” 
+ 
+ 
+<a href="https://www.youtube.com/watch?v=tJj2RMceK_8"></a>Source: <a href="https://www.youtube.com/watch?v=tJj2RMceK_8">https://www.youtube.com/watch?v=tJj2RMceK_8</a>
+ 
+ 
+ 
+<a href="https://www.grapevine.org/giving-circle/bpWhMbq/Oracle-Institute-EARTHwise-Centre-Global-Initiatives"></a>Source: <a href="https://www.grapevine.org/giving-circle/bpWhMbq/Oracle-Institute-EARTHwise-Centre-Global-Initiatives">https://www.grapevine.org/giving-circle/bpWhMbq/Oracle-Institute-EARTHwise-Centre-Global-Initiatives</a>
+ 
+ 
+ 
+ 
+<a href="https://earthconstitution.world/glen-martin/"></a>Source: <a href="https://earthconstitution.world/glen-martin/">https://earthconstitution.world/glen-martin/</a>
+ 
+ 
+ 
+<a href="https://www.youtube.com/watch?v=pb5lypcN5jU"></a>Source: <a href="https://www.youtube.com/watch?v=pb5lypcN5jU">https://www.youtube.com/watch?v=pb5lypcN5jU</a>
+ 
+ 
+ 
+<a href="https://medium.com/singularitynet/governing-the-ungovernable-crafting-a-global-constitution-for-agi-b7485e44948f"></a>Source: <a href="https://medium.com/singularitynet/governing-the-ungovernable-crafting-a-global-constitution-for-agi-b7485e44948f">https://medium.com/singularitynet/governing-the-ungovernable-crafting-a-global-constitution-for-agi-b7485e44948f</a>
+ 
+ 
+ Imagine my shock that when pulling this thread I find Philadelphia housing rights activist, Cheri Honkala, listed as an advisor to George’s Institute. Cheri’s photo is featured in the same row as Anneloes Smitsman. When I contacted Cheri with documentation of the Elowyn DAO and the planned AGI world constitution, the only response I received was a brief text thanking me for the information. When I requested a follow up, so that I could accurately represent Cheri and the Poor People’s Economic Human Rights Campaign’s relationship to this effort I received no further response, which leaves me presuming tacit endorsement. 
+ 
+ 
+<a href="https://web.archive.org/web/20240804195108/https://www.theoracleinstitute.org/team"></a>Source: <a href="https://web.archive.org/web/20240804195108/https://www.theoracleinstitute.org/team">https://web.archive.org/web/20240804195108/https://www.theoracleinstitute.org/team</a>
+ 
+ 
+ 
+<a href="https://www.facebook.com/PeacePentagon/videos/vlog-14-cheri-honkala-and-the-woman-warrior-retreat/622965811518184/?locale=ms_MY&amp;_rdr"></a>Source: <a href="https://www.facebook.com/PeacePentagon/videos/vlog-14-cheri-honkala-and-the-woman-warrior-retreat/622965811518184/?locale=ms_MY&amp;_rdr">https://www.facebook.com/PeacePentagon/videos/vlog-14-cheri-honkala-and-the-woman-warrior-retreat/622965811518184/?locale=ms_MY&amp;_rdr</a>
+ 
+ 
+ 
+<a href="https://www.facebook.com/OracleInstitute/posts/donate-now-httpsmightycausecomstorypeace-pentagon-skylightbarbara-marx-hubbard-v/10155598112917395/"></a>Source: <a href="https://www.facebook.com/OracleInstitute/posts/donate-now-httpsmightycausecomstorypeace-pentagon-skylightbarbara-marx-hubbard-v/10155598112917395/">https://www.facebook.com/OracleInstitute/posts/donate-now-httpsmightycausecomstorypeace-pentagon-skylightbarbara-marx-hubbard-v/10155598112917395/</a>
+ 
+ 
+ 
+<a href="https://peacepentagon.net/about-our-community"></a>Source:<a href="https://peacepentagon.net/about-our-community"> https://peacepentagon.net/about-our-community</a>
+ 
+ 
+ The beginning of this video also discusses author Robert Anton Wilson’s ideas, in partnership with Timothy Leary’s research on Eight Circuits of Consciousness, about “reality tunnels.” Reality Tunnels are the stories we live inside to make sense of the world. I personally am not comfortable with a reality tunnel where housing insecure people are sponsored by impact investors to acquire crypto card decks to fight Moloch, bend time, and train Sophia the Robot on blockchain while being subjected to behavioral hazing, but I suppose to some that model may seem appropriate. It certainly wasn’t what I signed up for when I worked with PPEHRC in Philadelphia to try and raise awareness about digital twins, blockchain, social impact finance and cybernetics. 
+ 
+ 
+<a href="https://wrenchinthegears.com/2019/10/20/pay-for-success-the-opioid-crisis-poor-peoples-economic-human-rights-campaign-radical-social-work-breakfast-presentation/"></a>Source: <a href="https://wrenchinthegears.com/2019/10/20/pay-for-success-the-opioid-crisis-poor-peoples-economic-human-rights-campaign-radical-social-work-breakfast-presentation/">https://wrenchinthegears.com/2019/10/20/pay-for-success-the-opioid-crisis-poor-peoples-economic-human-rights-campaign-radical-social-work-breakfast-presentation/</a>
+ 
+ 
+ Jason Bosch also had close connections to Cheri and PPEHRC for many years. In fact that is how he connected with me after seeing a poor quality video I had made on my research topics during a PPEHRC-sponsored presentation at the Wooden Shoe bookstore in the spring of 2019. Throughout the lock downs Jason attempted to set up a conversation with Cheri Honkala about our findings on Web3 and our concerns about how the planned digital governance layer would impact poor communities and vulnerable populations. He was never able to pin Cheri down for a time to talk about it privately or on video. 
+ 
+ 
+ 
+<a href="https://www.youtube.com/watch?v=wQuOAMXyODs"></a>Source: <a href="https://www.youtube.com/watch?v=wQuOAMXyODs">https://www.youtube.com/watch?v=wQuOAMXyODs</a>
+ 
+ 
+ Looking back on my past experiences, I am having a very difficult time making sense of this development. I think most people lead their lives trying to have agency and make the world a better place. Does Cheri truly believe in gamified “benevolent AI” psychological profiling and a planned world constitution for universal “peace” even when it is clear that all of the players are aligned with the United Nations Sustainable Development Goals (the structure for cybernetic systems engineering of people and populations into recursive fitness landscapes to improve their human potential)? At this point I can only guess, because communication channels are jammed. 
+ 
+ 
+<a href="https://docsend.com/view/zfiqunqgxm98tbt4"></a>Source: <a href="https://docsend.com/view/zfiqunqgxm98tbt4">https://docsend.com/view/zfiqunqgxm98tbt4</a>
+ 
+ 
+ As the events of this week unfold, remember there are many things happening in the background that won’t make it into the main current of the media feeds for years to come. Nonetheless it may very well be those things are are most important to comprehend as we navigate the unbelievable developments that are unfolding. At the end of the day was it just one big Live-Action-Role-Play performance art piece? I close scratching my head and thinking again about the inversions in the plot of John Fowles’ 1965, “<a href="https://en.wikipedia.org/wiki/The_Magus_(novel)">The Magus</a>.”&nbsp; 
+ 
+ 
+<a href="https://wrenchinthegears.com/2019/06/26/pay-for-success-finance-preys-upon-the-poor-presentation-at-left-forum-6-29-19/"></a>Source: <a href="https://wrenchinthegears.com/2019/06/26/pay-for-success-finance-preys-upon-the-poor-presentation-at-left-forum-6-29-19/">https://wrenchinthegears.com/2019/06/26/pay-for-success-finance-preys-upon-the-poor-presentation-at-left-forum-6-29-19/</a>
+ 
+ 
+ Addendum:  
+ After I published this post, which I sent directly to Cheri and the associate mentioned in the video, she texted me back to say that she was no longer involved with The Oracle Institute. I had hoped that she would have conveyed that information to me when I contacted her twice&nbsp; last week to ask for clarification in advance of sharing this research publicly. It was not my intent to skewer Cheri or PPEHRC, but this project is too important to simply be set aside as something to be considered on another day, especially for people ostensibly organizing vulnerable populations at a grassroots level. I wrote back to Cheri stating that I would be very interested in reading her take, or listening to a video of hers, on Laura George’s organization now that she has the larger context related to Smitsman, Earthwise, and Elowyn. The Oracle Institute’s “Peace Pentagon” identifies as an eco-village, a concept with tentacles going back to Findhorn in the UK and the origins of the New Age movement. Cheri was Jill Stein’s VP running mate on the Green Party ticket in the 2012 presidential race. When I was associated with PPEHRC we drove to Chicago and attended a day-long event hosted by the eco-socialist contingent of the Green Party, including Kali Akuno of Cooperation Jackson (a non-profit that has a <a href="https://cooperationjackson.org/community-production-initiative/2016/10/7/what-is-a-fab-lab">Fab-Lab funded by MIT</a>) and David Cobb who is involved with <a href="https://cooperationhumboldt.com/finance/">Cooperation Humboldt’s solidarity economy.</a> I personally would be interested in hearing more from Cheri or other Green Party affiliates about how the Smitsman, Ulieru, Goertzel plan to use crypto gaming to train “benevolent AI” may intersect (or not) with the party’s platform around cooperatives, the environment, and “peace.”&nbsp; 
+ 
+ 
+<a href="https://www.gp.org/the_four_pillars"></a>Source: <a href="https://www.gp.org/the_four_pillars">https://www.gp.org/the_four_pillars</a>
+<p>&nbsp;</p>
+<a href="https://www.gp.org/building_the_movement_for_eco_socialism"></a>Source: <a href="https://www.gp.org/building_the_movement_for_eco_socialism">https://www.gp.org/building_the_movement_for_eco_socialism</a>
+ 
+ 
+ 
+ 
+<a href="https://www.gp.org/kali_akuno_2021_gp_keynote"></a>Source: <a href="https://www.gp.org/kali_akuno_2021_gp_keynote">https://www.gp.org/kali_akuno_2021_gp_keynote</a>
+ 
+<p>&nbsp;</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/11/elowyn.png?resize=851%2C1024&ssl=1'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   15:32 &bull;
+   15 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -808,7 +1668,8 @@ The clocks go back in California tonight and I finally built my dream applicatio
   <p><a href="https://tools.simonwillison.net/california-clock-change">California Clock Change</a></p>
 The clocks go back in California tonight and I finally built my dream application for helping me remember if I get an hour extra of sleep or not, using a Claude Artifact. Here's <a href="https://gist.github.com/simonw/9510723176f5b44ac1ebc495c95a4bc7">the transcript</a>.<p></p>
 <p></p>
-<p>This is one of my favorite examples yet of the kind of tiny low stakes utilities I'm building with Claude Artifacts because the friction involved in churning out a working application has dropped almost to zero.
+<p>This is one of my favorite examples yet of the kind of tiny low stakes utilities I'm building with Claude Artifacts because the friction involved in churning out a working application has dropped almost to zero.</p>
+<p>(I added another feature: it now <a href="https://fedi.simonwillison.net/@simon/113419979044849672">includes a note</a> of what time my Dog thinks it is if the clocks have recently changed.)
 
 
     </p><p>Tags: <a href="https://simonwillison.net/tags/claude-artifacts">claude-artifacts</a>, <a href="https://simonwillison.net/tags/ai-assisted-programming">ai-assisted-programming</a>, <a href="https://simonwillison.net/tags/projects">projects</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/timezones">timezones</a>, <a href="https://simonwillison.net/tags/llms">llms</a></p>
@@ -828,7 +1689,7 @@ The clocks go back in California tonight and I finally built my dream applicatio
 
 <div class='item-footer'>
    05:11 &bull;
-   2 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -909,7 +1770,7 @@ for table in result.document.tables:
 
 <div class='item-footer'>
    04:57 &bull;
-   2 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -983,7 +1844,7 @@ for table in result.document.tables:
 
 <div class='item-footer'>
    03:37 &bull;
-   3 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1072,7 +1933,7 @@ for table in result.document.tables:
 
 <div class='item-footer'>
    00:36 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1141,7 +2002,7 @@ for table in result.document.tables:
 
 <div class='item-footer'>
    20:44 &bull;
-   10 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1215,7 +2076,7 @@ for table in result.document.tables:
 
 <div class='item-footer'>
    19:04 &bull;
-   12 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1305,7 +2166,7 @@ Anthropic released a <a href="https://docs.anthropic.com/en/docs/build-with-clau
 
 <div class='item-footer'>
    18:52 &bull;
-   12 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1371,7 +2232,7 @@ Anthropic released a <a href="https://docs.anthropic.com/en/docs/build-with-clau
 
 <div class='item-footer'>
    15:18 &bull;
-   16 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1457,7 +2318,7 @@ Anthropic released a <a href="https://docs.anthropic.com/en/docs/build-with-clau
 
 <div class='item-footer'>
    15:17 &bull;
-   16 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1529,7 +2390,7 @@ Anthropic released a <a href="https://docs.anthropic.com/en/docs/build-with-clau
 
 <div class='item-footer'>
    14:22 &bull;
-   17 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1855,7 +2716,7 @@ Anthropic released a <a href="https://docs.anthropic.com/en/docs/build-with-clau
 
 <div class='item-footer'>
    13:00 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1929,7 +2790,7 @@ Anthropic released a <a href="https://docs.anthropic.com/en/docs/build-with-clau
 
 <div class='item-footer'>
    06:30 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2031,7 +2892,7 @@ llm chat -m smol135m
 
 <div class='item-footer'>
    05:27 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2419,7 +3280,7 @@ Extend ISO 18013-5deviceRequestExtend ISO 18013-5OID4VP requestOID4VP over BLEOI
 
 <div class='item-footer'>
    02:50 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2500,7 +3361,7 @@ Extend ISO 18013-5deviceRequestExtend ISO 18013-5OID4VP requestOID4VP over BLEOI
 
 <div class='item-footer'>
    22:53 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2563,7 +3424,7 @@ Extend ISO 18013-5deviceRequestExtend ISO 18013-5OID4VP requestOID4VP over BLEOI
 
 <div class='item-footer'>
    22:20 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2641,7 +3502,7 @@ Google's <a href="https://en.wikipedia.org/wiki/Project_Zero">Project Zero</a> s
 
 <div class='item-footer'>
    20:15 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2735,7 +3596,7 @@ llm -m claude-3.5-sonnet 'extract text' -a mydoc.pdf
 
 <div class='item-footer'>
    18:55 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2800,7 +3661,7 @@ llm -m claude-3.5-sonnet 'extract text' -a mydoc.pdf
 
 <div class='item-footer'>
    15:14 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2877,7 +3738,7 @@ Google are adding smart home integration to their Gemini chatbot - so far on And
 
 <div class='item-footer'>
    14:35 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2951,7 +3812,7 @@ Google are adding smart home integration to their Gemini chatbot - so far on And
 
 <div class='item-footer'>
    14:30 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2987,7 +3848,7 @@ Google are adding smart home integration to their Gemini chatbot - so far on And
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  AI generated image of a&nbsp;beetle This post is really for me more than anyone else. I will be able to come back here and find it. If it helps you as well then&nbsp;great.  I have historically not been a Python programmer. Additionally, I have historically used Visual Studio verus VSCode. Lately, I have been doing Python in VSCode. I need to learn my way&nbsp;around.  I recently found how to debug
+  AI generated image of a&nbsp;beetle This post is really for me more than anyone else. I will be able to come back here and find it. If it helps you as well, then&nbsp;great.  I have historically not been a Python programmer. Additionally, I have historically used Visual Studio versus VSCode. Lately, I have been doing Python in VSCode. I need to learn my way&nbsp;around.  I recently found how to deb
    
   
   
@@ -3008,7 +3869,7 @@ Google are adding smart home integration to their Gemini chatbot - so far on And
  -->
 <div class='wrap'>
 
-AI generated image of a&nbsp;beetle<p>This post is really for me more than anyone else. I will be able to come back here and find it. If it helps you as well then&nbsp;great.</p><p>I have historically not been a Python programmer. Additionally, I have historically used Visual Studio verus VSCode. Lately, I have been doing Python in VSCode. I need to learn my way&nbsp;around.</p><p>I recently found how to debug Python with breakpoints and watches in a virtual environment lunch like I would in Visual Studio — or at least in the default “-m venv” virtual environment.</p><p>You can have the debug window create a launch.json in the&nbsp;.vscode folder of the root workspace directory, if you don’t have a launch.json already, then modify it, or create it yourself from scratch. Here is one of m modified&nbsp;ones.</p> {<br>    // Use IntelliSense to learn about possible attributes.<br>    // Hover to view descriptions of existing attributes.<br>    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387<br>    "version": "0.2.0",<br>    "configurations": [<br>        {<br>            "name": "Python: crewai series day_04",<br>            "type": "debugpy",<br>            "request": "launch",<br>            "program": "${file}",<br>            "console": "integratedTerminal",<br>            "env": {<br>                "PYTHONPATH": "${workspaceFolder}\\crewai_series"<br>            },<br>            "cwd": "${workspaceFolder}\\crewai_series\\day_04\\src"<br>        },<br>        {<br>            "name": "Python: crewai series day_05",<br>            "type": "debugpy",<br>            "request": "launch",<br>            "program": "${file}",<br>            "console": "integratedTerminal",<br>            "env": {<br>                "PYTHONPATH": "${workspaceFolder}\\crewai_series"<br>            },<br>            "cwd": "${workspaceFolder}\\crewai_series\\day_05\\src"<br>        }<br>    ]<br>} <p>The real trick is to set that PYTHONPATH property to your folder with the virtual environment folder as a top-level subdirectory.</p><p>Bonus: you set different debug profiles like I did above and shift between them in the debug window. That is helpful when you have different virtual environments in the same workspace.</p><p>That’s it. That’s the&nbsp;post.</p>
+AI generated image of a&nbsp;beetle<p>This post is really for me more than anyone else. I will be able to come back here and find it. If it helps you as well, then&nbsp;great.</p><p>I have historically not been a Python programmer. Additionally, I have historically used Visual Studio versus VSCode. Lately, I have been doing Python in VSCode. I need to learn my way&nbsp;around.</p><p>I recently found how to debug Python with breakpoints and watches in a virtual environment, or at least in the default “-m venv” virtual environment, much as I would in a different language in Visual Studio&nbsp;.</p><p>You can have the debug window create a launch.json in the&nbsp;.vscode folder of the root workspace directory or create it yourself from scratch. Here is one of my modified&nbsp;ones.</p> {<br>    // Use IntelliSense to learn about possible attributes.<br>    // Hover to view descriptions of existing attributes.<br>    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387<br>    "version": "0.2.0",<br>    "configurations": [<br>        {<br>            "name": "Python: crewai series day_04",<br>            "type": "debugpy",<br>            "request": "launch",<br>            "program": "${file}",<br>            "console": "integratedTerminal",<br>            "env": {<br>                "PYTHONPATH": "${workspaceFolder}\\crewai_series"<br>            },<br>            "cwd": "${workspaceFolder}\\crewai_series\\day_04\\src"<br>        },<br>        {<br>            "name": "Python: crewai series day_05",<br>            "type": "debugpy",<br>            "request": "launch",<br>            "program": "${file}",<br>            "console": "integratedTerminal",<br>            "env": {<br>                "PYTHONPATH": "${workspaceFolder}\\crewai_series"<br>            },<br>            "cwd": "${workspaceFolder}\\crewai_series\\day_05\\src"<br>        }<br>    ]<br>} <p>The real trick is to set that PYTHONPATH property to your folder with the virtual environment folder as a top-level subdirectory.</p><p>Bonus: you set different debug profiles like I did above and shift between them in the debug window. That is helpful when you have different virtual environments in the same workspace.</p><p>That’s it. That’s the&nbsp;post.</p>
    
   
   
@@ -3025,7 +3886,7 @@ AI generated image of a&nbsp;beetle<p>This post is really for me more than anyon
 
 <div class='item-footer'>
    12:40 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3114,7 +3975,7 @@ Val Town founder Steve Krouse has been building demos on top of the Cerebras API
 
 <div class='item-footer'>
    22:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3332,7 +4193,7 @@ Val Town founder Steve Krouse has been building demos on top of the Cerebras API
 
 <div class='item-footer'>
    22:34 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3408,7 +4269,7 @@ Lord Howe Island - part of Australia, population 382 - is unique in that the isl
 
 <div class='item-footer'>
    22:03 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3477,7 +4338,7 @@ Lord Howe Island - part of Australia, population 382 - is unique in that the isl
 
 <div class='item-footer'>
    17:40 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3551,7 +4412,7 @@ Lord Howe Island - part of Australia, population 382 - is unique in that the isl
 
 <div class='item-footer'>
    14:30 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3623,7 +4484,7 @@ Lord Howe Island - part of Australia, population 382 - is unique in that the isl
 
 <div class='item-footer'>
    13:43 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3702,7 +4563,7 @@ Lord Howe Island - part of Australia, population 382 - is unique in that the isl
 
 <div class='item-footer'>
    03:51 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3768,7 +4629,7 @@ Lord Howe Island - part of Australia, population 382 - is unique in that the isl
 
 <div class='item-footer'>
    00:02 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3854,7 +4715,7 @@ It well may be. I do not think I would.</p>
 
 <div class='item-footer'>
    22:57 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3917,7 +4778,7 @@ It well may be. I do not think I would.</p>
 
 <div class='item-footer'>
    22:55 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3980,7 +4841,7 @@ It well may be. I do not think I would.</p>
 
 <div class='item-footer'>
    22:53 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4041,7 +4902,7 @@ It well may be. I do not think I would.</p>
 
 <div class='item-footer'>
    22:06 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4123,7 +4984,7 @@ Hamel Husain's sequel to <a href="https://hamel.dev/blog/posts/evals/">Your AI p
 
 <div class='item-footer'>
    18:08 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4207,7 +5068,7 @@ From <a href="https://twitter.com/jinaai_/status/1851651702635847729">Jina AI on
 
 <div class='item-footer'>
    17:07 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4277,7 +5138,7 @@ From <a href="https://twitter.com/jinaai_/status/1851651702635847729">Jina AI on
 
 <div class='item-footer'>
    14:36 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4351,7 +5212,7 @@ From <a href="https://twitter.com/jinaai_/status/1851651702635847729">Jina AI on
 
 <div class='item-footer'>
    14:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4417,7 +5278,7 @@ From <a href="https://twitter.com/jinaai_/status/1851651702635847729">Jina AI on
 
 <div class='item-footer'>
    13:50 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4485,7 +5346,7 @@ From <a href="https://twitter.com/jinaai_/status/1851651702635847729">Jina AI on
 
 <div class='item-footer'>
    13:12 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4568,7 +5429,7 @@ From <a href="https://twitter.com/jinaai_/status/1851651702635847729">Jina AI on
 
 <div class='item-footer'>
    05:25 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4706,7 +5567,7 @@ From <a href="https://twitter.com/jinaai_/status/1851651702635847729">Jina AI on
 
 <div class='item-footer'>
    04:20 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4771,7 +5632,7 @@ From <a href="https://twitter.com/jinaai_/status/1851651702635847729">Jina AI on
 
 <div class='item-footer'>
    04:02 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4854,7 +5715,7 @@ The big announcement from GitHub Universe: Copilot is growing support for altern
 
 <div class='item-footer'>
    01:23 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4924,7 +5785,7 @@ The big announcement from GitHub Universe: Copilot is growing support for altern
 
 <div class='item-footer'>
    01:22 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4996,7 +5857,7 @@ Drew Breunig produces the first example I've seen in the wild of the new <a href
 
 <div class='item-footer'>
    23:12 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5076,7 +5937,7 @@ Drew Breunig produces the first example I've seen in the wild of the new <a href
 
 <div class='item-footer'>
    22:05 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5319,7 +6180,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    22:04 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5399,7 +6260,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    21:27 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5475,7 +6336,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    21:26 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5551,7 +6412,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    21:23 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5626,7 +6487,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    21:21 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5703,7 +6564,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    21:19 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5779,7 +6640,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    21:16 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5842,7 +6703,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    21:08 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5918,7 +6779,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    21:07 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5986,7 +6847,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    21:06 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6061,7 +6922,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    17:30 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6177,7 +7038,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    16:11 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6247,7 +7108,7 @@ projects in flight. More on those soon.</p>
 
 <div class='item-footer'>
    15:19 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6431,7 +7292,7 @@ Only respond with a single number." \
 
 <div class='item-footer'>
    15:09 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6447,82 +7308,6 @@ Only respond with a single number." \
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/10/29/on-the-one.html'> On the one hand you’ve got this … 
- How Virtual Reality Died</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   On the one hand you’ve got this … 
- How Virtual Reality Died - by Ted Gioia - The Honest Broker 
- And on the other you’ve got this … 
- Daring Fireball: Surgeons Are Wearing Vision Pro to Perform Laparoscopic Procedures 
-   
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>On the one hand you’ve got this …</p>
-<p><a href="https://www.honest-broker.com/p/how-virtual-reality-died">How Virtual Reality Died - by Ted Gioia - The Honest Broker</a></p>
-<p>And on the other you’ve got this …</p>
-<p><a href="https://daringfireball.net/linked/2024/10/25/vision-pro-surgeons">Daring Fireball: Surgeons Are Wearing Vision Pro to Perform Laparoscopic Procedures</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:12 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -6579,162 +7364,7 @@ I love a good colophon (<a href="https://simonwillison.net/about/#about-site">he
 
 <div class='item-footer'>
    04:59 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/10/29/and-the-bbc.html'> … and The BBC throws out a cliff hanger in the headline and </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   … and The BBC throws out a cliff hanger in the headline and reveals the answer in the ‘sub’ .. in case you don’t have time to read it all. 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/213e550230.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>… and The BBC throws out a cliff hanger in the headline and reveals the answer in the ‘sub’ .. in case you don’t have time to read it all.</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/213e550230.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:38 &bull;
-   5 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/10/29/meanwhile-in-an.html'> Meanwhile in an alternate reality … 
-</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Meanwhile in an alternate reality … 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/2a7fed4fb3.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Meanwhile in an alternate reality …</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/2a7fed4fb3.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   03:37 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6806,7 +7436,7 @@ I love a good colophon (<a href="https://simonwillison.net/about/#about-site">he
 
 <div class='item-footer'>
    21:41 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6876,7 +7506,7 @@ I love a good colophon (<a href="https://simonwillison.net/about/#about-site">he
 
 <div class='item-footer'>
    18:27 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6948,7 +7578,7 @@ I love a good colophon (<a href="https://simonwillison.net/about/#about-site">he
 
 <div class='item-footer'>
    14:45 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7024,7 +7654,7 @@ I love a good colophon (<a href="https://simonwillison.net/about/#about-site">he
 
 <div class='item-footer'>
    14:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7098,7 +7728,7 @@ I love a good colophon (<a href="https://simonwillison.net/about/#about-site">he
 
 <div class='item-footer'>
    12:57 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7172,7 +7802,7 @@ AI generated crew image. Note that some folks are backwards.&nbsp;:-)<p>I contin
 
 <div class='item-footer'>
    11:46 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7248,7 +7878,7 @@ disable_progress_bars()
 
 <div class='item-footer'>
    06:22 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7340,7 +7970,7 @@ I was <a href="https://github.com/simonw/llm/issues/587#issuecomment-2440549543"
 
 <div class='item-footer'>
    05:13 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7426,7 +8056,7 @@ A week and a half ago <a href="https://simonwillison.net/2024/Oct/18/openai-audi
 
 <div class='item-footer'>
    04:38 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7502,7 +8132,7 @@ A week and a half ago <a href="https://simonwillison.net/2024/Oct/18/openai-audi
 
 <div class='item-footer'>
    23:00 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7580,7 +8210,7 @@ llm whisper-api myfile.mp3 &gt; transcript.txt
 
 <div class='item-footer'>
    18:19 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7652,7 +8282,7 @@ llm whisper-api myfile.mp3 &gt; transcript.txt
 
 <div class='item-footer'>
    12:12 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7770,7 +8400,7 @@ group_by(.user.login) | map({login: .[0].user.login, count: length}) | sort_by(-
 
 <div class='item-footer'>
    04:26 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7872,7 +8502,7 @@ group_by(.user.login) | map({login: .[0].user.login, count: length}) | sort_by(-
 
 <div class='item-footer'>
    01:24 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7941,7 +8571,7 @@ group_by(.user.login) | map({login: .[0].user.login, count: length}) | sort_by(-
 
 <div class='item-footer'>
    22:07 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8041,7 +8671,7 @@ I asked this on Mastodon and got some really useful replies:<p></p>
 
 <div class='item-footer'>
    20:51 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8119,7 +8749,7 @@ Inspired by my <a href="https://simonwillison.net/2024/Oct/25/pelicans-on-a-bicy
 
 <div class='item-footer'>
    20:19 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8203,7 +8833,7 @@ ChatGPT advanced voice mode may refuse to sing (unless you jailbreak it) but it'
 
 <div class='item-footer'>
    19:21 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8267,7 +8897,7 @@ ChatGPT advanced voice mode may refuse to sing (unless you jailbreak it) but it'
 
 <div class='item-footer'>
    16:21 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8343,7 +8973,7 @@ ChatGPT advanced voice mode may refuse to sing (unless you jailbreak it) but it'
 
 <div class='item-footer'>
    14:53 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8421,7 +9051,7 @@ ChatGPT advanced voice mode may refuse to sing (unless you jailbreak it) but it'
 
 <div class='item-footer'>
    14:52 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8489,7 +9119,7 @@ ChatGPT advanced voice mode may refuse to sing (unless you jailbreak it) but it'
 
 <div class='item-footer'>
    13:08 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8595,7 +9225,7 @@ I decided to roll out my own LLM benchmark: how well can different models render
 
 <div class='item-footer'>
    23:56 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8669,7 +9299,7 @@ I decided to roll out my own LLM benchmark: how well can different models render
 
 <div class='item-footer'>
    22:28 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9142,7 +9772,7 @@ I decided to roll out my own LLM benchmark: how well can different models render
 
 <div class='item-footer'>
    17:21 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9209,7 +9839,7 @@ I decided to roll out my own LLM benchmark: how well can different models render
 
 <div class='item-footer'>
    16:35 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9281,7 +9911,7 @@ I decided to roll out my own LLM benchmark: how well can different models render
 
 <div class='item-footer'>
    13:54 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9347,95 +9977,7 @@ I decided to roll out my own LLM benchmark: how well can different models render
 
 <div class='item-footer'>
    10:49 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Oct/25/llm-cerebras/#atom-everything'>llm-cerebras</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   llm-cerebras 
-Cerebras (previously) provides Llama LLMs hosted on custom hardware at ferociously high speeds. 
- GitHub user irthomasthomas built an LLM plugin that works against their API - which is currently free, albeit with a rate limit of 30 requests per minute for their two models. 
- llm install llm-cerebras
-llm keys set cerebras
-# paste key here
-llm -m cerebras-llama3.1-70b 'an epic tail of 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://github.com/irthomasthomas/llm-cerebras">llm-cerebras</a></p>
-<a href="https://cerebras.ai/">Cerebras</a> (<a href="https://simonwillison.net/2024/Aug/28/cerebras-inference/">previously</a>) provides Llama LLMs hosted on custom hardware at ferociously high speeds.<p></p>
-<p>GitHub user <a href="https://github.com/irthomasthomas">irthomasthomas</a> built an <a href="https://llm.datasette.io/">LLM</a> plugin that works against <a href="https://cloud.cerebras.ai/">their API</a> - which is currently free, albeit with a rate limit of 30 requests per minute for their two models.</p>
- <code>llm install llm-cerebras
-llm keys set cerebras
-# paste key here
-llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
-</code> 
-<p>Here's <a href="https://static.simonwillison.net/static/2024/cerebras-is-fast.mp4">a video</a> showing the speed of that prompt:</p>
- 
-    
-        
-    
- 
-
-<p>The other model is <code>cerebras-llama3.1-8b</code>.
-
-
-    </p><p>Tags: <a href="https://simonwillison.net/tags/llm">llm</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/cerebras">cerebras</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:50 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9643,7 +10185,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    01:27 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9724,7 +10266,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    23:14 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9798,7 +10340,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    22:39 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9868,7 +10410,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    18:22 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9943,7 +10485,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    15:44 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10019,7 +10561,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    14:29 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10097,7 +10639,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    14:28 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10165,7 +10707,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    11:26 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10241,7 +10783,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    22:30 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10311,7 +10853,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    15:41 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10383,7 +10925,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    13:42 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10451,7 +10993,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    13:05 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10527,7 +11069,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    22:30 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10602,7 +11144,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    15:33 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10674,7 +11216,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    14:56 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10742,7 +11284,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    11:53 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10818,7 +11360,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    22:30 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11036,7 +11578,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    17:28 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11108,7 +11650,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    13:19 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11182,7 +11724,7 @@ llm -m cerebras-llama3.1-70b 'an epic tail of a walrus pirate'
 
 <div class='item-footer'>
    12:34 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11491,7 +12033,7 @@ builder.Services.AddSecurityHeaderPolicies()
 
 <div class='item-footer'>
    07:26 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11566,7 +12108,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    03:02 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11655,7 +12197,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    23:01 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11729,7 +12271,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    22:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11801,7 +12343,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    12:18 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11885,7 +12427,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    22:30 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11955,7 +12497,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    13:41 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12031,7 +12573,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    22:30 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12104,7 +12646,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    02:25 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12180,7 +12722,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    22:30 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12256,7 +12798,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    19:05 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12325,7 +12867,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    16:23 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12401,7 +12943,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    22:30 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12477,7 +13019,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    04:32 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12553,7 +13095,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    22:30 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12641,7 +13183,7 @@ Shot with a camcoder on a beach in the Caribbean during a 2001 Linux Journal Gee
 
 <div class='item-footer'>
    20:39 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12715,7 +13257,7 @@ A presentation I gave at IIW38, in April&nbsp;2024.<p>At the Internet Identity W
 
 <div class='item-footer'>
    16:49 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12785,7 +13327,7 @@ A presentation I gave at IIW38, in April&nbsp;2024.<p>At the Internet Identity W
 
 <div class='item-footer'>
    16:23 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12882,7 +13424,7 @@ Two in-wall structured wiring cabinets in our new garage.
 
 <div class='item-footer'>
    23:32 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12956,7 +13498,7 @@ Two in-wall structured wiring cabinets in our new garage.
 
 <div class='item-footer'>
    22:30 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13394,7 +13936,7 @@ Two in-wall structured wiring cabinets in our new garage.
 
 <div class='item-footer'>
    14:31 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13470,7 +14012,7 @@ Two in-wall structured wiring cabinets in our new garage.
 
 <div class='item-footer'>
    23:00 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13551,7 +14093,7 @@ A 5x telephoto shot with my new iPhone 16 Pro Max.
 
 <div class='item-footer'>
    15:10 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13625,7 +14167,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    14:33 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13687,7 +14229,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    00:38 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13753,7 +14295,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    21:27 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13827,7 +14369,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    00:51 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13895,7 +14437,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    23:37 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13969,7 +14511,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    23:22 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14059,7 +14601,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    22:40 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14128,7 +14670,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    16:24 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14204,7 +14746,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    16:18 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14280,7 +14822,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    13:09 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14356,7 +14898,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    23:31 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14430,7 +14972,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    19:50 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14498,7 +15040,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    18:45 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14596,7 +15138,7 @@ implementation. Join me below for the lowdown.</p>
 
 <div class='item-footer'>
    17:14 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14706,7 +15248,7 @@ response to feedback and get it implemented in early 2025.</p>
 
 <div class='item-footer'>
    16:26 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14776,7 +15318,7 @@ response to feedback and get it implemented in early 2025.</p>
 
 <div class='item-footer'>
    15:48 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14892,7 +15434,7 @@ extensibility. Please join us if you’re in the area or planning to attend
 
 <div class='item-footer'>
    15:27 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14969,7 +15511,7 @@ extensibility. Please join us if you’re in the area or planning to attend
 
 <div class='item-footer'>
    17:00 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15043,7 +15585,7 @@ extensibility. Please join us if you’re in the area or planning to attend
 
 <div class='item-footer'>
    10:14 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15177,7 +15719,7 @@ extensibility. Please join us if you’re in the area or planning to attend
 
 <div class='item-footer'>
    00:59 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15359,7 +15901,7 @@ extensibility. Please join us if you’re in the area or planning to attend
 
 <div class='item-footer'>
    23:30 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15433,7 +15975,7 @@ Image credits: <a href="https://www.networkrailmediacentre.co.uk/resources/ap-04
 
 <div class='item-footer'>
    22:19 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15507,7 +16049,7 @@ Image credits: <a href="https://www.networkrailmediacentre.co.uk/resources/ap-04
 
 <div class='item-footer'>
    20:36 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15653,7 +16195,7 @@ Image credits: <a href="https://www.networkrailmediacentre.co.uk/resources/ap-04
 
 <div class='item-footer'>
    16:56 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16015,7 +16557,7 @@ builder.Services.AddAuthorization(options =&gt;
 
 <div class='item-footer'>
    07:25 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16093,7 +16635,7 @@ builder.Services.AddAuthorization(options =&gt;
 
 <div class='item-footer'>
    20:26 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -16182,7 +16724,7 @@ So, 2/3 of a nuke plant. 4/5 of a coal-fired power plant. These kinds of compari
 
 <div class='item-footer'>
    18:42 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -19366,7 +19908,7 @@ Is that the same person I saw? If so, the responses in r/Latin seem to have guid
 
 <div class='item-footer'>
    15:48 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -19440,7 +19982,7 @@ Is that the same person I saw? If so, the responses in r/Latin seem to have guid
 
 <div class='item-footer'>
    09:53 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20365,6 +20907,90 @@ The post <a href="https://realestatecafe.com/leveraging-25k-downpayment-assistan
 
 
  <h2 class='new-date'>
+  Wednesday, 11. September 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.patrick-breyer.de/'>Patrick Breyer</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.patrick-breyer.de/neuester-eu-anlauf-zur-chatkontrolle-werden-messenger-dienste-in-europa-gesperrt/'>Neuester EU-Anlauf zur Chatkontrolle: Werden Messenger-Dienste in Europa gesperrt?</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Ungarn hat den EU-Innenministern diese Woche einen neuen Vorschlag zur Einführung der Chatkontrolle vorgelegt, der von POLITICO geleakt wurde. Der Einsatz „künstlicher Intelligenz“ zur Suche nach verdächtigen Bildern und Chats … 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Ungarn hat den EU-Innenministern diese Woche einen <a href="https://www.patrick-breyer.de/wp-content/uploads/2024/09/st12406.en_clean.pdf">neuen Vorschlag zur Einführung der Chatkontrolle</a> vorgelegt, der von POLITICO geleakt wurde. Der Einsatz „künstlicher Intelligenz“ zur Suche nach verdächtigen Bildern und Chats soll Messenger- und Chatanbietern danach freigestellt bleiben. Zur Suche nach bekanntem illegalem Material bleibt es aber bei dem weltweit einzigartigen Vorhaben, die massenhafte, verdachtslose und nach BKA-Angaben höchst fehleranfällige Kontrolle aller privaten Chats für sämtliche Diensteanbieter verpflichtend zu machen, selbst wenn dazu die bisher sichere Ende-zu-Ende-Verschlüsselung von Messengerdiensten ausgehebelt werden muss. Die <a href="https://www.parlament.gv.at/dokument/XXVII/EU/195500/imfname_11406149.pdf">EU-Regierungen sollen sich bis zum 23. September zu dem Vorstoß positionieren</a>, die EU-Innenminister sollen ihn am 10. Oktober beschließen. Die Messengeranbieter Signal und Threema haben bereits angekündigt, solche Überwachungsfunktionen keinesfalls in ihre Apps einzubauen und ihre Dienste in der EU gegebenenfalls komplett einzustellen.</p>
+
+
+
+<p>“Statt Kindern durch sicherere Apps zu helfen sich im Netz vor Erpressung und Ausbeutung zu schützen, werden Missbrauchsopfer durch einen realitätsfremden und vor Gericht zum Scheitern verurteilten Gesetzentwurf im Regen stehen gelassen,” kritisiert Dr. Patrick Breyer, ehemaliger Europaabgeordneter der Piratenpartei und Mitverhandler der kritischen Position des Europäischen Parlaments. “Unsere Polizei mit großteils irrelevanten Hinweisen auf längst bekanntes Material zu überfluten, stoppt keinen Missbrauch, sondern erschwert seine Aufdeckung zusätzlich. Falls diese Chatkontrolle kommt, werden wir Bürger gängige sichere Messenger nicht mehr nutzen können – das bedeutet wir verlieren den Kontakt zu unseren Freunden und Kollegen in der ganzen Welt. Wollen wir wirklich, dass die EU weltweit führend beim Abhören unserer Smartphones und der flächendeckenden Überwachung der Chats von Millionen gesetzestreuer Bürger wird?”</p>
+
+
+
+<p>Breyer <a href="https://www.patrick-breyer.de/hilf-jetzt-mit-die-chatkontrolle-zu-stoppen/">ruft dazu auf, Druck auf Bundesinnenministerin Faeser und Bundesjustizminister Buschmann zu machen</a>: “Nur dagegen zu sein und dann überstimmt zu werden, reicht nicht zur Verteidigung unseres digitalen Briefgeheimnisses und sicherer Verschlüsselung. Die Bundesregierung muss jetzt dringend Verbündete suchen, um eine Sperrminorität und eine <a href="https://www.patrick-breyer.de/chatkontrolle-vertagt-megaerfolg-bei-verteidigung-des-digitalen-briefgeheimnisses/">grundlegende Überarbeitung</a> zu erreichen. Die Sicherheit unserer Kommunikation steht auf dem Spiel!”</p>
+
+
+
+<p>Info-Website: <a href="https://www.chatkontrolle.de">https://www.chatkontrolle.de</a></p>
+
+
+
+ 
+ <a href="https://www.patrick-breyer.de/hilf-jetzt-mit-die-chatkontrolle-zu-stoppen/">Hilf jetzt mit die Chatkontrolle zu stoppen</a> 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   21:50 &bull;
+   2 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Tuesday, 10. September 2024
  </h2>
 
@@ -21076,6 +21702,90 @@ services.AddAuthentication(options =&gt;
 
 <div class='item-footer'>
    20:59 &bull;
+   2 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
+  Tuesday, 03. September 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.patrick-breyer.de/'>Patrick Breyer</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.patrick-breyer.de/chatkontrolle-blitzentscheidung-ungarn-will-beispiellose-plaene-der-eu-zur-messenger-massenueberwachung-doch-noch-durchsetzen/'>Chatkontrolle-Blitzentscheidung? Ungarn will beispiellose Pläne der EU zur Messenger-Massenüberwachung doch noch durchsetzen</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Schon morgen früh sollen die EU-Regierungen den umstrittenen Gesetzentwurf zur Chatkontrolle, der im Juni nach massiven Protesten von der Tagesordnung genommen wurde, jetzt doch unterstützen. Erreichen will die neue ungarische … 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Schon <a href="https://www.parlament.gv.at/dokument/XXVII/EU/194992/imfname_11404502.pdf">morgen früh</a> sollen die EU-Regierungen den umstrittenen Gesetzentwurf zur Chatkontrolle, der im Juni nach massiven Protesten von der Tagesordnung genommen wurde, jetzt doch unterstützen. Erreichen will die neue ungarische Ratspräsidentschaft dies nach einer <a href="https://www.contexte.com/actualite/medias/abus-sexuels-sur-mineurs-la-presidence-hongroise-tente-deja-dobtenir-un-accord-entre-etats_200187.html?go-back-to-briefitem=200187">Meldung</a> des Nachrichtendienstes Contexte mit einer <a href="https://www.patrick-breyer.de/wp-content/uploads/2024/09/CSAM-policy-debate-September-2024-via-politico.pdf">von Politico geleakten Detailänderung</a>, nämlich dem Verzicht auf die besonders fehleranfällige Suche nach unbekanntem Material im Zuge der verpflichtenden Chatkontrolle (freiwillig soll sie möglich bleiben). Geplant bleibt aber ansonsten die automatisierte Durchsuchung und gegebenenfalls Ausleitung privater Chats, darunter auch Ende-zu-Ende-verschlüsselte Chats, die zuvor klassifizierte verdächtige Fotos oder Videos enthalten sollen. Lehnt ein Nutzer diese „Upload-Moderation“ seiner Chats ab, könnte er keinerlei Bilder, Videos oder URLs mehr <a href="https://www.patrick-breyer.de/wp-content/uploads/2024/06/csam_cleaned.pdf">senden oder empfangen</a>. Signal und Threema haben angekündigt, dass sie ihre Dienste in der EU einstellen würden, wenn sie gezwungen würden, die vorgeschlagene automatisierte Massenüberwachung (sogenanntes „Client-Side Scanning“) umzusetzen.</p>
+
+
+
+<p>Der ehemalige Europaabgeordnete der Piratenpartei, Patrick Breyer, <a href="https://www.patrick-breyer.de/wp-content/uploads/2024/06/csam_cleaned.pdf">ruft die Bürger jetzt dazu auf sich an die EU-Regierungen zu wenden</a>: „Im Juni gab es unter massivem öffentlichen Druck noch eine hauchdünne Sperrminorität zur Rettung des Digitalen Briefgeheimnisses, aber kaum bemerkte Blitzaktionen, zwischenzeitliche Regierungswechsel und Minimalzugeständnisse können das schnell ändern. Falls die Chatkontrolle kommt, werden wir gängige sichere Messenger ganz einfach nicht mehr nutzen können – das bedeutet wir verlieren den Kontakt zu unseren Freunden und Kollegen in der ganzen Welt“, warnt Breyer. „Wollen wir wirklich, dass Europa weltweit führend beim Abhören unserer Smartphones und der flächendeckenden Überwachung der Chats von Millionen gesetzestreuer Bürger wird? Das Europäische Parlament ist überzeugt, dass diese orwellsche Chatkontrolle das dringliche Anliegen eines besseren Kinder- und Opferschutzes verrät, weil sie unweigerlich vor Gericht scheitern wird. Es fordert deshalb einen wirklich wirksamen Kinderschutz durch sicherere Apps, proaktive Säuberung des Internets und eine Pflicht zur Löschung illegaler Inhalte – nichts davon ist in dem dem neuesten Orban-Vorstoß vorgesehen, zu dem sich die Regierungen morgen positionieren sollen. Jetzt liegt es an uns ihn zu stoppen!“</p>
+
+
+
+<p>Die Chatkontrolle auf vermeintlich „bekannte“ illegale Inhalte beschränken zu wollen, bezeichnet Breyer als Augenwischerei: „Egal mit welchem Ziel – auch die Post darf nicht einfach jeden Brief verdachtslos öffnen und durchschnüffeln. Gerade die von US-Konzernen schon heute freiwillig praktizierte Durchleuchtung nach vermeintlich bekannten Inhalten führt zur Ausleitung tausender völlig legaler privater Chats, zur Überlastung der Strafverfolger und zur massenhaften Kriminalisierung Minderjähriger. Massenüberwachung ohne jeden Anlass zerstört das digitale Briefgeheimnis und sichere Verschlüsselung, auf die wir alle und auch unsere Kinder dringend angewiesen sind.“</p>
+
+
+
+<p>Breyers Infoportal zur Chatkontrolle: <a href="https://chatkontrolle.de">chatkontrolle.de</a></p>
+
+
+
+ 
+ <a href="https://www.patrick-breyer.de/hilf-jetzt-mit-die-chatkontrolle-zu-stoppen/">Hilf jetzt mit die Chatkontrolle zu stoppen</a> 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   12:55 &bull;
    2 months ago
 </div>
 
@@ -22069,6 +22779,114 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 
  <h2 class='new-date'>
+  Thursday, 22. August 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://www.patrick-breyer.de/'>Patrick Breyer</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.patrick-breyer.de/piratenpartei-weist-herstellerkritik-an-gamer-buergerinitiative-gegen-computerspiele-sterben-zurueck/'>Piratenpartei weist Herstellerkritik an Gamer-Bürgerinitiative gegen Computerspiele-Sterben zurück</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Zum Auftakt der Branchenmesse Gamescom weist die Piratenpartei die Kritik des Herstellerverbands Video Games Europe an der EU-Bürgerinitiative zum Schutz von Videospielen vor Fernabschaltung durch den Hersteller zurück. Der … 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Zum Auftakt der Branchenmesse Gamescom weist die Piratenpartei die <a href="https://de.nachrichten.yahoo.com/fans-k%C3%A4mpfen-f%C3%BCr-erhalt-abgeschalteter-075045787.html?guccounter=1">Kritik</a> des Herstellerverbands Video Games Europe an der <a href="https://eci.ec.europa.eu/045/public/#/screen/home">EU-Bürgerinitiative zum Schutz von Videospielen vor Fernabschaltung durch den Hersteller</a> zurück. Der Industrieverband bezeichnet den geforderten Weiterbetrieb vom Hersteller aufgegebener Spiele durch die Community als “unrealistisch” wegen der Kosten für Unternehmen und weil private Serverbetreiber Datenschutz und Sicherheit nicht gewährleisten könnten.</p>
+
+
+
+<p>Dr. Patrick Breyer, ehemaliger Europaabgeordneter der Piratenpartei, hält dagegen: </p>
+
+
+
+  
+<blockquote></blockquote>
+
+
+
+  
+<blockquote>
+<p>Hersteller und EU-Kommission müssen lernen, dass Videospiele keine Konserven sind, die man einfach aus dem Regal nehmen und durch ein anderes Produkt ersetzen kann. Sie sind Teil unseres gemeinsamen digitalen Erbes und verbinden Menschen über Jahre und manchmal sogar Jahrzehnte hinweg. Deswegen ist ein Weiterbetrieb durch die Community nur folgerichtig.</p>
+
+
+
+<p>Es gibt längst Spiele, die erfolgreich ehrenamtlich betrieben oder weiterbetrieben werden. Der Datenschutz gilt auch für private ehrenamtliche Betreiber. Gamer, die in eine Übertragung ihrer Daten einwilligen und über die neuen Rahmenbedingungen aufgeklärt werden, sollten nicht wegen möglicher Abstriche bevormundet und ganz ihres Lieblingsgames beraubt werden, sondern eine Wahl bekommen. Die aktuelle Situation, in der Hersteller sich gegenüber voll zahlenden Gamern die willkürliche kurzfristige Abschaltung von einem Tag auf den anderen vorbehalten, ist untragbar.</p>
+
+
+
+<p>Die Bürgerinitiative richtet sich zwar speziell gegen das willkürliche Abschalten von Computerspielen durch die Hersteller, aber diese Praxis betrifft längst nicht mehr nur Spiele. Auch andere Software und digitale Geräte <a href="https://www.patrick-breyer.de/stopkillingtrains-eu-abgeordneter-fordert-regeln-gegen-das-willkuerliche-lahmlegen-von-geraeten-durch-hersteller-aus-der-ferne/">bis hin zu Zügen</a> werden fernabgeschaltet. Wir Piraten wollen diesen Rechtsmissbrauch stoppen und gesetzlich den Weiterbetrieb sowie die Weiterentwicklung verwaister Software durch die Community ermöglichen. Dies ist auch im Interesse der Nachhaltigkeit.</p>
+</blockquote>
+  
+  
+
+
+
+<p>Die Piratenpartei <a href="https://www.piratenpartei.de">setzt sich mit Nachdruck</a> für die europäische Bürgerinitiative „Stop Killing Videogames“ ein und ruft zur <a href="https://eci.ec.europa.eu/045/public/#/screen/home">Unterzeichnung</a> auf. Die Initiative zielt darauf ab, sicherzustellen, dass Videospiele nicht unspielbar werden, wenn die Unterstützung der Publisher endet. Sie hat kurz nach dem Start bereits etwa 300.000 von 1 Mio. erforderlichen Unterschriften erreicht.</p>
+
+
+
+<p>„Initiativen wie ‚Stop Killing Videogames‘ sind essenziell, um die Rechte der Spielenden zu schützen und die Vielfalt der Gaming-Kultur zu bewahren. Wir Piraten fordern, dass vermeintlich nicht lukrative Spiele nicht deaktiviert, sondern der Öffentlichkeit als Open Source zur Verfügung gestellt werden und beispielsweise private Server ermöglicht werden“, erklärt Lukas Küffner, Bundesvorsitzender der Piratenpartei Deutschland.</p>
+
+
+
+<p>Auf Anfrage Breyers hatte die EU-Kommission <a href="https://www.patrick-breyer.de/stopkillinggames-eu-kommission-nimmt-erstmals-stellung-zum-computerspiele-sterben/">bestätigt</a>, dass es bisher keinen Schutz vor willkürlicher Abschaltung durch Hersteller gibt.</p>
+
+
+
+<p>Weitere Informationen zur Bürgerinitiative:<br><a href="https://www.stopkillinggames.com/eci">Info-Website</a><br><a href="https://www.piratentube.de/w/f633vXiMfc9hKdV2VoeY5p">Aufzeichnung Piraten-Webinar</a><br><a href="https://www.patrick-breyer.de/tag/stopkillinggames/">Piraten-Infos</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:38 &bull;
+   2 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Tuesday, 20. August 2024
  </h2>
 
@@ -22125,7 +22943,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 
 <div class='item-footer'>
    18:31 &bull;
-   2 months ago
+   3 months ago
 </div>
 
 </div><!-- item-body -->
@@ -24401,7 +25219,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    19:54 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -24522,7 +25340,7 @@ Why should we get excited about small differences?</p>
 
 <div class='item-footer'>
    16:00 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
@@ -25646,6 +26464,396 @@ right track.</p>
 
 
 <h4 class='feed-title'>
+  <a href='https://www.patrick-breyer.de/'>Patrick Breyer</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.patrick-breyer.de/hilf-jetzt-mit-die-chatkontrolle-zu-stoppen/'>Hilf jetzt mit die Chatkontrolle zu stoppen!</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Die Chatkontrolle ist wieder auf der Tagesordnung der Regierungen der EU. Am 23. September sollen sich die EU-Regierungen zum neuesten Vorstoß positionieren. Die EU-Innenminister sollen die Chatkontrolle am … 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Die Chatkontrolle ist wieder auf der Tagesordnung der Regierungen der EU. Am <a href="https://www.parlament.gv.at/dokument/XXVII/EU/195500/imfname_11406149.pdf">23. September</a> sollen sich die EU-Regierungen zum <a href="https://www.patrick-breyer.de/wp-content/uploads/2024/09/st12406.en_clean.pdf">neuesten Vorstoß</a> positionieren. Die EU-Innenminister sollen die Chatkontrolle am <a href="https://netzpolitik.org/wp-upload/2024/09/2024-08-29_Council_Presidency_CSAR_Policy-debate_12319.pdf">10./11. Oktober</a> beschließen. <a href="https://www.patrick-breyer.de/neuester-eu-anlauf-zur-chatkontrolle-werden-messenger-dienste-in-europa-gesperrt/">Neuestes Update vom 12. September…</a></p>
+
+
+
+<p>Im Juni <a href="https://www.patrick-breyer.de/chatkontrolle-vertagt-megaerfolg-bei-verteidigung-des-digitalen-briefgeheimnisses/">war es uns gelungen</a> die beispiellosen Pläne <a href="https://www.faz.net/aktuell/politik/ausland/chatkontrolle-bei-whatsapp-und-co-gesetzesvorhaben-geht-in-naechste-runde-19803049.html">mit einer extrem knappen „Sperrminorität“ der EU Regierungen aufzuhalten</a>: Die Befürworter der Chatkontrolle erreichten damals 63,7% der 65%-Mehrheit, die im Rat der EU für eine qualifizierte Mehrheit erforderlich ist.</p>
+
+
+
+<p>Zahlreiche Regierungen wie Frankreich, die sich früher gegen die Pläne gestellt hatten, haben ihren Widerstand bereits aufgegeben. Viele Regierungen wie die deutsche Bundesregierung, die immer noch kritisch zum Vorschlag stehen, melden nur noch geringfügigen Änderungsbedarf an (z.B. eine Ausnahme für Ende-zu-Ende-Verschlüsselung ), womit unsere private Kommunikation von den meisten Diensten immer noch massenhaft durchsucht und geleaked würde. Darum besteht jetzt aktuell die konkrete Gefahr, dass die benötigte Mehrheit für die massenhafte Durchleuchtung privater Kommunikation während der ungarischen Ratspräsidentschaft erreicht wird (Ungarn unterstützt den Vorschlag).</p>
+
+
+
+<p>Deshalb müssen wir uns alle engagieren, unsere Stimmen gegenüber unseren Regierungen erheben und die Bevölkerung aufklären.</p>
+
+
+
+  
+ 
+ Regierungen, welche den Chatkontrolle-Vorschlag bisher unterstützt haben, müssen überzeugt werden ihre Position zu ändern 
+
+
+
+ Sich kritisch verhaltende Regierungen müssen dazu gebracht werden, umfassende und nicht nur kleine Änderungen am Vorschlag zu fordern, so <a href="https://www.patrick-breyer.de/beitraege/chatkontrolle/#epmandat">wie sie das Europäische Parlament fordert</a>. 
+ 
+  
+
+
+
+<p>Dieser Blogartikel erklärt verschiedene Möglichkeiten, wie du aktiv werden kannst. Jede*r kann sich einbringen. Um uns erfolgreich gegen die Chatkontrolle zu wehren, müssen wir uns alle engagieren!</p>
+
+
+
+
+
+
+
+<p>Auf dieser Karte (die du gerne online teilen kannst!) kannst du die Positionen der EU-Mitgliedstaaten zur Chatkontrolle Stand 4. September 2024 laut eines <a href="https://netzpolitik.org/2024/interne-dokumente-sperrminoritaet-gegen-chatkontrolle-wackelt/">geleakten Berichts</a> sehen. Die Länder sind außerdem in der Tabelle unten aufgeführt.</p>
+
+
+
+<p>Ist deine Regierung für die Chatkontrolle? <br>→ Verlange eine Erklärung und dass die Regierung ihren Kurs ändert.</p>
+
+
+
+<p>Enthält sich deine Regierung? <br>→ Frage sie nach den Gründen und fordere, dass sie sich in Zukunft entschieden gegen die Chatkontrolle einsetzt.</p>
+
+
+
+<p>Ist deine Regierung gegen die Chatkontrolle?<br>→ Prima, aber schau genaue hin: Einige Regierungen, wie z. B. die deutsche Bundesregierung, lehnen nur das Scannen verschlüsselter Kommunikation ab, sind aber mit dem anlasslosen Scannen anderer privater Kommunikation einverstanden, oder mit dem Ende anonymer Kommunikation durch verpflichtende Alterskontrollen, oder mit der Einführung eines Mindestalters für vermeintlich „riskante“ Messenger und Apps zur Kommunikation. Auch müssen Regierungen jetzt ihren Einfluss im Rat der EU besser geltend machen <a href="https://www.patrick-breyer.de/chatkontrolle-vertagt-megaerfolg-bei-verteidigung-des-digitalen-briefgeheimnisses/">und sich mit anderen kritischen Staaten auf gemeinsame Forderungen verständigen</a> und den Vorschlag damit grundliegend überarbeiten. Wenn diese Änderungen nicht umgesetzt werden, sollten die Regierungen von der Europäischen Kommission eine Rücknahme des Chatkontrolle-Vorschlags verlangen.</p>
+
+
+
+ Wie deine Regierung zum aktuellen Chatkontrolle-Vorschlag steht 
+
+
+
+Für den VorschlagNicht für den VorschlagUnentschieden / unklarBulgariaAustriaBelgiumCroatiaEstoniaCzech RepublicCyprusGermanyFinlandDenmarkLuxembourgItalyGreecePolandNetherlandsHungarySloveniaPortugalIrelandSwedenLatvia<br><br>Lithuania<br><br>Malta<br><br>Romania<br><br>Slovakia<br><br>Spain<br><br>
+
+
+
+<p>Die sechs Länder, die sich kritisch geäußert haben, reichen noch nicht für eine <a href="https://www.consilium.europa.eu/en/council-eu/voting-system/voting-calculator/">Sperrminorität</a> aus.</p>
+
+
+
+ Das kannst du tun 
+
+
+
+<p>Es gibt Maßnahmen, die du sofort und kurzfristig ergreifen kannst, und solche, die mehr Vorbereitung erfordern. Für den Anfang:</p>
+
+
+
+ 
+ Bitte deine Regierung, von der Europäischen Kommission die Rücknahme des Vorschlags zur Chatkontrolle zu fordern. Weise sie auf einen gemeinsamen Brief hin, der gerade von Kinderrechts- und Digitalrechtsgruppen aus ganz Europa veröffentlicht wurde. <a href="https://edri.org/our-work/joint-statement-on-the-future-of-the-csa-regulation/">Klicke hier, um den Brief und weitere Informationen zu finden</a>. 
+
+
+
+ Aus Deutschland? Fordere die Bundesregierung dazu auf, die Chatkontrolle konsequent und vollständig abzulehnen und den eigenen Einfluss im Rat der EU zum Schutz unserer Grundrechte geltend zu machen. 
+
+
+
+ Aus einem anderen Land als Deutschland? Überprüfe das Abstimmungsverhalten deiner Regierung (siehe oben) und bitte sie um eine Begründung, falls sie für oder gegen die Chatkontrolle gestimmt hat. Sage ihnen, dass du als Bürger*in willst, dass sie den Vorschlag ablehnen, dass die Chatkontrolle von vielen Expert*innen kritisiert wird und dass keiner der bisher im Rat der EU vorgelegten Vorschläge akzeptabel ist. Fordere sie auf, die Privatsphäre deiner Kommunikation und deine IT-Sicherheit zu schützen. 
+
+
+
+ Teile diesen Aufruf zum Handeln online. 
+ 
+
+
+
+<p>Die besten Anlaufstellen in deiner Regierung sind in der Regel das <a href="https://www.bmi.bund.de/DE/service/kontakt-uebersicht/kontaktuebersicht-node.html">Innenministerium</a> (federführend) und Ministerien für <a href="https://www.bmj.de/DE/service/kontakt/kontakt_node.html">Justiz</a> und für <a href="https://www.bundesregierung.de/breg-de/service/kontakt?view=">Digitalisierung</a> / Telekommunikation / <a href="https://www.bmwk.de/Navigation/DE/Service/Kontakt/kontakt.html">Wirtschaft</a>. Außerdem gibt es für jedes Land eine Ständige Vertretung bei den EU-Institutionen. <a href="https://op.europa.eu/de/web/who-is-who/organization/-/organization/COREPER/">Die Kontaktdaten der Ständigen Vertretungen findest du, indem du hier klickst</a>.<br><br>Es kann auch sehr helfen sich an die Abgeordneten in den nationalen Parlamenten zu wenden, da sie das Stimmverhalten ihres Landes festlegen können. Sprich deine politischen Vertreter*innen an. Ob es sich um die neu gewählten Abgeordneten des Europäischen Parlaments oder um lokale Gruppen der politischen Parteien handelt: Sie alle sollten erfahren, worum es bei der Chatkontrolle geht und dass du von der Politik erwartest, deine Grundrechte gegen den Chatkontrolle-Vorschlag zu verteidigen!<br><br>Tipp: Wenn du mit Politiker*innen in Kontakt treten willst, solltest du möglichst einen echten Brief schreiben, im Büro anrufen oder zu einer lokalen Parteiveranstaltung oder zu Öffnungszeiten des Büros gehen und dort ein persönliches Gespräch führen. Das hat eine noch größere Wirkung als eine E-Mail. Die Kontaktdaten findest du in der Regel auf den Websites der Politiker*innen und der Ortsgruppen der Parteien. Denk daran, dass du deinen Standpunkt entschlossen vertreten, dabei aber auch höflich bleiben solltest, da sie dir sonst nicht zuhören werden.<br><br>Hier findest du eine <a href="https://www.patrick-breyer.de/beitraege/chatkontrolle/#WeitereArgumenteChatkontrolle">Argumentationshilfe zur Chatkontrolle</a>. Und nachfolgend mehrere Erklärungen, warum die bisher von den Regierungen vorgesehenen Änderungen nicht ausreichen, um den Gefahren der Chatkontrolle entgegenzuwirken: <a href="https://www.patrick-breyer.de/chatkontrolle-blockade-wackelt-chatkontrolle-verweigerer-sollen-mit-foto-und-linkverbot-bestraft-werden/">von uns</a>, <a href="https://edri.org/our-work/be-scanned-or-get-banned/">von EDRi</a>, <a href="https://cdt.org/wp-content/uploads/2024/06/May-2024-CDT-Europe-Feedback-on-the-Belgian-Presidencys-compromise-on-the-Regulation-on-Child-Sexual-Abuse-Material.pdf">von CDT</a>.<br><br>Während wir den Kampf gegen die Chatkontrolle fortführen, müssen wir den Widerstand noch weiter ausbauen:</p>
+
+
+
+ 
+ Erklär deinen Bekannten, warum das ein wichtiges Thema ist. <a href="https://nextcloud.pp-eu.eu/index.php/s/cwyRic7cC5zcfHk?path=%2FVideos%2Fall%20languages">Dieses kurze Video</a>, das in alle europäische Sprachen übersetzt wurde, kann ein hilfreicher Anfang sein. Du kannst es frei nutzen und teilen! Auch verfügbar auf <a href="https://www.youtube.com/watch?v=cpGSqroLomg">YouTube</a> und <a href="https://digitalcourage.video/w/mNHKXBrVHgsRAFzXFvXG63">PeerTube</a>. 
+
+
+
+ Aktiv zu werden funktioniert besser und ist motivierender, wenn man zusammenarbeitet. Versuche also, Verbündete zu finden und Allianzen zu schmieden. Ob in einem lokalen Hackspace oder in einem Sportverein: Deine lokale Aktionsgruppe gegen Chatkontrolle kann überall an den Start gehen. Dann könnt ihr kreativ werden und überlegen, welche Art von Aktion am besten zu euch passt. 
+ 
+
+
+
+<p>Werde jetzt aktiv. Der Widerstand gegen die Chatkontrolle sind wir alle!</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.patrick-breyer.de/wp-content/uploads/2024/07/signal-2024-09-18-15-45-19-109-1-1024x1024.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:46 &bull;
+   4 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://www.patrick-breyer.de/eugoingdark-ueberwachungsplan-termine-agenda-hintergruende/'>#EuGoingDark-Überwachungsplan: Termine, Agenda, Hintergründe</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Hoch kontrovers, intransparent und kaum hinterfragt: Zur Zeit bereiten Kommission und Rat der Europäischen Union ein neues, EU-weites Überwachungspaket vor. Der #EuGoingDark-Plan umfasst unter anderem die Wiedereinführung und Ausweitung der Vorratsdatenspeicherung … 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Hoch kontrovers, intransparent und kaum hinterfragt: Zur Zeit bereiten Kommission und Rat der Europäischen Union ein neues, EU-weites Überwachungspaket vor. Der #EuGoingDark-Plan umfasst unter anderem die Wiedereinführung und Ausweitung der Vorratsdatenspeicherung von Kommunikationsdaten der Bürgerinnen und Bürger sowie konkrete Vorschläge zur Aushebelung der sicheren Verschlüsselung von Daten auf allen vernetzten Geräten von Autos bis Smartphone, Daten bei Diensteanbietern und Daten während der Übertragung.</p>
+
+
+
+<blockquote>
+<p>„Journalistisch und politisch ist der #EuGoingDark-Plan nach wie vor ein blinder Fleck, obwohl eindeutige Dokumente vorliegen und das Ausmaß der geplanten Maßnahmen erschreckend ist“, sagt der Europaabgeordenete der Piratenpartei Dr. Patrick Breyer.</p>
+</blockquote>
+
+
+
+<p>Dokumente</p>
+
+
+
+ 
+ 
+<p><a href="https://www.patrick-breyer.de/beitraege/draft-going-dark-uberwachungsschmiede/">Themenseite zur »Hochrangigen Gruppe für den Zugang zu Daten für eine wirksame Strafverfolgung«</a> mit Hintergründen, Presseberichten, Dokumenten und der Position von Dr. Patrick Breyer.</p>
+ 
+
+
+
+ 
+
+ 
+ 
+
+
+
+<p>Zeitleiste</p>
+
+
+
+ 
+ 6. Juni 2023: <a href="https://home-affairs.ec.europa.eu/document/download/ffbbf855-c62e-4b71-a249-126316124e91_en?filename=Commission%20Decision%20setting%20up%20a%20high-level%20group%20on%20access%20to%20data%20for%20effective%20law%20enforcement_en.pdf">Entscheidung der EU-Kommission zur Gründung der#EuGoingDark-Arbeitsgruppe</a>  
+
+
+
+ Zwischen Juni 2023 und Juni 2024: Jeweils vier Treffen der #EuGoingDark-Arbeitsgruppe und ihrer drei Unterarbeitsgruppen, von denen aktuell drei <a href="https://home-affairs.ec.europa.eu/networks/high-level-group-hlg-access-data-effective-law-enforcement_en#meetings">auf der Website teilweise dokumentiert</a> sind. 
+
+
+
+ 6. Juni 2024: Veröffentlichung von <a href="https://home-affairs.ec.europa.eu/document/download/1105a0ef-535c-44a7-a6d4-a8478fce1d29_en?filename=Recommendations%20of%20the%20HLG%20on%20Access%20to%20Data%20for%20Effective%20Law%20Enforcement_en.pdf">42-Forderungen der #EuGoingDark-Arbeitsgruppe</a> 
+
+
+
+ 1. Juli 2024: Beginn der ungarischen Ratspräsidentschaft, mit Ankündigung der Weiterverfolgung des #EuGoingDark-Programms (<a href="https://hungarian-presidency.consilium.europa.eu/media/32nhoe0p/programme-and-priorities-of-the-hungarian-presidency.pdf">„European consensus on the retention and access to law enforcementdata“</a>) 
+
+
+
+ Für Q2 angekündigt: Zweiter Eurojust Data Retention Report 
+
+
+
+ 16. Juli 2024: Konstituierende <a href="https://www.europarl.europa.eu/plenary/en/agendas.html">Sitzung des neuen EU-Parlaments</a> 
+ 
+
+
+
+<p>Ab September:</p>
+
+
+
+ 
+ Termin noch unbekannt: Abschließender Bericht zu den Empfehlungen der #EuGoingDark-Arbeitsgruppe 
+
+
+
+ 3.-5. September: <a href="https://www.consilium.europa.eu/de/meetings/mpo/2024/9/gruppe-zusammenarbeit-in-strafsachen-copen-(345945)/">Gruppe “Zusammenarbeit in Strafsachen”</a> (COPEN) 
+
+
+
+ Termin noch unbekannt: Rede zur Lage der Union d. Präsiden*tin der Europäischen Kommission 
+
+
+
+ Termin noch unbekannt: Annahme des Arbeitsprogramms der Kommission für 2025 
+
+
+
+ 10-11 Oktober 2024: <a href="https://www.consilium.europa.eu/de/meetings/jha/2024/10/10-11/">Rat (Justiz und Inneres)</a> 
+
+
+
+ 16 – 17 October: <a href="https://hungarian-presidency.consilium.europa.eu/en/events/eu-us-senior-officials-meeting-on-justice-and-home-affairs/">EU -U.S. Senior Officials Meeting on Justice and Home Affairs</a> 
+
+
+
+ November: Abschlusstreffen der #EuGoingDark-Arbeitsgruppe 
+
+
+
+ 25. November: <a href="https://hungarian-presidency.consilium.europa.eu/en/events/safe-in-europe-forum-2024/">Safe in Europe Forum 2024</a> 
+
+
+
+ Termin noch unbekannt: Gemeinsame Prioritäten der EU-Organe ab 2025 
+
+
+
+ 9-11 Dezember 2024: <a href="https://hungarian-presidency.consilium.europa.eu/en/events/140th-management-board-meeting-of-europol/">140th Management Board Meeting of Europol</a> 
+
+
+
+ 12-13 Dezember 2024 <a href="https://www.consilium.europa.eu/de/meetings/jha/2024/12/12-13/">Rat (Justiz und Inneres)</a> mit “<a href="https://data.consilium.europa.eu/doc/document/ST-11222-2024-INIT/en/pdf">exchange of views on Access to data for effective law enforcement</a>” 
+
+
+
+ 1. Januar 2025: Beginn der polnischen Ratspräsidentschaft 
+ 
+
+
+
+<p>Offene Fragen</p>
+
+
+
+ 
+ Wer hat an den Treffen der EuGoingDark-Arbeitsgruppe und ihrer Unter-Arbeitsgruppen teilgenommen? Teilnehmerlisten sind nach wie vor <a href="https://digitalcourage.social/@echo_pbreyer/111499644713378703">Verschlusssache</a> . <a href="https://mullvad.net/en/why-privacy-matters/going-dark">Mullvad VPN</a> hat berichtet, dass, mindestens ein ehemaliger US-Geheimdienstler teilgenommen hat. 
+
+
+
+ Warum wurden digitale Grundrechte-NGOs wie etwa <a href="https://edri.org/?s=going+dark">EDRi</a> auch auf Nachfrage nicht zu den Treffen der Arbeitsgruppe eingeladen obwohl diese laut Website eine „kollaborative und integrative Plattform für Interessengruppen“ ist? 
+
+
+
+ Wurden die Transparenzregeln der Gruppe mitten im Arbeitsprozess heimlich ausgetauscht und dabei massiv eingeschränkt? Die <a href="https://www.europarl.europa.eu/doceo/document/E-9-2024-001335_EN.html">schriftliche Anfrage von Dr. Patrick Breyer</a> dazu ist nach wie vor unbeantwortet. 
+
+
+
+ Warum sind die Arbeitsgruppe und ihre Unter-Arbeitsgruppen nicht im <a href="https://ec.europa.eu/transparency/expert-groups-register/screen/home?lang=de">Register für Expertengruppen und ähnliche Foren</a>  (z. B. Beratungsgremien) der Kommission eingetragen, wodurch ihre Transparenz stark eingeschränkt ist? 
+
+
+
+ Wie bewerten die neuen, direkt und indirekt mit den betroffenen Themen befassten Kommissarinnen und Kommissare der EU-Kommission, die Europäischen Bürgerbeauftragte, die Datenschutzbeauftragten der EU und der Mitgliedsländer, IT-Sicherheitsexperten, Verbraucherschutzverbände und andere die Arbeitsweise und Pläne der #EuGoingDark-Gruppe? 
+ 
+
+
+
+<p>Kontakt zur #EuGoingDark-Arbeitsgruppe</p>
+
+
+
+<p>European Commission<br>Directorate-General Migration &amp; Home Affairs<br>46 Rue de Luxembourg | B-1049 Brussels | Belgium<br>E-Mail: EC-HLG-GOING-DARK [:at:] ec.europa.eu.</p>
+
+
+
+<p>Olivier Onidi<br>Deputy Director General<br>Directorate-General for Migration and Home Affairs</p>
+
+
+
+<p>Carlo Van Heuckelom<br>Justice and Home Affairs Counsellor<br>Permanent Representation of Belgium to the European Union</p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.patrick-breyer.de/wp-content/uploads/2023/07/combined-1024x376.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   14:12 &bull;
+   4 months ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
   <a href='https://www.moxytongue.com/'>Moxy Tongue</a>
 </h4>
 
@@ -25778,840 +26986,6 @@ right track.</p>
 
 <div class='item-footer'>
    03:08 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 08. July 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://justatheory.com'>Just a Theory</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://justatheory.com/2024/07/go-sqljson-path/'>Introducing Go SQL/JSON Path and Playground</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Introducing the SQL/JSON Path package, a PostgresSQL-compatible jsonpath
-parser and executor in Go. Also: a Wasm-based playground!
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
- 
-         
-<p>For a personal project, I needed to parse and execute PostgreSQL-compatible
-<a href="https://www.postgresql.org/docs/16/datatype-json.html#DATATYPE-JSONPATH" title="PostgreSQL Docs: jsonpath Type">jsonpath</a> expressions.<a>1</a> So I’ve spent just about every spare evening and
-weekend the last several months porting Postgres jsonpath to Go, and it’s
-finally ready to ship.</p>
-<p>Introducing <a href="https://github.com/theory/sqljson" title="theory/gosqljson: PostgreSQL-compatible SQL-standard SQL/JSON in Go">Go SQL/JSON</a>, featuring the <a href="https://pkg.go.dev/github.com/theory/sqljson/path" title="go.pkg.dev: github.com/theory/sqljson/path">path package</a>. This project provides
-full support for all of the PostgresSQL 17 jsonpath features<a>2</a> in the
-Go programming language. An <a href="https://pkg.go.dev/github.com/theory/sqljson/path#example-package-WithVars">example</a>:</p>
-  <code>package main
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"log"
-
-	"github.com/theory/sqljson/path"
-	"github.com/theory/sqljson/path/exec"
-)
-
-func main() {
-	// Parse some JSON.
-	var value any
-	err := json.Unmarshal([]byte(`{"a":[1,2,3,4,5]}`), &amp;value)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Parse a path expression and execute it on the JSON.
-	p := path.MustParse("$.a[*] ? (@ &gt;= $min &amp;&amp; @ &lt;= $max)")
-	res, err := p.Query(
-		context.Background(),
-		value,
-		exec.WithVars(exec.Vars{"min": float64(2), "max": float64(4)}),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("%v\n", res)
-    // Output: [2 3 4]
-}
-</code>  <p>I think the API is decent, but may implement better patterns as I discover
-them. Overall I’m quite satisfied with how it turned out, and just how well
-its implementation and performance compare to the original.</p>
- 🛝 Playground 
-<p>But why stop there? One of the nice things about this project is that Go
-supports compiling applications into <a href="https://webassembly.org">WebAssembly</a> (a.k.a. Wasm) via <a href="https://go.dev/wiki/WebAssembly" title="Go Wiki: WebAssembly">Go
-WebAssembly</a>. Borrowing from the <a href="https://github.com/yuin/goldmark/" title="yuin/goldmark: 🏆 A markdown parser written in Go">Goldmark</a> project, I created and published
-the <a href="https://theory.github.io/sqljson/playground">sqljson/path playground</a> and populated <a href="https://github.com/theory/sqljson/blob/main/path/README.md" title="Go SQL/JSON Path: The SQL/JSON Path Language">the docs</a> with links for all of
-its examples.</p>
-<p>Now anyone can experiment with SQL/JSON path expressions, and share links to
-demonstrate patterns and techniques. The Playground is a stateless
-JavaScript/Wasm web application: data persists only in permalink
-URLs.<a>3</a></p>
-<p>🛝 Try this <a href="https://theory.github.io/sqljson/playground/?p=%2524.members%255B*%255D%2520%253F%28%2540.age%2520%253C%252030%2520%257C%257C%2520exists%28%2540.powers%255B*%255D%2520%253F%28%2520%2540%2520%253D%253D%2520%2522Inferno%2522%29%29%29.name&amp;j=%257B%250A%2520%2520%2522squadName%2522%253A%2520%2522Super%2520hero%2520squad%2522%252C%250A%2520%2520%2522homeTown%2522%253A%2520%2522Metro%2520City%2522%252C%250A%2520%2520%2522formed%2522%253A%25202016%252C%250A%2520%2520%2522secretBase%2522%253A%2520%2522Super%2520tower%2522%252C%250A%2520%2520%2522active%2522%253A%2520true%252C%250A%2520%2520%2522members%2522%253A%2520%255B%250A%2520%2520%2520%2520%257B%250A%2520%2520%2520%2520%2520%2520%2522name%2522%253A%2520%2522Molecule%2520Man%2522%252C%250A%2520%2520%2520%2520%2520%2520%2522age%2522%253A%252029%252C%250A%2520%2520%2520%2520%2520%2520%2522secretIdentity%2522%253A%2520%2522Dan%2520Jukes%2522%252C%250A%2520%2520%2520%2520%2520%2520%2522powers%2522%253A%2520%255B%2522Radiation%2520resistance%2522%252C%2520%2522Turning%2520tiny%2522%252C%2520%2522Radiation%2520blast%2522%255D%250A%2520%2520%2520%2520%257D%252C%250A%2520%2520%2520%2520%257B%250A%2520%2520%2520%2520%2520%2520%2522name%2522%253A%2520%2522Madame%2520Uppercut%2522%252C%250A%2520%2520%2520%2520%2520%2520%2522age%2522%253A%252039%252C%250A%2520%2520%2520%2520%2520%2520%2522secretIdentity%2522%253A%2520%2522Jane%2520Wilson%2522%252C%250A%2520%2520%2520%2520%2520%2520%2522powers%2522%253A%2520%255B%250A%2520%2520%2520%2520%2520%2520%2520%2520%2522Million%2520tonne%2520punch%2522%252C%250A%2520%2520%2520%2520%2520%2520%2520%2520%2522Damage%2520resistance%2522%252C%250A%2520%2520%2520%2520%2520%2520%2520%2520%2522Superhuman%2520reflexes%2522%250A%2520%2520%2520%2520%2520%2520%255D%250A%2520%2520%2520%2520%257D%252C%250A%2520%2520%2520%2520%257B%250A%2520%2520%2520%2520%2520%2520%2522name%2522%253A%2520%2522Eternal%2520Flame%2522%252C%250A%2520%2520%2520%2520%2520%2520%2522age%2522%253A%25201000000%252C%250A%2520%2520%2520%2520%2520%2520%2522secretIdentity%2522%253A%2520%2522Unknown%2522%252C%250A%2520%2520%2520%2520%2520%2520%2522powers%2522%253A%2520%255B%250A%2520%2520%2520%2520%2520%2520%2520%2520%2522Immortality%2522%252C%250A%2520%2520%2520%2520%2520%2520%2520%2520%2522Heat%2520Immunity%2522%252C%250A%2520%2520%2520%2520%2520%2520%2520%2520%2522Inferno%2522%252C%250A%2520%2520%2520%2520%2520%2520%2520%2520%2522Teleportation%2522%252C%250A%2520%2520%2520%2520%2520%2520%2520%2520%2522Interdimensional%2520travel%2522%250A%2520%2520%2520%2520%2520%2520%255D%250A%2520%2520%2520%2520%257D%250A%2520%2520%255D%250A%257D%250A&amp;a=&amp;o=1">example Playground permalink</a> right now!<a>4</a></p>
- The Path Ahead 
-<p>I’ve enjoyed learning how to implement a lexer, a <a href="https://pkg.go.dev/golang.org/x/tools/cmd/goyacc" title="pkg.go.dev: golang.org/x/tools/cmd/goyacc">goyacc</a> parser, an <a href="https://en.wikipedia.org/wiki/Abstract_syntax_tree" title="Wikipedia: Abstract syntax tree">AST</a>,
-and an execution engine. The Playground was a bonus bit of fun!</p>
-<p>I’m stoked to build cool stuff on this package, but don’t know whether anyone
-else will find it useful. If you do — or just enjoy messing about on the
-Playground, let me know!</p>
- 
- 
- 
- 
-<p>“Whatever for,” you ask? Well, aside from wanting to see if I could
-do it, <a href="https://justatheory.com/2023/10/cipherdoc/" title="CipherDoc: A Searchable, Encrypted JSON Document Service on Postgres">this post</a> describes a POC. Now I’m working to create the real
-thing — done right and entirely from scratch.&nbsp;<a>↩︎</a></p>
- 
- 
-<p>Well, nearly full. The only <a href="https://github.com/theory/sqljson/issues/1" title="/theory/sqljson#1: Implement datetime(template)">missing</a> feature is the
-<code>datetime(template)</code> method. See also the comprehensive <a href="https://github.com/theory/sqljson/blob/main/path/README.md#compatibility">compatibility
-notes</a>.&nbsp;<a>↩︎</a></p>
- 
- 
-<p>And whatever data <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages#data-collection" title="Github Docs: About GitHub Pages —&nbsp;Data Collection">GitHub Pages collect</a> 😔.&nbsp;<a>↩︎</a></p>
- 
- 
-<p>JSON <a href="https://developer.mozilla.org/en-US/docs/Learn/JavaScript/Objects/JSON" title="MDN Web Docs: Working with JSON">borrowed from MDM</a>.&nbsp;<a>↩︎</a></p>
- 
- 
- 
-
-         
-
-         
-             More about… 
-             
-                 <a href="https://justatheory.com/tags/postgres/">Postgres</a> 
-                 <a href="https://justatheory.com/tags/sql/json/">SQL/JSON</a> 
-                 <a href="https://justatheory.com/tags/json-path/">JSON Path</a> 
-                 <a href="https://justatheory.com/tags/go/">Go</a> 
-                 <a href="https://justatheory.com/tags/playground/">Playground</a> 
-             
-         
-     
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:59 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Sunday, 07. July 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blog.jonudell.net'>Jon Udell</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://blog.jonudell.net/2024/07/07/seymour-and-brownie/'>Seymour and Brownie</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  My family, on my dad’s side, were Jews from Poland and Ukraine. His parents came to America before the shit hit the fan, but I grew up knowing two people who weren’t so lucky. Seymour Mayer lived across the street during my teens. And Annie Braunschweig, who we knew as Brownie, had taken care of … Continue reading Seymour and Brownie
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>My family, on my dad’s side, were Jews from Poland and Ukraine. His parents came to America before the shit hit the fan, but I grew up knowing two people who weren’t so lucky. Seymour Mayer lived across the street during my teens. And Annie Braunschweig, who we knew as Brownie, had taken care of my sister and me as four- and five-year-old kids when our mom – unusually at that time – went back to work full-time teaching at a university. Both Seymour and Brownie were survivors of Nazi concentration camps, with tattooed numbers on their arms.</p>
-<p>I never heard Seymour talk about it. Brownie rarely did, though I remember one story about a mother who tossed her swaddled baby to a stranger as the train was leaving to take her to the gas chambers.</p>
-<p>Very few survivors remain. And there are not many of us who have known survivors. I’ve thought a lot, over the years, about what happens when that kind of personal connection ends, and living memories fall off the continental shelf into the deep ocean of history. I suspect the Holocaust may seem no more real, to many born in this century, than the Spanish Inquisition.</p>
-<p>I don’t know if Seymour and Brownie ever read “It Can’t Happen Here” but I am pretty sure they’d have thought it absolutely can, they’d be even more horrified in this moment than many of us are, and they’d reject the fatalism that I see taking root among friends and acquaintances.</p>
-<p>“It hasn’t happened yet,” they’d say, “you can still prevent it, do not despair prematurely, there is still time, but you must find a way to focus your efforts and unite all whose votes can matter.” </p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   23:12 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Saturday, 06. July 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://wrenchinthegears.com/2024/07/05/the-undivided-universe-of-the-heart/'>The Undivided Universe of the Heart</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  That little voice whispered it was time to get out of the apartment and clear my head. I’d been working on additions to a map for several days, and it was going slower than I wanted it to go. My mother, in her 80s, moved into assisted living last month. As is to be expected, [...]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>That little voice whispered it was time to get out of the apartment and clear my head. I’d been working on additions to a map for several days, and it was going slower than I wanted it to go. My mother, in her 80s, moved into assisted living last month. As is to be expected, all the changes have been difficult for her. Compounding that, our communication lines seem to be experiencing a lot of psychic static; an ongoing family curse. So I’m trying to navigate that even as my own circumstances are still unsettled, at least for another month.&nbsp;</p>
-<p>How does one undertake the responsibilities of a good daughter, when for some reason the gate to a mother’s heart continues to malfunction? Can you insert yourself into someone’s life if all signs indicate you’re not really welcome? Maybe not yet. Maybe things have to get worse before resolution is possible. When does the child take on the role of the mother? It doesn’t feel like a role that can be stepped into gracefully. Plus, I don’t have anyone physically here in my corner to lean on, which is not what I expected at this stage of the game. I guess I should see it as an opportunity to exercise my self-reliance muscles.&nbsp;</p>
-<p>Despite offers of assistance, none were warmly welcomed. So I’m left with a lot of question marks. I send flowers and prayers across several thousand miles and try to come to terms with my situation. A friend found a small medallion in a parking lot with the inscription “Family Is Everything” only to later realize that it was a Disney branded trinket, which put a new spin on the pithy trope. No, not everything.&nbsp;</p>
-<p>Every family comes with its own lessons, and oh those morphogenetic fields can be a bear. Perhaps the best thing is to offer what you can with an open, tender, and decidedly imperfect heart and let the pieces fall where they may. I think we do this more than once. Maybe my mother and I have done it a hundred times already. Maybe this round I fared better than in the last one, and in the next I’ll make more progress. It’s the journey, right? Not the destination…</p>
-<p>So I drove across town to my rented PO box to pick up a book and some linen fabric I’d treated myself to. The colors are gray cashmere and Montana grape, which will make a lovely skirt and blouse for fall. I’m looking forward to pulling out my sewing machine and embroidery floss again. The purchase, which was spurred on by an emailed discount code, was my way of staking a claim on that future. The book was Bohm and Hiley’s “The Undivided Universe.”&nbsp;</p>
-<p>Impatient and curious, I flipped through the pages on quantum consciousness in the parking lot as I placed the packages in the trunk and blanched at the equations therein. I really am hopeless with math and physics, but hopefully I can glean some insights on active information and the meaning of our oneness. As much as my mother exasperates me, I love her and I suspect she loves me too, just as I love my prodigal child. The signals are choppy – entangled human weather in the swirling gyre.</p>
-<p>My inner voice said take the growing collection of feathers on the shelf above the desk here in the apartment. There is a strange giant gold hand with some books around it that clearly came from the decorator, books by the yard, not ones that were actually ever read by anyone. In the hand I’d placed a sprig of mistletoe that fell out onto the windshield of my car from the towering willow oaks that line the street where I’m staying. I have a small pile of stones, pinecones, and other bits and bobs. I put most of the feathers and a few of the stones in a soul-bright yellow canvas bag my friend Juliana entrusted to me during our Lititz foray. I decided on my way back I’d stop at “Space Odyssey” Allsopp Park and make a heartfelt intention for my mom during this time of her bumpy transition.</p>
-<p>I think my hearts confound some people. They don’t know how to integrate the Alison that makes maps about inscrutable things with the Alison who walks around making patterns with acorns and leaves. I think some people think I ought to be embarrassed, perhaps not that I make them, but that I share them publicly.&nbsp;</p>
-<p>Even though I used to consider myself a progressive, I began to see that I’m really more spiritually-minded than materialist inclined. I have my reasons for being skeptical of institutional faith communities, but I do feel the pull towards a benevolent creator. The gift of sacred cyclical beauty in nature is part of that. A woman on Facebook inspired my hearts. She posted photos spelling out “love” in sticks and stones. During that terrible period of the lockdowns, it felt like a meaningful affirmation and it still does.&nbsp;</p>
-<p>If there is an implicate order, why not seek to communicate with it? For me, making hearts is like a guided meditation. I’m not a good meditator in the regular sense. My wheelhouse is symbol and story. For me, the practice works, and I share it, because it may work for other people too. Someone gifted me a version of their prayer, and I made it my own, and so may it be for others if it makes sense in your life. If not, feel free to immerse yourself in my maps instead. They are both valuable sides of the complex pattern that is Alison McDowell this time around.</p>
-<p>I was still working at the garden during Covid, so I had ample materials to work with. Eventually, I decided laying out a heart shape was preferable to using words. Ever since I’ve made 3-4 hearts a month with nature’s findings. Sometimes I do it to neutralize fraught energy in a place I’ve researched, but not always. Sometimes I simply do it as a way to reaffirm my place in the world. With each I offer an intention for “life, health, and open paths” that Cliff Gomes taught me.&nbsp;</p>
-<p>At first I hoarded materials, thinking that was what was needed; but with time, I realized the gift of a public heart is a reflection of a given place. Rather than bringing new materials to a spot, it was better to seek out the message from the location itself. What communication awaits? The trickiest part of heart-making is finding materials to outline the shape. From there, you can decorate inside and outside with a smattering of this or that.&nbsp;</p>
-<p>When I got out of the car with my little yellow sack, I first saw a bountiful native pollinator garden full of sunflowers and bee balm and ironweed, a towering presence with deep purple flowers that I remember standing guard over the lower garden in high summer. I didn’t pick any of them though. The bees and wasps were enjoying them too much. I turned to head down the path and saw a giant wild wisteria vine clambering into a tree. The blossoms were spent, but there were a dozen or so soft, green velvet seed pods. That’s what I picked for the outline of today’s heart.&nbsp;</p>
-<p>Wisteria is named for the Wistar family of Philadelphia, peers of John Bartram, glass makers, and doctors. In the late nineteenth-century the Wistar Institute, which is located on the campus of the University of Pennsylvania, became one of the first biomedical research labs in the world with a focus on vaccines. The first standardized experimental lab rat was created there, the Wistar rat.&nbsp;</p>
-<p>Next, some ferny wild carrot tops caught my eye. I didn’t harvest any, but a wave of remembrance came over me for the summers of my childhood where I played in the dirt lots and tree lines of corporate suburbs in the making. Those summers in the late 1970s and early 1980s where carrot beings anchored themselves into the imaginative world building exercises of feral youth. Even as my adult world has fallen apart, that broken-ness gifted me the chance to renew my connection with the younger version of Alison, the one who would jump the fence onto a neighboring farm to walk the creek and pretend she lived in Narnia.</p>
-<p>I left the pavement and took the high route up the wooded hillside. At the bottom I scooped up a few small pieces of bark from a fallen branch that was coated with a bluish-green lichen, still damp from the thunderstorm that rolled in this morning after weeks of dry heat. The storm knocked the dust down and you could still smell the earthiness of the soil.&nbsp;</p>
-<p>The walk up was uneven and rocky. “We are shapes of the Earth” as John (or Tina) Trudell would say. Their refrain came to me as my sandals found footing among the loose stones. A few slices found their way into my bag, including a shard pierced by a round hole the size of a quarter. The path affirmed our mineral connection. Gray slate of ancient sea beds pitched vertically with cataclysmic force; the sheets splayed out like a library of plundered books with bindings broken, quires unmoored. The consciousness of those stones spoke my language of order lost to chaos, but with elegance and meaning, undertones of their present disheveled arrangement.&nbsp;</p>
-<p>At the top of the hill was a signpost. I took a turn to the right and followed along the edge of a small ravine to where the Nandina grew. I thought about the Hot Springs park ranger berating the shrub for being an interloper, but it has a special place in my heart. After I left home, my parents moved into a house with an elaborately landscaped yard. There was a hedge of Nandina and I dug up a sprout and brought it home with me to Philadelphia where it flourished in our small patio garden. I would have to cut it back pretty vigorously every year and it never flowered like it did in the South, but it reminded me of my dad, so of course I grabbed a sprig and put it on the bag.</p>
-<p>I also saw three purple mist flowers, blue boneset. I love purple, so I put them in, too. There were also huge stands of poke on the other side of the path. Their flower panicles were in just the early stages of white and green, before the intense purple berries arrive. The white, pink, and green pokeweed always reminds me of the preppy era when pink and green attire was all the rage in middle school.&nbsp;</p>
-<p>During my walk, the woods were infused with R&amp;B music from a distant picnic pavilion. When I pulled into the parking lot, I noticed a white pick-up truck towing a huge barbeque grill. There were a bunch of families having a cookout, which made me think about the big gatherings you see on summer weekends in Fairmount Park. It made me a tiny bit homesick, but in a good way.</p>
-<p>When I used to live near <a href="https://wrenchinthegears.com/2023/04/10/one-thought-can-produce-millions-of-vibrations-and-they-all-go-back-to-god-a-love-supreme/">John Coltrane’s Philadelphia house on 33rd Street</a>, they had papers in the windows with the saying “one thought can create millions of vibrations and they all go back to God.” So, I go into nature with questions and an inner knowing that on the other side at least it will be ok; we will all be ok.&nbsp;</p>
-<p>I can make an offering to try and harmonize the present moment of uncertainty. It may look like a milky quartz stone surrounded by lichen and feathers and pinecones and wisteria pods with a smattering of purple, because that’s what I like. That’s what little Ally liked, too. And we can weave a story of love even if the creaky lock is stuck, because one day it will open. The vibrations are slipping under the threshold and loosening the resistance. The path is open. We just need to find our way to the trailhead.&nbsp;</p>
-<p>I’m not a nihilist. I’m studying the quantum and ontopoesis and the participatory universe, because I know that love finds a way. Meg knew that. Patience isn’t my strong suit, but this journey may carry across dimensions and I have to learn to endure and cultivate a sense of humor in the absurdity of it all.&nbsp;</p>
-<p>Spoiler alert – love wins!&nbsp;</p>
-<p>PS: I didn’t take my camera with me, so this heart will just have to live in your imagination.&nbsp;</p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:51 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Thursday, 04. July 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://medium.com/@benwerd'>Werdmüller on Medium</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://benwerd.medium.com/the-america-i-love-75a8a3830529?source=rss-3b16402f5b9d------2'>The America I love</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-      It’s not loud, but it exists.  Continue reading on Medium »  
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/0*l4eG59EmdCLG0KFv.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   <p><a href="https://benwerd.medium.com/the-america-i-love-75a8a3830529?source=rss-3b16402f5b9d------2"></a></p><p>It’s not loud, but it exists.</p><p><a href="https://benwerd.medium.com/the-america-i-love-75a8a3830529?source=rss-3b16402f5b9d------2">Continue reading on Medium »</a></p> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*l4eG59EmdCLG0KFv.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   20:31 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://wrenchinthegears.com/2024/07/04/blockchain-badges-and-tiktok-school-choice-deep-in-the-heart-of-texas/'>Blockchain Badges and TikTok School Choice Deep In The Heart of Texas</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This three-hour chat with my friend Lynn Davenport of Dallas, Texas was initially triggered by my frustration with a recent RFK Jr. video promoting blockchain as the future. &nbsp; While I wanted to deconstruct the silly nationalist tone of his video, promoters of decentralized ledger tech know that the whole point is peer-to-peer communication and [...]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This three-hour chat with my friend Lynn Davenport of Dallas, Texas was initially triggered by my frustration with a recent <a href="https://www.youtube.com/watch?v=EmGyGEyDOPc">RFK Jr. video</a> promoting blockchain as the future. </p>
-<p></p>
-<p>&nbsp;</p>
-Video: <a href="https://www.youtube.com/watch?v=EmGyGEyDOPc">https://www.youtube.com/watch?v=EmGyGEyDOPc</a>
-<p>While I wanted to deconstruct the silly nationalist tone of his video, promoters of decentralized ledger tech know that the whole point is peer-to-peer communication and borderless payment processing, we ended up having a much deeper conversation with many updates around education policy in the Lone Star state, including Open Education Resources (see our playlist of videos on that topic <a href="https://www.youtube.com/playlist?list=PLnNSjVGWqTO7Ieb_QCLhpyU8tMvMFmsiI">here</a>) and manufactured culture wars that are serving as a major distraction from getting people up to speed on the ethical implications of linking AI to hive mind, swarm intelligence protocol layers in the name of radical democracy. </p>
-<p>I know most people are not going to make time to listen to the whole thing, so I pulled two short teaser clips. One is about the OER being blockchain badges, not Bible-study paper print outs as some Texas representatives would have you believe. The other is my frustration over the Diane Ravitch / Badass Teachers Association brain boxing and the perils of manufactured heroes and structured teaming. I am indebted to both, however, for giving me the eyes to see the role of RFK Jr. and health freeDOM influencers in steering consciousness and sheep dogging folks into the box canyon of Web3 quantified self wearables and wellness key performance indictors.&nbsp;</p>
-<p>Today is Red White and Blue day – if you celebrate, please remember the superorganism has no flag!&nbsp;It’s time to get serious folks. Step away from your assigned team and start thinking for yourself.</p>
-<p>Teaser #1: OER is about blockchain badges and digital ID. 2 Minutes</p>
-<p>Below it are links are to three maps you can use to explore further. </p>
-<p>&nbsp;</p>
-<p></p>
-<a href="https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/07/yass-map.png?ssl=1"></a>Interactive Map:<a href="https://embed.kumu.io/c3c648bb39d4b40481a62e6e98f13eff#untitled-map?s=bm9kZS1LeHFNU2Zkcg%3D%3D"> https://embed.kumu.io/c3c648bb39d4b40481a62e6e98f13eff#untitled-map?s=bm9kZS1LeHFNU2Zkcg%3D%3D</a>
-<a href="https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/07/Digital-Rights-for-Children-Map.png?ssl=1"></a>Interactive map here:<a href="https://embed.kumu.io/447e5c06d2db8ed8cbdb8ef3c26472a2#untitled-map?s=bm9kZS1ENDF4aWZZZA%3D%3D"> https://embed.kumu.io/447e5c06d2db8ed8cbdb8ef3c26472a2#untitled-map?s=bm9kZS1ENDF4aWZZZA%3D%3D</a>
-<a href="https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/07/cardano-map.jpg?ssl=1"></a>Interactive Map:<a href="https://embed.kumu.io/cc9001c9700ae46997ffd2fcd86a7291#untitled-map?s=ZWRnZS1xUkdBdVhIdw%3D%3D"> https://embed.kumu.io/cc9001c9700ae46997ffd2fcd86a7291#untitled-map?s=ZWRnZS1xUkdBdVhIdw%3D%3D</a>
-<p>Teaser #2″ Diane Ravitch never wanted you to look very closely into what her son Joe and Raine Group were doing to catalyze a future of digital edu-tainment and e-sports credentialing.</p>
-<p></p>
-<p>Diane Ravitch – Former Texas Conservative Education Policy Lobbyist Turned Progressive “Reformer” – Mother of Joe Ravitch: <a href="https://en.wikipedia.org/wiki/Diane_Ravitch">https://en.wikipedia.org/wiki/Diane_Ravitch</a> </p>
-<p>Joe Ravitch – digital media venture capital: <a href="https://raine.com/team-member/joseph-ravitch/">https://raine.com/team-member/joseph-ravitch/</a> </p>
-<p>Raine Group: <a href="https://en.wikipedia.org/wiki/The_Raine_Group">https://en.wikipedia.org/wiki/The_Raine_Group</a> </p>
-<p>Raine Group and VR: <a href="https://raine.com/virtual-reality-startup-jaunt-raises-65-million-from-disney-others/">https://raine.com/virtual-reality-startup-jaunt-raises-65-million-from-disney-others/</a> </p>
-<p>JCA Solutions (Defense Tech) – xAPI (Badges) and Virtual Reality: <a href="https://wrenchinthegears.com/wp-content/uploads/2019/02/taxonomy-xapi-data-capture-vr-1.pdf">https://wrenchinthegears.com/wp-content/uploads/2019/02/taxonomy-xapi-data-capture-vr-1.pdf</a></p>
-<p>Ari Emanuel Initial Raine Group Investor – Partner: <a href="https://www.vanityfair.com/news/2015/02/wme-img-merger-ari-emanuel">https://www.vanityfair.com/news/2015/02/wme-img-merger-ari-emanuel</a> </p>
-<p>Raine Group and Digital Credentials: <a href="https://www.edsurge.com/news/2014-03-19-parchment-tacks-adds-10m-to-expand-digital-credential-platform">https://www.edsurge.com/news/2014-03-19-parchment-tacks-adds-10m-to-expand-digital-credential-platform</a> </p>
-<p>Raine Group Jeff Sine and Softbank / ARM Holdings: <a href="https://www.theinformation.com/articles/the-softbank-ally-pulling-the-strings-behind-arms-ipo">https://www.theinformation.com/articles/the-softbank-ally-pulling-the-strings-behind-arms-ipo</a></p>
-<a href="https://wrenchinthegears.com/wp-content/uploads/2019/02/taxonomy-xapi-data-capture-vr-1.pdf">https://wrenchinthegears.com/wp-content/uploads/2019/02/taxonomy-xapi-data-capture-vr-1.pdf</a>
-<a href="https://wrenchinthegears.com/wp-content/uploads/2019/02/taxonomy-xapi-data-capture-vr-1.pdf">https://wrenchinthegears.com/wp-content/uploads/2019/02/taxonomy-xapi-data-capture-vr-1.pdf</a>
-<a href="https://wrenchinthegears.com/wp-content/uploads/2019/02/taxonomy-xapi-data-capture-vr-1.pdf"></a><a href="https://wrenchinthegears.com/wp-content/uploads/2019/02/taxonomy-xapi-data-capture-vr-1.pdf">https://wrenchinthegears.com/wp-content/uploads/2019/02/taxonomy-xapi-data-capture-vr-1.pdf</a>
-<p>My previous run-ins with Diane Ravitch are linked below. </p>
-<p>Remember, there are NO HEROES. </p>
-<p>Beware manufactured teams and <a href="https://www.youtube.com/watch?v=KEcaPomwZZo">brain boxing</a>!&nbsp;</p>
-<p><a href="https://wrenchinthegears.com/2017/09/20/when-someone-shows-you-who-they-are-believe-them-the-first-time/">Here</a></p>
-<a href="https://wrenchinthegears.com/2017/09/20/when-someone-shows-you-who-they-are-believe-them-the-first-time/"></a>Source: <a href="https://wrenchinthegears.com/2017/09/20/when-someone-shows-you-who-they-are-believe-them-the-first-time/">https://wrenchinthegears.com/2017/09/20/when-someone-shows-you-who-they-are-believe-them-the-first-time/</a>
-<p>Here</p>
-<a href="https://appsphilly.net/2016/02/17/to-good-to-be-true/"></a>Source: <a href="https://appsphilly.net/2016/02/17/to-good-to-be-true/">https://appsphilly.net/2016/02/17/to-good-to-be-true/</a>
-<p><a href="http://www.schoolsmatter.info/2016/08/keeping-readers-ignorant-to-protect.html">Here</a></p>
-<a href="http://www.schoolsmatter.info/2016/08/keeping-readers-ignorant-to-protect.html"></a>Source: <a href="http://www.schoolsmatter.info/2016/08/keeping-readers-ignorant-to-protect.html">http://www.schoolsmatter.info/2016/08/keeping-readers-ignorant-to-protect.html</a>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://i0.wp.com/wrenchinthegears.com/wp-content/uploads/2024/07/blockchain-bobby.jpg?resize=1020%2C727&ssl=1'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   16:53 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Wednesday, 03. July 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://ggreve.medium.com/'>Georg C. F. Greve</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://ggreve.medium.com/dice-2024-retrospective-b20372f13a65?source=rss-f390f7bc98b4------2'>DICE 2024 Retrospective</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  What DALL-E thought DICE 2024&nbsp;was… After decades with hundreds of conferences, DICE, the Digital Identity unConference Europe, has quickly become one of my favourites. Firstly, because of the format, which I thoroughly enjoy and find incredibly useful at fostering meaningful conversations. Also, it is not a vendor sales driven event. Even competitors meet here and discuss possible solutions to
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/1*NQpBDnFMm7DVDzMYZIi_cQ.jpeg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-What DALL-E thought DICE 2024&nbsp;was…<p>After decades with hundreds of conferences, DICE, the <a href="https://diceurope.org/">Digital Identity unConference Europe</a>, has quickly become one of my favourites. Firstly, because of the format, which I thoroughly enjoy and find incredibly useful at fostering meaningful conversations. Also, it is not a vendor sales driven event. Even competitors meet here and discuss possible solutions to current challenges openly. And lastly, because of the people. The mix of backgrounds, ages, experiences really makes for a diverse set of perspectives.</p> Competency <p>What’s more, the Swiss government is engaging at this conference in ways that are really unusual. Starting with <a href="https://www.ejpd.admin.ch/ejpd/en/home/the-fdjp/beat-jans.html/">Swiss Federal Council Beat Jans</a>, whose opening notes were competent to a level of detail that surpassed several of the regular participants, to the 13 Swiss governmental employees — most of them working on the <a href="https://www.eid.admin.ch/en">Swiss eID</a> — who held several sessions, and found themselves constructively engaging with the community on a wide variety of&nbsp;issues.</p><p>This dialog is also something that we’re experiencing on an ongoing basis within DIDAS, the<a href="https://www.didas.swiss/"> Swiss Digital Identity Association</a>, the organizers of this conference. But when Beat Jans went off-script in the following discussion, spoke about the critical nature of identity and drew connections of topics discussed during DICE to the political challenges around asylum seekers in Europe, it was truly impressive.</p><p>It was <a href="https://www.linkedin.com/in/rufftim/">Timothy Ruff</a> who during one of the sessions around <a href="https://keri.one">KERI</a> made an impassionate plea&nbsp;that</p><blockquote>“Identity is a matter of life and&nbsp;death!”</blockquote><p>based on the understanding that problems in the design of the identity system will result in people losing their reputation, livelihood and health — causing deaths from suicide, murder and lack of proper healthcare.</p><p>The Federal Department of Justice and Police is responsible also for asylum seekers in Switzerland. Federal Council Jans is leading the department and gave practical perspectives for how accurate that assessment is. His answers reflected how seriously he takes these responsibilities and how mindful he is of the consequences of bad technological and political decisions.</p><p>Which makes it all the more unfortunate that some communities are still under-represented at DICE, especially people with security background.</p> Security <p>Considering the significance of identity, session announcements like “I know did:web is not secure, but I have built some tooling that makes it really easy to use” make me wonder whether it is perhaps a good idea many companies still struggle with adoption.</p><p>That is not to say did:web does not have a use case. We have for instance very successfully used it at <a href="https://vereign.com">Vereign</a> in rapid prototyping early stage Proof of Concept developments.</p><blockquote>And there will be use cases where did:web may prove sufficient. Basically, if classic Web 2.0 security with all its known attack vectors is deemed “good enough”, lack of privacy is not a concern, and tamper evidence is not required, did:web is an inexpensive method to put a thin “SSI Interaction Layer” on the classic&nbsp;Web.</blockquote><p>Use cases where this can be appropriate will mostly involve organisations in largely centralized structures. But as soon as natural people enter the picture, did:web is probably not such a great idea any more since it brings with it all the concerns that plague the current Web. It may still be ok for governmental use cases, but users should be aware that the system won’t really be “privacy by&nbsp;design.”</p><p>Because these issues are meanwhile widely known and documented, some people in the community now work on better versions of did:web. All the convenience, none of the disadvantages, or so it seems. Based on the sessions at DICE, the currently most popular such proposal is <a href="https://bcgov.github.io/trustdidweb/">did:tdw</a>, or “Trust DID&nbsp;Web.”</p> The problem with&nbsp;did:tdw <p>The means by which did:tdw aims to address the issues of did:web make it more complex, but ultimately less secure than did:web itself. And it’s the additions that were supposed to make it more secure that make it less so. Which in security circles will surprise no-one. It has happened to people thousands of&nbsp;times.</p><p>So what happened? Inspired by key pre-rotation in KERI as a means to allow recovering from compromise, and reacting to fundamental changes such as quantum cryptography, among other things, did:tdw also specifies a mechanism for key pre-rotation.</p><p>Borrowing from the KERI Key Event Log (KEL), it provides a JSON DID log, allowing to backtrace the rotations over time for the identifier in order to arrive at the root identifier. Which seems&nbsp;great.</p><p>But KERI also has a mechanism by which it can ensure that older versions of identifiers, using keys that have already been rotated, are no longer considered valid and trusted. This mechanism is provided by the witnesses and watchers in&nbsp;KERI.</p><blockquote>Trust DID Web has no such mechanism. Compromised keys remain valid, allowing an attacker to create a fully credible history of key rotation, arriving at their own current key, and validating back to the original root identifier they have taken&nbsp;over.</blockquote><p>So in the event of key takeover, the only thing stopping an attacker from impersonating an entity are the authoritative roots of trust based on DNS and TLS, as well as the security of the web server&nbsp;itself.</p><p>In fact, DID TDW also has a <a href="https://bcgov.github.io/trustdidweb/#moving-a-did">Move mechanism</a> which preserves the same identifier, but authoritatively moves it to another domain. So taking over DNS or the web server isn’t required. Because even without resorting to a <a href="https://en.wikipedia.org/wiki/IDN_homograph_attack">IDN Homograph Attack</a> there are plenty of “credible enough” domains available to an attacker.</p><blockquote>For the benefit of people not familiar with the IDN Homograph Attack: Large parts of the security model of Web 2.0 — and consequently did:web and did:tdw — depend on humans being alerted by the difference between did:tdw:vеrеign.com and did:tdw:vereign.com when not paying attention.</blockquote><p>And yes, did:tdw has a section about <a href="https://bcgov.github.io/trustdidweb/#international-domain-names">International Domain Names</a>. But whenever security people see something like this in a specification, experience tells them someone is bound to get this wrong, someone is bound to get burned, and the user is going to get damage and blame as is commonplace in our industry&nbsp;today:</p><p>Most of these vulnerabilities result from combining identity and identifier together in a DID. Which is how the web works. A URL is an explicit identity statement. Users are meant to assume the domain microsoft.com is authoritative for the Microsoft company identity.</p><p>So while the desire to create easier migration paths and integration scenarios for Web2 services is understandable, the result is an import of explicit identity assumption into SSI that is problematic.</p><p>KERI — and some other methods — avoid this by using Autonomous Identifiers (AIDs) instead. Which unlike DNS names also do not have such a high risk of being considered Personally Identifiable Information (PII) under data protection law.</p><blockquote>Adding key pre-rotation in did:tdw was meant to increase security, but has ultimately achieved the opposite. Using ephemeral identifiers or the much simpler did:web are the better choice for security.</blockquote><p>And if using did:tdw cannot be helped or avoided, the next key commitment is better left empty. Key pre-rotation in did:tdw should never be used, and a fresh identifier should be generated instead.</p> /whois service&nbsp;endpoint <p>That is not to say did:tdw does not have some good ideas to contribute to the domain. Personally I think the <a href="https://bcgov.github.io/trustdidweb/#the-whois-use-case">/whois endpoint</a> is an intriguing idea. Organizations might start to routinely provide their verifiable presentation of the <a href="https://www.gleif.org/en/vlei/introducing-the-verifiable-lei-vlei">GLEIF vLEI</a> at that endpoint, allowing for an easier automatic discovery and verification of organizational identities.</p><p>And I really hope that the above is received in the way it was meant: As honest and constructive criticism, and perhaps a reminder of why early peer review at conceptual stage should include people with security background. Security is hard. And very easy to get wrong. All of us have fallen into traps laid by our own mind&nbsp;before.</p><p>So I really hope that more people from the security community will join that particular dialog and help us avoid making mistakes in the identity infrastructure of the future that may otherwise prove fatal — and not only in the metaphorical sense.</p> eIDAS 2.0 <p>All of this is relevant context especially because the European Union has been working on the electronic identification and trust services for electronic transactions in the internal market, also known as <a href="https://digital-strategy.ec.europa.eu/en/policies/eidas-regulation">eIDAS</a>. In essence, eIDAS 1.0 has been an adoption failure due to the involvement of the centralized administrative trust industry, i.e. Certification Authorities, which ended up choking the market before it even&nbsp;existed.</p><blockquote>eIDAS 2.0 was supposed to correct that adoption failure, among other things by enabling Self Sovereign Identity and less centralized approaches. After years of very active participation by the centralized administrative trust industry, they are now again deeply interwoven with the regulation.</blockquote><p>This is reflected in the technical choices, which are mostly based on Web 2.0, including usage of did:web, which was <a href="https://rubric.cc/podcast/2156/">never intended by its authors</a> for this kind of use case, and which does not technically protect privacy and security as much as would be possible.</p><p>Understandably, the <a href="https://digital-strategy.ec.europa.eu/en/library/european-digital-identity-architecture-and-reference-framework-outline">European Digital Identity Architecture and Reference Framework</a> was a big topic at DICE 2024, with several sessions touching upon the pilots and the implementation of&nbsp;wallets.</p><p>One of the most important take-aways was the complexity that had meanwhile fully sunk in to wallet implementors, and a certain level of frustration that even made its way into the final conclusion round in the form of comments “whether it would be possible to implement this, at&nbsp;all.”</p><p>Complexity has always been used as a barrier to market entry for competition by the centralized administrative trust industry. So it is perhaps not surprising it’s also being employed against competition from the SSI space. And perhaps the end result will be that European Citizens will need to wait for eIDAS 3.0 for a truly privacy by design, decentralized, affordable and usable eID without gatekeepers that will see some large scale adoption. Time will&nbsp;tell.</p><blockquote>Which then could perhaps draw inspiration from Switzerland where the work on the eID is happening with a somewhat different focus and in process that is more open, participatory and transparent than any other I’ve seen in the past. The declared goal is to end up with a system that is as secure as we can make it, and offers protection of privacy that is technical, and not just administrative.</blockquote> KERI <p>To my knowledge, the currently best proposal to achieve that is the <a href="https://keri.one/">Key Event Receipt Infrastructure (KERI)</a> by Sam Smith, who was participating at DICE this year, and whose sessions were exceptional. Personally I’ve thoroughly enjoyed the security architecture deep dive, where Sam took us on a tour of how his own understanding evolved.</p><p>The path from administrative root of trust, over ledgers as a global, technical root of trust, to a system like KERI, which uses what might be described as a “locally consistent, tamper evident” approach, which brings benefits in terms of scalability (no need to establish a global consensus all the time) and also practical benefits like garbage collection (no need for test ledgers for fears of cluttering up expensive global storage).</p><p>Following Sams route through this evolution reminded me of my own. The next step along that route will be the <a href="https://trustoverip.github.io/tswg-tsp-specification/">Trust Spanning Protocol</a> which is currently being worked on at the Trust over IP Foundation.</p>Sam Smith at DICE2024 talking about the Trust Spanning&nbsp;Layer<p>It’s been great to see the interest in KERI throughout DICE. Sessions were many, lively and packed. Yet from talking to people at the conference it seems there is still a gap that keeps us as a community to rally behind KERI. So what is that&nbsp;gap?</p><blockquote>As of today, KERI is already in production issuing vLEI credentials at <a href="https://www.gleif.org/en">GLEIF</a>, based on the Python reference implementation. Which is a great achievement.</blockquote><p>But there is still very little information available about the current network of Witnesses and Watchers, and thus no way to make an informed decision about the actual security of the current&nbsp;system.</p><p>Also, in conversations with third parties, I’ve come across a concern of using Python at protocol level in a security critical, network connected backend&nbsp;service.</p><p>Partially due to concerns of a lack of competency within the organisation to adequately understand the entire application and maintain it, if necessary. And partially due to concerns about maintaining and supporting Python in production which have been <a href="https://josvisser.substack.com/p/why-python-is-terrible">outlined by Jos Visser</a> last&nbsp;year.</p><p>Many of the people I’ve spoken to seem to wait for a complete KERI agent that can be wrapped and integrated into the frontend or backend interchangeably, using the same technology stack and implementation.</p><p>Which means ideally it ought to be in a language like Rust which plays well both with Javascript / Typescript, the dominant choice on the client side, and Golang, Java or other technology in the&nbsp;backend.</p><p>In order to allow KERI to develop rapidly in both specification and implementation at the same time, Python is of course a great&nbsp;choice.</p><p>I believe it would be in the interest of our community to make sure we allow Sam Smith to continue focusing on the hard conceptual issues, and delivering them as both specification and reference implementation going&nbsp;forward.</p><p>But to increase adoption and build a community, we should also provide an implementation in Rust (or language with similar properties) for a full agent with tooling and libraries that can be deployed on any device, with any number of resource constraints, and inside any technology family. Ideally it would also provide command line tooling to facilitate easy scripting and experimentation.</p><blockquote>All the cryptographic operations of the Python reference implementation are already in low-level libraries, many of which are written in C and some in&nbsp;Rust.</blockquote><p>In addition, the <a href="https://humancolossus.foundation/">Human Colossus Foundation</a> has started work on a Rust implementation, which has seen substantial development over the past years. On the other hand, being published under the <a href="https://www.gnu.org/licenses/license-list.en.html#EUPL-1.2">EUPL</a> may have inhibited adoption somewhat, and it seems that it already diverged to some degree from the reference implementation.</p><p>Another valiant attempt at a Rust implementation has been <a href="https://github.com/WebOfTrust/keriox">KERIOX</a>, but that hasn’t seen a lot of contribution in the past two&nbsp;years.</p><blockquote>If we want to see adoption of KERI to speed up and eventually reach critical mass, we should focus on avoiding fragmentation of effort. Perhaps using a common vehicle to align resources so we can reach a state where we can point toward a full set of complete implementations with good documentation and examples, as well as reference nodes and a bit of marketing which would then be crucial to promote adoption in the technical community.</blockquote><p>Getting this done is not rocket science. But it must start somewhere and can then improve over time. I’d love to hear from people who’d like to collaborate toward this end. Because helping ourselves while working together is what we do in the software freedom community.</p><p>And if you would like to learn more about KERI in the meantime, the <a href="https://kerisse.org">KERI Suite Search Engine (KERISSE)</a> has a lot of great resource to get you&nbsp;started.</p> Principles of Governance <p>On closing, I’d like to go back to Timothy Ruff again, whose <a href="https://docs.google.com/document/d/1ykWiSvpBxVSZYA2BidSBixwEwYp0C7cRl133jS6e0jo/edit">session on models for government</a> was intriguing. Basically, he proposes to break down the values for governments into functions of Utility, Security and Autonomy.</p><p>His postulate is that virtually all governments have an interest in functioning well, and being secure. But when it comes to the level of Autonomy, and issues such as transparency of government towards its citizens, or privacy of citizens vis a vis the government, there is a sliding scale of expectations, which is largely cultural in&nbsp;nature.</p><p>At face value, that seems to hold true. Although I would argue that there are also governments that have a similar sliding scale for Utility and Security. Because lack of Utility can keep people so occupied with daily chores that they do not think about overthrowing the government. And lack of Security can increase the desire for a strong leader. Likewise, lack of both can even keep different factions in the government at bay because they are too busy to complain about one another while struggling with somehow getting their job&nbsp;done.</p><p>It might be an interesting exercise to look at different countries around the world to see where they fall on these sliding scales from 1 (lowest) to 10 (highest). For instance Switzerland is aiming for a (10, 10, 10) with its eID System. But finds the need for compatibility with the EU; which is closer to (8, 8, 6), now putting challenges ahead of Switzerland in its practical ability to get close to that&nbsp;goal.</p><blockquote>Where would you place your own country or region in this&nbsp;scale?</blockquote> DICE 2025 <p>In any case: DICE 2024 was an amazing confererence, to the extent that people were asking to perhaps hold it twice a year during the closing session. While I am sure the organizers briefly had a slight heart attack at the thought, no better compliment can or need be&nbsp;given.</p><p>Make sure to keep an eye out for the next edition and register early. This year has been at maximum capacity, and there were no last minute tickets available any&nbsp;more.</p> Addendum <p>Have you been able to detect the difference between those two DIDs in the section about the IDN Homograph Attack?</p><blockquote>If not, this article successfully conducted a so-called “Punycode Attack” on&nbsp;you.</blockquote><p>If you look very closely, you will notice the “e” is slightly bolder in the font used on Medium. In some other fonts, the lower bound of the upper part of the e is slightly slanted. And in some fonts, they look entirely the&nbsp;same.</p><p>You can make it a bit more obvious by using a tool like <a href="https://www.punycoder.com/">Punycoder.com</a>. If you cut &amp; paste only the domain parts of both DIDs, you should see something like&nbsp;this:</p><p>So while they may look the same, they are not the&nbsp;same.</p><p>Which is a fundamental weakness in all DNS based methods with human readable identifiers. Which is what the Web relies on for its security.</p><blockquote>By using Web based methods, Self-Sovereign Identity is opening itself to a whole host of attack vectors which are very hard to defend against, and with which attackers have decades of sophisticated experience.</blockquote><p>Which is the point I was trying to demonstrate, above. So I hope you’ll forgive me the Punycode attack — it was purely for educational purposes.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/1*NQpBDnFMm7DVDzMYZIi_cQ.jpeg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   15:17 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Monday, 01. July 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2024/07/01/creating-hashes-in-net/'>Creating hashes in .NET</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This article looks at different ways to create hashes in .NET Core. Hashes are useful for one way encryption which can be used for password storage, JWT validation and some other security use cases. When storing hashes in a database, extra care must be taken and the recommended approach from Microsoft should be used when […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This article looks at different ways to create hashes in .NET Core. Hashes are useful for one way encryption which can be used for password storage, JWT validation and some other security use cases. When storing hashes in a database, extra care must be taken and the recommended approach from Microsoft should be used when implementing this. In general, creating hashes and storing the hashes in a database should be avoided as much as possible</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- History 
-
-
-
- 
- 2024-07-01 Updated the SHA512 hash methods using feedback from Kévin Chalet 
- 
-
-
-
- Using SHA512 
-
-
-
-<p>The fastest and simplest way is to user the SHA512 directly. This takes a string and hashes it directly using a one way encryption. This is good when the hashes are not persisted in a database or when attackers don’t have time to do a dictionary attack.</p>
-
-
-  public static string ToHashedCodeV1(string code)
-{
-	using var sha512 = SHA512.Create();
-	var bytes = Encoding.UTF8.GetBytes(code);
-	var hash = sha512.ComputeHash(bytes);
-	return Convert.ToBase64String(hash);
-}
-
-public static bool VerifyCodeV1(string code, string storedCode)
-{
-	using var sha512 = SHA512.Create();
-	var bytes = Encoding.UTF8.GetBytes(code);
-	var hash = sha512.ComputeHash(bytes);
-
-	var storedHash = Convert.FromBase64String(storedCode);
-
-	return CryptographicOperations.FixedTimeEquals(hash, storedHash);
-}
-  
-
-
-<p></p>
-
-
-
-<p>The SHA512.HashDataAsync method can also be used to create the hashes.</p>
-
-
-  public static async Task&lt;string&gt; ToHashedCodeV2(string code)
-{
-	var bytes = Encoding.ASCII.GetBytes(code);
-	var hash = await SHA512.HashDataAsync(new MemoryStream(bytes));
-	return Convert.ToHexString(hash);
-}
-
-public static async Task&lt;bool&gt; VerifyCodeV2(string code, string storedCode)
-{
-	var storedHash = Convert.FromHexString(storedCode);
-
-	var bytes = Encoding.ASCII.GetBytes(code);
-	var hash = await SHA512.HashDataAsync(new MemoryStream(bytes));
-
-	return CryptographicOperations.FixedTimeEquals(hash, storedHash);
-}
-  
-
-
-<p></p>
-
-
-
- Using Rfc2898DeriveBytes.Pbkdf2 
-
-
-
-<p>The Rfc2898DeriveBytes.Pbkdf2 method can be used to create hashes and when using this, a salt of 8 bytes or more should be used and more than 10000 iterations. This makes it harder to reverse engineer the original hash values. </p>
-
-
-  private const int _keySize = 32;
-private const int _iterations = 10000;
-private static readonly HashAlgorithmName _algorithm = HashAlgorithmName.SHA512;
-
-public static string ToHashedCode(string toHash, string userId)
-{
-     var salt = Encoding.UTF8.GetBytes(userId);
-
-     var hash = Rfc2898DeriveBytes.Pbkdf2(
-         toHash,
-         salt,
-         _iterations,
-         _algorithm,
-         _keySize
-     );
-
-     return Convert.ToBase64String(hash);
-}
-
-public static bool VerifyCode(string code, string userId, string storedCode)
-{
-     var salt = Encoding.UTF8.GetBytes(userId);
-     var storedHash = Convert.FromBase64String(storedCode);
-
-     var hash = Rfc2898DeriveBytes.Pbkdf2(
-         code,
-         salt,
-         _iterations,
-         _algorithm,
-         _keySize
-     );
-
-     return CryptographicOperations.FixedTimeEquals(hash, storedHash);
-}
-  
-
-
-<p></p>
-
-
-
- Using ASP.NET Core Identity 
-
-
-
-<p>ASP.NET Core Identity provides interfaces to create password hashes for data storage. You can use any C# type to define the password hasher and the Identity user class is normally used to create an instance of the PasswordHasher class. The hashes from this implementation can be saved to a database. This hash implementation is slow to create the hashes.</p>
-
-
-  private readonly PasswordHasher&lt;string&gt; _passwordHasher = new();
-    
-public static string ToHashedCode(string code, string userId, 
-      PasswordHasher&lt;string&gt; passwordHasher)
-{
-	var hash = passwordHasher.HashPassword(userId, code);
-	return hash;
-}
-
-public static bool VerifyCode(string code, string userId, string storedCode)
-{
-	var passwordHasher = new PasswordHasher&lt;string&gt;();
-	var result = passwordHasher.VerifyHashedPassword(userId, storedCode, code);
-	return result == PasswordVerificationResult.Success;
-}
-  
-
-
-<p></p>
-
-
-
- Notes 
-
-
-
-<p>Using the right hash implementation is important and choosing the wrong one could result in a security problem. You should aim for solutions where implementing this should not be required. When storing hash values to a database, the Microsoft recommendations should be followed. Best would be to use the default implementation from ASP.NET Core Identity, when this is possible.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://andrewlock.net/exploring-the-asp-net-core-identity-passwordhasher/">https://andrewlock.net/exploring-the-asp-net-core-identity-passwordhasher/</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity-configuration">https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity-configuration</a></p>
-
-
-
-<p><a href="https://github.com/damienbod/SendingEncryptedData">https://github.com/damienbod/SendingEncryptedData</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/06/hashing_01.png?w=707'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:43 &bull;
    4 months ago
 </div>
 
