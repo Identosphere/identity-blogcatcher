@@ -741,7 +741,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:51 AM December 01, 2024 (UTC)</sup>
+<sup>Last Update 6:53 AM December 02, 2024 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -752,8 +752,1220 @@
 
 
  <h2 class='new-date'>
+  Monday, 02. December 2024
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://damienbod.com/'>Damien Bod</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://damienbod.com/2024/12/02/using-asp-net-core-with-azure-key-vault/'>Using ASP.NET Core with Azure Key Vault</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  This article looks at setting up an ASP.NET Core application to use Azure Key Vault. When deployed to Azure, it works like in the Azure documentation but when working on development PCs, some changes are required for a smooth developer experience. Code: https://github.com/damienbod/UsingAzureKeyVaultInDevelopment I develop using Visual Studio and manage multiple accounts and test environments. […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>This article looks at setting up an ASP.NET Core application to use Azure Key Vault. When deployed to Azure, it works like in the Azure documentation but when working on development PCs, some changes are required for a smooth developer experience. </p>
+
+
+
+<p>Code: <a href="https://github.com/damienbod/UsingAzureKeyVaultInDevelopment">https://github.com/damienbod/UsingAzureKeyVaultInDevelopment</a></p>
+
+
+
+<p>I develop using Visual Studio and manage multiple accounts and test environments. However, I frequently encounter access errors when using DefaultAzureCredentials. These errors typically occur because the account and tenant do not match the filter set in Visual Studio, or the user lacks access to the tenant. This issue arises often:</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>The problem can be resolved by using an application client secret to access the Azure Key Vault, implemented with the ChainedTokenCredential. The access client can be specified in the project’s user secrets, allowing it to function independently of the user account and the last filter used in Visual Studio. To set this up, a new Azure App registration was created, and a client secret was added. This client secret is then included in the dotnet user secrets for the project.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+<p>A Role assignment was added to the Azure Key Vault for the application service principal, and the necessary access role was configured. With the correct configuration in the user secrets on the development PC, the application can access the Azure Key Vault. This setup eliminates the need for Azure RBAC changes for each developer.</p>
+
+
+
+
+
+
+
+<p></p>
+
+
+
+ Setup local development credentials 
+
+
+
+<p>The following Nuget packages can be used to integrate a Key Vault client in an ASP.NET Core application. Depending on how the client is setup, or what data is used from the Key Vault, different packages can be used.</p>
+
+
+
+ 
+ Azure.Extensions.AspNetCore.Configuration.Secrets 
+
+
+
+ Azure.Identity 
+
+
+
+ Azure.Security.KeyVault.Certificates 
+
+
+
+ Azure.Security.KeyVault.Secrets 
+ 
+
+
+
+<p></p>
+
+
+
+<p>A ChainedTokenCredential is used to access the Key Vault, preventing the access issues associated with DefaultAzureCredential. In local development, a client credential is used via a secret, which can be stored in the dotnet user secrets. When a new developer joins the team, these user secrets can be shared, eliminating the need to modify Azure Key Vault RBAC settings for each new developer. This setup is ideal for development, as it avoids problems caused by incorrect tenants or user accounts in Visual Studio. For production or other deployments, a system-assigned managed identity is used.</p>
+
+
+  using Azure.Identity;
+
+namespace DevelopmentAspNetCoreKeyVault;
+
+public static class AppAccessCredentials
+{
+    public static ChainedTokenCredential GetChainedTokenCredentials(IConfiguration configuration, bool isDevelopment)
+    {
+        if (!isDevelopment)
+        {
+            // Use a system assigned managed identity on production deployments
+            return new ChainedTokenCredential(new ManagedIdentityCredential());
+        }
+        else // dev env
+        {
+            var tenantId = configuration["EntraId:TenantId"];
+            var clientId = configuration.GetValue&lt;string&gt;("EntraId:ClientId");
+            var clientSecret = configuration.GetValue&lt;string&gt;("EntraId:ClientSecret");
+
+            var options = new TokenCredentialOptions
+            {
+                AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+            };
+
+            // https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
+            var devClientSecretCredential = new ClientSecretCredential(
+                tenantId, clientId, clientSecret, options);
+
+            var chainedTokenCredential = new ChainedTokenCredential(devClientSecretCredential);
+
+            return chainedTokenCredential;
+        }
+    }
+}
+  
+
+
+<p></p>
+
+
+
+<p>The user secrets would have something like this:</p>
+
+
+  {
+  "EntraId": {
+    // aspnetcore-keyvault-development-access
+    "TenantId": "--tenant_id--",
+    "ClientId": "--client_id--",
+    "ClientSecret": "--secret--"
+  }
+}
+  
+
+
+<p></p>
+
+
+
+ Using Key Vault directly in the application 
+
+
+
+<p>The secret from the Azure Key Vault can be used directly in the code by using the SecretClient class from Azure.Identity. The AppAccessCredentials is used to return the chained credentials and the application is authenticated if the service principal from the App registration has the correct RBAC.</p>
+
+
+  // Azure SDK direct
+var client = new SecretClient(new Uri(_configuration["AzureKeyVaultEndpoint"]!),
+    AppAccessCredentials.GetChainedTokenCredentials(_configuration,
+        _hostEnvironment.IsDevelopment()));
+
+var secret = await client.GetSecretAsync("demosecret");
+DemoSecret = secret!.Value.Value;
+  
+
+
+<p></p>
+
+
+
+ Using Key Vault as a configuration 
+
+
+
+<p>The AddAzureKeyVault method can be used to use the Azure Key as a further configuration option. I like this as all configuration is abstracted with the IConfiguration interface in the application. The AddAzureKeyVault takes the chained credential as a param.</p>
+
+
+  var keyVault = builder.Configuration["AzureKeyVaultEndpoint"];
+if(!string.IsNullOrEmpty(keyVault))
+{
+    builder.Configuration.AddAzureKeyVault(
+    new Uri($"{builder.Configuration["AzureKeyVaultEndpoint"]}"),
+    AppAccessCredentials.GetChainedTokenCredentials(builder.Configuration,
+        builder.Environment.IsDevelopment()));
+}
+  
+
+
+<p>The secret can be read anywhere in the code using the IConfiguration interface. This can be used in different ways and provides type safe ways of using the properties.</p>
+
+
+  // ASP.NET Core configuration
+// From from key vault using ASP.NET Core configuration integration
+// Or from user secrets if offline, or fast startup is required
+DemoSecretConfig = _configuration["demosecret"];
+  
+
+
+<p></p>
+
+
+
+ Using user secrets for local development 
+
+
+
+<p>Sometimes, you need to work offline or frequently restart the application. Constantly connecting to Azure Key Vault can slow down development. In such cases, it’s often more efficient to use dotnet user secrets instead of Azure Key Vault.</p>
+
+
+
+ Note 
+
+
+
+<p>This is a good and simple approach for developing applications which use Azure Key Vault. You can use a local key management system or whatever local developers use. The client secret should not be used in production deployments as the secret expires and there are better ways to secure the access for the application to Key Vault. System assigned managed identity is the best way to implement application access in Azure in production environments.</p>
+
+
+
+ Links 
+
+
+
+<p><a href="https://learn.microsoft.com/en-us/aspnet/core/security/key-vault-configuration">https://learn.microsoft.com/en-us/aspnet/core/security/key-vault-configuration</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/azure/key-vault/key-vault-developers-guide">https://docs.microsoft.com/en-us/azure/key-vault/key-vault-developers-guide</a></p>
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2020/09/10/securing-azure-functions-using-an-azure-virtual-network/">Securing Azure Functions using an Azure Virtual&nbsp;Network</a></blockquote>
+ 
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2020/07/20/using-key-vault-and-managed-identities-with-azure-functions/">Using Key Vault and Managed Identities with Azure&nbsp;Functions</a></blockquote>
+ 
+
+
+
+ 
+<blockquote><a href="https://damienbod.com/2018/12/23/using-azure-key-vault-with-asp-net-core-and-azure-app-services/">Using Azure Key Vault with ASP.NET Core and Azure App&nbsp;Services</a></blockquote>
+ 
+
+
+
+<p><a href="https://stackoverflow.com/questions/40025598/azure-key-vault-access-denied">https://stackoverflow.com/questions/40025598/azure-key-vault-access-denied</a></p>
+
+
+
+<p><a href="https://cmatskas.com/securing-asp-net-core-application-settings-using-azure-key-vault/">https://cmatskas.com/securing-asp-net-core-application-settings-using-azure-key-vault/</a></p>
+
+
+
+<p><a href="https://github.com/jayendranarumugam/DemoSecrets/tree/master/DemoSecrets">https://github.com/jayendranarumugam/DemoSecrets/tree/master/DemoSecrets</a></p>
+
+
+
+<p><a href="https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest">https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest</a></p>
+
+
+
+<p><a href="https://anthonysimmon.com/defaultazurecredential-local-development-optimization/">https://anthonysimmon.com/defaultazurecredential-local-development-optimization/</a></p>
+
+
+
+<p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/11/default-credentail-error.png?w=1024'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   06:34 &bull;
+   21 minutes ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://blogs.harvard.edu/doc/'>Doc Searls Weblog</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://doc.searls.com/2024/12/01/community-library/'>How communities without one can build a local library</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  That’s what&nbsp;Charlie Schweik and friends will be talking about in the next salon in the Beyond the Web&nbsp;series at Indiana University, hosted by the&nbsp;Ostrom Workshop&nbsp;and the&nbsp;Hamilton Lugar School of Global and International Studies. The salon will be held at the latter for locals and on Zoom for the world, at Noon Eastern time this coming […]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p><a href="https://events.iu.edu/ostromworkshop/event/1624059-ostrom-workshop-hls-beyond-the-web-charlie-schweik"></a></p>
+<p>That’s what&nbsp;<a href="https://charlieschweik.org/my-background/">Charlie Schweik</a> and friends will be talking about in the next salon in the <a href="https://ostromworkshop.indiana.edu/news-events/events/salon/index.html">Beyond the Web</a>&nbsp;series at Indiana University, hosted by the&nbsp;<a href="https://ostromworkshop.indiana.edu/">Ostrom Workshop</a>&nbsp;and the&nbsp;<a href="https://hls.indiana.edu/">Hamilton Lugar School of Global and International Studies</a>.</p>
+ 
+<p>The salon will be held at the latter for locals and on Zoom for the world, at Noon Eastern time this coming Wednesday, December 4th. <a href="https://events.iu.edu/ostromworkshop/event/1624059-ostrom-workshop-hls-beyond-the-web-charlie-schweik">More here, including the Zoom link</a>.</p>
+ 
+ 
+ Charlie is&nbsp;Professor of Environmental Conservation &amp; Public Policy at UMass Amherst, and is (among much else) a leading authority on&nbsp;<a href="https://en.wikipedia.org/wiki/Commons-based_peer_production">Commons-based Peer Production or CBPP</a>.* He will be joined by&nbsp;<a href="https://guides.library.umass.edu/prf.php?account_id=173520">Theresa Dooley</a>, Student Success and Open Education Librarian, and&nbsp;<a href="https://www.linkedin.com/in/mia-klotz-b950a926b/">Mia Klotz</a>, World Librarians Request Manager, both also of UMass Amherst. 
+ 
+ <a href="https://worldlibrarians.org/">World Librarians</a>&nbsp;is a socio-technical system for solving the information access problem in remote offline schools and libraries. In this salon, Charlie, Theresa and Mia will describe a system, developed over the last eight years, for&nbsp;<a href="https://www.shiftit.co.za/index.html">establishing solar-powered computer labs in remote schools and libraries</a>&nbsp;in&nbsp;<a href="https://en.wikipedia.org/wiki/Malawi">Malawi</a>. It’s a model that can be replicated easily for other offline rural locations across the globe. 
+ 
+ The focus of the salon series this academic year is local solutions to global problems, under the title&nbsp;<a href="https://ostromworkshop.indiana.edu/news-events/events/salon/index.html">Think Globally, Eat Here</a>. 
+ 
+ If you care about local solutions to global problems—and especially about making libraries happen where they are needed most—this will be a good way to invest an hour of your time. 
+ 
+ See you there! 
+ 
+ 
+ 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://150108457.v2.pressablecdn.com/wp-content/uploads/2024/12/23623_charlie_schweik.rev_.1727710632.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   05:06 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Dec/2/the-future-of-open-source-and-ai/#atom-everything'>Simon Willison: The Future of Open Source and AI</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Simon Willison: The Future of Open Source and AI 
+I sat down a few weeks ago to record this conversation with Logan Kilpatrick and  Nolan Fortman for their podcast Around the Prompt. The episode is available on YouTube and Apple Podcasts and other platforms. 
+   
+ We talked about a whole bunch of different topics, including the ongoing debate around the term "open source" when applied to LLMs and 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://www.youtube.com/watch?v=rLcKbvmegag">Simon Willison: The Future of Open Source and AI</a></p>
+I sat down a few weeks ago to record this conversation with Logan Kilpatrick and  Nolan Fortman for their podcast <a href="https://www.aroundtheprompt.com/">Around the Prompt</a>. The episode is available <a href="https://www.youtube.com/watch?v=rLcKbvmegag">on YouTube</a> and <a href="https://podcasts.apple.com/us/podcast/simon-willison-the-future-of-open-source-and-ai/id1738315630?i=1000678811723">Apple Podcasts</a> and <a href="https://rss.com/podcasts/around-the-prompt/1410533/">other platforms</a>.<p></p>
+<p> </p>
+<p>We talked about a whole bunch of different topics, including the ongoing debate around the term "open source" when applied to LLMs and my thoughts on why I don't feel threatened by LLMs as a software engineer (at <a href="https://www.youtube.com/watch?v=rLcKbvmegag&amp;t=2405s">40m05s</a>).
+
+    </p><p>Via <a href="https://twitter.com/OfficialLoganK/status/1863298457781387767">@OfficialLoganK</a></p>
+
+
+    <p>Tags: <a href="https://simonwillison.net/tags/youtube">youtube</a>, <a href="https://simonwillison.net/tags/open-source">open-source</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/podcasts">podcasts</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   01:03 &bull;
+   6 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Sunday, 01. December 2024
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Dec/1/llm-019/#atom-everything'>LLM 0.19</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   LLM 0.19 
+I just released version 0.19 of LLM, my Python library and CLI utility for working with Large Language Models. 
+ I released 0.18 a couple of weeks ago adding support for calling models from Python asyncio code. 0.19 improves on that, and also adds a new mechanism for models to report their token usage. 
+ LLM can log those usage numbers to a SQLite database, or make then available to cust
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://llm.datasette.io/en/stable/changelog.html#v0-19">LLM 0.19</a></p>
+I just released version 0.19 of <a href="https://llm.datasette.io/">LLM</a>, my Python library and CLI utility for working with Large Language Models.<p></p>
+<p>I released 0.18 <a href="https://simonwillison.net/2024/Nov/17/llm-018/">a couple of weeks ago</a> adding support for calling models from Python <code>asyncio</code> code. 0.19 improves on that, and also adds a new mechanism for models to report their token usage.</p>
+<p>LLM can log those usage numbers to a SQLite database, or make then available to custom Python code.</p>
+<p>My eventual goal with these features is to implement token accounting as a Datasette plugin so I can offer AI features in my SaaS platform without worrying about customers spending unlimited LLM tokens.</p>
+<p>Those 0.19 release notes in full:</p>
+<blockquote>
+ 
+ Tokens used by a response are now logged to new <code>input_tokens</code> and <code>output_tokens</code> integer columns and a <code>token_details</code> JSON string column, for the default OpenAI models and models from other plugins that <a href="https://llm.datasette.io/en/stable/plugins/advanced-model-plugins.html#advanced-model-plugins-usage">implement this feature</a>. <a href="https://github.com/simonw/llm/issues/610">#610</a> 
+ <code>llm prompt</code> now takes a <code>-u/--usage</code> flag to display token usage at the end of the response. 
+ <code>llm logs -u/--usage</code> shows token usage information for logged responses. 
+ <code>llm prompt ... --async</code> responses are now logged to the database. <a href="https://github.com/simonw/llm/issues/641">#641</a> 
+ <code>llm.get_models()</code> and <code>llm.get_async_models()</code> functions, <a href="https://llm.datasette.io/en/stable/python-api.html#python-api-listing-models">documented here</a>. <a href="https://github.com/simonw/llm/issues/640">#640</a> 
+ <code>response.usage()</code> and async response <code>await response.usage()</code> methods, returning a <code>Usage(input=2, output=1, details=None)</code> dataclass. <a href="https://github.com/simonw/llm/issues/644">#644</a> 
+ <code>response.on_done(callback)</code> and <code>await response.on_done(callback)</code> methods for specifying a callback to be executed when a response has completed, <a href="https://llm.datasette.io/en/stable/python-api.html#python-api-response-on-done">documented here</a>. <a href="https://github.com/simonw/llm/issues/653">#653</a> 
+ Fix for bug running <code>llm chat</code> on Windows 11. Thanks, <a href="https://github.com/sukhbinder">Sukhbinder Singh</a>. <a href="https://github.com/simonw/llm/issues/495">#495</a> 
+ 
+</blockquote>
+<p>I also released three new plugin versions that add support for the new usage tracking feature: <a href="https://github.com/simonw/llm-gemini/releases/tag/0.5">llm-gemini 0.5</a>, <a href="https://github.com/simonw/llm-claude-3/releases/tag/0.10">llm-claude-3 0.10</a> and <a href="https://github.com/simonw/llm-mistral/releases/tag/0.9">llm-mistral 0.9</a>.
+
+
+    </p><p>Tags: <a href="https://simonwillison.net/tags/llm">llm</a>, <a href="https://simonwillison.net/tags/releasenotes">releasenotes</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/projects">projects</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:59 &bull;
+   7 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://medium.com/@benwerd'>Werdmüller on Medium</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://benwerd.medium.com/my-okrs-for-2025-aa6e286ef038?source=rss-3b16402f5b9d------2'>My OKRs for 2025</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+      Using Objectives and Key Results to get through a difficult year  Continue reading on Medium »  
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn-images-1.medium.com/max/1024/0*ytTjuk2dGW_21JmF.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   <p><a href="https://benwerd.medium.com/my-okrs-for-2025-aa6e286ef038?source=rss-3b16402f5b9d------2"></a></p><p>Using Objectives and Key Results to get through a difficult year</p><p><a href="https://benwerd.medium.com/my-okrs-for-2025-aa6e286ef038?source=rss-3b16402f5b9d------2">Continue reading on Medium »</a></p> 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn-images-1.medium.com/max/1024/0*ytTjuk2dGW_21JmF.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:07 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://werd.io'>Ben Werdmüller</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://werd.io/2024/my-okrs-for-2025'>My OKRs for 2025</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+   It’s December, somehow; the tail end of a stressful year, but also the precursor to another one that (and I’m sorry this isn’t the&nbsp;cheeriest prediction) somehow promises to be worse. Good times.  How do we propose to survive it?  Although I’m not a big resolutions guy, this year I think I need to set firm goals in order to get through it with intention. Sure, the primary goal (as always) 
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://werd.io/file/674cebe6745956972801b332/thumb.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+   
+<p></p><p>It’s December, somehow; the tail end of a stressful year, but also the precursor to another one that (and I’m sorry this isn’t the&nbsp;cheeriest prediction) somehow promises to be worse. Good times.</p><p>How do we propose to survive it?</p><p>Although I’m not a big resolutions guy, this year I think I need to set firm goals in order to get through it with intention. Sure, the primary goal (as always) is just to get through the year intact, but 2025 will also be foundational: a year where how we show up and manifest our presence sets the groundwork for everything that comes beyond. The world is changing, whether we like it or not: more Trump, more war, more division, more climate change. How we react to that, and how we choose to conduct our life, really matters.</p><p>Lists of New Year’s resolutions never really cut to the “why”: sure, you want to get fit, but where does that really get you? What’s your underlying purpose: the mission that will keep you on track? Why does any of it matter at all?</p><p>This is maybe the most LinkedIn idea ever, and maybe it’s because when you have a hammer everything looks like a nail, but I’ve found myself thinking that, rather than resolutions, 2025 needs OKRs.</p><p>Objectives and Key Results are a management tool that was originally created by Andy Grove at Intel, but is now used in almost every tech company in almost every scenario. Here, you set a handful of top-level objectives, and then list some time-limited, measurable results for each one that will indicate that you’re on your path to achieving them. In an era where it’s going to be important to stick to our values and make progress on our goals as human beings in the face of increasing adverse pressure, I think figuring out what we need to do in order to make progress is going to be a helpful tool.</p><p>Remembering that OKRs have mostly been a tool for work, here’s <a href="https://asana.com/resources/okr-meaning">an example objective with key results from Asana</a>:</p><p>‌Objective: Become the market leader in cloud-based project management software.</p><p>Key results:</p>  Increase market share from 15% to 30% by the end of the fiscal year. 
+ Achieve a Net Promoter Score of 60+ by the end of Q3. 
+ Launch three new product features per quarter based on user feedback and usage data. 
+ Increase the free-to-paid conversion rate from 5% to 15% by the end of Q4. 
+ <p>In a corporate setting, this is pretty straightforward. <a href="https://www.lennysnewsletter.com/p/mission-vision-strategy-goals-roadmap">Each objective should tie into a strategy that brings you closer to the vision for the world that your team is trying to create</a>, which in turn is in service of a mission that defines why you exist in the world. So if you’re setting OKRs for a quarter, the hope is that each one will get you a little bit closer to creating the world you’ve set out to make, in service of that mission. If they don’t, they’re bad OKRs.</p><p>Clearly, I don’t want to set these sorts of corporate goals for my personal life; the real psycho move would be to send a Net Promoter Score survey to your friends and family. But I do think there’s value in thinking about, periodically, what your mission is (what is the purpose of your life?), your vision (what is the world that you seek to create?), your strategy and your objectives. And then figuring out what your measurable key results are that you actually want to achieve.</p><p>Is this approach a little bit over the line into management psychosis? Definitely. Could it still be useful? I think probably.</p><p>My mission is to work on and support things that make the world more equal and informed, while living a life rooted in creativity, inclusiveness, openness, and spontaneity, in opposition to competitiveness, aggression, tribalism, and conformity.</p><p>My vision is an aligned life where I and the people around me can truly be themselves, follow their passions, and do so in an environment of fairness and freedom, in an integrated community that is well-supported with transit, education, welfare, culture, and an internationalist outlook.</p><p>With those stated, without further ado, here are my OKRs for 2025:</p> Pivot from being a developer who writes to a writer who develops. <p>I’ve always identified as a developer who writes, but writing was my first love. In 2025, I want to realign my identity to reflect my actual priorities. Technology pays the bills, but writing feeds my soul — in 2025, I want to prioritize what genuinely drives me. Andy Weir and Ted Chiang, two writers who have made this leap, are inspirations to me.</p><p>This goal is about fostering a life rooted in creativity, and being true to my values and motivations.</p> Key results for 2025:   Spend an hour a day writing fiction. 
+ Publish four short stories in publications where my work has never previously appeared. 
+ Finish the current novel. 
+ Finish a subsequent novel. 
+ Limit blogging to no more than twice a week to preserve time and energy for other writing. 
+ Read a minimum of two fiction novels a month. 
+  Be an available father who intentionally expands our son’s horizons. <p>We have the world’s most incredible two year old. (If you also have a two year old, please don’t fight me on this. You know we all think our children are the most amazing.) I was very lucky to have parents who intentionally expanded my horizons in terms of breaking me out of a templated life: we lived in different countries, saw different ways of living, knew people from all over the world, and didn’t conform for conformity’s sake. Particularly in an era that seems to invite parochialism and a very narrow view of the world, I want to manifest the same thing for our son. I want his world to be expansive, inclusive, and far away from restrictive norms: a global outlook that values all people.</p><p>This goal is about openness and a global perspective, and prioritizing the life and prospects of our son.</p> Key results for 2025:   Take him to at least one continent he has never previously visited and make a firm plan to take him to another. 
+ Take him to a museum or cultural event at least once per month. 
+ Do not spend time on devices (phone or laptop) around him. 
+ Read to him every night and intentionally pick stories from different cultures. 
+  Strengthen my relationships with my friends and family. <p>I miss my friends. I miss my family. We are only as strong as our communities. Until the pandemic, I was pretty good about keeping up with people, but the onset of COVID-19 turned me into more of a recluse. (Moving across the country didn’t help.) I also had what I now think of as a breakdown in the year after my mother’s death — after a ten-year terminal illness which was the reason for my move to the US in the first place — and I made some decisions that I deeply regret.</p><p>This goal, at its heart, is about fostering a strong community.</p> Key results for 2025:   Make real apologies to family members I hurt or disappointed during the year after my mother’s death. 
+ Reconnect with at least five friends I’ve lost touch with by scheduling regular check-ins (calls, video chats, or in-person meetups). 
+ Plan at least two reunions with friends or extended family during the year. 
+ Meet up with at least one friend in person per month. 
+ Have one 1:1 meal or coffee with my dad every week. 
+ Continue working in couples therapy to build a relationship founded on mutual understanding and emotional intimacy. 
+  Live longer. <p>Somewhere around 2016, I let a combination of malaise and depression overtake me. I gained weight, I got sleepy, and I became less fit. I used to walk everywhere, and I stopped.</p><p>If this continues, I will die earlier than I want to. I don’t want to die. I want to live — particularly as an older parent of a toddler. More than anything, this goal is about being present for our son.</p> Key results for 2025:   Do one vigorous workout exercise per day, every day, except when sick or traveling. 
+ Run at least one 5K per week starting mid-year. 
+ Walk to all destinations if walking is an option in the time available, regardless of the weather. 
+ Make a meaningful positive diet change, for example by becoming pescatarian and cutting out all processed food. 
+ Eat out no more than once per month, except when traveling. 
+ Don’t eat fast food, except when it’s genuinely the only option (for example, on a road trip). 
+  Build in more freedom. <p>It’s easy to get caught up in a trap of your own making. The need to make more money often leads to less available time and a focus on things other than what you wanted the money to be able to do in the first place. It’s better to be free and unconstrained than to be wealthy and living a cookie-cutter life.</p><p>Similarly, it’s better to be true to yourself and your values than to bite your tongue — particularly in this upcoming era.</p><p>This goal is fundamentally about non-conformity and being true to your values: two things that are really important to me.</p> Key results for 2025:   Lower monthly living costs by at least 25%. 
+ Increase available daily free time by 2 hours. 
+ Do not mince words with regards to anti-fascism, internationalism, fairness, or other core values. 
+ Travel for personal reasons (including just for fun!) at least once a quarter. 
+  Do meaningful work with the potential to make the world more equal and informed. <p>I want to work on projects — whether by building or supporting them — that have the potential to make the world more equal and informed. I’ve found a home doing that in service of meaningful journalism that helps to strengthen democracy.</p><p>In order for this work to be meaningful to me, it has to have a strong, aligned mission, but I also need to do it with autonomy, trust, and the ability to set strategy and standards. I want to call the shots for my own work.</p> Key results for 2025:   Ship a product with the potential to make the world more informed and equal, leveraging a technology strategy that reflects my mission, which I have defined and implemented. 
+ Advise and support two projects aligned with this mission, ensuring they make meaningful progress and ship to their intended audiences. 
+ Define and implement at least two core technology policies at my employer. 
+ Open source at least two core technology policies for any organization to use and build on. 
+ <p>These OKRs are my guide for 2025: a year where I want to live more intentionally, aligned with my values, and present for the things that truly matter. They’re not about perfection but about progress and purpose.</p><p>They’re also not set in stone: things happen. Life changes. They’re intended to be a North Star that guides me rather than a scaffold that constrains me. If I need to adjust them, I will. But I think it’s more useful to have these goals in mind than none at all.</p><p>These are mine. How about you? If you’re inclined to write your own OKRs for 2025, I’d love to read them.</p><p>&nbsp;</p><p>Photo by <a href="https://unsplash.com/@mokngr?utm_content=creditCopyText&amp;utm_medium=referral&amp;utm_source=unsplash">Moritz Knöringer</a> on <a href="https://unsplash.com/photos/a-black-background-with-the-number-2055-written-in-sparklers-XS8jwvKqtIE?utm_content=creditCopyText&amp;utm_medium=referral&amp;utm_source=unsplash">Unsplash</a></p> 
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://werd.io/file/674cebe6745956972801b332/thumb.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   23:06 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://idmlab.eidentity.jp/'>IdM Laboratory</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://idmlab.eidentity.jp/2024/12/cic.html'>やっと電話が繋がったのでCICの情報開示サービスを使ってみた</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   こんにちは、富士榮です。  自分のクレジットなどの信用情報・スコアの確認ができる、ということで一部で話題になっているCICの情報開示サービスを使ってみました。     出典）日経新聞電子版（11/28）  https://www.nikkei.com/article/DGXZQOUB280PV0Y4A121C2000000/     日経でも記事が出ていました。X上では&nbsp;#信用スコアバトル なんてハッシュタグで流行っていたこともあり、全然受付番号取得のための電話が通じないって状態でしたがようやく通じました。。。   流れはCICのページにも記載の通り、    クレジットカード等の契約に使ったことのある電話番号から受付番号取得用の電話へ発信  決済方法の選択（携帯キャリア決済かクレジットカード）。カードの場合はカードの有効期限（MM/YY）を入力※あとでパスワードの一部になる  受
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://blogger.googleusercontent.com/img/a/AVvXsEgvh2Hzf82IcBCEpF1JbQbaynN8gYEge0DQ353x6ccfzMRmTWFuzte3nkYmLE142-gE9zdXcb_ljpSE0nmH221oPdTwnyw2qzI6OxaCq36IPFgv4A_3ZhQey90_LY43ML7Cs5WntCNJVBaffV3OS5d6K-inMagF-mhtpZaRmSFxiRHFCq_kppimht2gmw_g=w597-h640'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>こんにちは、富士榮です。</p><p>自分のクレジットなどの信用情報・スコアの確認ができる、ということで一部で話題になっているCICの情報開示サービスを使ってみました。</p><p></p> <a href="https://blogger.googleusercontent.com/img/a/AVvXsEgvh2Hzf82IcBCEpF1JbQbaynN8gYEge0DQ353x6ccfzMRmTWFuzte3nkYmLE142-gE9zdXcb_ljpSE0nmH221oPdTwnyw2qzI6OxaCq36IPFgv4A_3ZhQey90_LY43ML7Cs5WntCNJVBaffV3OS5d6K-inMagF-mhtpZaRmSFxiRHFCq_kppimht2gmw_g"></a> <br>出典）日経新聞電子版（11/28）<p></p><p><a href="https://www.nikkei.com/article/DGXZQOUB280PV0Y4A121C2000000/">https://www.nikkei.com/article/DGXZQOUB280PV0Y4A121C2000000/</a></p><p><br></p><p>日経でも記事が出ていました。X上では&nbsp;#信用スコアバトル なんてハッシュタグで流行っていたこともあり、全然受付番号取得のための電話が通じないって状態でしたがようやく通じました。。。</p><p></p><p>流れはCICのページにも記載の通り、</p><p></p>  クレジットカード等の契約に使ったことのある電話番号から受付番号取得用の電話へ発信  決済方法の選択（携帯キャリア決済かクレジットカード）。カードの場合はカードの有効期限（MM/YY）を入力※あとでパスワードの一部になる  受付番号（１時間有効）が払い出されるのでメモする  CICのページに受付番号を入力、決済を行う  すぐにPDFでファイルが落ちてくる（受付番号＋カードの有効期限がパスワードになっている）   という感じです。  <br>  報告書の見方は公式の説明書にも記載されていますが、スコアの分布はこんな感じみたいですね。   <a href="https://blogger.googleusercontent.com/img/a/AVvXsEhPg010xESweNap2Ec61Wde61IF19N66EZkyra1GYGIF8rDSgWAHYHGMnqk5wyUSFEc372_R7AcxAXKvruHkmYZq_ZfnwqdFkYK01yRJVmHkMNyzjp2Fh77gPwGEFgQwWEwC0anzlm93VyKnlOUCokbdWsCGl4WMbYgtnHc40R-s8EPdJcfDfLu19pyo6cY"></a> <br>出典）<a href="https://www.cic.co.jp/d4037415798fe66d90ea9fa15cf930f8aebfc271.pdf">https://www.cic.co.jp/d4037415798fe66d90ea9fa15cf930f8aebfc271.pdf</a>  <br>  <br>  ちなみに、先に記載したハッシュタグでXを検索するとみなさん自分のスコアを晒しているようですが、そんなにカジュアルに公表するものじゃないのでやめておきましょう。  また、決済の状況によって常に変動する数字ってことも理解しておいた方が良いでしょう。  <br>  <br>  ま、そのうちこの数字を使ったサービスとか出てきちゃったりするのかもしれませんね。 <p></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blogger.googleusercontent.com/img/a/AVvXsEgvh2Hzf82IcBCEpF1JbQbaynN8gYEge0DQ353x6ccfzMRmTWFuzte3nkYmLE142-gE9zdXcb_ljpSE0nmH221oPdTwnyw2qzI6OxaCq36IPFgv4A_3ZhQey90_LY43ML7Cs5WntCNJVBaffV3OS5d6K-inMagF-mhtpZaRmSFxiRHFCq_kppimht2gmw_g=w597-h640'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:30 &bull;
+   8 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2024/Dec/1/turning-your-root-url-into-a-duckdb-remote-database/#atom-everything'>Turning Your Root URL Into a DuckDB Remote Database</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Turning Your Root URL Into a DuckDB Remote Database 
+Fun idea from Drew Breunig: DuckDB supports attaching existing databases that are accessible over HTTP using their URL. Drew suggests creating vanity URLs using your root domain, detecting the DuckDB user-agent and serving the database file directly - allowing tricks like this one: 
+ ATTACH 'https://steplist.app/' AS steplist;
+SELECT * FROM step
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://www.dbreunig.com/2024/12/01/turning-your-root-url-into-a-duckdb-remote-database.html">Turning Your Root URL Into a DuckDB Remote Database</a></p>
+Fun idea from Drew Breunig: DuckDB supports attaching existing databases that are accessible over HTTP using their URL. Drew suggests creating vanity URLs using your root domain, detecting the DuckDB user-agent and serving the database file directly - allowing tricks like this one:<p></p>
+ <code>ATTACH 'https://steplist.app/' AS steplist;
+SELECT * FROM steplist.lists;
+</code> 
+
+
+    <p>Tags: <a href="https://simonwillison.net/tags/drew-breunig">drew-breunig</a>, <a href="https://simonwillison.net/tags/duckdb">duckdb</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   22:02 &bull;
+   9 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://wrenchinthegears.com/'>Wrench in the Gears</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://wrenchinthegears.com/2024/12/01/is-informed-consent-even-possible-when-most-agents-have-no-interest-in-building-their-own-scaffold/'>Is Informed Consent Even Possible When Most Agents Have No Interest In Building Their Own Scaffold?</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  With the lens I have been using (harnessed consciousness through Web3 token engineering, perhaps for the purposes of individual and group consensus divination) the ideas I am talking about in this video and the beginning of the previous one are actually quite important. If you want to write me off as simply being angry, you’ve [...]
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>With the lens I have been using (harnessed consciousness through Web3 token engineering, perhaps for the purposes of individual and group consensus divination) the ideas I am talking about in this video and the beginning of the previous one are actually quite important. If you want to write me off as simply being angry, you’ve missed the point entirely. Though admittedly I do continue to be annoyed at the ongoing disconnect. We’re still human after all.</p>
+<p>The fact that so few people seem to be able to engage on the topic of meta-cognition with regards to their digital media consumption seems to indicate that many are sleepwalking through life online, maybe especially the ones who loudly proclaim they are “awake.”</p>
+<p>Perhaps the psychic ant computer relies on agents who respond to and act on subconscious cues while having little interest in exerting their own agency independent of the socio-technical systems into which they are embedded?</p>
+<p>If that is the case, I guess I need to throw the whole “informed consent” framing out the window, because very, very few participants want to take ownership of their own thinking and inform THEMSELVES. The consumer model in the attention economy is quite powerful. I guess we shall see, because there’s not much time before data-driven, second order cybernetic governance protocols take center stage. Cultivate curiosity and devise better questions. There is always more to learn.</p>
+<p></p>
+<p>&nbsp;</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:16 &bull;
+   14 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2024/12/01/craft-is-really.html'> Craft3 is really rather nice …tags coming soon and very cool</a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Craft3 is really rather nice …tags coming soon and very cool new functionality .. but would certainly like to view at a global level not just at Spaces level. That said what isn’t being talked about too much is support for own domain and published doc analytics that are suddenly available to you .. used to be only on a higher level .. but all now seems to be smooshed into one. 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>Craft3 is really rather nice …tags coming soon and very cool new functionality .. but would certainly like to view at a global level not just at Spaces level. That said what isn’t being talked about too much is support for own domain and published doc analytics that are suddenly available to you .. used to be only on a higher level .. but all now seems to be smooshed into one.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   09:10 &bull;
+   22 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://john.philpin.com/2024/11/30/winning.html'>Winning</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   
+ 
+ Exercise 
+ 
+ 
+ Diet/Nutrition to Maintain a Healthy Weight 
+ 
+ 
+ Positive Mental Attitude (the sail of opportunity is always open) 
+ 
+ 
+ Pain Management 
+ 
+ 
+ Good Sleep and Good Sleep Patterns 
+ 
+ 
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+ 
+ 
+<p>Exercise</p>
+ 
+ 
+<p>Diet/Nutrition to Maintain a Healthy Weight</p>
+ 
+ 
+<p>Positive Mental Attitude (the sail of opportunity is always open)</p>
+ 
+ 
+<p>Pain Management</p>
+ 
+ 
+<p>Good Sleep and Good Sleep Patterns</p>
+ 
+ 
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:11 &bull;
+   24 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://john.philpin.com/2024/11/30/thank-you.html'>Thank You🚧</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   I particularly want to say ‘thank you Jax’. I know how much you did .. do .. for me. No doubt in my mind that without you, I wouldn’t be here, not just your support, but my ears, my voice, your questions, your knowledge - without you - I wouldn’t know half of this village to begin with so I couldn’t have even done what I did without you. 
+ Two other big shout outs to Pepe Sasso, my Radiation Oncol
+   
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>I particularly want to say ‘thank you Jax’. I know how much you did .. do .. for me. No doubt in my mind that without you, I wouldn’t be here, not just your support, but my ears, my voice, your questions, your knowledge - without you - I wouldn’t know half of this village to begin with so I couldn’t have even done what I did without you.</p>
+<p>Two other big shout outs to Pepe Sasso, my Radiation Oncologist and Rowan Jones, his lead nurse at the hospital.</p>
+<p>The diagnosis was severe, and there was no time to return to the USA or UK and start the process over. Pepe and Rowan were instrumental in my treatment, especially when Jax was told by another doctor to ‘prepare for the worst’, that it was too late for surgery and maybe - just maybe - he might be able to ‘give me more time’. Pepe and Rowan;s dedication and care made a significant difference as did their knowledge and skill. Not only that but Rowan introduced me to Alien Weaponry .. a Maori Metal band (I know!),</p>
+<p>All this to say. Thank you. I couldn’t - and therefore wouldn’t - have made it without you. Thank you for your contribution to my life. I am alive, and grateful for every moment. Your actions and support have made all the difference.</p>
+<p>All the unsung heroes in doctors and nurses in clinics, hospitals, chemo, oncology and radiology, not forgetting the staff that work the multi various scanning machines that I have been passed through multiples of time and the ‘Spatial Physicists’. YES .. spatial physicists - the science behind this process is extraordinary.</p>
+<p>Herne Bay Pharmacy who went out of their way to deliver things to the house, ‘wrangled’ things we needed and just went went out of their way to help - not like a ‘store’ at all.</p>
+<p>The team at Farros and their team that made sure that the food I could eat got to me</p>
+<p>My ‘CBD’ Doctor - Jax organized him, so I don’t have his email</p>
+<p>The specialist consultants for ‘swallow’ and ‘hearing’ - one of you is on this list - as we continue to meet :-)</p>
+<p>Ambulance drivers</p>
+<p>Lovenish and his driving team</p>
+<p>Shashank - at Apex who personally delivered and swapped out our rental car at the house.</p>
+<p>All the local restaurants that delivered food.</p>
+<p>Other local establishments that gave Jax quiet haven and a space to breathe - outside of our flat, particularly Jervois Wine Bar and Annabelle’s</p>
+<p>Millys Kitchen in Ponsonby - you would be surprised ay what they could get their hands on to help Jax.</p>
+<p>And oh so many more …like the construction guys outside on the road who had large areas cordoned off - but let us park ‘behind their tape’, so I didn’t have too far to walk to the car … (this at a time when I didn’t dare walk down the hill to the park in case I didn’t have the strength to walk back up the hill to get home!)</p>
+<p>Thank you all.</p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   07:04 &bull;
+   24 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -831,7 +2043,7 @@ This specification extends the OpenID Connect Dynamic Client Registration 1.0 sp
 
 <div class='item-footer'>
    06:50 &bull;
-   3 minutes ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -946,7 +2158,7 @@ Tucci and Cancer
 
 <div class='item-footer'>
    06:24 &bull;
-   30 minutes ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1018,7 +2230,7 @@ Tucci and Cancer
 
 <div class='item-footer'>
    05:37 &bull;
-   an hour ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1088,7 +2300,7 @@ Tucci and Cancer
 
 <div class='item-footer'>
    05:02 &bull;
-   2 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1116,9 +2328,9 @@ Tucci and Cancer
 
   
     
-    <a href='https://john.philpin.com/2024/11/30/the-future-found.html'> The Future Found 
+    <a href='https://john.philpin.com/2024/11/30/the-future-found.html'> The Future Found … 
  
- a year round investment and philanthrop</a>
+ a year round investment and philanthr</a>
   
 
 </h3>
@@ -1129,7 +2341,7 @@ Tucci and Cancer
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   The Future Found 
+   The Future Found … 
  
  a year round investment and philanthropic focus on helping and protecting the most vulnerable; displaced persons … children and women. 
  
@@ -1156,7 +2368,7 @@ Tucci and Cancer
  -->
 <div class='wrap'>
 
-<p>The Future Found</p>
+<p>The Future Found …</p>
 <blockquote>
 <p>a year round investment and philanthropic focus on helping and protecting the most vulnerable; displaced persons … children and women.</p>
 </blockquote>
@@ -1179,7 +2391,7 @@ Tucci and Cancer
 
 <div class='item-footer'>
    02:23 &bull;
-   5 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1253,7 +2465,7 @@ Tucci and Cancer
 
 <div class='item-footer'>
    00:19 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1327,7 +2539,7 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 
 <div class='item-footer'>
    18:22 &bull;
-   13 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1355,9 +2567,9 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 
   
     
-    <a href='https://john.philpin.com/2024/11/30/there-are-recurring.html'> 💬 
- 💬 There are recurring themes in my daily reviews. 
-  </a>
+    <a href='https://john.philpin.com/2024/11/30/there-are-recurring.html'> 💬 There are recurring themes in my daily reviews. 
+
+</a>
   
 
 </h3>
@@ -1368,9 +2580,9 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-   💬 
- 💬 There are recurring themes in my daily reviews. 
-  
+   💬 There are recurring themes in my daily reviews. 
+
+
    
   
   
@@ -1391,9 +2603,9 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
  -->
 <div class='wrap'>
 
-<p>💬</p>
 <p>💬 There are recurring themes in my daily reviews.</p>
-<p></p>
+
+
    
   
   
@@ -1410,7 +2622,7 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 
 <div class='item-footer'>
    16:33 &bull;
-   14 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1482,7 +2694,7 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 
 <div class='item-footer'>
    16:10 &bull;
-   15 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1546,7 +2758,7 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 
 <div class='item-footer'>
    13:19 &bull;
-   18 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1572,7 +2784,7 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
  <i class='icon-caret-down item-collapse item-close item-opened'></i>
  <i class='icon-caret-right item-expand item-open item-closed'></i>
 
- <a href='https://john.philpin.com/2024/11/29/father-figures.html'>Father Figures, 2017 - ★★★★</a>
+ <a href='https://john.philpin.com/2024/11/29/father-figures.html'>🎥 Father Figures, 2017 - ★★★★</a>
 
 </h3>
 
@@ -1620,7 +2832,7 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 
 <div class='item-footer'>
    06:36 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1685,7 +2897,7 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 
 <div class='item-footer'>
    00:34 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1771,7 +2983,7 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 
 <div class='item-footer'>
    00:02 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1845,7 +3057,7 @@ It’s deeply sad that “we don’t penalize people for sharing links” can be
 
 <div class='item-footer'>
    00:01 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1937,7 +3149,7 @@ $ I would like to contribute $100 to the treasury.
 
 <div class='item-footer'>
    23:37 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2017,7 +3229,7 @@ $ I would like to contribute $100 to the treasury.
 
 <div class='item-footer'>
    23:14 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2078,7 +3290,7 @@ $ I would like to contribute $100 to the treasury.
 
 <div class='item-footer'>
    22:05 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2139,7 +3351,7 @@ $ I would like to contribute $100 to the treasury.
 
 <div class='item-footer'>
    22:02 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2205,7 +3417,7 @@ $ I would like to contribute $100 to the treasury.
 
 <div class='item-footer'>
    22:00 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2294,7 +3506,7 @@ Extraordinary demo by Vaibhav Srivastav (VB). Here's Hugging Face's <a href="htt
 
 <div class='item-footer'>
    21:09 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2357,7 +3569,7 @@ Extraordinary demo by Vaibhav Srivastav (VB). Here's Hugging Face's <a href="htt
 
 <div class='item-footer'>
    20:24 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2422,7 +3634,7 @@ Extraordinary demo by Vaibhav Srivastav (VB). Here's Hugging Face's <a href="htt
 
 <div class='item-footer'>
    18:39 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2492,7 +3704,7 @@ Here's a TIL covering a Thanksgiving AI-assisted programming project. I wanted t
 
 <div class='item-footer'>
    18:13 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2570,7 +3782,7 @@ Gadi Evron from Knostic:<p></p>
 
 <div class='item-footer'>
    16:23 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2694,7 +3906,7 @@ Gadi Evron from Knostic:<p></p>
 
 <div class='item-footer'>
    14:16 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2790,7 +4002,7 @@ Gadi Evron from Knostic:<p></p>
 
 <div class='item-footer'>
    13:21 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2860,7 +4072,7 @@ Gadi Evron from Knostic:<p></p>
 
 <div class='item-footer'>
    06:39 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2952,7 +4164,7 @@ Gadi Evron from Knostic:<p></p>
 
 <div class='item-footer'>
    01:18 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3028,7 +4240,7 @@ Gadi Evron from Knostic:<p></p>
 
 <div class='item-footer'>
    22:48 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3137,7 +4349,7 @@ I've been having fun playing with this new vision model from the Hugging Face te
 
 <div class='item-footer'>
    20:29 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3215,7 +4427,7 @@ I've been having fun playing with this new vision model from the Hugging Face te
 
 <div class='item-footer'>
    18:11 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3299,7 +4511,7 @@ I've been having fun playing with this new vision model from the Hugging Face te
 
 <div class='item-footer'>
    13:49 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3379,7 +4591,7 @@ I've been having fun playing with this new vision model from the Hugging Face te
 
 <div class='item-footer'>
    02:02 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3456,7 +4668,7 @@ I've been having fun playing with this new vision model from the Hugging Face te
 
 <div class='item-footer'>
    01:46 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3572,7 +4784,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    23:59 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3710,7 +4922,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    23:51 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3784,7 +4996,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    22:30 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3890,7 +5102,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    21:51 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4055,7 +5267,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    20:45 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4144,7 +5356,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    20:25 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4220,7 +5432,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    20:21 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4296,7 +5508,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    20:21 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4371,7 +5583,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    20:18 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4449,7 +5661,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    20:15 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4521,7 +5733,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    18:15 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4599,7 +5811,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    16:49 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4671,7 +5883,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    15:49 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4736,7 +5948,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    06:33 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4801,7 +6013,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    01:45 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4865,7 +6077,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    22:30 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4934,7 +6146,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    20:21 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5003,7 +6215,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    19:20 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5066,7 +6278,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    19:07 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5138,7 +6350,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    18:58 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5213,7 +6425,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    17:23 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5285,7 +6497,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    16:05 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5356,7 +6568,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    04:50 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5444,7 +6656,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    01:14 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5520,7 +6732,7 @@ Brand new openly licensed (Apache 2) model from Alibaba Cloud's Qwen team, this 
 
 <div class='item-footer'>
    23:07 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5610,7 +6822,7 @@ Always a knit of identity, always distinction, always a breed of life.</p></bloc
 
 <div class='item-footer'>
    22:26 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5689,7 +6901,7 @@ v0 is Vercel's entry in the increasingly crowded LLM-assisted development market
 
 <div class='item-footer'>
    21:17 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5774,7 +6986,7 @@ I just found out OpenStreetMap have a "share" button which produces HTML for an 
 
 <div class='item-footer'>
    19:29 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6292,7 +7504,7 @@ non-extension modules.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    19:14 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6350,8 +7562,8 @@ non-extension modules.&nbsp;<a>↩︎</a></p>
 <p>Dewayne wasn’t alone, of course. Far from it. But he was instrumental.</p>
 <p>I learned about that during the 3+ hour memorial zoom we had yesterday for Dewayne, who died of cancer in September. I took a lot of notes on the call, which featured many people who knew Dewayne far better than I did. Here is what a former FCC official said (this isn’t verbatim, but close enough):</p>
 <blockquote><p>He was early-early at the FCC, in terms of wireless data and wi-fi evangelizing. And he was the glue that held us all together. He’d come in and say things like “it could be,” and then make things happen. He knew how to hack whatever it took. This was when 2.4 gHz (where Wi-Fi first got used) was called a “junk band,” because it was license-exempt. Microwave ovens were there. Industrial stuff. Dewayne’s approach was,”Let us try this. Play with it.” By demonstrating what would work, his influence was enormously important.</p></blockquote>
-<p>Dewayne also did a lot of what academics call fieldwork: in Tonga, tribal lands in New Mexico, the Dakotas, Montana. Nepal.&nbsp; Anywhere wireless was the only way to address extreme connectivity challenges. A huge sci-fi fan, he was always “a step beyond,” as one friend put it. I can’t think of anyone more grounded equally in the future and the present, the far-out and the right-here, the possible future and the impossible present—and seeing paths forward between those extremes.</p>
-<p>This started early. One friend reported on how, back in the ’70s, Dewayne saw a way to run batch MVS systems as virtual machines inside IBM mainframes, wrote the code to do it, and got top performance out of the result. This may have been the first example of its kind.</p>
+<p>Dewayne also did a lot of what academics call fieldwork: in Tonga, tribal lands in New Mexico, the Dakotas, Montana. Nepal. Anywhere wireless was the only way to address extreme connectivity challenges. A huge sci-fi fan, he was always “a step beyond,” as one friend put it. I can’t think of anyone more grounded equally in the future and the present, the far-out and the right-here, the possible future and the impossible present—and seeing paths forward between those extremes.</p>
+<p>This started early. One friend reported on how, back in the ’70s, Dewayne saw a way to run batch <a href="https://en.wikipedia.org/wiki/MVS">MVS</a> systems as virtual machines inside IBM mainframes, wrote the code to do it, and got top performance out of the result. This may have been the first example of its kind.</p>
 <p>Other items:</p>
  
  He was once reportedly on a shortlist for a MacArthur “genius” grant. 
@@ -6388,7 +7600,7 @@ non-extension modules.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    19:06 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6472,7 +7684,7 @@ Interesting new initiative from Anthropic. The <a href="https://modelcontextprot
 
 <div class='item-footer'>
    18:48 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6544,7 +7756,7 @@ Interesting new initiative from Anthropic. The <a href="https://modelcontextprot
 
 <div class='item-footer'>
    18:25 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6612,7 +7824,7 @@ Interesting new initiative from Anthropic. The <a href="https://modelcontextprot
 
 <div class='item-footer'>
    17:57 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6680,7 +7892,7 @@ Interesting new initiative from Anthropic. The <a href="https://modelcontextprot
 
 <div class='item-footer'>
    04:25 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6760,7 +7972,7 @@ Interesting new initiative from Anthropic. The <a href="https://modelcontextprot
 
 <div class='item-footer'>
    03:20 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6886,7 +8098,7 @@ sqlite-utils ask content.db "count rows in news table" -m claude-3.5-sonnet
 
 <div class='item-footer'>
    01:33 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6950,7 +8162,7 @@ sqlite-utils ask content.db "count rows in news table" -m claude-3.5-sonnet
 
 <div class='item-footer'>
    22:30 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7019,7 +8231,7 @@ sqlite-utils ask content.db "count rows in news table" -m claude-3.5-sonnet
 
 <div class='item-footer'>
    22:10 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7035,258 +8247,6 @@ sqlite-utils ask content.db "count rows in news table" -m claude-3.5-sonnet
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/11/24/133415.html'> 💬 
-</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   💬 
-
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/8d3c1be169.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>💬</p>
-
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/8d3c1be169.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:34 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/11/24/bad-monkey-loved.html'> 📺 Bad Monkey 
- Loved it .. hence the ❤️ … love Vince Vaughn </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   📺 Bad Monkey 
- Loved it .. hence the ❤️ … love Vince Vaughn .. but something nearly took it down to a like .. can’t put my finger on it. Still worth a watch though. 
- Bad Monkey on 🔗 Reelgood 
- ’All’ My TV Show Reviews 
- &nbsp; 
-  
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/b4c02aa29f.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>📺 Bad Monkey</p>
-<p>Loved it .. hence the ❤️ … love Vince Vaughn .. but something nearly took it down to a like .. can’t put my finger on it. Still worth a watch though.</p>
-<p>Bad Monkey on <a href="https://reelgood.com/show/bad-monkey-2024">🔗 Reelgood</a></p>
-<p><a href="https://john.philpin.com/categories/myshows">’All’ My TV Show Reviews</a></p>
-<p>&nbsp;</p>
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/b4c02aa29f.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:32 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/11/24/disclaimer-wow-the.html'> 📺 Disclaimer 
- Wow … the final episode .. excellent until th</a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   📺 Disclaimer 
- Wow … the final episode .. excellent until then and then BOOM … out of the park. Lots of reminders .. at so many levels .. and of course we are all guilty. 
- Disclaimer on 🔗 Reelgood 
- ’All’ My TV Show Reviews 
- &nbsp; 
-  
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/10b2669422.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>📺 Disclaimer</p>
-<p>Wow … the final episode .. excellent until then and then BOOM … out of the park. Lots of reminders .. at so many levels .. and of course we are all guilty.</p>
-<p>Disclaimer on <a href="https://reelgood.com/show/disclaimer-2024">🔗 Reelgood</a></p>
-<p><a href="https://john.philpin.com/categories/myshows">’All’ My TV Show Reviews</a></p>
-<p>&nbsp;</p>
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/10b2669422.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:18 &bull;
-   6 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -7349,7 +8309,7 @@ Hamel Husain wrote <a href="https://gist.github.com/hamelsmu/fb9ed633de7d784619e
 
 <div class='item-footer'>
    18:57 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7445,7 +8405,7 @@ This "natural language interface for computers" open source ChatGPT Code Interpr
 
 <div class='item-footer'>
    18:29 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7523,7 +8483,7 @@ Jonathan Adly reports on his experience using Django to build <a href="https://c
 
 <div class='item-footer'>
    17:47 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7589,7 +8549,7 @@ Jonathan Adly reports on his experience using Django to build <a href="https://c
 
 <div class='item-footer'>
    02:17 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7663,7 +8623,7 @@ Jonathan Adly reports on his experience using Django to build <a href="https://c
 
 <div class='item-footer'>
    00:07 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7737,7 +8697,7 @@ Jonathan Adly reports on his experience using Django to build <a href="https://c
 
 <div class='item-footer'>
    20:54 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7812,7 +8772,7 @@ I sometimes think the hardest problem in computer science right now is taking an
 
 <div class='item-footer'>
    19:18 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7878,7 +8838,7 @@ I sometimes think the hardest problem in computer science right now is taking an
 
 <div class='item-footer'>
    18:47 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7950,7 +8910,7 @@ What impact does quantization have on the performance of an LLM? been wondering 
 
 <div class='item-footer'>
    18:39 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8022,7 +8982,7 @@ What impact does quantization have on the performance of an LLM? been wondering 
 
 <div class='item-footer'>
    17:05 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8094,7 +9054,7 @@ What impact does quantization have on the performance of an LLM? been wondering 
 
 <div class='item-footer'>
    16:59 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8254,7 +9214,7 @@ async for chunk in model.prompt(
 
 <div class='item-footer'>
    22:35 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8328,172 +9288,6 @@ async for chunk in model.prompt(
 
 <div class='item-footer'>
    22:30 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Nov/22/how-decentralized-is-bluesky-really/#atom-everything'>How decentralized is Bluesky really?</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   How decentralized is Bluesky really? 
-Lots of technical depth in this comparison of the Bluesky (ATProto) and Fediverse/Mastodon/ActivityPub approach to decentralization, from ActivityPub spec author Christine Lemmer-Webber. 
- One key theme: many of the features of Bluesky that aren't present in the rest of the Fediverse are the result of centralization: Bluesky follows a "shared heap" architectur
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://dustycloud.org/blog/how-decentralized-is-bluesky/">How decentralized is Bluesky really?</a></p>
-Lots of technical depth in this comparison of the Bluesky (ATProto) and Fediverse/Mastodon/ActivityPub approach to decentralization, from <a href="https://www.w3.org/TR/activitypub/">ActivityPub spec</a> author Christine Lemmer-Webber.<p></p>
-<p>One key theme: many of the features of Bluesky that aren't present in the rest of the Fediverse are the result of centralization: Bluesky follows a "shared heap" architecture where participating nodes are expected to maintain a full copy of the entire network - more than 5TB of data already. ActivityPub instead uses a "message passing" architecture where only a subset of the overall network data - messages from accounts followed by that node's users - are imported into the node.</p>
-<p>This enables features like comprehensive search and the ability to browse all messages in a conversation even if some come from accounts that are not followed by any of the current node's users (a problem <a href="https://simonwillison.net/2023/Sep/16/notes-on-using-a-single-person-mastodon-server/">I've faced in the past</a>).</p>
-<p>This is also part of the "credible exit" mechanism where users can theoretically switch to a different host while keeping all of their existing content - though that also takes advantage of content addressed storage, a feature that could be added to ActivityPub.</p>
-<p>Also of note: direct messages on Bluesky are currently entirely dependent on the single central node run by Bluesky themselves, and are not end-to-end encrypted. Furthermore, signing keys that are used by ATProto are currently held custodially by Bluesky on behalf of their users.
-
-    </p><p>Via <a href="https://social.coop/@cwebber/113527462572885698">@cwebber</a></p>
-
-
-    <p>Tags: <a href="https://simonwillison.net/tags/mastodon">mastodon</a>, <a href="https://simonwillison.net/tags/activitypub">activitypub</a>, <a href="https://simonwillison.net/tags/bluesky">bluesky</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   21:57 &bull;
-   8 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Nov/22/private-school-labeler-on-bluesky/#atom-everything'>Private School Labeler on Bluesky</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Private School Labeler on Bluesky 
-I am utterly delighted by this subversive use of Bluesky's labels feature, which allows you to subscribe to a custom application that then adds visible labels to profiles. 
- The feature was designed for moderation, but this labeler subverts it by displaying labels on accounts belonging to British public figures showing which expensive private school they went to 
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2024/bluesky-label.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://bsky.app/profile/daddys.cash">Private School Labeler on Bluesky</a></p>
-I am utterly delighted by this subversive use of Bluesky's <a href="https://docs.bsky.app/docs/advanced-guides/moderation">labels feature</a>, which allows you to subscribe to a custom application that then adds visible labels to profiles.<p></p>
-<p>The feature was designed for moderation, but this labeler subverts it by displaying labels on accounts belonging to British public figures showing which expensive private school they went to and what the current fees are for that school.</p>
-<p>Here's what it looks like on an account - tapping the label brings up the information about the fees:</p>
-<p></p>
-<p>These labels are only visible to users who have deliberately subscribed to the labeler. Unsurprisingly, some of those labeled aren't too happy about it!</p>
-<p>In response to a comment about attending on a scholarship, the label creator <a href="https://bsky.app/profile/daddys.cash/post/3lbl43ifho22n">said</a>:</p>
-<blockquote>
-<p>I'm explicit with the labeller that scholarship pupils, grant pupils, etc, are still included - because it's the later effects that are useful context - students from these schools get a leg up and a degree of privilege, which contributes eg to the overrepresentation in British media/politics</p>
-</blockquote>
-<p>On the one hand, there are clearly opportunities for abuse here. But given the opt-in nature of the labelers, this doesn't feel hugely different to someone creating a separate webpage full of information about Bluesky profiles.</p>
-<p>I'm intrigued by the possibilities of labelers. There's a list of others on <a href="https://www.bluesky-labelers.io/">bluesky-labelers.io</a>, including another brilliant hack: <a href="https://bsky.app/profile/did:plc:w6yx4bltuzdmiolooi4kd6zt">Bookmarks</a>, which lets you "report" a post to the labeler and then displays those reported posts in a custom feed - providing a private bookmarks feature that Bluesky itself currently lacks.</p>
-<p>Update: <a href="https://bsky.app/profile/us-gov-funding.bsky.social">@us-gov-funding.bsky.social</a> is the inevitable labeler for US politicians showing which companies and industries are their top donors, built <a href="https://bsky.app/profile/hipstersmoothie.com/post/3lbl2lgnq7c2f">by Andrew Lisowski</a> (<a href="https://github.com/hipstersmoothie/us-gov-contributions-labeler">source code here</a>) using data sourced from <a href="https://www.opensecrets.org/">OpenScrets</a>. Here's what it looks like on <a href="https://bsky.app/profile/senatorschumer.bsky.social/post/3lbkvtdc5ik2z">this post</a>:</p>
-<p>
-
-
-    </p><p>Tags: <a href="https://simonwillison.net/tags/apis">apis</a>, <a href="https://simonwillison.net/tags/bluesky">bluesky</a>, <a href="https://simonwillison.net/tags/moderation">moderation</a>, <a href="https://simonwillison.net/tags/politics">politics</a>, <a href="https://simonwillison.net/tags/political-hacking">political-hacking</a></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2024/bluesky-label.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   17:44 &bull;
    9 days ago
 </div>
 
@@ -8566,77 +9360,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    14:36 &bull;
-   9 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2024/Nov/22/brett-cannon/#atom-everything'>Quoting Brett Cannon</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    It's okay to complain and vent, I just ask you be able to back it up. Saying, "Python packaging sucks", but then admit you actually haven't used it in so long you don't remember why it sucked isn't fair. Things do improve, so it's better to say "it did suck" and acknowledge you might be out-of-date.  
- — Brett Cannon 
-
-     Tags: packaging, python, brett-cannon 
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <blockquote cite="https://bsky.app/profile/snarky.ca/post/3lbid7l27722p"><p>It's okay to complain and vent, I just ask you be able to back it up. Saying, "Python packaging sucks", but then admit you actually haven't used it in so long you don't remember why it sucked isn't fair. Things do improve, so it's better to say "it did suck" and acknowledge you might be out-of-date.</p></blockquote>
-<p>— <a href="https://bsky.app/profile/snarky.ca/post/3lbid7l27722p">Brett Cannon</a></p>
-
-    <p>Tags: <a href="https://simonwillison.net/tags/packaging">packaging</a>, <a href="https://simonwillison.net/tags/python">python</a>, <a href="https://simonwillison.net/tags/brett-cannon">brett-cannon</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   08:02 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8710,7 +9434,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    02:47 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8787,7 +9511,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    18:37 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8853,7 +9577,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    15:47 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8921,7 +9645,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    14:17 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8989,7 +9713,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    12:42 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9057,7 +9781,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    01:51 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9170,7 +9894,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    01:10 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9246,7 +9970,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    22:30 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9318,7 +10042,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    18:08 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9384,7 +10108,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    14:38 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9452,7 +10176,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    14:21 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9520,7 +10244,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    13:37 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9590,7 +10314,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    13:02 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9666,7 +10390,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    22:30 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9741,7 +10465,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    17:50 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9813,7 +10537,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    14:49 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9881,7 +10605,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    14:39 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9949,7 +10673,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    14:15 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10025,7 +10749,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    22:30 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10142,7 +10866,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 
 <div class='item-footer'>
    15:28 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10178,7 +10902,7 @@ I am utterly delighted by this subversive use of Bluesky's <a href="https://docs
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This article shows how to implement a secure web application using Vue.js and ASP.NET Core. The web application implements the backend for frontend security architecture (BFF) and deploys both technical stacks as one web application. HTTP only secure cookies are used to persist the session. OpenIddict is used as the identity provider and the token … … Continue reading →
+  This article shows how to implement a secure web application using Vue.js and ASP.NET Core. The web application implements the backend for frontend security architecture (BFF) and deploys both technical stacks as one web application. HTTP only secure cookies are used to persist the session. OpenIddict is used as the identity provider and the token […]
    
   
   
@@ -10705,7 +11429,7 @@ app.Run();
 
 <div class='item-footer'>
    07:07 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10781,7 +11505,7 @@ app.Run();
 
 <div class='item-footer'>
    22:30 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10853,7 +11577,7 @@ app.Run();
 
 <div class='item-footer'>
    14:21 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10929,7 +11653,7 @@ app.Run();
 
 <div class='item-footer'>
    23:19 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11038,73 +11762,7 @@ app.Run();
 
 <div class='item-footer'>
    18:04 &bull;
-   15 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://werd.io'>Ben Werdmüller</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://werd.io/2024/escape-from-twitter-the-future-of-social-media-is-decentralized'>Escape from Twitter: The Future of Social Media Is Decentralized</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   
- This is a pretty great article about the decentralized social web, which quotes Christine Lemmer-Webber, Blaine Cook, and me.  It’s in Polish, but if you don’t speak the language, the “translate” button on your browser works pretty well.  Here are the full remarks I sent Michał “rysiek” Woźniak, the author of the piece:  Social media is where people learn about the world: they discover the news,
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-   
-<p><a href="https://oko.press/ucieczka-z-twittera-przyszlosc-mediow-spolecznosciowych">This is a pretty great article about the decentralized social web</a>, which quotes <a href="https://dustycloud.org/">Christine Lemmer-Webber</a>, <a href="https://en.wikipedia.org/wiki/Blaine_Cook_(programmer)">Blaine Cook</a>, and me.</p><p>It’s in Polish, but if you don’t speak the language, the “translate” button on your browser works pretty well.</p><p>Here are the full remarks I sent <a href="https://rys.io/en/index.html">Michał “rysiek” Woźniak</a>, the author of the piece:</p><p>Social media is where people learn about the world: they discover the news, connect with each other, share the things they love and what's happening around them. We learn about art and love; about current events; and sometimes, about injustice and war — all at a global scale.</p><p>The owners of these spaces have the power to influence the global conversation to fit their business needs. Business model changes at every centralized social media company have made it harder to reach your community, but it goes beyond that. We recently saw the owner of X heavily weigh in on the US election. Previously, lapses at Facebook helped lead to genocide in Myanmar. These spaces are too important to be privately owned or to be subject to any single owner's needs or whims.</p><p>Decentralized social media divests ownership back to the people. Federated social networks are co-operatives of small communities, each with their own ownership and their own rules. Fully decentralized social networks allow users to make their own choices about how their content is moderated and presented to them. There is never a single owner who can unilaterally change the conversation; the platform is owned by everybody, just as the web itself is owned by everybody.</p><p>In answer to a question about my employer, ProPublica, its involvement in the Fediverse, and advice I might have for other publishers, I wrote:</p><p>ProPublica was already on the fediverse before I got there. That's down to <a href="https://www.propublica.org/people/chris-morran">Chris Morran</a>, a member of the audience team. But, of course, I've been a strong advocate.</p><p>My main advice is: be everywhere your audience is. That does mean Mastodon and Bluesky - and we've had strong engagement on both. Use your own domain to validate your accounts and encourage your staff to join individually. By using cutting edge social media platforms and not being afraid to experiment early, ProPublica has so far bucked the downward trends that have been seen at other publications.</p><p><a href="https://oko.press/ucieczka-z-twittera-przyszlosc-mediow-spolecznosciowych">You can read the whole piece here.</a></p> 
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   13:48 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11178,7 +11836,7 @@ app.Run();
 
 <div class='item-footer'>
    02:40 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11262,7 +11920,7 @@ Shwetha Rao
 
 <div class='item-footer'>
    22:17 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11338,7 +11996,7 @@ Shwetha Rao
 
 <div class='item-footer'>
    18:49 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11445,7 +12103,7 @@ anymore:</p>
 
 <div class='item-footer'>
    23:47 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11511,7 +12169,7 @@ anymore:</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11595,7 +12253,7 @@ anymore:</p>
 
 <div class='item-footer'>
    20:02 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11670,7 +12328,7 @@ anymore:</p>
 
 <div class='item-footer'>
    16:19 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11746,7 +12404,7 @@ anymore:</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11822,7 +12480,7 @@ anymore:</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11905,7 +12563,7 @@ anymore:</p>
 
 <div class='item-footer'>
    21:10 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11980,7 +12638,7 @@ anymore:</p>
 
 <div class='item-footer'>
    16:59 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12018,7 +12676,7 @@ anymore:</p>
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  Copyright (c) 2018-2024 Michael Herman (Alberta, Canada) – Creative Commons Attribution-ShareAlike 4.0 International Public Licensehttps://creativecommons.org/licenses/by-sa/4.0/legalcode 0. Prime Objective/Directive #Chickens, #Eggs, and #Roosters: A #NorthStar for the Global Decentralized Systems Community (#GDSC) Byline: #meggDLs, #Seleggtive #Disclosure, #DEGGCOMM, and #Eggports The entire … Co
+  Copyright (c) 2018-2024 Michael Herman (Alberta, Canada) – Creative Commons Attribution-ShareAlike 4.0 International Public Licensehttps://creativecommons.org/licenses/by-sa/4.0/legalcode To learn how to join the did-methods DIF Working Group, click https://github.com/decentralized-identity/did-methods. 0. Prime Objective/Directive #Chickens, #Eggs, and #Roosters: A #NorthStar for the Global Decent
    
   
   
@@ -12036,6 +12694,10 @@ anymore:</p>
 <div class='wrap'>
 
 <p>Copyright (c) 2018-2024 Michael Herman (Alberta, Canada) – Creative Commons Attribution-ShareAlike 4.0 International Public License<br><a href="https://creativecommons.org/licenses/by-sa/4.0/legalcode">https://creativecommons.org/licenses/by-sa/4.0/legalcode</a></p>
+
+
+
+<p>To learn how to join the did-methods DIF Working Group, click <a href="https://github.com/decentralized-identity/did-methods">https://github.com/decentralized-identity/did-methods</a>.</p>
 
 
 
@@ -12334,7 +12996,7 @@ anymore:</p>
 
 <div class='item-footer'>
    22:47 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12408,7 +13070,7 @@ anymore:</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12590,7 +13252,7 @@ anymore:</p>
 
 <div class='item-footer'>
    15:05 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12666,7 +13328,7 @@ anymore:</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12992,7 +13654,7 @@ anymore:</p>
 
 <div class='item-footer'>
    11:14 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13066,7 +13728,7 @@ anymore:</p>
 
 <div class='item-footer'>
    04:47 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13142,7 +13804,7 @@ anymore:</p>
 
 <div class='item-footer'>
    07:30 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13251,7 +13913,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    15:50 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13321,7 +13983,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    14:39 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13395,7 +14057,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    07:30 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13466,7 +14128,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    17:14 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13530,81 +14192,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    15:04 &bull;
-   24 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://idmlab.eidentity.jp/'>IdM Laboratory</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://idmlab.eidentity.jp/2024/11/identiverse-2025.html'>Identiverse 2025のプレゼンテーション募集が始まっています</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  こんにちは、富士榮です。    先日European Identity and Cloud Conferenceのスピーカー募集の件について触れましたが、今回は続いてIdentiverse 2025の募集です。           https://app.sessionboard.com/submit/new-conference/9329e74a-ca9b-4a19-8458-d2ea6ed5a752     本番は2025年6月3日〜6日、プレゼン締切は年明け1月3日です。  早めに申し込みましょう。       
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://blogger.googleusercontent.com/img/a/AVvXsEhDnsmO2ieAjSiF7faq031--OKBDwKTVfr-dOKmoq7P292Q6VgBqzER1hsUNGw0pgcSmwzApi44Bxhru7dcYRKsJe3mjxB7ivtK8aHubMPCg6V9kLAMaeRyOz3zcuKYfgxlYXeyPpeKXjiAUN2MEy8rDINue2gtdD9KemA70A-vhtpX-jweDJ17rq2ZWNl2=w640-h308'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-こんにちは、富士榮です。 <br>  先日European Identity and Cloud Conferenceのスピーカー募集の件について<a href="https://idmlab.eidentity.jp/2024/10/european-identity-and-cloud-conference.html">触れました</a>が、今回は続いてIdentiverse 2025の募集です。  <br>   <a href="https://blogger.googleusercontent.com/img/a/AVvXsEhDnsmO2ieAjSiF7faq031--OKBDwKTVfr-dOKmoq7P292Q6VgBqzER1hsUNGw0pgcSmwzApi44Bxhru7dcYRKsJe3mjxB7ivtK8aHubMPCg6V9kLAMaeRyOz3zcuKYfgxlYXeyPpeKXjiAUN2MEy8rDINue2gtdD9KemA70A-vhtpX-jweDJ17rq2ZWNl2"></a> <br><br>  <a href="https://app.sessionboard.com/submit/new-conference/9329e74a-ca9b-4a19-8458-d2ea6ed5a752">https://app.sessionboard.com/submit/new-conference/9329e74a-ca9b-4a19-8458-d2ea6ed5a752</a>  <br>  本番は2025年6月3日〜6日、プレゼン締切は年明け1月3日です。  早めに申し込みましょう。  <br>  <br> 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://blogger.googleusercontent.com/img/a/AVvXsEhDnsmO2ieAjSiF7faq031--OKBDwKTVfr-dOKmoq7P292Q6VgBqzER1hsUNGw0pgcSmwzApi44Bxhru7dcYRKsJe3mjxB7ivtK8aHubMPCg6V9kLAMaeRyOz3zcuKYfgxlYXeyPpeKXjiAUN2MEy8rDINue2gtdD9KemA70A-vhtpX-jweDJ17rq2ZWNl2=w640-h308'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:30 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13676,7 +14264,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    17:43 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13752,7 +14340,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    14:58 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13816,7 +14404,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    11:41 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13897,7 +14485,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    06:42 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -13969,7 +14557,7 @@ Nov 08 09:18:49 AM  app/controllers/accounts_controller.rb:75:in `inbox'
 
 <div class='item-footer'>
    17:26 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14115,7 +14703,7 @@ querying, it should continue to work as-is for the foreseeable futre.</p>
 
 <div class='item-footer'>
    18:23 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14238,7 +14826,7 @@ rules may not be what you think!”</p>
 
 <div class='item-footer'>
    16:20 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14312,7 +14900,7 @@ rules may not be what you think!”</p>
 
 <div class='item-footer'>
    13:18 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14446,7 +15034,7 @@ rules may not be what you think!”</p>
 
 <div class='item-footer'>
    09:18 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -14482,7 +15070,7 @@ rules may not be what you think!”</p>
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This article demonstrates how to implement a downstream API protected by certificate authentication using Microsoft YARP reverse proxy in an ASP.NET Core web application. The application uses Angular for its UI and secures both the UI and the ASP.NET Core backend through a backend-for-frontend security architecture. The downstream API is secured with certificate authentication and … … Continue read
+  This article demonstrates how to implement a downstream API protected by certificate authentication using Microsoft YARP reverse proxy in an ASP.NET Core web application. The application uses Angular for its UI and secures both the UI and the ASP.NET Core backend through a backend-for-frontend security architecture. The downstream API is secured with certificate authentication and […]
    
   
   
@@ -14862,7 +15450,7 @@ internal static class StartupExtensions
 
 <div class='item-footer'>
    06:43 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15031,7 +15619,7 @@ internal static class StartupExtensions
 
 <div class='item-footer'>
    15:32 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15099,7 +15687,7 @@ internal static class StartupExtensions
 
 <div class='item-footer'>
    15:18 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15425,7 +16013,7 @@ internal static class StartupExtensions
 
 <div class='item-footer'>
    13:00 &bull;
-   29 days ago
+   30 days ago
 </div>
 
 </div><!-- item-body -->
@@ -15809,7 +16397,7 @@ Extend ISO 18013-5deviceRequestExtend ISO 18013-5OID4VP requestOID4VP over BLEOI
 
 <div class='item-footer'>
    02:50 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -15885,7 +16473,7 @@ AI generated image of a&nbsp;beetle<p>This post is really for me more than anyon
 
 <div class='item-footer'>
    12:40 &bull;
-   30 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -18378,7 +18966,7 @@ AI generated crew image. Note that some folks are backwards.&nbsp;:-)<p>I contin
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This article shows how to implement security headers for an application supporting an API and a swagger UI created from a open API in .NET 9. The security headers are implemented using the NetEscapades.AspNetCore.SecurityHeaders Nuget packages from Andrew Lock. Code: https://github.com/damienbod/WebApiOpenApi Deploying a web application which supports both an API and a UI have different … … Continu
+  This article shows how to implement security headers for an application supporting an API and a swagger UI created from a open API in .NET 9. The security headers are implemented using the NetEscapades.AspNetCore.SecurityHeaders Nuget packages from Andrew Lock. Code: https://github.com/damienbod/WebApiOpenApi Deploying a web application which supports both an API and a UI have different […]
    
   
   
@@ -18597,7 +19185,7 @@ builder.Services.AddSecurityHeaderPolicies()
 
 
  
-<blockquote><a href="https://damienbod.com/2021/08/30/improving-application-security-in-an-asp-net-core-api-using-http-headers-part-3/">Improving application security in an ASP.NET Core API using HTTP headers – Part 3</a></blockquote>
+<blockquote><a href="https://damienbod.com/2021/08/30/improving-application-security-in-an-asp-net-core-api-using-http-headers-part-3/">Improving application security in an ASP.NET Core API using HTTP headers – Part&nbsp;3</a></blockquote>
  
 
 
@@ -18737,81 +19325,6 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 
  <h2 class='new-date'>
-  Friday, 18. October 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://blogs.harvard.edu/doc/'>Doc Searls Weblog</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://doc.searls.com/2024/10/17/a-comet-hunt/'>A Comet Hunt</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Tonight was the first completely clear sky in a while, almost perfect for hunting Comet Tsuchinshan-ATLAS, which for a few more nights will be gracing our evening sky. With a full moon high in the eastern sky, and plenty of light pollution from the town around me, the comet was hard to see. Fortunately, the […]
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<a href="https://www.flickr.com/photos/docsearls/albums/72177720321310018"></a>Comet Tsuchinshan-ATLAS, more visible to the camera than the eye.
-<p>Tonight was the first completely clear sky in a while, almost perfect for hunting <a href="https://en.wikipedia.org/wiki/C/2023_A3_(Tsuchinshan%E2%80%93ATLAS)">Comet Tsuchinshan-ATLAS</a>, which for a few more nights will be gracing our evening sky.</p>
-<p>With a full moon high in the eastern sky, and plenty of light pollution from the town around me, the comet was hard to see. Fortunately, the camera in my new iPhone 16 Pro Max sees better than I do, so I was able first to find the comet in a photo of the western sky, and then go back outside (from the restaurant where we were eating—the <a href="https://www.halfbottlebistro.com/">Half Bottle Bistro</a>) and aim the phone’s 5x lens at it. That’s what got me the shot above. Step through <a href="https://www.flickr.com/photos/docsearls/albums/72177720321310018">this album of shots</a> to see how I got the phone to zero in on the comet while my eyes could hardly see it.</p>
-<p>I found <a href="https://www.stamfordadvocate.com/weather/article/comet-tonight-ct-weather-19838570.php">this guide</a> from the <a href="https://www.stamfordadvocate.com/">Stamford Advocate</a> very helpful for finding it as well.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://150108457.v2.pressablecdn.com/wp-content/uploads/2024/10/2024_10_17_comet-tsuchinshan_14-1024x768.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   02:25 &bull;
-   1 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
   Thursday, 17. October 2024
  </h2>
 
@@ -18879,7 +19392,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    19:05 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -18948,7 +19461,7 @@ Comet Tsuchinshan–ATLAS, flying toward its tail, away from the Sun.
 
 <div class='item-footer'>
    16:23 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -20851,7 +21364,7 @@ Image credits: <a href="https://www.networkrailmediacentre.co.uk/resources/ap-04
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This article looks at the different setups when using App-to-App security with Microsoft Entra ID (OAuth client credentials). Microsoft Entra App registrations are used to configure the OAuth clients and resources. For each tenant, an Enterprise application is created for the client App registration when the consent is granted. The claims in the access token … … Continue reading →
+  This article looks at the different setups when using App-to-App security with Microsoft Entra ID (OAuth client credentials). Microsoft Entra App registrations are used to configure the OAuth clients and resources. For each tenant, an Enterprise application is created for the client App registration when the consent is granted. The claims in the access token […]
    
   
   
@@ -22047,7 +22560,7 @@ Source: <a href="https://littlesis.org/oligrapher/5084-vr-gaming-surveillance-hu
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This article shows how to implement a geo location search in an ASP.NET Core application using a LeafletJs map. The selected location can be used to find the nearest location with an Elasticsearch Geo-distance query. The Elasticsearch container and the ASP.NET Core UI application are setup for development using .NET Aspire. Code: https://github.com/damienbod/WebGeoElasticsearch Setup For … … Contin
+  This article shows how to implement a geo location search in an ASP.NET Core application using a LeafletJs map. The selected location can be used to find the nearest location with an Elasticsearch Geo-distance query. The Elasticsearch container and the ASP.NET Core UI application are setup for development using .NET Aspire. Code: https://github.com/damienbod/WebGeoElasticsearch Setup For […]
    
   
   
@@ -22328,7 +22841,7 @@ public class ElasticClientProvider
 
 
  
-<blockquote><a href="https://damienbod.com/2024/09/16/using-elasticsearch-with-net-aspire/">Using Elasticsearch with .NET Aspire</a></blockquote>
+<blockquote><a href="https://damienbod.com/2024/09/16/using-elasticsearch-with-net-aspire/">Using Elasticsearch with .NET&nbsp;Aspire</a></blockquote>
  
    
   
@@ -24272,7 +24785,7 @@ Is that the same person I saw? If so, the responses in r/Latin seem to have guid
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This post shows how to use Elasticsearch in .NET Aspire. Elasticsearch is setup to use HTTPS with the dotnet developer certificates and and simple client can be implemented to query the data. Code: https://github.com/damienbod/keycloak-backchannel Setup Two services are setup to run in .NET Aspire. The first service is the official Elasticsearch docker container and deployed … … Continue reading →
+  This post shows how to use Elasticsearch in .NET Aspire. Elasticsearch is setup to use HTTPS with the dotnet developer certificates and and simple client can be implemented to query the data. Code: https://github.com/damienbod/keycloak-backchannel Setup Two services are setup to run in .NET Aspire. The first service is the official Elasticsearch docker container and deployed […]
    
   
   
@@ -24921,7 +25434,7 @@ The post <a href="https://realestatecafe.com/leveraging-25k-downpayment-assistan
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This post shows how to implement an OpenID Connect back-channel logout using Keycloak, ASP.NET Core and .NET Aspire. The Keycloak and the Redis cache are run as containers using .NET Aspire. Two ASP.NET Core UI applications are used to demonstrate the server logout. Code: https://github.com/damienbod/keycloak-backchannel Setup The applications are run and tested using .NET Aspire. … … Continue read
+  This post shows how to implement an OpenID Connect back-channel logout using Keycloak, ASP.NET Core and .NET Aspire. The Keycloak and the Redis cache are run as containers using .NET Aspire. Two ASP.NET Core UI applications are used to demonstrate the server logout. Code: https://github.com/damienbod/keycloak-backchannel Setup The applications are run and tested using .NET Aspire. […]
    
   
   
@@ -25576,7 +26089,7 @@ services.AddAuthentication(options =&gt;
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This post shows how to implement an ASP.NET Core application which uses OpenID Connect and OAuth PAR for authentication. The client application uses Keycloak as the identity provider. The Keycloak application is hosted in a docker container. The applications are run locally using .NET Aspire. This makes it really easy to develop using containers. Code: … … Continue reading →
+  This post shows how to implement an ASP.NET Core application which uses OpenID Connect and OAuth PAR for authentication. The client application uses Keycloak as the identity provider. The Keycloak application is hosted in a docker container. The applications are run locally using .NET Aspire. This makes it really easy to develop using containers. Code: […]
    
   
   
@@ -26799,7 +27312,7 @@ The post <a href="https://realestatecafe.com/do-hidden-listings-trick-homebuyers
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  This post shows how to implement a Swagger UI using a .NET 9 produced OpenAPI file. The Swagger UI is deployed to a secure or development environment and is not deployed to a public production target. Sometimes, it is required to deploy the Swagger UI to a development deployment target and not the test or … … Continue reading →
+  This post shows how to implement a Swagger UI using a .NET 9 produced OpenAPI file. The Swagger UI is deployed to a secure or development environment and is not deployed to a public production target. Sometimes, it is required to deploy the Swagger UI to a development deployment target and not the test or […]
    
   
   
@@ -27589,416 +28102,6 @@ that I hope will inform binary distribution in the future. More on that soon.</p
 
 <div class='item-footer'>
    18:25 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Tuesday, 06. August 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://damienbod.com/'>Damien Bod</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://damienbod.com/2024/08/06/implementing-an-asp-net-core-api-with-net-9-and-openapi/'>Implementing an ASP.NET Core API with .NET 9 and OpenAPI</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  This post implements a basic ASP.NET Core API using .NET 9 and the Microsoft OpenAPI implementation. The OpenAPI Nuget package supports both Controller based APIs and minimal APIs. Until now, we used excellent solutions like NSwag to produce the API schemas which can be used to auto-generate client code. Code: https://github.com/damienbod/WebApiOpenApi Setup A .NET 9 … … Continue reading →
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>This post implements a basic ASP.NET Core API using .NET 9 and the Microsoft OpenAPI implementation. The OpenAPI Nuget package supports both Controller based APIs and minimal APIs. Until now, we used excellent solutions like <a href="https://github.com/RicoSuter/NSwag">NSwag</a> to produce the API schemas which can be used to auto-generate client code.</p>
-
-
-
-<p>Code: <a href="https://github.com/damienbod/WebApiOpenApi">https://github.com/damienbod/WebApiOpenApi</a></p>
-
-
-
- Setup 
-
-
-
-<p>A .NET 9 project can be created using the .NET Web API templates. The required SDKs or Visual Studio version needs to be installed. The OpenAPI Json definitions can be created using the Microsoft.AspNetCore.OpenApi Nuget package. Microsoft learn docs have all the different possibilities for implementing this depending on your preferred development environment. Here’s an example using powershell:</p>
-
-
-  Install-Package Microsoft.AspNetCore.OpenApi -IncludePrerelease
-  
-
-
-<p>JWT OAuth authorization is used in this example for the API. I installed the following packages:</p>
-
-
-
- 
- Microsoft.AspNetCore.OpenApi 
-
-
-
- Microsoft.AspNetCore.Authentication.JwtBearer 
-
-
-
- Microsoft.Extensions.ApiDescription.Server 
- 
-
-
-
-<p>The OpenAPI services are added to the project. The API uses JWT Bearer and OAuth and so the OpenAPI definitions should also add this. An BearerSecuritySchemeTransformer implementation was created like in the Microsoft <a href="https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/aspnetcore-openapi">documentation</a>.</p>
-
-
-  builder.Services.AddOpenApi(options =&gt;
-{
-    options.AddDocumentTransformer&lt;BearerSecuritySchemeTransformer&gt;();
-});
-  
-
-
-<p>The BearerSecuritySchemeTransformer class implements the OpenAPI specific definitions. If using cookies, only the document.Info is required and this can be added directly in the services without an extra class. From the Microsoft docs:</p>
-
-
-  internal sealed class BearerSecuritySchemeTransformer(IAuthenticationSchemeProvider authenticationSchemeProvider) : IOpenApiDocumentTransformer
-{
-    public async Task TransformAsync(OpenApiDocument document, OpenApiDocumentTransformerContext context, CancellationToken cancellationToken)
-    {
-        var authenticationSchemes = await authenticationSchemeProvider.GetAllSchemesAsync();
-        if (authenticationSchemes.Any(authScheme =&gt; authScheme.Name == "Bearer"))
-        {
-            var requirements = new Dictionary&lt;string, OpenApiSecurityScheme&gt;
-            {
-                ["Bearer"] = new OpenApiSecurityScheme
-                {
-                    Type = SecuritySchemeType.Http,
-                    Scheme = "bearer", // "bearer" refers to the header name here
-                    In = ParameterLocation.Header,
-                    BearerFormat = "Json Web Token"
-                }
-            };
-            document.Components ??= new OpenApiComponents();
-            document.Components.SecuritySchemes = requirements;
-        }
-        document.Info = new()
-        {
-            Title = "My API Bearer scheme",
-            Version = "v1",
-            Description = "API for Damien"
-        };
-    }
-}
-  
-
-
-<p>The middleware needs to be added to the pipeline. You should only add the OpenAPI in development mode unless you require this in production.</p>
-
-
-  app.MapOpenApi("/openapi/v1/openapi.json");
-  
-
-
-<p>ASP.NET Core supports two types of API implementations; Controller based and minimal APIs. Controller based APIs are used in this project. This API endpoint requires a valid access token and have the different Endpoint definitions. </p>
-
-
-  [Authorize(AuthenticationSchemes = "Bearer")]
-[ApiController]
-[Route("[controller]")]
-public class WeatherForecastController(
-	ILogger&lt;WeatherForecastController&gt; _logger) : ControllerBase
-{
-    [EndpointSummary("This is a summary from OpenApi attributes.")]
-    [EndpointDescription("This is a description from OpenApi attributes.")]
-    [Produces(typeof(IEnumerable&lt;WeatherForecast&gt;))]
-    [HttpGet("GetWeatherForecast")]
-    public IActionResult Get()
-    {
-        _logger.LogDebug("GetWeatherForecast with OpenAPI definitions");
-
-        return Ok(Enumerable.Range(1, 5).Select(index =&gt; new WeatherForecast
-        {
-            Date = DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            TemperatureC = Random.Shared.Next(-20, 55),
-            Summary = Summaries[Random.Shared.Next(Summaries.Length)]
-        })
-        .ToArray());
-    }
-  
-
-
-<p>You can also add definitions for POSTs and parameters or whatever you require. </p>
-
-
-  [EndpointSummary("This is a second summary from OpenApi attributes.")]
-[EndpointDescription("This is a second description from OpenApi attributes.")]
-[Produces(typeof(IEnumerable&lt;WeatherForecast&gt;))]
-[HttpPost("PostWeatherForecast")]
-public IActionResult PostWeatherForecast(
-    [Description("parameter post item using OpenApi")] WeatherForecast weatherForecast)
-{
-    return Ok(weatherForecast);
-}
-  
-
-
-<p></p>
-
-
-
-<p>When the application is started, the Json OpenAPI definitions can be downloaded and used.</p>
-
-
-
-
-
-
-
-<p></p>
-
-
-
- Notes 
-
-
-
-<p>I am not sure how good the OpenAPI specifications are and need to validate how to define the different status codes in the specifications with the correct return types.</p>
-
-
-
- Links 
-
-
-
-<p><a href="https://github.com/martincostello/dotnet-minimal-api-integration-testing">https://github.com/martincostello/dotnet-minimal-api-integration-testing</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/aspnetcore-openapi">https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/aspnetcore-openapi</a></p>
-
-
-
-<p><a href="https://learn.microsoft.com/en-us/aspnet/core/web-api/action-return-types">https://learn.microsoft.com/en-us/aspnet/core/web-api/action-return-types</a></p>
-
-
-
-<p><a href="https://github.com/RicoSuter/NSwag">https://github.com/RicoSuter/NSwag</a></p>
-
-
-
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://damienbod.com/wp-content/uploads/2024/08/openapi_v1_01.png?w=895'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   12:13 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Saturday, 03. August 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://www.rdegges.com'>Randall Degges</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://www.rdegges.com/2024/im-writing-again/'>I'm Writing Again</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-    
- I can’t believe it’s been over two years since I last published an article here! Time really flies. 
- The crazy part is that over these last two years, I’ve done more writing than ever; it just hasn’t been public. 
- Several years back, I started a journaling habit, and since then, most of my writing energy has been redirected from my website to my private journal. 
- While writing in private fee
-   
-  
-  
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://www.rdegges.com/static/images/2024/grim-reaper-writing-sketch.jpeg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p></p>
-<p>I can’t believe it’s been over two years since I last published an article here! Time really flies.</p>
-<p>The crazy part is that over these last two years, I’ve done more writing than ever; it just hasn’t been public.</p>
-<p>Several years back, I started a <a href="https://www.rdegges.com/2022/journaling-the-best-habit-i-picked-up-in-2021" title="Journaling: The Best Habit I Picked Up In 2021">journaling habit</a>, and since then, most of my writing energy has been redirected from my website to my private journal.</p>
-<p>While writing in private feels liberating, as I can dump every little thought in my head into an archive, I find myself missing the more structured and thought-out articles I used to push myself to publish.</p>
-<p>There’s something magical about writing down your thoughts and sharing them with the world, even if nobody sees them. It forces you to rethink your position, clarify your thoughts, and distill the mess in your head into something direct and actionable.</p>
-<p>Over the last couple of years, I have missed that feeling, and the itch to continue writing has returned.</p>
-<p>All this is simply to say that I’m writing again. The title of my website has always been “Random Thoughts of a Happy Programmer,” so please stay tuned for more of my innermost thoughts and experiments.</p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://www.rdegges.com/static/images/2024/grim-reaper-writing-sketch.jpeg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   07:00 &bull;
-   4 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://self-issued.info'>Mike Jones: self-issued</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://self-issued.info/?p=2566'>Fully-Specified Algorithms Specification Addressing Feedback from IETF 120</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Orie Steele and I have updated the “Fully-Specified Algorithms for JOSE and COSE” specification to incorporate feedback from IETF 120 in Vancouver. Specifically, the registrations for fully-specified Elliptic Curve Diffie-Hellman (ECDH) algorithms in draft 03 were removed, along with the previously proposed fully-specified ECDH algorithm identifiers, while continuing to describe how to create fully
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p><a href="https://x.com/OR13b">Orie Steele</a> and I have updated the “Fully-Specified Algorithms for JOSE and COSE” specification to incorporate feedback from <a href="https://www.ietf.org/meeting/120/">IETF 120 in Vancouver</a>.  Specifically, the registrations for fully-specified Elliptic Curve Diffie-Hellman (ECDH) algorithms in draft 03 were removed, along with the previously proposed fully-specified ECDH algorithm identifiers, while continuing to describe how to create fully-specified ECDH algorithms in the future, if needed.</p>
-<p>The specification is available at:</p>
- 
- <a href="https://www.ietf.org/archive/id/draft-ietf-jose-fully-specified-algorithms-04.html">https://www.ietf.org/archive/id/draft-ietf-jose-fully-specified-algorithms-04.html</a> 
- 
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://self-issued.info/images/ietf-logo.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   05:13 &bull;
    4 months ago
 </div>
 
