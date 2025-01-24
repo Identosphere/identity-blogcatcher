@@ -746,7 +746,7 @@
 
 </div>
 </div>
-<sup>Last Update 6:47 AM January 23, 2025 (UTC)</sup>
+<sup>Last Update 6:47 AM January 24, 2025 (UTC)</sup>
 <iframe src="https://identosphere.substack.com/embed" width="400" height="267" style="border:1px solid #EEE; background:#f0f0f0;" frameborder="0" align="right" scrolling="no"></iframe>
 
 <h1>Identity Blog Catcher</h1>
@@ -757,8 +757,597 @@
 
 
  <h2 class='new-date'>
+  Friday, 24. January 2025
+ </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2025/Jan/24/anthropics-new-citations-api/#atom-everything'>Anthropic's new Citations API</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Here's a new API-only feature from Anthropic that requires quite a bit of assembly in order to unlock the value: Introducing Citations on the Anthropic API. Let's talk about what this is and why it's interesting. 
+
+ 
+   Citations for Retrieval Augmented Generation 
+   Trying out the new API with uv run 
+   Rendering the citations 
+   Now I need to design an abstraction layer for LLM 
+   Anthropic'
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2025/render-citations-artifact.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p>Here's a new API-only feature from Anthropic that requires quite a bit of assembly in order to unlock the value: <a href="https://www.anthropic.com/news/introducing-citations-api">Introducing Citations on the Anthropic API</a>. Let's talk about what this is and why it's interesting.</p>
+
+ 
+   <a href="https://simonwillison.net/2025/Jan/24/anthropics-new-citations-api/#citations-for-rag">Citations for Retrieval Augmented Generation</a> 
+   <a href="https://simonwillison.net/2025/Jan/24/anthropics-new-citations-api/#trying-out-the-new-api-with-uv-run">Trying out the new API with uv run</a> 
+   <a href="https://simonwillison.net/2025/Jan/24/anthropics-new-citations-api/#rendering-the-citations">Rendering the citations</a> 
+   <a href="https://simonwillison.net/2025/Jan/24/anthropics-new-citations-api/#now-i-need-to-design-an-abstraction-layer-for-llm">Now I need to design an abstraction layer for LLM</a> 
+   <a href="https://simonwillison.net/2025/Jan/24/anthropics-new-citations-api/#anthropic-s-strategy-contrasted-with-openai">Anthropic's strategy contrasted with OpenAI</a> 
+ 
+
+ Citations for Retrieval Augmented Generation 
+
+<p>The core of the <a href="https://simonwillison.net/tags/rag/">Retrieval Augmented Generation</a> (RAG) pattern is to take a user's question, retrieve portions of documents that might be relevant to that question and then answer the question by including those text fragments in the context provided to the LLM.</p>
+<p>This usually works well, but there is still a risk that the model may answer based on other information from its training data (sometimes OK) or hallucinate entirely incorrect details (definitely bad).</p>
+<p>The best way to help mitigate these risks is to support the answer with citations that incorporate direct quotations from the underlying source documents. This even acts as a form of fact-checking: the user can confirm that the quoted text did indeed come from those documents, helping provide relatively robust protection against hallucinated details resulting in incorrect answers.</p>
+<p>Actually building a system that does this can be quite tricky. Matt Yeung described a pattern for this he called <a href="https://mattyyeung.github.io/deterministic-quoting">Deterministic Quoting</a> last April, where answers are accompanied by direct quotations from the source documents that are guaranteed to be copied across and not lossily transformed by the model.</p>
+<p>This is a great idea, but actually building it requires some quite sophisticated prompt engineering and complex implementation code.</p>
+<p>Claude's new <a href="https://docs.anthropic.com/en/docs/build-with-claude/citations">Citations API</a> mechanism handles the difficult parts of this for you. You still need to implement most of RAG - identifying potentially relevant documents, then feeding that content in as part of the prompt - but Claude's API will then do the difficult work of extracting relevant citations and including them in the response that it sends back to you.</p>
+ Trying out the new API with uv run 
+<p>I tried the API out using Anthropic's Python client library, which was <a>just updated</a> to support the citations API.</p>
+<p>I ran a scratch Python 3.13 interpreter with that package using <a href="https://docs.astral.sh/uv/">uv run</a> like this (after first setting the necessary <code>ANTHROPIC_API_KEY</code> environment variable using <a href="https://llm.datasette.io/en/stable/help.html#llm-keys-get-help">llm keys get</a>):</p>
+  export ANTHROPIC_API_KEY="$(llm keys get claude)"
+uv run --with anthropic --python 3.13 python  
+<p>Python 3.13 has <a href="https://docs.python.org/3/whatsnew/3.13.html#a-better-interactive-interpreter">a nicer interactive interpreter</a> which you can more easily paste code into. Using <code>uv run</code> like this gives me an environment with that package pre-installed without me needing to setup a virtual environment as a separate step.</p>
+<p>Then I ran the following code, adapted from <a href="https://docs.anthropic.com/en/docs/build-with-claude/citations">Anthropic's example</a>. The <a href="https://gist.github.com/simonw/9fbb3c2e2c40c181727e497e358fd7ce">text.txt Gist</a> contains text I copied out from my <a href="https://simonwillison.net/2024/Dec/31/llms-in-2024/">Things we learned about LLMs in 2024</a> post.</p>
+ import urllib.request
+import json
+
+url = 'https://gist.githubusercontent.com/simonw/9fbb3c2e2c40c181727e497e358fd7ce/raw/6ac20704f5a46b567b774b07fd633a74944bab2b/text.txt'
+text = urllib.request.urlopen(url).read().decode('utf-8')
+
+import anthropic
+
+client = anthropic.Anthropic()
+
+response = client.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    messages=[
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "text",
+                        "media_type": "text/plain",
+                        "data": text,
+                    },
+                    "title": "My Document",
+                    "context": "This is a trustworthy document.",
+                    "citations": {"enabled": True}
+                },
+                {
+                    "type": "text",
+                    "text": "What were the top trends?"
+                }
+            ]
+        }
+    ]
+)
+print(json.dumps(response.to_dict(), indent=2)) 
+<p>The JSON output from that starts like this:</p>
+  {
+  "id": "msg_01P3zs4aYz2Baebumm4Fejoi",
+  "content": [
+    {
+      "text": "Based on the document, here are the key trends in AI/LLMs from 2024:\n\n1. Breaking the GPT-4 Barrier:\n",
+      "type": "text"
+    },
+    {
+      "citations": [
+        {
+          "cited_text": "I\u2019m relieved that this has changed completely in the past twelve months. 18 organizations now have models on the Chatbot Arena Leaderboard that rank higher than the original GPT-4 from March 2023 (GPT-4-0314 on the board)\u201470 models in total.\n\n",
+          "document_index": 0,
+          "document_title": "My Document",
+          "end_char_index": 531,
+          "start_char_index": 288,
+          "type": "char_location"
+        }
+      ],
+      "text": "The GPT-4 barrier was completely broken, with 18 organizations now having models that rank higher than the original GPT-4 from March 2023, with 70 models in total surpassing it.",
+      "type": "text"
+    },
+    {
+      "text": "\n\n2. Increased Context Lengths:\n",
+      "type": "text"
+    },  
+<p>Here's <a href="https://gist.github.com/simonw/022d082ccfd636256f72150df344335e">the full response</a>.</p>
+<p>This format is pretty interesting! It's the standard Claude format but those <code>"content"</code> blocks now include an optional additional <code>"citations"</code> key which contains a list of relevant citation extracts that support the claim in the <code>"text"</code> block.</p>
+ Rendering the citations 
+<p>Eyeballing the JSON output wasn't particularly fun. I wanted a very quick tool to help me see that output in a more visual way.</p>
+<p>A trick I've been using a lot recently is that LLMs like Claude are really good at writing code to turn arbitrary JSON shapes like this into a more human-readable format.</p>
+<p>I fired up my <a href="https://simonwillison.net/2024/Dec/19/one-shot-python-tools/#custom-instructions">Artifacts project</a>, pasted in the above JSON and prompted it like this:</p>
+<blockquote>
+<p>Build a tool where I can paste JSON like this into a textarea and the result will be rendered in a neat way - it should should intersperse text with citations, where each citation has the cited_text rendered in a blockquote</p>
+</blockquote>
+<p>It helped me <a href="https://tools.simonwillison.net/render-claude-citations">build this tool</a> (<a href="https://gist.github.com/simonw/85bd050908486de36b078c8c7d01e903">follow-up prompt here</a>), which lets you paste in JSON and produces a rendered version of the text:</p>
+<p></p>
+ Now I need to design an abstraction layer for LLM 
+<p>I'd like to upgrade my <a href="https://llm.datasette.io/">LLM</a> tool and <a href="https://github.com/simonw/llm-claude-3">llm-claude-3</a> plugin to include support for this new feature... but doing so is going to be relatively non-trivial.</p>
+<p>The problem is that LLM currently bakes in an assumption that all LLMs respond with a stream of text.</p>
+<p>With citations, this is no longer true! Claude is now returning chunks of text that aren't just a plain string - they are annotated with citations, which need to be stored and processed somehow by the LLM library.</p>
+<p>This isn't the only edge-case of this type. DeepSeek recently released their Reasoner API which has a similar problem: it can return two different types of text, one showing reasoning text and one showing final content. I <a href="https://gist.github.com/simonw/a5ca117dd0325c93a5b1f5a18c4a9e34">described those differences here</a>.</p>
+<p>I've opened a design issue to tackle this challenge in the LLM repository: <a href="https://github.com/simonw/llm/issues/716">Design an abstraction for responses that are not just a stream of text</a>.</p>
+ Anthropic's strategy contrasted with OpenAI 
+<p>Another interesting aspect of this release is how it helps illustrate a strategic difference between Anthropic and OpenAI.</p>
+<p>OpenAI are increasingly behaving like a consumer products company. They just made a big splash with their <a href="https://simonwillison.net/2025/Jan/23/introducing-operator/">Operator</a> browser-automation agent system - a much more polished, consumer-product version of Anthropic's own <a href="https://simonwillison.net/2025/Jan/23/introducing-operator/">Computer Use</a> demo from a few months ago.</p>
+<p>Meanwhile, Anthropic are clearly focused much more on the developer / "enterprise" market. This Citations feature is API-only and directly addresses a specific need that developers trying to build reliable RAG systems on top of their platform may not even have realized they had.</p>
+    
+        <p>Tags: <a href="https://simonwillison.net/tags/tools">tools</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/openai">openai</a>, <a href="https://simonwillison.net/tags/prompt-engineering">prompt-engineering</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/ai-assisted-programming">ai-assisted-programming</a>, <a href="https://simonwillison.net/tags/llm">llm</a>, <a href="https://simonwillison.net/tags/anthropic">anthropic</a>, <a href="https://simonwillison.net/tags/claude">claude</a>, <a href="https://simonwillison.net/tags/rag">rag</a>, <a href="https://simonwillison.net/tags/claude-artifacts">claude-artifacts</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2025/render-citations-artifact.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   04:22 &bull;
+   2 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2025/Jan/24/dustin-ewers/#atom-everything'>Quoting Dustin Ewers</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    AI tools create a significant productivity boost for developers. Different folks report different gains, but most people who try AI code generation recognize its ability to increase velocity. Many people think that means we’re going to need fewer developers, and our industry is going to slowly circle the drain. 
+ This view is based on a misunderstanding of why people pay for software. A business 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <blockquote cite="https://dustinewers.com/ignore-the-grifters/"><p>AI tools create a significant productivity boost for developers. Different folks report different gains, but most people who try AI code generation recognize its ability to increase velocity. Many people think that means we’re going to need fewer developers, and our industry is going to slowly circle the drain.</p>
+<p>This view is based on a misunderstanding of why people pay for software. A business creates software because they think that it will give them some sort of economic advantage. The investment needs to pay for itself with interest. There are many software projects that would help a business, but businesses aren’t going to do them because the return on investment doesn’t make sense.</p>
+<p>When software development becomes more efficient, the ROI of any given software project increases, which unlocks more projects. [...] Cheaper software means people are going to want more of it. More software means more jobs for increasingly efficient software developers.</p></blockquote>
+<p>— <a href="https://dustinewers.com/ignore-the-grifters/">Dustin Ewers</a>, Ignore the Grifters - AI Isn't Going to Kill the Software Industry</p>
+
+    <p>Tags: <a href="https://simonwillison.net/tags/ai-assisted-programming">ai-assisted-programming</a>, <a href="https://simonwillison.net/tags/ethics">ethics</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   03:34 &bull;
+   3 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+ <h2 class='new-date'>
   Thursday, 23. January 2025
  </h2>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='http://simonwillison.net'>Simon Willison</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2025/Jan/23/deepseek-r1/#atom-everything'>Quoting DeepSeek R1</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+    I can’t reference external reports critical of China. Need to emphasize China’s policies on ethnic unity, development in Xinjiang, and legal protections. Avoid any mention of controversies or allegations to stay compliant.  
+ — DeepSeek R1, internal dialogue as seen by Jon Keegan 
+
+     Tags: ethics, generative-ai, deepseek, ai, llms, inference-scaling 
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <blockquote cite="https://sherwood.news/tech/a-free-powerful-chinese-ai-model-just-dropped-but-dont-ask-it-about/"><p>I can’t reference external reports critical of China. Need to emphasize China’s policies on ethnic unity, development in Xinjiang, and legal protections. Avoid any mention of controversies or allegations to stay compliant.</p></blockquote>
+<p>— <a href="https://sherwood.news/tech/a-free-powerful-chinese-ai-model-just-dropped-but-dont-ask-it-about/">DeepSeek R1</a>, internal dialogue as seen by Jon Keegan</p>
+
+    <p>Tags: <a href="https://simonwillison.net/tags/ethics">ethics</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/deepseek">deepseek</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/inference-scaling">inference-scaling</a></p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   19:26 &bull;
+   11 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://simonwillison.net/2025/Jan/23/introducing-operator/#atom-everything'>Introducing Operator</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+   Introducing Operator 
+OpenAI released their "research preview" today of Operator, a cloud-based browser automation platform rolling out today to $200/month ChatGPT Pro subscribers. 
+ They're calling this their first "agent". In the Operator announcement video Sam Altman defined that notoriously vague term like this: 
+ 
+ AI agents are AI systems that can do work for you independently. You give them
+   
+  
+  
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://static.simonwillison.net/static/2025/operator-1.jpg'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+  <p><a href="https://openai.com/index/introducing-operator/">Introducing Operator</a></p>
+OpenAI released their "research preview" today of Operator, a cloud-based browser automation platform rolling out today to $200/month ChatGPT Pro subscribers.<p></p>
+<p>They're calling this their first "agent". In the Operator announcement video Sam Altman defined that <a href="https://simonwillison.net/2024/Dec/31/llms-in-2024/#-agents-still-haven-t-really-happened-yet">notoriously vague term</a> like this:</p>
+<blockquote>
+<p>AI agents are AI systems that can do work for you independently. You give them a task and they go off and do it.</p>
+<p>We think this is going to be a big trend in AI and really impact the work people can do, how productive they can be, how creative they can be, what they can accomplish.</p>
+</blockquote>
+<p>The Operator interface looks very similar to Anthropic's <a href="https://simonwillison.net/2024/Oct/22/computer-use/">Claude Computer Use</a> demo from October, even down to the interface with a chat panel on the left and a visible interface being interacted with on the right. Here's Operator:</p>
+<p></p>
+<p>And here's Claude Computer Use:</p>
+<p></p>
+<p>Claude Computer Use required you to run a own Docker container on your own hardware. Operator is much more of a product - OpenAI host a Chrome instance for you in the cloud, providing access to the tool via their website.</p>
+<p>Operator runs on top of a brand new model that OpenAI are calling CUA, for Computer-Using Agent. Here's <a href="https://openai.com/index/computer-using-agent/">their separate announcement</a> covering that new model, which should also be available via their API in the coming weeks.</p>
+<p>This demo version of Operator is understandably cautious: it frequently asked users for confirmation to continue. It also provides a "take control" option which OpenAI's demo team used to take over and enter credit card details to make a final purchase.</p>
+<p>The million dollar question around this concerns how they deal with security. Claude Computer Use <a href="https://simonwillison.net/2024/Oct/25/zombais/">fell victim to prompt injection attack at the first hurdle</a>.</p>
+<p>Here's what <a href="https://openai.com/index/computer-using-agent/#safety">OpenAI have to say about that</a>:</p>
+<blockquote>
+<p>One particularly important category of model mistakes is adversarial attacks on websites that cause the CUA model to take unintended actions, through prompt injections, jailbreaks, and phishing attempts. In addition to the aforementioned mitigations against model mistakes, we developed several additional layers of defense to protect against these risks:</p>
+ 
+ Cautious navigation: The CUA model is designed to identify and ignore prompt injections on websites, recognizing all but one case from an early internal red-teaming session. 
+ Monitoring: In Operator, we've implemented an additional model to monitor and pause execution if it detects suspicious content on the screen. 
+ Detection pipeline: We're applying both automated detection and human review pipelines to identify suspicious access patterns that can be flagged and rapidly added to the monitor (in a matter of hours). 
+ 
+</blockquote>
+<p>Color me skeptical. I imagine we'll see all kinds of novel successful prompt injection style attacks against this model once the rest of the world starts to explore it.</p>
+<p>My initial recommendation: start a fresh session for each task you outsource to Operator to ensure it doesn't have access to your credentials for any sites that you have used via the tool in the past. If you're having it spend money on your behalf let it get to the checkout, then provide it with your payment details and wipe the session straight afterwards.</p>
+<p>The <a href="https://cdn.openai.com/operator_system_card.pdf">Operator System Card PDF</a> has some interesting additional details. From the "limitations" section:</p>
+<blockquote>
+<p>Despite proactive testing and mitigation efforts, certain challenges and risks remain due to the difficulty of modeling the complexity of real-world scenarios and the dynamic nature of adversarial threats. Operator may encounter novel use cases post-deployment and exhibit different patterns of errors or model mistakes. Additionally, we expect that adversaries will craft novel prompt injection attacks and jailbreaks. Although we’ve deployed multiple mitigation layers, many rely on machine learning models, and with adversarial robustness still an open research problem, defending against emerging attacks remains an ongoing challenge.</p>
+</blockquote>
+<p>Plus this interesting note on the CUA model's limitations:</p>
+<blockquote>
+<p>The CUA model is still in its early stages. It performs best on short, repeatable tasks but faces challenges with more complex tasks and environments like slideshows and calendars.</p>
+</blockquote>
+
+
+    <p>Tags: <a href="https://simonwillison.net/tags/prompt-injection">prompt-injection</a>, <a href="https://simonwillison.net/tags/security">security</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/ai-agents">ai-agents</a>, <a href="https://simonwillison.net/tags/openai">openai</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/anthropic">anthropic</a>, <a href="https://simonwillison.net/tags/claude">claude</a></p>
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://static.simonwillison.net/static/2025/operator-1.jpg'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   19:15 &bull;
+   12 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://newsletter.pragmaticengineer.com/'>The Pragmatic Engineer</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+ <a href='https://newsletter.pragmaticengineer.com/p/the-pulse-121'>The Pulse #121: Netflix’s remarkable turnaround</a>
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  In two years, the streaming giant’s valuation increased by 4x. Also: learnings from a managed database service losing customer data, and more.
+   
+  
+  
+  
+  
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+<p>The Pulse is <a href="https://newsletter.pragmaticengineer.com/s/the-pulse">a series</a> covering insights, patterns, and trends within Big Tech and startups. Notice an interesting event or trend? <a href="https://blog.pragmaticengineer.com/contact/">Send me a message</a>.</p><p>Today, we cover:</p>  <p>Industry pulse. TikTok’s gamble pays off, Stripe and Meta do 4-5% layoffs, Reflections on a month of using Devin, Hundreds of billions in AI infra investments, Amazon’s AI models fail to impress, Google allows malware Homebrew install links as sponsored Search results, and more.</p>  <p>Netflix’s remarkable turnaround. In two years, Netflix went from growth stalling – and the company’s valuation in freefall – to all-time-high user numbers and valuation. The standout stock price growth means that Netflix employees who opted to take a part of their compensation as stock options most certainly did better than those opting for all-cash packages.</p>  <p>Managed database service loses customer data. Database-as-a-service Turso lost customer data thanks to no backups running on beta service offerings. There are learnings not just for the startup – launching a service without backups running doesn’t feel like a responsible move – but also for all engineering teams. Don’t assume your vendor does backups: validate that they do.</p>   1. Industry Pulse  TikTok’s gamble pays off? 
+      <p>
+          <a href="https://newsletter.pragmaticengineer.com/p/the-pulse-121">
+              Read more
+          </a>
+      </p>
+   
+  
+  
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   17:41 &bull;
+   13 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
+
+
+
+<article class='item'>
+
+
+<h4 class='feed-title'>
+  <a href='https://john.philpin.com'>John Philpin : Lifestream</a>
+</h4>
+
+
+<h3 class='item-title'>
+ <i class='icon-caret-down item-collapse item-close item-opened'></i>
+ <i class='icon-caret-right item-expand item-open item-closed'></i>
+
+  
+    
+    <a href='https://john.philpin.com/2025/01/23/051506.html'></a>
+  
+
+</h3>
+
+<div class='item-body'>
+
+<div class='item-snippet'>
+<!-- use 'smarter' algorithm for cutoff snippet text
+   note: summary goes first; than try content -->
+
+  
+   
+  
+  
+    
+      <div class="preview">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2025/8c360ffc8f.png'>
+      </div>
+    
+  
+
+</div>
+<div class='item-content item-summary'>
+
+<!-- todo: use sanitize or simplify or whitelist
+   - todo/fix: check why summary can be nil/null
+   note: content goes first; than try summary
+ -->
+<div class='wrap'>
+
+
+   
+  
+  
+    
+      <div class="photo">
+        
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2025/8c360ffc8f.png'>
+      </div>
+    
+  
+
+</div>
+</div>
+
+<div class='item-footer'>
+   13:15 &bull;
+   18 hours ago
+</div>
+
+</div><!-- item-body -->
+
+</article><!-- item -->
+
+
+
+
+  <hr class='item-seperator'>
 
 
 
@@ -826,7 +1415,7 @@ New release of my <a href="https://llm.datasette.io/">LLM</a> CLI tool and Pytho
 
 <div class='item-footer'>
    04:55 &bull;
-   2 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -862,7 +1451,7 @@ New release of my <a href="https://llm.datasette.io/">LLM</a> CLI tool and Pytho
 <!-- use 'smarter' algorithm for cutoff snippet text
    note: summary goes first; than try content -->
 
-  Twenty-fourth in the News Commons series. 8:10pm—The LA Times reports that the I-5 is open again. (That link goes to their ongoing coverage.) Here is what CAL FIRE says about current fires and their containment: Note that the Palisades and Eaton Fires are still not fully contained, though we haven’t been worried about them in […]
+  Twenty-fourth in the News Commons series. 7:35 am January 23, 2024—It’s morning now. The Hughes Fire is 17% contained but no longer interesting. The Sepulveda Fire broke out last night along the 405 freeway. It stopped at forty acres, and doesn’t matter much now. Here’s the path of one fire helicopter shuttling between the two […]
    
   
   
@@ -880,15 +1469,32 @@ New release of my <a href="https://llm.datasette.io/">LLM</a> CLI tool and Pytho
 <div class='wrap'>
 
 <p>Twenty-fourth in the <a href="https://doc.searls.com/news-commons/">News Commons</a> series.</p>
-<p>8:10pm—The LA Times <a href="https://www.latimes.com/california/live/la-southern-california-fire-weather-rain-wind">reports</a> that the I-5 is open again. (That link goes to their ongoing coverage.) Here is what <a href="https://www.fire.ca.gov/">CAL FIRE</a> says about current fires and their containment:</p>
+<p>7:35 am January 23, 2024—It’s morning now. The Hughes Fire is 17% contained but no longer interesting. The <a href="https://laist.com/brief/news/climate-environment/sepulveda-fire-along-the-405-freeway">Sepulveda Fire</a> broke out last night along the 405 freeway. It stopped at forty acres, and doesn’t matter much now. Here’s the path of one fire helicopter shuttling between the two fire sites:</p>
+<p><a href="https://www.flightradar24.com/"></a></p>
+<p>So reporting is now off the fires themselves. Let’s look at these six screen grabs—</p>
+<p></p>
+<p>—and put them where they go on this table:</p>
+<p></p>
+<p>The rows are requirements of story-telling. The columns are stages of disaster news coverage.</p>
+<p>In these screen grabs—</p>
+ 
+ Channel 4 is doing a mix of live reporting and human interest, focusing on how some characters (school kids) are doing nice things for firefighters. 
+ Channel 5 is doing live reporting from the Sepulveda Fire, which is pretty much out. 
+ Channel 7 has a weather forecast, for rain, which is long overdue and will put a damper on the fires. (An aside: my wife observes that “weather people on TV are either crusty old dudes or hot young women.”) 
+ KCAL/9 has an interview with a fire official working toward coming to an understanding while earlier footage (recalling live coverage) shows to his right. 
+ KTTV/11 (the Fox channel) is showing some public service stuff mixed with promotional jive. It’s&nbsp;between news segments and regular programming, so not news at all. 
+ Telemundo (Channel 52) is reporting on a church recovering from the Eaton Fire. That’s a mix of live reporting and human interest. 
+ Blame is not in any of these. If you want some of that, <a href="https://www.latimes.com/california/story/2025-01-23/la-me-altadena-evacuations-criticism">here’s the latest from the LA Times</a>. 
+ 
+<p>What I’m trying to do with this table is show how the requirements of a story (character, problem, movement) are met by the four stages of story-telling by journalists. Every story you see, hear, or read will play across that grid. Of course, none matter more than #4, which is more complicated and less interesting than the other three stages. But, that is where most facts will go. For more on that, see <a href="https://doc.searls.com/2025/01/14/how-facts-matter/">How Facts Matter</a>.</p>
+<p>8:10 pm—The LA Times <a href="https://www.latimes.com/california/live/la-southern-california-fire-weather-rain-wind">reports</a> that the I-5 is open again. (That link goes to their ongoing coverage.) Here is what <a href="https://www.fire.ca.gov/">CAL FIRE</a> says about current fires and their containment:</p>
 <p></p>
 <p>Note that the Palisades and Eaton Fires are still not fully contained, though we haven’t been worried about them in a while. The same will happen with the Hughes Fire. While it is currently 0% contained, that does not mean it hasn’t been slowed or halted along stretches of its perimeter. Full containment means firefighters are sure the fire will not spread beyond control lines. And they are very cautious about the numbers they share. The winds later tonight and tomorrow are still a concern, and thousands of people remain evacuated.</p>
-<p>5:40pm—I just heard on one of the TV channels that<a href="https://en.wikipedia.org/wiki/Interstate_5_in_California"> The I-Five, aka The Grapevine</a>, is likely to be opened again soon. All the channels sound more optimistic about the paths of the fire. Smoke is also flowing upwards rather than sideways, so that’s less of a concern as well.</p>
+<p>5:40 pm—I just heard on one of the TV channels that<a href="https://en.wikipedia.org/wiki/Interstate_5_in_California"> The I-Five, aka The Grapevine</a>, is likely to be opened again soon. All the channels sound more optimistic about the paths of the fire. Smoke is also flowing upwards rather than sideways, so that’s less of a concern as well.</p>
 <p>Night has also fallen, meaning the flames are far more dramatic:</p>
 <p></p>
 <p>Great TV, but not more to worry about.</p>
-Live coverage of the Hughes Fire in Castaic by TV channels 4, 5, 7, 9, 11, and 52.
-<p>3:45pm—Watching the Los Angeles TV stations (each with a tab in my browser) cover the Hughes Fire. I have them arranged by channel number. (Note that NBC’s 4 and Telemundo’s 52 are co-teamed. One reporter’s mike says NBC4 on two sides and T—for Telemundo—52 on two sides.) Including the above, here are all the media we’re watching, reading, and listening to:</p>
+<p></p>3:45 pm—Watching the Los Angeles TV stations (each with a tab in my browser) cover the Hughes Fire. I have them arranged by channel number. (Note that NBC’s 4 and Telemundo’s 52 are co-teamed. One reporter’s mike says NBC4 on two sides and T—for Telemundo—52 on two sides.) Including the above, here are all the media we’re watching, reading, and listening to:<p></p>
  
  <a href="https://www.nbclosangeles.com/watch/">KNBC/4</a> 
  <a href="https://ktla.com/news/">KTLA/5</a> 
@@ -933,7 +1539,7 @@ Live coverage of the Hughes Fire in Castaic by TV channels 4, 5, 7, 9, 11, and 5
     
       <div class="photo">
         
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://150108457.v2.pressablecdn.com/wp-content/uploads/2025/01/Screenshot-2025-01-22-at-11.15.08 PM.png'>
+        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://150108457.v2.pressablecdn.com/wp-content/uploads/2025/01/chopper.png'>
       </div>
     
   
@@ -943,7 +1549,7 @@ Live coverage of the Hughes Fire in Castaic by TV channels 4, 5, 7, 9, 11, and 5
 
 <div class='item-footer'>
    00:36 &bull;
-   6 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1014,7 +1620,7 @@ Live coverage of the Hughes Fire in Castaic by TV channels 4, 5, 7, 9, 11, and 5
 
 <div class='item-footer'>
    23:59 &bull;
-   7 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1109,7 +1715,7 @@ Brand new research paper from OpenAI, exploring how inference-scaling "reasoning
 
 <div class='item-footer'>
    23:17 &bull;
-   8 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1173,7 +1779,7 @@ Brand new research paper from OpenAI, exploring how inference-scaling "reasoning
 
 <div class='item-footer'>
    17:51 &bull;
-   13 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1246,7 +1852,7 @@ Fantastically creative hack by Theia Vogel. The <a href="https://simonwillison.n
 
 <div class='item-footer'>
    16:48 &bull;
-   14 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1335,7 +1941,7 @@ permit(
 
 <div class='item-footer'>
    13:55 &bull;
-   17 hours ago
+   a day ago
 </div>
 
 </div><!-- item-body -->
@@ -1418,7 +2024,7 @@ This new release of my <code>llm-gemini</code> plugin adds support for two new e
 
 <div class='item-footer'>
    04:32 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1487,7 +2093,7 @@ Handy detailed instructions from Awni Hannun on running the enormous DeepSeek R1
 
 <div class='item-footer'>
    04:15 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1614,7 +2220,7 @@ llm consortium "Best way to prepare avocado toast" \
 
 <div class='item-footer'>
    02:09 &bull;
-   a day ago
+   2 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1711,7 +2317,7 @@ END</code> <p>BASIC code to calculate the nth Fibonacci number</p><p>Allen and G
 
 <div class='item-footer'>
    17:24 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1789,7 +2395,7 @@ An entertaining and informative read by Bruce Schneier and Nathan E. Sanders.<p>
 
 <div class='item-footer'>
    15:12 &bull;
-   a day ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1855,7 +2461,7 @@ An entertaining and informative read by Bruce Schneier and Nathan E. Sanders.<p>
 
 <div class='item-footer'>
    12:42 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -1940,7 +2546,7 @@ An entertaining and informative read by Bruce Schneier and Nathan E. Sanders.<p>
 
 <div class='item-footer'>
    03:58 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2018,7 +2624,7 @@ An entertaining and informative read by Bruce Schneier and Nathan E. Sanders.<p>
 
 <div class='item-footer'>
    02:50 &bull;
-   2 days ago
+   3 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2178,7 +2784,7 @@ Punchline: "This isn't so fishy anymore" is a pun on the situation becoming less
 
 <div class='item-footer'>
    15:20 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2245,7 +2851,7 @@ Punchline: "This isn't so fishy anymore" is a pun on the situation becoming less
 
 <div class='item-footer'>
    14:19 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2654,7 +3260,7 @@ builder.Services.AddDistributedMemoryCache();
 
 <div class='item-footer'>
    07:34 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2720,7 +3326,7 @@ builder.Services.AddDistributedMemoryCache();
 
 <div class='item-footer'>
    05:05 &bull;
-   3 days ago
+   4 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2825,7 +3431,7 @@ Images from a Google image search for “LA fires aftermath.” Sources listed b
 
 <div class='item-footer'>
    17:08 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2897,7 +3503,7 @@ Images from a Google image search for “LA fires aftermath.” Sources listed b
 
 <div class='item-footer'>
    15:36 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -2963,7 +3569,7 @@ Images from a Google image search for “LA fires aftermath.” Sources listed b
 
 <div class='item-footer'>
    15:08 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3025,7 +3631,7 @@ Images from a Google image search for “LA fires aftermath.” Sources listed b
 
 <div class='item-footer'>
    14:04 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3093,7 +3699,7 @@ Images from a Google image search for “LA fires aftermath.” Sources listed b
 
 <div class='item-footer'>
    04:20 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3171,7 +3777,7 @@ Images from a Google image search for “LA fires aftermath.” Sources listed b
 
 <div class='item-footer'>
    03:38 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3240,7 +3846,7 @@ TikTok may or may not be banned in the USA within the next 24 hours or so. I fig
 
 <div class='item-footer'>
    02:05 &bull;
-   4 days ago
+   5 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3322,7 +3928,7 @@ This is surprising: DeepSeek offer the only hosted LLM API I've seen that doesn'
 
 <div class='item-footer'>
    18:24 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3405,7 +4011,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    18:13 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3494,7 +4100,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    17:06 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3566,7 +4172,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    14:59 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3634,7 +4240,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    14:34 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3696,7 +4302,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    13:38 &bull;
-   5 days ago
+   6 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3770,7 +4376,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    15:09 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3838,7 +4444,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    14:18 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3906,7 +4512,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    12:42 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -3991,7 +4597,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    06:06 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4063,7 +4669,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    22:38 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4129,7 +4735,7 @@ New paper from Microsoft describing their top eight lessons learned red teaming 
 
 <div class='item-footer'>
    19:21 &bull;
-   6 days ago
+   7 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4198,7 +4804,7 @@ We are running another Datasette Public Office Hours event <a href="https://disc
 
 <div class='item-footer'>
    18:38 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4267,7 +4873,7 @@ We are running another Datasette Public Office Hours event <a href="https://disc
 
 <div class='item-footer'>
    17:54 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4360,7 +4966,7 @@ GitHub just shipped the largest set of changes to GitHub Issues I can remember i
 
 <div class='item-footer'>
    17:41 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4426,7 +5032,7 @@ GitHub just shipped the largest set of changes to GitHub Issues I can remember i
 
 <div class='item-footer'>
    16:14 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4498,7 +5104,7 @@ GitHub just shipped the largest set of changes to GitHub Issues I can remember i
 
 <div class='item-footer'>
    15:07 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4576,7 +5182,7 @@ I learned a bunch about how chip manufacture works from this piece where Cerebra
 
 <div class='item-footer'>
    00:38 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4642,7 +5248,7 @@ I learned a bunch about how chip manufacture works from this piece where Cerebra
 
 <div class='item-footer'>
    20:46 &bull;
-   7 days ago
+   8 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4714,7 +5320,7 @@ I learned a bunch about how chip manufacture works from this piece where Cerebra
 
 <div class='item-footer'>
    16:15 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -4780,7 +5386,7 @@ I learned a bunch about how chip manufacture works from this piece where Cerebra
 
 <div class='item-footer'>
    14:25 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5052,7 +5658,7 @@ if (response.IsSuccessStatusCode)
 
 <div class='item-footer'>
    08:18 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5153,7 +5759,7 @@ OpenAI just started rolling out <a href="https://help.openai.com/en/articles/102
 
 <div class='item-footer'>
    01:40 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5227,7 +5833,7 @@ OpenAI just started rolling out <a href="https://help.openai.com/en/articles/102
 
 <div class='item-footer'>
    20:50 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5293,7 +5899,7 @@ OpenAI just started rolling out <a href="https://help.openai.com/en/articles/102
 
 <div class='item-footer'>
    19:23 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5380,7 +5986,7 @@ OpenAI just started rolling out <a href="https://help.openai.com/en/articles/102
 
 <div class='item-footer'>
    19:00 &bull;
-   8 days ago
+   9 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5503,7 +6109,7 @@ OpenAI just started rolling out <a href="https://help.openai.com/en/articles/102
 
 <div class='item-footer'>
    17:37 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5556,7 +6162,7 @@ OpenAI just started rolling out <a href="https://help.openai.com/en/articles/102
  -->
 <div class='wrap'>
 
-<p>These days, it seems almost everyone owns a smartphone. In the US, <a href="https://www.pewresearch.org/internet/fact-sheet/mobile/">91% of adults</a> have one, in Europe, this figure is <a href="https://www.statista.com/forecasts/1147144/smartphone-penetration-forecast-in-europe">89%</a>, while in India, Deloitte <a href="https://economictimes.indiatimes.com/industry/cons-products/electronics/india-to-have-1-billion-smartphone-users-by-2026-deloitte/articleshow/89750324.cms">predicts</a> 75% of adults will have a smartphone by 2026. In total, there are an <a href="https://www.bankmycell.com/blog/how-many-phones-are-in-the-world">estimated 4.8 billion</a> smartphone users in the world, which is an incredible number! This means that for tech startups and tech businesses that build consumer products, it’s a baseline expectation for them to be usable on smartphones, and for there to be a mobile app for the product.</p><p>So, how do you build mobile apps? There’s plenty of choice: you can build a native mobile app for iOS using Swift or Objective C as a programming language, make one for Android using Java or Kotlin, and of course, you can develop a web app for desktop and mobile web users. All this adds up to three separate codebases and plenty of business logic replication.</p><p>Or you can do what startups like social media newcomer Bluesky did: have one codebase that powers the web, native iOS, and native Android apps. For Bluesky, a single developer wrote the initial version of all three apps using React Native and Expo. We cover more on this in the article, <a href="https://newsletter.pragmaticengineer.com/i/145059916/mobile-and-web-stack">Inside Bluesky’s engineering culture</a>.</p><p>There are cross-platform frameworks and approaches that offer a way to use a single codebase to power multiple native apps and a website. A decade ago, most cross-platform technologies were in their early stages, but things are shifting; in October 2022, we covered whether more cross-platform development could lead to less <a href="https://newsletter.pragmaticengineer.com/p/native-vs-cross-platform">native iOS and Android hiring by startups</a>.</p><p>Today’s article looks into current cross-platform development approaches, covering:</p>  <p>The ecosystem. Most apps remain fully native, with Flutter and React Native (RN) the clear leaders for cross-platform development. RN is more popular in the US and UK, and apps built with it tend to generate more money.</p>  <p>React Native. The framework of choice for many Meta, Microsoft, Amazon, and Shopify apps, and at places whose web teams work with React.</p>  <p>Flutter. Built and championed by Google, and the framework for most cross-platform apps.</p>  <p>Native-first approaches. Kotlin multiplatform, Swift-based frameworks (Skip, Scade), .NET MAUI (C#), NativeScript (JavaScript), and Unity.</p>  <p>Web-based frameworks. Cordova, Capacitor, Ionic, and Progressive Web Apps.</p>  <p>Choosing the right framework. A mental model for identifying key differences between all these technologies. In the end, most teams choose React Native or Flutter.</p>  <p>The bottom of this article could be cut off in some email clients. <a href="https://newsletter.pragmaticengineer.com/p/cross-platform-mobile-development">Read the full article uninterrupted, online.</a></p><p><a href="https://newsletter.pragmaticengineer.com/p/cross-platform-mobile-development">Read the full article online</a></p> 1. The ecosystem <p>What are the most popular cross-platform frameworks? Interesting <a href="https://appfigures.com/resources/insights/20241025?f=1">research by Appfigures</a> looked at all the top apps on the iOS App Store and Android’s Google Play, peeked into their binaries, and categorized them by the framework used:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Ff8874ee7-f6c6-4837-8160-7ecf949ab82b_1560x962.png">          </a>The most popular frameworks for iOS and Android apps. Source: <a href="https://appfigures.com/resources/insights/20241025?f=1">Appfigures</a> <p>Other research published <a href="https://www.statista.com/statistics/869224/worldwide-software-developer-working-hours/">on Statista</a> suggests Flutter and React Native are the most popular choices, followed by Cordova, Unity, and Ionic:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F1cc9d1ab-81e3-4539-9c86-91214eca2f5a_1422x908.png">          </a>Cross-platform mobile adoption trends (2020-2023) based on a survey of 30,000 respondents. Flutter was used by 46% of respondents, and RN by 35% in 2023. Data source: <a href="https://www.statista.com/statistics/869224/worldwide-software-developer-working-hours/">Statista</a> <p>Leaders: Flutter and React Native. These are the two most popular frameworks, but it can be tricky to identify which one is the most popular: on iOS, there are more React Native-powered, and on Android, Flutter apps outnumber React Native ones. However, there are simply more Android apps than iOS ones, which is why there are more Flutter apps than React Native ones, overall. React Native has been around since 2015, and Flutter since 2017.</p><p>Shrinking: Cordova and Ionic. As per the Statista survey, both frameworks have smaller but shrinking market shares, with about 10-12% of survey participants using them. Their usage is likely more common at companies which were building cross-platform apps before React Native and Flutter emerged, and remain content to ship WebView-based applications.</p><p>Growth potential: Kotlin Multiplatform (KMP). This technology has modest adoption rates, but seems to be gaining momentum. JetBrains is investing heavily in it, while the Kotlin language is popular with native mobile developers, especially with Android folks.</p> React Native or Flutter more popular? <p>New data from the <a href="https://survey.stackoverflow.co/2024/">2024 Stack Overflow Developer Survey</a> offers pointers. Below is a breakdown of the mobile cross-platform frameworks used by circa 6,500 respondents:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F22c93702-59d5-46d6-a1a6-0cca0062eb61_1136x886.png">          </a>Cross-platform mobile framework usage by developers. Data source: <a href="https://survey.stackoverflow.co/2024/">Stack Overflow</a> <p>From this data, it’s clear that Flutter and React Native are the most popular by a distance, with more users than all other frameworks, combined. But which is the most popular, overall? To find out, let’s slice and dice the data; firstly by narrowing it down to only professional developers by removing hobbyist users:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fe4d58f32-c39b-4f38-81f3-1f37e0854d8c_1080x444.png">          </a>Framework usage by professional developers of cross-platform apps. Source: <a href="https://survey.stackoverflow.co/2024/">Stack Overflow Developer Survey</a> <p>Flutter is used by slightly more engineers, though the difference is perhaps smaller than before. What happens if we consider per-country usage? Let’s start with the US, UK, Canada and Australia:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fee8bb377-5652-457b-bbb1-9280a17f936a_1600x697.png">          </a>Flutter vs React Native usage by country. Source: <a href="https://survey.stackoverflow.co/2024/">Stack Overflow Developer Survey</a> <p>Let’s look at other countries with a higher number of responses – the Netherlands, France, Poland, Brazil, Germany, and India:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fc8699b88-399d-456f-a405-69f0de52848a_1698x1048.png">          </a>Flutter vs React Native usage by country. Source: <a href="https://survey.stackoverflow.co/2024/">Stack Overflow Developer Survey</a> <p>Developer framework preference seems to be linked to location. Germany and India somewhat prefer Flutter, while the US and UK tend towards React Native. I don’t have an explanation of the difference in preference by country; specifically: why Flutter is so much more favored in Germany, but React Native more popular in the US and UK. If you have any thoughts on this, please share in the comment section, below.</p><p><a href="https://newsletter.pragmaticengineer.com/p/cross-platform-mobile-development/comments">Leave a comment</a></p><p>Flutter powers more apps, but React Native ones earn more revenue. It’s hard to accurately measure developers’ preferences, but determining the number of apps using each framework is easier. Appfigures did exactly this by tracking all apps released in a year and found that Flutter was used by 11% of apps released in 2024, while 7% used React Native:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fe6bcc5db-b7f7-4132-928e-1a3df467378b_1596x966.png">          </a>Around 11% of apps released in 2024 used Flutter, 7% used React Native, and 4% Unity. Source: <a href="https://appfigures.com/resources/insights/20241025?f=1">Appfigures</a> <p>Appfigures also <a href="https://appfigures.com/resources/insights/20241025?f=1">estimates</a> revenue generated by apps. Despite having fewer users, React Native-built apps on aggregate generated more net revenue ($287M) than Flutter apps ($283M), after Apple and Google’s 30% cuts.</p><p>The following section looks into each framework.</p> 2. React Native <p>React Native appears to be the most popular cross-platform framework in the US and UK markets. What are the likely reasons for this popularity?</p>  <p>No need for frontend developers to learn a new language. Developers who know JavaScript or TypeScript will have no trouble getting started with React Native, and devs working with React will find the transition especially easy. As we know, React is the most popular frontend framework, with around 70% of frontend developers using it in 2024, as per the <a href="https://tsh.io/state-of-frontend/#frameworks">State of Frontend 2024</a> survey.</p>  <p>Easy enough to hire for. React’s popularity means it’s a bit easier to hire for this skillset, than for native iOS or Android developers. The challenge of hiring native developers was one reason Coinbase <a href="https://www.coinbase.com/en-nl/blog/announcing-coinbases-successful-transition-to-react-native">moved</a> to React Native in 2021.</p>  <p>Expo. The <a href="https://expo.dev/">Expo framework</a> is built to simplify development with React Native, and is especially useful for teams. It helped boost adoption of React Native; without Expo, developers must set up both Android Studio and Xcode, manage emulators and simulators, and manage the native code. React Native’s own documentation <a href="https://reactnative.dev/docs/environment-setup">recommends</a> using Expo when getting started, as doing so without it makes the work <a href="https://reactnative.dev/docs/getting-started-without-a-framework">several times more complex</a>. Most of Expo is open source, but some services like Expo Application Services (EAS) have paid tiers.</p>  <p>React Native was open sourced by Facebook, in 2015. As the name suggests, this framework allows creating cross-platform apps using syntax similar to React applications. Here’s how a “Hello, World” app looks like using React Native:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fdf1a4f0e-03a2-481d-bf48-111410ea4246_1600x1200.png">          </a>A simple React Native example. Source: <a href="https://reactnative.dev/docs/tutorial">React Native documentation</a> <p>React primitives render to native platform UI elements, which means the compiled app uses the same native UI elements as native iOS and Android apps.</p><p>Check out a <a href="http://react.js">behind-the-scenes peek into how the React.js documentary was created</a> from two years ago.</p> Well-known React Native apps <p>Some popular apps built with this technology include:</p><p>Discord. The social platform <a href="https://discord.com/blog/why-discord-is-sticking-with-react-native">moved</a> to React Native in 2016 for iOS, and in 2018, two engineers rebuilt the iOS app in React Native at a time when the app already had millions of daily users. The team held off on moving to Android for performance reasons, until in 2022 they <a href="https://discord.com/blog/android-react-native-framework-update">moved</a> the Android app to React Native; sharing the same codebase, and keeping iOS and Android-specific UI for each platform.</p><p>It’s worth noting Discord often opts for cross-platform technologies: its desktop apps for Windows, Mac, and Linux are based on <a href="https://www.electronjs.org/">Electron</a>; a cross-platform desktop technology based on JavaScript, HTML, and CSS.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fc6fa2d7d-7a70-4d47-9a20-bfeb853b50f3_1600x750.png">          </a>Discord’s iOS and Android app. Source: Discord <p>Coinbase moved to React Native <a href="https://www.coinbase.com/en-nl/blog/announcing-coinbases-successful-transition-to-react-native">in 2021</a>, when it had 56 million users and $1.8B in revenue. Moving off native to RN involved migrating more than 200 screens, and retraining more than 30 native-only engineers. Interestingly, Coinbase <a href="https://www.coinbase.com/en-nl/blog/announcing-coinbases-successful-transition-to-react-native">claimed</a> that moving to RN reduced their cold start time from 3.8 seconds to 2.5 seconds (still quite a lot, to be fair!), and improved reliablity by increasing the crash-free rate from 99.4% to 99.7%.</p><p>A big motivation seemed to be to build more with fewer engineers, and make more consistent app experiences across platforms. The company labelled the transition a success: it reduced the number of codebases from 3 (iOS, Android and Web) to 2 (React Native and React Web), and web engineers could work on the mobile app, and mobile engineers on the web one.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F20d4ae54-c0d6-4f93-a32c-0bdfe6b2963b_1400x799.png">          </a>Coinbase app built using React Native. Source: <a href="https://www.coinbase.com/en-nl/blog/announcing-coinbases-successful-transition-to-react-native">Coinbase</a> <p>Shopify went all-in on React Native five years ago. Just this week, the company reflected on how it went, <a href="https://shopify.engineering/five-years-of-react-native-at-shopify?q=v">sharing</a>:</p>  <p>More productivity: thanks to one codebase powering iOS and Android, and working across both apps</p>  <p>Performance and reliability: all pages have sub-500ms loads and crash-free rates are above 99.9%. Both are impressive numbers!</p>  <p>TypeScript for the win: using TypeScript makes it easy for devs to transfer between React and React Native.</p>  <p>There are downsides: debugging is worse than for native apps, and updating to new React Native versions can be painful.</p>  <p>Shopify employs more than 2,000 software engineers, and is one of the largest tech companies to go all-in on this technology. That it’s working for them, five years later, is a strong vote of confidence. Read more about <a href="https://shopify.engineering/five-years-of-react-native-at-shopify?q=v">Shopify’s 5-year reflections on RN</a>.</p><p>Meta, Microsoft, and Amazon are not known for fully React-native apps, but do use plenty of RN functionality in their apps:</p>  <p>Meta: React Native’s creator utilizes it heavily for Facebook, Instagram, Ads Manager, Messenger, and Meta Horizon. The company recently <a href="https://engineering.fb.com/2024/10/02/android/react-at-meta-connect-2024/">shared</a> that more than of its 5,000 engineers work with React code, and Meta apps have some clever React Native-related performance enhancements; for example, in the Facebook app, React Native is initialized when a user visits the first React Native surface, and not on app start. This allows for faster app startup.</p>  <p>Microsoft: the tech giant uses both React and React Native in products like Windows, XBox, Microsoft Office, Microsoft Teams, and other apps. The Windows maker is a heavy user of this technology for native performance and cross-platform code sharing reasons, as it <a href="https://devblogs.microsoft.com/react-native/2022-09-02-rneu-microsoft-billions/">said</a> in 2022. Microsoft has also started to invest heavily in <a href="https://microsoft.github.io/react-native-windows/">React Native for Windows and MacOS</a>.</p>  <p>Amazon: parts of Amazon Shopping, Amazon Alexa, and Amazon Photos also utilize RN, as per the React Native showcase. Also, Amazon’s Kindle device uses it.</p>  <p>The home screen of Kindle is rendered with React Native, after Amazon migrated away from a Java-based UI <a href="https://goodereader.com/blog/electronic-readers/amazon-kindle-ui-is-switching-from-javascript-to-react-native">in 2022</a>.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fea81123e-7ef0-49aa-b123-d94e16a94900_1280x720.png">          </a>The Kindle home screen is rendered using React Native. Source: <a href="https://goodereader.com/blog/electronic-readers/amazon-kindle-ui-is-switching-from-javascript-to-react-native">Goodreader</a> <p>There are plenty of other, well-known apps building on top of React Native. Bloomberg <a href="https://www.bloomberg.com/company/stories/bloomberg-used-react-native-develop-new-consumer-app/">moved over</a> to this framework shortly after it was launched, back in 2016.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F92ede853-0298-40a7-a673-b362d0b11568_1600x718.png">          </a>Some high-profile apps that use React Native, even if not built exclusively with it. Source: <a href="https://reactnative.dev/showcase">React Native showcase</a>  3. Flutter <p><a href="https://flutter.dev/">Flutter</a> was launched in 2017 by Google as a solution for cross-platform development. Initially, it targeted Android developers, allowing them to write code once for separate Android and iOS native applications.</p><p>Flutter uses the Dart programming language, a strongly-typed language with similar syntax to C# and Java. A clear downside of Flutter is the requirement to learn Dart. However, this is easy to pick up, especially with experience of Java or Kotlin. Here’s what a simple Flutter application looks like:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F080ae2dc-e62c-4256-9ea3-ae4af6fb3b7f_1230x1414.png">          </a>A simple Flutter app, written in Dart <p>RN uses native elements, but Flutter uses its own rendering engine called the <a href="https://docs.flutter.dev/perf/impeller">Impeller rendering engine</a>. This design choice means Flutter offers consistent UI experience across iOS and Android – and even the web! The rendering engine and the programming language of choice are the biggest differences compared to React Native, and native development. Here is how <a href="https://www.linkedin.com/in/jordanbonnet/">Jordan Bonnet</a> – formerly the first mobile engineer at Uber and current founder of Flutter user onboarding startup <a href="https://fluo.dev/">fluo.dev</a> – explained this difference to me:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fd66124d8-105c-48f6-a5f7-816f861ae7e8_1600x804.png">          </a>Summarizing the differences between the three platforms. The mental model shared by <a href="https://www.linkedin.com/in/jordanbonnet/">Jordan Bonnet</a>, cofounder of <a href="https://fluo.dev/">fluo.dev</a>  Performance: where Flutter flies 
+<p>These days, it seems almost everyone owns a smartphone. In the US, <a href="https://www.pewresearch.org/internet/fact-sheet/mobile/">91% of adults</a> have one, in Europe, this figure is <a href="https://www.statista.com/forecasts/1147144/smartphone-penetration-forecast-in-europe">89%</a>, while in India, Deloitte <a href="https://economictimes.indiatimes.com/industry/cons-products/electronics/india-to-have-1-billion-smartphone-users-by-2026-deloitte/articleshow/89750324.cms">predicts</a> 75% of adults will have a smartphone by 2026. In total, there are an <a href="https://www.bankmycell.com/blog/how-many-phones-are-in-the-world">estimated 4.8 billion</a> smartphone users in the world, which is an incredible number! This means that for tech startups and tech businesses that build consumer products, it’s a baseline expectation for them to be usable on smartphones, and for there to be a mobile app for the product.</p><p>So, how do you build mobile apps? There’s plenty of choice: you can build a native mobile app for iOS using Swift or Objective C as a programming language, make one for Android using Java or Kotlin, and of course, you can develop a web app for desktop and mobile web users. All this adds up to three separate codebases and plenty of business logic replication.</p><p>Or you can do what startups like social media newcomer Bluesky did: have one codebase that powers the web, native iOS, and native Android apps. For Bluesky, a single developer wrote the initial version of all three apps using React Native and Expo. We cover more on this in the article, <a href="https://newsletter.pragmaticengineer.com/i/145059916/mobile-and-web-stack">Inside Bluesky’s engineering culture</a>.</p><p>There are cross-platform frameworks and approaches that offer a way to use a single codebase to power multiple native apps and a website. A decade ago, most cross-platform technologies were in their early stages, but things are shifting; in October 2022, we covered whether more cross-platform development could lead to less <a href="https://newsletter.pragmaticengineer.com/p/native-vs-cross-platform">native iOS and Android hiring by startups</a>.</p><p>Today’s article looks into current cross-platform development approaches, covering:</p>  <p>The ecosystem. Most apps remain fully native, with Flutter and React Native (RN) the clear leaders for cross-platform development. RN is more popular in the US and UK, and apps built with it tend to generate more money.</p>  <p>React Native. The framework of choice for many Meta, Microsoft, Amazon, and Shopify apps, and at places whose web teams work with React.</p>  <p>Flutter. Built and championed by Google, and the framework for most cross-platform apps.</p>  <p>Native-first approaches. Kotlin multiplatform, Swift-based frameworks (Skip, Scade), .NET MAUI (C#), NativeScript (JavaScript), and Unity.</p>  <p>Web-based frameworks. Cordova, Capacitor, Ionic, and Progressive Web Apps.</p>  <p>Choosing the right framework. A mental model for identifying key differences between all these technologies. In the end, most teams choose React Native or Flutter.</p>  <p>The bottom of this article could be cut off in some email clients. <a href="https://newsletter.pragmaticengineer.com/p/cross-platform-mobile-development">Read the full article uninterrupted, online.</a></p><p><a href="https://newsletter.pragmaticengineer.com/p/cross-platform-mobile-development">Read the full article online</a></p> 1. The ecosystem <p>What are the most popular cross-platform frameworks? Interesting <a href="https://appfigures.com/resources/insights/20241025?f=1">research by Appfigures</a> looked at all the top apps on the iOS App Store and Android’s Google Play, peeked into their binaries, and categorized them by the framework used:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Ff8874ee7-f6c6-4837-8160-7ecf949ab82b_1560x962.png">          </a>The most popular frameworks for iOS and Android apps. Source: <a href="https://appfigures.com/resources/insights/20241025?f=1">Appfigures</a> <p>Other research published <a href="https://www.statista.com/statistics/869224/worldwide-software-developer-working-hours/">on Statista</a> suggests Flutter and React Native are the most popular choices, followed by Cordova, Unity, and Ionic:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F1cc9d1ab-81e3-4539-9c86-91214eca2f5a_1422x908.png">          </a>Cross-platform mobile adoption trends (2020-2023) based on a survey of 30,000 respondents. Flutter was used by 46% of respondents, and RN by 35% in 2023. Data source: <a href="https://www.statista.com/statistics/869224/worldwide-software-developer-working-hours/">Statista</a> <p>Leaders: Flutter and React Native. These are the two most popular frameworks, but it can be tricky to identify which one is the most popular: on iOS, there are more React Native-powered, and on Android, Flutter apps outnumber React Native ones. However, there are simply more Android apps than iOS ones, which is why there are more Flutter apps than React Native ones, overall. React Native has been around since 2015, and Flutter since 2017.</p><p>Shrinking: Cordova and Ionic. As per the Statista survey, both frameworks have smaller but shrinking market shares, with about 10-12% of survey participants using them. Their usage is likely more common at companies which were building cross-platform apps before React Native and Flutter emerged, and remain content to ship WebView-based applications.</p><p>Growth potential: Kotlin Multiplatform (KMP). This technology has modest adoption rates, but seems to be gaining momentum. JetBrains is investing heavily in it, while the Kotlin language is popular with native mobile developers, especially with Android folks.</p> React Native or Flutter more popular? <p>New data from the <a href="https://survey.stackoverflow.co/2024/">2024 Stack Overflow Developer Survey</a> offers pointers. Below is a breakdown of the mobile cross-platform frameworks used by circa 6,500 respondents:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F22c93702-59d5-46d6-a1a6-0cca0062eb61_1136x886.png">          </a>Cross-platform mobile framework usage by developers. Data source: <a href="https://survey.stackoverflow.co/2024/">Stack Overflow</a> <p>From this data, it’s clear that Flutter and React Native are the most popular by a distance, with more users than all other frameworks, combined. But which is the most popular, overall? To find out, let’s slice and dice the data; firstly by narrowing it down to only professional developers by removing hobbyist users:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fe4d58f32-c39b-4f38-81f3-1f37e0854d8c_1080x444.png">          </a>Framework usage by professional developers of cross-platform apps. Source: <a href="https://survey.stackoverflow.co/2024/">Stack Overflow Developer Survey</a> <p>Flutter is used by slightly more engineers, though the difference is perhaps smaller than before. What happens if we consider per-country usage? Let’s start with the US, UK, Canada and Australia:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fea7879ae-be80-4f04-9bbc-ea20932c244c_1750x770.png">          </a>Flutter vs React Native usage by country. Source: <a href="https://survey.stackoverflow.co/2024/">Stack Overflow Developer Survey</a> <p>Let’s look at other countries with a higher number of responses – the Netherlands, France, Poland, Brazil, Germany, and India:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F017172e5-4eb2-49d6-ac00-7294a6782f06_1746x1040.png">          </a>Flutter vs React Native usage by country. Source: <a href="https://survey.stackoverflow.co/2024/">Stack Overflow Developer Survey</a> <p>Developer framework preference seems to be linked to location. Germany and India somewhat prefer Flutter, while the US and UK tend towards React Native. I don’t have an explanation of the difference in preference by country; specifically: why Flutter is so much more favored in Germany, but React Native more popular in the US and UK. If you have any thoughts on this, please share in the comment section, below.</p><p><a href="https://newsletter.pragmaticengineer.com/p/cross-platform-mobile-development/comments">Leave a comment</a></p><p>Flutter powers more apps, but React Native ones earn more revenue. It’s hard to accurately measure developers’ preferences, but determining the number of apps using each framework is easier. Appfigures did exactly this by tracking all apps released in a year and found that Flutter was used by 11% of apps released in 2024, while 7% used React Native:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fe6bcc5db-b7f7-4132-928e-1a3df467378b_1596x966.png">          </a>Around 11% of apps released in 2024 used Flutter, 7% used React Native, and 4% Unity. Source: <a href="https://appfigures.com/resources/insights/20241025?f=1">Appfigures</a> <p>Appfigures also <a href="https://appfigures.com/resources/insights/20241025?f=1">estimates</a> revenue generated by apps. Despite having fewer users, React Native-built apps on aggregate generated more net revenue ($287M) than Flutter apps ($283M), after Apple and Google’s 30% cuts.</p><p>The following section looks into each framework.</p> 2. React Native <p>React Native appears to be the most popular cross-platform framework in the US and UK markets. What are the likely reasons for this popularity?</p>  <p>No need for frontend developers to learn a new language. Developers who know JavaScript or TypeScript will have no trouble getting started with React Native, and devs working with React will find the transition especially easy. As we know, React is the most popular frontend framework, with around 70% of frontend developers using it in 2024, as per the <a href="https://tsh.io/state-of-frontend/#frameworks">State of Frontend 2024</a> survey.</p>  <p>Easy enough to hire for. React’s popularity means it’s a bit easier to hire for this skillset, than for native iOS or Android developers. The challenge of hiring native developers was one reason Coinbase <a href="https://www.coinbase.com/en-nl/blog/announcing-coinbases-successful-transition-to-react-native">moved</a> to React Native in 2021.</p>  <p>Expo. The <a href="https://expo.dev/">Expo framework</a> is built to simplify development with React Native, and is especially useful for teams. It helped boost adoption of React Native; without Expo, developers must set up both Android Studio and Xcode, manage emulators and simulators, and manage the native code. React Native’s own documentation <a href="https://reactnative.dev/docs/environment-setup">recommends</a> using Expo when getting started, as doing so without it makes the work <a href="https://reactnative.dev/docs/getting-started-without-a-framework">several times more complex</a>. Most of Expo is open source, but some services like Expo Application Services (EAS) have paid tiers.</p>  <p>React Native was open sourced by Facebook, in 2015. As the name suggests, this framework allows creating cross-platform apps using syntax similar to React applications. Here’s how a “Hello, World” app looks like using React Native:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fdf1a4f0e-03a2-481d-bf48-111410ea4246_1600x1200.png">          </a>A simple React Native example. Source: <a href="https://reactnative.dev/docs/tutorial">React Native documentation</a> <p>React primitives render to native platform UI elements, which means the compiled app uses the same native UI elements as native iOS and Android apps.</p><p>Check out a <a href="http://react.js">behind-the-scenes peek into how the React.js documentary was created</a> from two years ago.</p> Well-known React Native apps <p>Some popular apps built with this technology include:</p><p>Discord. The social platform <a href="https://discord.com/blog/why-discord-is-sticking-with-react-native">moved</a> to React Native in 2016 for iOS, and in 2018, two engineers rebuilt the iOS app in React Native at a time when the app already had millions of daily users. The team held off on moving to Android for performance reasons, until in 2022 they <a href="https://discord.com/blog/android-react-native-framework-update">moved</a> the Android app to React Native; sharing the same codebase, and keeping iOS and Android-specific UI for each platform.</p><p>It’s worth noting Discord often opts for cross-platform technologies: its desktop apps for Windows, Mac, and Linux are based on <a href="https://www.electronjs.org/">Electron</a>; a cross-platform desktop technology based on JavaScript, HTML, and CSS.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fc6fa2d7d-7a70-4d47-9a20-bfeb853b50f3_1600x750.png">          </a>Discord’s iOS and Android app. Source: Discord <p>Coinbase moved to React Native <a href="https://www.coinbase.com/en-nl/blog/announcing-coinbases-successful-transition-to-react-native">in 2021</a>, when it had 56 million users and $1.8B in revenue. Moving off native to RN involved migrating more than 200 screens, and retraining more than 30 native-only engineers. Interestingly, Coinbase <a href="https://www.coinbase.com/en-nl/blog/announcing-coinbases-successful-transition-to-react-native">claimed</a> that moving to RN reduced their cold start time from 3.8 seconds to 2.5 seconds (still quite a lot, to be fair!), and improved reliablity by increasing the crash-free rate from 99.4% to 99.7%.</p><p>A big motivation seemed to be to build more with fewer engineers, and make more consistent app experiences across platforms. The company labelled the transition a success: it reduced the number of codebases from 3 (iOS, Android and Web) to 2 (React Native and React Web), and web engineers could work on the mobile app, and mobile engineers on the web one.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F20d4ae54-c0d6-4f93-a32c-0bdfe6b2963b_1400x799.png">          </a>Coinbase app built using React Native. Source: <a href="https://www.coinbase.com/en-nl/blog/announcing-coinbases-successful-transition-to-react-native">Coinbase</a> <p>Shopify went all-in on React Native five years ago. Just this week, the company reflected on how it went, <a href="https://shopify.engineering/five-years-of-react-native-at-shopify?q=v">sharing</a>:</p>  <p>More productivity: thanks to one codebase powering iOS and Android, and working across both apps</p>  <p>Performance and reliability: all pages have sub-500ms loads and crash-free rates are above 99.9%. Both are impressive numbers!</p>  <p>TypeScript for the win: using TypeScript makes it easy for devs to transfer between React and React Native.</p>  <p>There are downsides: debugging is worse than for native apps, and updating to new React Native versions can be painful.</p>  <p>Shopify employs more than 2,000 software engineers, and is one of the largest tech companies to go all-in on this technology. That it’s working for them, five years later, is a strong vote of confidence. Read more about <a href="https://shopify.engineering/five-years-of-react-native-at-shopify?q=v">Shopify’s 5-year reflections on RN</a>.</p><p>Meta, Microsoft, and Amazon are not known for fully React-native apps, but do use plenty of RN functionality in their apps:</p>  <p>Meta: React Native’s creator utilizes it heavily for Facebook, Instagram, Ads Manager, Messenger, and Meta Horizon. The company recently <a href="https://engineering.fb.com/2024/10/02/android/react-at-meta-connect-2024/">shared</a> that more than of its 5,000 engineers work with React code, and Meta apps have some clever React Native-related performance enhancements; for example, in the Facebook app, React Native is initialized when a user visits the first React Native surface, and not on app start. This allows for faster app startup.</p>  <p>Microsoft: the tech giant uses both React and React Native in products like Windows, XBox, Microsoft Office, Microsoft Teams, and other apps. The Windows maker is a heavy user of this technology for native performance and cross-platform code sharing reasons, as it <a href="https://devblogs.microsoft.com/react-native/2022-09-02-rneu-microsoft-billions/">said</a> in 2022. Microsoft has also started to invest heavily in <a href="https://microsoft.github.io/react-native-windows/">React Native for Windows and MacOS</a>.</p>  <p>Amazon: parts of Amazon Shopping, Amazon Alexa, and Amazon Photos also utilize RN, as per the React Native showcase. Also, Amazon’s Kindle device uses it.</p>  <p>The home screen of Kindle is rendered with React Native, after Amazon migrated away from a Java-based UI <a href="https://goodereader.com/blog/electronic-readers/amazon-kindle-ui-is-switching-from-javascript-to-react-native">in 2022</a>.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fea81123e-7ef0-49aa-b123-d94e16a94900_1280x720.png">          </a>The Kindle home screen is rendered using React Native. Source: <a href="https://goodereader.com/blog/electronic-readers/amazon-kindle-ui-is-switching-from-javascript-to-react-native">Goodreader</a> <p>There are plenty of other, well-known apps building on top of React Native. Bloomberg <a href="https://www.bloomberg.com/company/stories/bloomberg-used-react-native-develop-new-consumer-app/">moved over</a> to this framework shortly after it was launched, back in 2016.</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F92ede853-0298-40a7-a673-b362d0b11568_1600x718.png">          </a>Some high-profile apps that use React Native, even if not built exclusively with it. Source: <a href="https://reactnative.dev/showcase">React Native showcase</a>  3. Flutter <p><a href="https://flutter.dev/">Flutter</a> was launched in 2017 by Google as a solution for cross-platform development. Initially, it targeted Android developers, allowing them to write code once for separate Android and iOS native applications.</p><p>Flutter uses the Dart programming language, a strongly-typed language with similar syntax to C# and Java. A clear downside of Flutter is the requirement to learn Dart. However, this is easy to pick up, especially with experience of Java or Kotlin. Here’s what a simple Flutter application looks like:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F080ae2dc-e62c-4256-9ea3-ae4af6fb3b7f_1230x1414.png">          </a>A simple Flutter app, written in Dart <p>RN uses native elements, but Flutter uses its own rendering engine called the <a href="https://docs.flutter.dev/perf/impeller">Impeller rendering engine</a>. This design choice means Flutter offers consistent UI experience across iOS and Android – and even the web! The rendering engine and the programming language of choice are the biggest differences compared to React Native, and native development. Here is how <a href="https://www.linkedin.com/in/jordanbonnet/">Jordan Bonnet</a> – formerly the first mobile engineer at Uber and current founder of Flutter user onboarding startup <a href="https://fluo.dev/">fluo.dev</a> – explained this difference to me:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fd66124d8-105c-48f6-a5f7-816f861ae7e8_1600x804.png">          </a>Summarizing the differences between the three platforms. The mental model shared by <a href="https://www.linkedin.com/in/jordanbonnet/">Jordan Bonnet</a>, cofounder of <a href="https://fluo.dev/">fluo.dev</a>  Performance: where Flutter flies 
       <p>
           <a href="https://newsletter.pragmaticengineer.com/p/cross-platform-mobile-development">
               Read more
@@ -5578,7 +6184,7 @@ OpenAI just started rolling out <a href="https://help.openai.com/en/articles/102
 
 <div class='item-footer'>
    17:32 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5650,7 +6256,7 @@ OpenAI just started rolling out <a href="https://help.openai.com/en/articles/102
 
 <div class='item-footer'>
    17:16 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5726,7 +6332,7 @@ I recorded this podcast episode with Brian McCullough and swyx riffing off my <a
 
 <div class='item-footer'>
    16:10 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5798,7 +6404,7 @@ I recorded this podcast episode with Brian McCullough and swyx riffing off my <a
 
 <div class='item-footer'>
    22:55 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5884,7 +6490,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    21:33 &bull;
-   9 days ago
+   10 days ago
 </div>
 
 </div><!-- item-body -->
@@ -5958,7 +6564,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    15:28 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6030,7 +6636,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    14:22 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6098,7 +6704,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    12:31 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6166,7 +6772,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    02:22 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6242,7 +6848,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    22:02 &bull;
-   10 days ago
+   11 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6314,7 +6920,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    17:36 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6376,7 +6982,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    16:20 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6454,7 +7060,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    15:22 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6522,106 +7128,7 @@ llm -m codestral "JavaScript to reverse an array"
 
 <div class='item-footer'>
    15:05 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2025/Jan/12/generative-ai-the-power-and-the-glory/#atom-everything'>Generative AI – The Power and the Glory</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Generative AI – The Power and the Glory 
-Michael Liebreich's epic report for BloombergNEF on the current state of play with regards to generative AI, energy usage and data center growth. 
- I learned so much from reading this. If you're at all interested in the energy impact of the latest wave of AI tools I recommend spending some time with this article. 
- Just a few of the points that stood out to
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://about.bnef.com/blog/liebreich-generative-ai-the-power-and-the-glory/">Generative AI – The Power and the Glory</a></p>
-Michael Liebreich's epic report for BloombergNEF on the current state of play with regards to generative AI, energy usage and data center growth.<p></p>
-<p>I learned so much from reading this. If you're at all interested in the energy impact of the latest wave of AI tools I recommend spending some time with this article.</p>
-<p>Just a few of the points that stood out to me:</p>
- 
- This isn't the first time a leap in data center power use has been predicted. In 2007 the EPA predicted data center energy usage would double: it didn't, thanks to efficiency gains from better servers and the shift from in-house to cloud hosting. In 2017 the WEF predicted cryptocurrency could consume al the world's electric power by 2020, which was cut short by the first crypto bubble burst. Is this time different? Maybe. 
- Michael re-iterates (Sequoia) David Cahn's <a href="https://www.sequoiacap.com/article/ais-600b-question/">$600B question</a>, pointing out that if the anticipated infrastructure spend on AI requires $600bn in annual revenue that means 1 billion people will need to spend $600/year or 100 million intensive users will need to spend $6,000/year. 
- Existing data centers often have a power capacity of less than 10MW, but new AI-training focused data centers tend to be in the 75-150MW range, due to the need to colocate vast numbers of GPUs for efficient communication between them - these can at least be located anywhere in the world. Inference is a lot less demanding as the GPUs don't need to collaborate in the same way, but it needs to be close to human population centers to provide low latency responses. 
- NVIDIA are claiming huge efficiency gains. "Nvidia claims to have delivered a 45,000 improvement in energy efficiency per token (a unit of data processed by AI models) over the past eight years" - and that "training a 1.8 trillion-parameter model using Blackwell GPUs, which only required 4MW, versus 15MW using the previous Hopper architecture". 
- Michael's own global estimate is "45GW of additional demand by 2030", which he points out is "equivalent to one third of the power demand from the world’s aluminum smelters". But much of this demand needs to be local, which makes things a lot more challenging, especially given the need to integrate with the existing grid. 
- Google, Microsoft, Meta and Amazon all have net-zero emission targets which they take very seriously, making them "some of the most significant corporate purchasers of renewable energy in the world". This helps explain why they're taking very real interest in nuclear power. 
- 
-<p>Elon's 100,000-GPU data center in Memphis currently runs on gas:</p>
-<blockquote>
-<p>When Elon Musk rushed to get x.AI's Memphis Supercluster up and running in record time, he brought in 14 mobile <a href="https://www.npr.org/2024/09/11/nx-s1-5088134/elon-musk-ai-xai-supercomputer-memphis-pollution">natural gas-powered generators</a>,&nbsp;each of them generating 2.5MW. It seems they do not require an air quality permit, as long as they do not remain in the same location for more than 364 days.</p>
-</blockquote>
- 
- 
-<p>Here's a reassuring statistic: "91% of all new power capacity added worldwide in 2023 was wind and solar".</p>
- 
- 
-<p>There's so much more in there, I feel like I'm doing the article a disservice by attempting to extract just the points above.</p>
-<p>Michael's conclusion is somewhat optimistic:</p>
-<blockquote>
-<p>In the end, the tech titans will find out that the best way to power AI data centers is in the traditional way, by building the same generating technologies as are proving most cost effective for other users, connecting them to a robust and resilient grid, and working with local communities. [...]</p>
-<p>When it comes to new technologies – be it SMRs, fusion, novel renewables or superconducting transmission lines – it is a blessing to have some cash-rich, technologically advanced, risk-tolerant players creating demand, which has for decades been missing in low-growth developed world power markets.</p>
-</blockquote>
-<p>(<a href="https://en.wikipedia.org/wiki/Bloomberg_L.P.#New_Energy_Finance">BloombergNEF</a> is an energy research group acquired by Bloomberg in 2009, originally founded by Michael as New Energy Finance in 2004.)
-
-    </p><p>Via <a href="https://bsky.app/profile/mtth.org/post/3lfitoklmms2g">Jamie Matthews</a></p>
-
-
-    <p>Tags: <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/ethics">ethics</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/energy">energy</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:51 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6695,7 +7202,7 @@ Michael Liebreich's epic report for BloombergNEF on the current state of play wi
 
 <div class='item-footer'>
    00:23 &bull;
-   11 days ago
+   12 days ago
 </div>
 
 </div><!-- item-body -->
@@ -6820,89 +7327,6 @@ Michael Liebreich's epic report for BloombergNEF on the current state of play wi
 
 <div class='item-footer'>
    23:54 &bull;
-   11 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2025/Jan/11/agents/#atom-everything'>Agents</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Agents 
-Chip Huyen's 8,000 word practical guide to building useful LLM-driven workflows that take advantage of tools. 
- Chip starts by providing a definition of "agents" to be used in the piece - in this case it's LLM systems that plan an approach and then run tools in a loop until a goal is achieved. I like how she ties it back to the classic Norvig "thermostat" model -  where an agent is "anythi
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://huyenchip.com/2025/01/07/agents.html">Agents</a></p>
-Chip Huyen's 8,000 word practical guide to building useful LLM-driven workflows that take advantage of tools.<p></p>
-<p>Chip starts by providing a definition of "agents" to be used in the piece - in this case it's LLM systems that plan an approach and then run tools in a loop until a goal is achieved. I like how she ties it back to the classic Norvig "thermostat" model -  where an agent is "anything that can perceive its environment and act upon that environment" - by classifying tools as read-only actions (sensors) and write actions (actuators).</p>
-<p>There's a lot of great advice in this piece. The section <a href="https://huyenchip.com/2025/01/07/agents.html#plan_generation">on planning</a> is particularly strong, showing a system prompt with embedded examples and offering these tips on improving the planning process:</p>
-<blockquote>
- 
- Write a better system prompt with more examples. 
- Give better descriptions of the tools and their parameters so that the model understands them better. 
- Rewrite the functions themselves to make them simpler, such as refactoring a complex function into two simpler functions. 
- Use a stronger model. In general, stronger models are better at planning. 
- 
-</blockquote>
-<p>The article is adapted from Chip's brand new O'Reilly book <a href="https://www.oreilly.com/library/view/ai-engineering/9781098166298/">AI Engineering</a>. I think this is an excellent advertisement for the book itself.
-
-    </p><p>Via <a href="https://bsky.app/profile/chiphuyen.bsky.social/post/3lf6bnxkprk2w">@chiphuyen.bsky.social</a></p>
-
-
-    <p>Tags: <a href="https://simonwillison.net/tags/ai-agents">ai-agents</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/llm-tool-use">llm-tool-use</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   17:50 &bull;
    12 days ago
 </div>
 
@@ -6919,10 +7343,6 @@ Chip Huyen's 8,000 word practical guide to building useful LLM-driven workflows 
 
 <article class='item'>
 
-
-<h4 class='feed-title'>
-  <a href='https://blogs.harvard.edu/doc/'>Doc Searls Weblog</a>
-</h4>
 
 
 <h3 class='item-title'>
@@ -7001,7 +7421,7 @@ Chip Huyen's 8,000 word practical guide to building useful LLM-driven workflows 
 
 <div class='item-footer'>
    16:52 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7077,7 +7497,7 @@ Chip Huyen's 8,000 word practical guide to building useful LLM-driven workflows 
 
 <div class='item-footer'>
    15:58 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7149,7 +7569,7 @@ Chip Huyen's 8,000 word practical guide to building useful LLM-driven workflows 
 
 <div class='item-footer'>
    15:58 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7217,7 +7637,7 @@ Chip Huyen's 8,000 word practical guide to building useful LLM-driven workflows 
 
 <div class='item-footer'>
    14:52 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7291,7 +7711,7 @@ Chip Huyen's 8,000 word practical guide to building useful LLM-driven workflows 
 
 <div class='item-footer'>
    14:31 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7375,82 +7795,7 @@ Chip Huyen's 8,000 word practical guide to building useful LLM-driven workflows 
 
 <div class='item-footer'>
    06:26 &bull;
-   12 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2025/Jan/11/phi-4-bug-fixes/#atom-everything'>Phi-4 Bug Fixes by Unsloth</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Phi-4 Bug Fixes by Unsloth 
-This explains why I was seeing weird &lt;|im_end|&gt; suffexes during my experiments with Phi-4 the other day: it turns out the Phi-4 tokenizer definition as released by Microsoft had a bug in it, and there was a small bug in the chat template as well. 
- Daniel and Michael Han figured this out and have now published GGUF files with their fixes on Hugging Face.
-
-      Vi
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p><a href="https://unsloth.ai/blog/phi4">Phi-4 Bug Fixes by Unsloth</a></p>
-This explains why I was seeing weird <code>&lt;|im_end|&gt;</code> suffexes during my <a href="https://simonwillison.net/2025/Jan/8/phi-4/">experiments with Phi-4</a> the other day: it turns out the Phi-4 tokenizer definition as released by Microsoft had a bug in it, and there was a small bug in the chat template as well.<p></p>
-<p>Daniel and Michael Han figured this out and have now published <a href="https://huggingface.co/unsloth/phi-4-GGUF">GGUF files with their fixes</a> on Hugging Face.
-
-    </p><p>Via <a href="https://news.ycombinator.com/item?id=42660335">Hacker News</a></p>
-
-
-    <p>Tags: <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/phi">phi</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:20 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7569,7 +7914,7 @@ This explains why I was seeing weird <code>&lt;|im_end|&gt;</code> suffexes duri
 
 <div class='item-footer'>
    19:08 &bull;
-   12 days ago
+   13 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7677,191 +8022,7 @@ This explains why I was seeing weird <code>&lt;|im_end|&gt;</code> suffexes duri
 
 <div class='item-footer'>
    06:34 &bull;
-   13 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='http://simonwillison.net'>Simon Willison</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://simonwillison.net/2025/Jan/10/ai-predictions/#atom-everything'>My AI/LLM predictions for the next 1, 3 and 6 years, for Oxide and Friends</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   The Oxide and Friends podcast has an annual tradition of asking guests to share their predictions for the next 1, 3 and 6 years. Here's 2022, 2023 and 2024. This year they invited me to participate. I've never been brave enough to share any public predictions before, so this was a great opportunity to get outside my comfort zone! 
- We recorded the episode live using Discord on Monday. It's now ava
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-  <p>The <a href="https://oxide-and-friends.transistor.fm/">Oxide and Friends</a> podcast has an annual tradition of asking guests to share their predictions for the next 1, 3 and 6 years. Here's <a href="https://github.com/oxidecomputer/oxide-and-friends/blob/master/2022_01_03.md">2022</a>, <a href="https://github.com/oxidecomputer/oxide-and-friends/blob/master/2023_01_09.md">2023</a> and <a href="https://github.com/oxidecomputer/oxide-and-friends/blob/master/2024_01_08.md">2024</a>. This year they invited me to participate. I've never been brave enough to share any public predictions before, so this was a great opportunity to get outside my comfort zone!</p>
-<p>We recorded the episode live using Discord on Monday. It's now available <a href="https://www.youtube.com/watch?v=-pk6VokHpGY">on YouTube</a> and <a href="https://oxide-and-friends.transistor.fm/">in podcast form</a>.</p>
-
-<p> </p>
-
-<p>Here are my predictions, written up here in a little more detail than the stream of consciousness I shared on the podcast.</p>
-<p>I should emphasize that I find the very idea of trying to predict AI/LLMs over a multi-year period to be completely absurd! I can't predict what's going to happen a week from now, six years is a different universe.</p>
-<p>With that disclaimer out of the way, here's an expanded version of what I said.</p>
- 
-   <a href="https://simonwillison.net/2025/Jan/10/ai-predictions/#one-year-agents-fail-to-happen-again">One year: Agents fail to happen, again</a> 
-   <a href="https://simonwillison.net/2025/Jan/10/ai-predictions/#one-year-code-research-assistants">One year: ... except for code and research assistants</a> 
-   <a href="https://simonwillison.net/2025/Jan/10/ai-predictions/#three-years-someone-wins-a-pulitzer-for-ai-assisted-investigative-reporting">Three years: Someone wins a Pulitzer for AI-assisted investigative reporting</a> 
-   <a href="https://simonwillison.net/2025/Jan/10/ai-predictions/#three-years-part-two-privacy-laws-with-teeth">Three years part two: privacy laws with teeth</a> 
-   <a href="https://simonwillison.net/2025/Jan/10/ai-predictions/#six-years-utopian-amazing-art">Six years utopian: amazing art</a> 
-   <a href="https://simonwillison.net/2025/Jan/10/ai-predictions/#six-years-dystopian-agi-asi-causes-mass-civil-unrest">Six years dystopian: AGI/ASI causes mass civil unrest</a> 
-   <a href="https://simonwillison.net/2025/Jan/10/ai-predictions/#my-total-lack-of-conviction">My total lack of conviction</a> 
- 
- One year: Agents fail to happen, again 
-<p>I wrote about how <a href="https://simonwillison.net/2024/Dec/31/llms-in-2024/#-agents-still-haven-t-really-happened-yet">“Agents” still haven’t really happened yet</a> in my review of Large Language Model developments  in 2024.</p>
-<p>I think we are going to see a lot more froth about agents in 2025, but I expect the results will be a great disappointment to most of the people who are excited about this term. I expect a lot of money will be lost chasing after several different poorly defined dreams that share that name.</p>
-<p>What are agents anyway? Ask a dozen people and you'll get a dozen slightly different answers - I collected and <a href="https://gist.github.com/simonw/beaa5f90133b30724c5cc1c4008d0654">then AI-summarized a bunch of those here</a>.</p>
-<p>For the sake of argument, let's pick a definition that I can predict won't come to fruition: the idea of an AI assistant that can go out into the world and semi-autonomously act on your behalf. I think of this as the travel agent definition of agents, because for some reason everyone always jumps straight to flight and hotel booking and itinerary planning when they describe this particular dream.</p>
-<p>Having the current generation of LLMs make material decisions on your behalf - like what to spend money on - is a really bad idea. They're too unreliable, but more importantly they are too gullible.</p>
-<p>If you're going to arm your AI assistant with a credit card and set it loose on the world, you need to be confident that it's not going to hit "buy" on the first website that claims to offer the best bargains!</p>
-<p>I'm confident that reliability is the reason we haven't seen LLM-powered agents that have taken off yet, despite the idea attracting a huge amount of buzz since right after ChatGPT first came out.</p>
-<p>I would be very surprised if any of the models released over the next twelve months had enough of a reliability improvement to make this work. Solving gullibility is an astonishingly difficult problem.</p>
-<p>(I had <a href="https://www.youtube.com/watch?v=-pk6VokHpGY&amp;t=1206s">a particularly spicy rant</a> about how stupid the idea of sending a "digital twin" to a meeting on your behalf is.)</p>
- One year: ... except for code and research assistants 
-<p>There are two categories of "agent" that I do believe in, because they're proven to work already.</p>
-<p>The first is coding assistants - where an LLM writes, executes and then refines computer code in a loop.</p>
-<p>I first saw this pattern demonstrated by OpenAI with their <a href="https://simonwillison.net/tags/code-interpreter/">Code Interpreter</a> feature for ChatGPT, released back in March/April of 2023.</p>
-<p>You can ask ChatGPT to solve a problem that can use Python code and it will write that Python, execute it in a secure sandbox (I think it's Kubernetes) and then use the output - or any error messages - to determine if the goal has been achieved.</p>
-<p>It's a beautiful pattern that worked great with early 2023 models (I believe it first shipped using original GPT-4), and continues to work today.</p>
-<p>Claude added their own version in October (<a href="https://simonwillison.net/2024/Oct/24/claude-analysis-tool/">Claude analysis</a>, using JavaScript that runs in the browser), Mistral have it, Gemini has a version and there are dozens of other implementations of the same pattern.</p>
-<p>The second category of agents that I believe in is research assistants - where an LLM can run multiple searches, gather information and aggregate that into an answer to a question or write a report.</p>
-<p><a href="https://www.perplexity.ai/">Perplexity</a> and <a href="https://openai.com/index/introducing-chatgpt-search/">ChatGPT Search</a> have both been operating in this space for a while, but by far the most impressive implementation I've seen is Google Gemini's <a href="https://blog.google/products/gemini/google-gemini-deep-research/">Deep Research</a> tool, which I've had access to for a few weeks.</p>
-<p>With Deep Research I can pose a question like this one:</p>
-<blockquote>
-<p>Pillar Point Harbor is one of the largest communal brown pelican roosts on the west coast of North America.</p>
-<p>find others</p>
-</blockquote>
-<p>And Gemini will draft a plan, consult dozens of different websites via Google Search and then assemble a report (with all-important citations) describing what it found.</p>
-<p>Here's the plan it came up with:</p>
-<blockquote>
-<p>Pillar Point Harbor is one of the largest communal brown pelican roosts on the west coast of North America. Find other large communal brown pelican roosts on the west coast of North America.<br>
-(1) Find a list of brown pelican roosts on the west coast of North America.<br>
-(2) Find research papers or articles about brown pelican roosts and their size.<br>
-(3) Find information from birdwatching organizations or government agencies about brown pelican roosts.<br>
-(4) Compare the size of the roosts found in (3) to the size of the Pillar Point Harbor roost.<br>
-(5) Find any news articles or recent reports about brown pelican roosts and their populations.</p>
-</blockquote>
-<p>It dug up a whole bunch of details, but the one I cared most about was <a href="https://birdallianceoregon.org/wp-content/uploads/2021/04/Brown-Pelican-survey_4-year_summary-infographic_2016-19_final.pdf">these PDF results for the 2016-2019 Pacific Brown Pelican Survey</a> conducted by the West Coast Audubon network and partners - a PDF that included this delightful list:</p>
-<blockquote>
-<p>Top 10 Megaroosts (sites that traditionally host &gt;500 pelicans) with average fall count numbers:</p>
- 
- Alameda Breakwater, CA (3,183) 
- Pillar Point Harbor, CA (1,481) 
- East Sand Island, OR (1,121) 
- Ano Nuevo State Park, CA (1,068) 
- Salinas River mouth, CA (762) 
- Bolinas Lagoon, CA (755) 
- Morro Rock, CA (725) 
- Moss landing, CA (570) 
- Crescent City Harbor, CA (514) 
- Bird Rock Tomales, CA (514) 
- 
-</blockquote>
-<p>My local harbor is the second biggest megaroost!</p>
-<p>It makes intuitive sense to me that this kind of research assistant can be built on our current generation of LLMs. They're competent at driving tools, they're capable of coming up with a relatively obvious research plan (look for newspaper articles and research papers) and they can synthesize sensible answers given the right collection of context gathered through search.</p>
-<p>Google are particularly well suited to solving this problem: they have the world's largest search index and their Gemini model has a 2 million token context. I expect Deep Research to get a whole lot better, and I expect it to attract plenty of competition.</p>
- Three years: Someone wins a Pulitzer for AI-assisted investigative reporting 
-<p>I went for a bit of a self-serving prediction here: I think within three years someone is going to win a Pulitzer prize for a piece of investigative reporting that was aided by generative AI tools.</p>
-
-<p>Update: after publishing this piece I learned about this May 2024 story from Nieman Lab: <a href="https://www.niemanlab.org/2024/05/for-the-first-time-two-pulitzer-winners-disclosed-using-ai-in-their-reporting/">For the first time, two Pulitzer winners disclosed using AI in their reporting</a>. I think these were both examples of traditional machine learning as opposed to LLM-based generative AI, but this is yet another example of my predictions being less ambitious than I had thought!</p>
-
-<p>I do not mean that an LLM will write the article! I continue to think that having LLMs write on your behalf is one of the least interesting applications of these tools.</p>
-<p>I called this prediction self-serving because I want to help make this happen! My <a href="https://datasette.io">Datasette</a> suite of open source tools for data journalism has been growing AI features, like <a href="https://simonwillison.net/2023/Dec/1/datasette-enrichments/">LLM-powered data enrichments</a> and <a href="https://www.datasette.cloud/blog/2024/datasette-extract/">extracting structured data</a> into tables from unstructured text.</p>
-<p>My dream is for those tools - or tools like them - to be used for an award winning piece of investigative reporting.</p>
-<p>I picked three years for this because I think that's how long it will take for knowledge of how to responsibly and effectively use these tools to become widespread enough for that to happen.</p>
-<p>LLMs are not an obvious fit for journalism: journalists look for the truth, and LLMs are notoriously prone to hallucination and making things up. But journalists are also really good at extracting useful information from potentially untrusted sources - that's a lot of what the craft of journalism is about.</p>
-<p>The two areas I think LLMs are particularly relevant to journalism are:</p>
- 
- Structured data extraction. If you have 10,000 PDFs from a successful Freedom of Information Act request, someone or something needs to kick off the process of reading through them to find the stories. LLMs are a fantastic way to take a vast amount of information and start making some element of sense from it. They can act as lead generators, helping identify the places to start looking more closely. 
- Coding assistance. Writing code to help analyze data is a huge part of modern data journalism - from SQL queries through data cleanup scripts, custom web scrapers or visualizations to help find signal among the noise. Most newspapers don't have a team of programmers on staff: I think within three years we'll have robust enough tools built around this pattern that non-programmer journalists will be able to use them as part of their reporting process. 
- 
-<p>I hope to build some of these tools myself!</p>
-<p>So my concrete prediction for three years is that someone wins a Pulitzer with a small amount of assistance from LLMs.</p>
-<p>My more general prediction: within three years it won't be surprising at all to see most information professionals use LLMs as part of their daily workflow, in increasingly sophisticated ways. We'll know exactly what patterns work and how best to explain them to people. These skills will become widespread.</p>
- Three years part two: privacy laws with teeth 
-<p>My other three year prediction concerned privacy legislation.</p>
-<p>The levels of (often justified) paranoia around both targeted advertising and what happens to the data people paste into these models is a constantly growing problem.</p>
-<p>I wrote recently about the <a href="https://simonwillison.net/2025/Jan/2/they-spy-on-you-but-not-like-that/">inexterminable conspiracy theory that Apple target ads through spying through your phone's microphone</a>. I've written in the past about <a href="https://simonwillison.net/2023/Dec/14/ai-trust-crisis/">the AI trust crisis</a>, where people refuse to believe that models are not being trained on their inputs no matter how emphatically the companies behind them deny it.</p>
-<p>I think the AI industry itself would benefit enormously from legislation that helps clarify what's going on with training on user-submitted data, and the wider tech industry could really do with harder rules around things like data retention and targeted advertising.</p>
-<p>I don't expect the next four years of US federal government to be effective at passing legislation, but I expect we'll see privacy legislation with sharper teeth emerging at the state level or internationally. Let's just hope we don't end up with a new generation of cookie-consent banners as a result!</p>
- Six years utopian: amazing art 
-<p>For six years I decided to go with two rival predictions, one optimistic and one pessimistic.</p>
-<p>I think six years is long enough that we'll figure out how to harness this stuff to make some really great art.</p>
-<p>I don't think generative AI for art - images, video and music - deserves nearly the same level of respect as a useful tool as text-based LLMs. Generative art tools are a lot of fun to try out but the lack of fine-grained control over the output greatly limits its utility outside of personal amusement or generating <a href="https://simonwillison.net/tags/slop/">slop</a>.</p>
-<p>More importantly, they lack social acceptability. The vibes aren't good. Many talented artists have loudly rejected the idea of these tools, to the point that the very term "AI" is developing a distasteful connotation in society at large.</p>
-<p>Image and video models are also ground zero for the AI training data ethics debate, and for good reason: no artist wants to see a model trained on their work without their permission that then directly competes with them!</p>
-<p>I think six years is long enough for this whole thing to shake out - for society to figure out acceptable ways of using these tools to truly elevate human expression. What excites me is the idea of truly talented, visionary creative artists using whatever these tools have evolved into in six years to make meaningful art that could never have been achieved without them.</p>
-<p>On the podcast I talked about <a href="https://en.wikipedia.org/wiki/Everything_Everywhere_All_at_Once">Everything Everywhere All at Once</a>, a film that deserved every one of its seven Oscars. The core visual effects team on that film was just five people. Imagine what a team like that could do with the generative AI tools we'll have in six years time!</p>
-<p>Since recording the podcast I learned from <a href="https://www.swyx.io/">Swyx</a> that Everything Everywhere All at Once <a href="https://www.aboutamazon.com/news/aws/how-ai-tools-are-creating-new-possibilities-for-movies-and-visual-design-according-to-this-aws-powered-startup">used Runway ML as part of their toolset already</a>:</p>
-<blockquote>
-<p>Evan Halleck was on this team, and he used Runway's AI tools to save time and automate tedious aspects of editing. Specifically in the film’s rock scene, he used Runway’s rotoscoping tool to get a quick, clean cut of the rocks as sand and dust were moving around the shot. This translated days of work to a matter of minutes.</p>
-</blockquote>
-<p>I said I thought a film that had used generative AI tools would win an Oscar within six years. Looks like I was eight years out on that one!</p>
- Six years dystopian: AGI/ASI causes mass civil unrest 
-<p>My pessimistic alternative take for 2031 concerns "AGI" - a term which, like "agents", is constantly being redefined. The Information <a href="https://www.theinformation.com/articles/microsoft-and-openai-wrangle-over-terms-of-their-blockbuster-partnership">recently reported</a> (see also <a href="https://www.theverge.com/2025/1/6/24337106/sam-altman-says-openai-knows-how-to-build-agi-blog-post">The Verge</a>) that Microsoft and OpenAI are now defining AGI as a system capable of generating $100bn in profit!</p>
-<p>If we assume AGI is the point at which AI systems are capable of performing almost any job currently reserved for a human being it's hard not to see potentially negative consequences.</p>
-<p>Sam Altman may have <a href="https://www.bloomberg.com/news/articles/2024-07-22/ubi-study-backed-by-openai-s-sam-altman-bolsters-support-for-basic-income">experimented with Universal Basic Income</a>, but the USA is a country that can't even figure out universal healthcare! I have huge trouble imagining a future economy that works for the majority of people when the majority of jobs are being done by machines.</p>
-<p>So my dystopian prediction for 2031 is that if that form of AGI has come to pass it will be accompanied by extraordinarily bad economic outcomes and mass civil unrest.</p>
-<p>My version of an AI utopia is tools that augment existing humans. That's what we've had with LLMs so far, and my ideal is that those tools continue to improve and subsequently humans become able to take on <a href="https://simonwillison.net/2023/Mar/27/ai-enhanced-development/">more ambitious work</a>.</p>
-<p>If there's a version of AGI that results in that kind of utopia, I'm all for it.</p>
- My total lack of conviction 
-<p>There's a reason I haven't made predictions like this before: my confidence in my ability to predict the future is almost non-existent. At least one of my predictions here <a href="https://simonwillison.net/2025/Jan/10/ai-predictions/#since-recording">already proved to be eight years late</a>!</p>
-<p>These predictions are in the public record now (I even <a href="https://github.com/oxidecomputer/oxide-and-friends/pull/158">submitted a pull request</a>).</p>
-<p>It's going to be interesting looking back at these in one, three and six years to see how I did.</p>
-    
-        <p>Tags: <a href="https://simonwillison.net/tags/data-journalism">data-journalism</a>, <a href="https://simonwillison.net/tags/ai">ai</a>, <a href="https://simonwillison.net/tags/openai">openai</a>, <a href="https://simonwillison.net/tags/generative-ai">generative-ai</a>, <a href="https://simonwillison.net/tags/llms">llms</a>, <a href="https://simonwillison.net/tags/ai-assisted-programming">ai-assisted-programming</a>, <a href="https://simonwillison.net/tags/gemini">gemini</a>, <a href="https://simonwillison.net/tags/code-interpreter">code-interpreter</a>, <a href="https://simonwillison.net/tags/oxide">oxide</a>, <a href="https://simonwillison.net/tags/ai-agents">ai-agents</a></p>
-   
-  
-  
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   01:43 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -7933,7 +8094,7 @@ This explains why I was seeing weird <code>&lt;|im_end|&gt;</code> suffexes duri
 
 <div class='item-footer'>
    19:36 &bull;
-   13 days ago
+   14 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8008,7 +8169,7 @@ This explains why I was seeing weird <code>&lt;|im_end|&gt;</code> suffexes duri
 
 <div class='item-footer'>
    17:26 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8195,7 +8356,7 @@ This explains why I was seeing weird <code>&lt;|im_end|&gt;</code> suffexes duri
 
 <div class='item-footer'>
    15:24 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8309,7 +8470,7 @@ useful people find it.</p>
 
 <div class='item-footer'>
    02:30 &bull;
-   14 days ago
+   15 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8375,7 +8536,7 @@ useful people find it.</p>
 
 <div class='item-footer'>
    17:07 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8549,7 +8710,7 @@ The Hearst Fire (formerly called the Sylmar Fire), as seen by VIIRS.
 
 <div class='item-footer'>
    16:18 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8631,7 +8792,7 @@ The Hearst Fire (formerly called the Sylmar Fire), as seen by VIIRS.
 
 <div class='item-footer'>
    16:03 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8707,7 +8868,7 @@ The Hearst Fire (formerly called the Sylmar Fire), as seen by VIIRS.
 
 <div class='item-footer'>
    12:59 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8795,7 +8956,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    04:28 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8873,7 +9034,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    23:29 &bull;
-   15 days ago
+   16 days ago
 </div>
 
 </div><!-- item-body -->
@@ -8942,7 +9103,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    18:10 &bull;
-   16 days ago
+   17 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9021,7 +9182,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    18:15 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9095,7 +9256,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    00:16 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9159,7 +9320,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    00:05 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9222,7 +9383,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    00:01 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9301,7 +9462,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    23:55 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9371,7 +9532,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    20:58 &bull;
-   17 days ago
+   18 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9442,7 +9603,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    17:19 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9503,7 +9664,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    17:16 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9573,7 +9734,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    16:29 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9645,7 +9806,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    06:35 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9716,7 +9877,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    06:23 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9808,7 +9969,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    01:44 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9884,7 +10045,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    21:15 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -9973,7 +10134,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    20:11 &bull;
-   18 days ago
+   19 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10034,7 +10195,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    17:21 &bull;
-   19 days ago
+   20 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10111,7 +10272,7 @@ Fire detection by MODIS (the big squares) and VIIRS (the small ones), as of abou
 
 <div class='item-footer'>
    04:57 &bull;
-   20 days ago
+   21 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10225,7 +10386,7 @@ for the feedback and suggestions!</p>
 
 <div class='item-footer'>
    22:47 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10290,7 +10451,7 @@ for the feedback and suggestions!</p>
 
 <div class='item-footer'>
    22:27 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10445,7 +10606,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    20:43 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10521,7 +10682,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    20:17 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10582,7 +10743,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    20:15 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10658,7 +10819,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    20:05 &bull;
-   21 days ago
+   22 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10721,7 +10882,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    18:49 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10797,7 +10958,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    15:54 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10874,7 +11035,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    06:07 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -10948,7 +11109,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    03:06 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11047,7 +11208,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    23:19 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11122,7 +11283,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    23:08 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11198,7 +11359,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    23:04 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11275,7 +11436,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    23:00 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11351,83 +11512,7 @@ selected node lists in the future.</p>
 
 <div class='item-footer'>
    22:54 &bull;
-   22 days ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
-  <hr class='item-seperator'>
-
-
-
-<article class='item'>
-
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
-  
-    
-    <a href='https://john.philpin.com/2024/12/31/peak-mastodon.html'> Peak Mastodon? 
-  </a>
-  
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-   Peak Mastodon? 
-  
-   
-  
-  
-    
-      <div class="preview">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_400/https://cdn.uploads.micro.blog/2529/2024/876f4ce2a9.jpg'>
-      </div>
-    
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>Peak Mastodon?</p>
-<p></p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://cdn.uploads.micro.blog/2529/2024/876f4ce2a9.jpg'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   22:53 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11518,7 +11603,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    20:40 &bull;
-   22 days ago
+   23 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11594,7 +11679,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    16:46 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11666,7 +11751,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    15:26 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11746,7 +11831,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    23:11 &bull;
-   23 days ago
+   24 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11884,7 +11969,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    10:32 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -11960,7 +12045,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   24 days ago
+   25 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12036,7 +12121,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   25 days ago
+   26 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12166,7 +12251,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    16:15 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12242,7 +12327,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    21:57 &bull;
-   26 days ago
+   27 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12318,7 +12403,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    17:06 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12412,7 +12497,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    23:05 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12486,7 +12571,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   27 days ago
+   28 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12562,7 +12647,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   28 days ago
+   29 days ago
 </div>
 
 </div><!-- item-body -->
@@ -12638,7 +12723,7 @@ time zone or variable format to for dates and times.</p>
 
 <div class='item-footer'>
    22:30 &bull;
-   29 days ago
+   1 months ago
 </div>
 
 </div><!-- item-body -->
@@ -15230,7 +15315,7 @@ Web security, symbolized<p>Monty Pythons <a href="https://www.youtube.com/watch?
 
 <div class='item-footer'>
    22:30 &bull;
-   1 months ago
+   2 months ago
 </div>
 
 </div><!-- item-body -->
@@ -18460,83 +18545,6 @@ non-extension modules.&nbsp;<a>↩︎</a></p>
 
 <div class='item-footer'>
    16:59 &bull;
-   2 months ago
-</div>
-
-</div><!-- item-body -->
-
-</article><!-- item -->
-
-
-
-
- <h2 class='new-date'>
-  Thursday, 21. November 2024
- </h2>
-
-
-
-<article class='item'>
-
-
-<h4 class='feed-title'>
-  <a href='https://newsletter.pragmaticengineer.com/'>The Pragmatic Engineer</a>
-</h4>
-
-
-<h3 class='item-title'>
- <i class='icon-caret-down item-collapse item-close item-opened'></i>
- <i class='icon-caret-right item-expand item-open item-closed'></i>
-
- <a href='https://newsletter.pragmaticengineer.com/p/the-pulse-116'>The Pulse #116: Netflix sets live streaming world record with boxing match</a>
-
-</h3>
-
-<div class='item-body'>
-
-<div class='item-snippet'>
-<!-- use 'smarter' algorithm for cutoff snippet text
-   note: summary goes first; than try content -->
-
-  Also: why some late-stage companies don’t want to go public, possible crackdown on low-output remote engineers, and more
-   
-  
-  
-  
-  
-  
-
-</div>
-<div class='item-content item-summary'>
-
-<!-- todo: use sanitize or simplify or whitelist
-   - todo/fix: check why summary can be nil/null
-   note: content goes first; than try summary
- -->
-<div class='wrap'>
-
-<p>The Pulse is <a href="https://newsletter.pragmaticengineer.com/s/the-pulse">a series</a> covering insights, patterns, and trends within Big Tech and startups. Notice an interesting event or trend? <a href="https://blog.pragmaticengineer.com/contact/">Send me a message</a>.</p><p>Today, we cover:</p>  <p>Industry pulse. AI coding editor Cursor buys another AI startup, Bluesky user growth explodes, Stripe launches API for LLMs, US could force Google to sell Chrome, more tech business sales to come, and more.</p>  <p>Netflix sets live streaming world record with Tyson/Paul fight. A record 65 million concurrent streams were served for the celebrity boxing match, upping the previous record set in 2023 by Disney Hotstar in India. The livestream also had glitches, and we look into what could have gone wrong.</p>  <p>Why don’t late-stage companies go public these days? Databricks plans to raise more funding, but not by going public. It plans to raise a larger-than-ever round of fresh funding, totalling $7-9B from private investors. This means the company has little to no reason to sell shares on the stock market.</p>  <p>Crackdown on low-output remote engineers to come? An investor shared a list of companies where remote engineers can reportedly get away with submitting not very many pull requests per month, and generally doing little work. The CEO of Box was surprised his company is on the list, and it’s possible that some remote engineers face uncomfortable conversations about productivity; not just at Box, but at other startups, scaleups, and Big Tech.</p>   1. Industry pulse  AI coding editor Cursor buys AI startup <p><a href="https://www.cursor.com/">Cursor</a> is one of the most popular AI code editors, and has been soaring in popularity, partially due to using Sonnet 3.5 for code generation, as well as adding other neat features, like code suggestions and proactive debugging.</p><p>Last week, Cursor <a href="https://www.cursor.com/blog/supermaven">announced</a> it is acquiring AI code completion tool Supermaven – as well as putting the tool in maintenance mode. Supermaven was founded this year, and has raised $12M in funding, while Cursor was founded in 2019, and raised $62M in funding.</p><p>The acquisition seems to make a lot of sense for both parties. The Supermaven team was starting a big effort to build an AI code editor around its advanced code completion product, while Cursor wants to provide even better auto completion. Terms of the acquisition were not disclosed, but it’s safe to assume this is a mostly stock-based transaction, where Supermaven shareholders become Cursor shareholders. In the end, there are only so many coding editors that have a reasonable chance of challenging Microsoft’s dominance with Visual Studio Code and GitHub Copilot, and Cursor is a front runner for AI coding capabilities.</p> Bluesky growth explodes after US election <p>Bluesky has suddenly become the hottest text-based social network, especially within the software engineering community.</p><p>This week, the app <a href="https://bsky.app/profile/gergely.pragmaticengineer.com/post/3lb6bg5xquk23">became</a> the #1-ranked app in the US on the App Store (iOS) and Google Play (Android). It also started growing at a rapid, 1 million users/day pace; from <a href="https://bsky.app/profile/rose.bsky.team/post/3lawkzdeco22v">15 million users</a> late last week, <a href="https://bsky.app/profile/rose.bsky.team/post/3lbcsu3cygs25">to 20 million users</a> five days later. For context, Bluesky’s entire team is 20 people, around 15 of whom are software engineers.</p><p>The surge coincides with the recent US election, in which X owner Elon Musk campaigned for Trump and turned the social media platform into a tool for the Republican candidate, the next US president. This has helped normalize a brand of politics as a key part of the platform’s identity under the South Africa-born billionaire’s ownership. As a result, some users are voting with their feet by quitting X.&nbsp;</p><p>Following Trump’s decisive win, Musk is to take on a governmental efficiency role in the next government, <a href="https://www.theverge.com/2024/11/20/24301975/elon-musk-vivek-ramaswamy-doge-plan">heading up</a> something called the “Department of Government Efficiency.” Meanwhile, Bluesky traffic is <a href="https://www.npr.org/2024/11/19/g-s1-34898/bluesky-traffic-surge-after-election">up 500% since the election</a> which has led to Musk being the first owner of a major social media company to head up a cost-cutting government role. So it’s unsurprising some users are seeking a new home for their text-based social media activity. However, the surge in users is causing some issues at Bluesky:</p> <a href="https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F7db1d295-27eb-44c4-866c-7a3fca9ecd4b_1182x534.png">          </a>Technical advisor at Bluesky shares that the team is ordering more servers. Source: <a href="https://bsky.app/profile/why.bsky.team/post/3lbfuzcrehc2z">Bluesky</a> <p>Bluesky has mostly on-prem infrastructure, as the company moved off AWS months back, as we covered <a href="https://newsletter.pragmaticengineer.com/p/bluesky">in our Bluesky architecture deep dive</a>. They made the move because going on-prem meant far lower infra costs and better performance. Also, the team had plenty of headroom for scaling challenges, until this massive growth spurt!</p><p>I’m active on Bluesky, and <a href="https://bsky.app/profile/gergely.pragmaticengineer.com">you can follow me there</a>. If you join and are looking for a “starter pack” (tech accounts to follow), check out <a href="https://github.com/stevendborrelli/bluesky-tech-starter-packs">tech starter packs</a> to make your feed interesting.&nbsp;</p><p>We previously covered <a href="https://newsletter.pragmaticengineer.com/p/bluesky">How Bluesky was built</a> and <a href="https://newsletter.pragmaticengineer.com/p/bluesky-engineering-culture">the engineering culture of Bluesky</a>. Good luck to the Bluesky engineering team in dealing with extra users; events like this are a nice problem to have.</p> Stripe launches API for AI agents 
-      <p>
-          <a href="https://newsletter.pragmaticengineer.com/p/the-pulse-116">
-              Read more
-          </a>
-      </p>
-   
-  
-  
-    
-      <div class="photo">
-        
-        <img src='https://res.cloudinary.com/identosphere/image/fetch/q_auto:eco,f_auto,w_800/https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F7db1d295-27eb-44c4-866c-7a3fca9ecd4b_1182x534.png'>
-      </div>
-    
-  
-
-</div>
-</div>
-
-<div class='item-footer'>
-   18:37 &bull;
    2 months ago
 </div>
 
@@ -22916,7 +22924,7 @@ Compliments of FLUX&nbsp;schnell<p>This last week I spoke with two folks on AI i
 
 <div class='item-footer'>
    23:37 &bull;
-   3 months ago
+   4 months ago
 </div>
 
 </div><!-- item-body -->
